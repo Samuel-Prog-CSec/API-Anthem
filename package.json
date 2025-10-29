@@ -1,0 +1,73 @@
+{
+  "name": "anthem-api-rest",
+  "version": "0.1.0",
+  "description": "Professional REST API with Node.js, Express.js, MongoDB, and JWT authentication",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "import:data": "node scripts/importAll.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "lint:report": "eslint . --format html --output-file reports/eslint-report.html",
+    "security:audit-fix": "npm audit fix",
+    "security:check": "npm run security:audit",
+    "deps:check": "npm outdated",
+    "deps:unused": "npx depcheck",
+    "deps:update": "npx npm-check-updates -u && npm install",
+    "deps:update-safe": "npx npm-check-updates -t minor -u && npm install",
+    "deps:analyze": "npm run deps:check && npm run deps:unused",
+    "analyze": "node scripts/analyze.js",
+    "analyze:all": "npm run analyze",
+    "profile:doctor": "clinic doctor -- node src/server.js",
+    "profile:flame": "clinic flame -- node src/server.js",
+    "profile:heap": "clinic heapprofiler -- node src/server.js",
+    "profile:all": "npm run profile:doctor && npm run profile:flame && npm run profile:heap"
+  },
+  "keywords": [
+    "NodeJS",
+    "Express",
+    "mongoose",
+    "rest-api",
+    "authentication",
+    "jwt",
+    "CORS",
+    "rate-limiting",
+    "smart-city",
+    "PinoJS"
+  ],
+  "author": "Samuel Blanchart Pérez",
+  "license": "",
+  "dependencies": {
+    "@xmldom/xmldom": "^0.8.10",
+    "axios": "^1.6.2",
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "csv-parser": "^3.0.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^8.1.0",
+    "express-validator": "^7.2.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.8.3",
+    "node-cache": "^5.1.2",
+    "pino": "^10.1.0",
+    "pino-http": "^11.0.0",
+    "pino-pretty": "^13.1.2",
+    "xss": "^1.0.15"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "eslint": "^9.37.0",
+    "globals": "^16.4.0",
+    "jest": "^30.2.0",
+    "nodemon": "^3.0.2",
+    "supertest": "^7.1.4"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}
