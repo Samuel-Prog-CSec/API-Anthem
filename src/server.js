@@ -91,22 +91,67 @@ app.use(securityLogger);
  */
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) {return callback(null, true);}
-
-    // Check if origin is allowed
-    if (config.security.corsOrigins.includes(origin) ||
-        config.security.corsOrigins.includes('*')) {
+    // Allow requests with no origin (mobile apps, Postman, cURL, server-to-server)
+    if (!origin) {
       return callback(null, true);
     }
 
-    // Log blocked CORS request
-    logger.warn({ origin }, 'CORS blocked request from origin');
+    // SEGURIDAD: Evitar wildcard '*' en producción con credentials
+    if (config.security.corsOrigins.includes('*')) {
+      // Wildcard no es compatible con credentials: true
+      // Si se usa '*', se debe deshabilitar credentials
+      if (config.server.env === 'production') {
+        logger.error(
+          { origin, env: config.server.env },
+          'CORS mal configurado: wildcard (*) no permitido en producción con credentials'
+        );
+        return callback(new Error('CORS misconfiguration'));
+      }
+      logger.warn(
+        { origin, env: config.server.env },
+        'CORS con wildcard (*) detectado en desarrollo - no usar en producción'
+      );
+      return callback(null, true);
+    }
+
+    // Validar origen contra lista permitida
+    const isAllowed = config.security.corsOrigins.some(allowedOrigin => {
+      // Soporte para patrones de subdominios (ej: *.example.com)
+      if (allowedOrigin.startsWith('*.')) {
+        const domain = allowedOrigin.slice(2); // Eliminar '*.'
+        return origin.endsWith(`.${domain}`) || origin === `https://${domain}` || origin === `http://${domain}`;
+      }
+      // Coincidencia exacta
+      return allowedOrigin === origin;
+    });
+
+    if (isAllowed) {
+      logger.debug({ origin }, 'CORS request allowed from origin');
+      return callback(null, true);
+    }
+
+    // Log detallado de solicitud bloqueada
+    logger.warn(
+      {
+        origin,
+        allowedOrigins: config.security.corsOrigins,
+        userAgent: 'Blocked by CORS'
+      },
+      'CORS blocked request from unauthorized origin'
+    );
     callback(new Error('Not allowed by CORS'));
   },
-  credentials: true, // Allow cookies
-  optionsSuccessStatus: 200, // For legacy browser support
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+
+  // Permitir envío de cookies y credenciales
+  credentials: true,
+
+  // Código de éxito para navegadores legacy (IE11)
+  optionsSuccessStatus: 200,
+
+  // Métodos HTTP permitidos
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
+
+  // Headers que el cliente puede enviar
   allowedHeaders: [
     'Origin',
     'X-Requested-With',
@@ -114,11 +159,35 @@ const corsOptions = {
     'Accept',
     'Authorization',
     'Cache-Control',
-    'X-API-Key'
-  ]
+    'X-API-Key',
+    'X-Request-ID'
+  ],
+
+  // Headers que el cliente puede leer en la respuesta
+  exposedHeaders: [
+    'Content-Length',
+    'Content-Type',
+    'X-Request-ID',
+    'X-RateLimit-Limit',
+    'X-RateLimit-Remaining',
+    'X-RateLimit-Reset'
+  ],
+
+  // Caché de preflight request (24 horas)
+  maxAge: 86400,
+
+  // Deshabilitar pass-through de CORS preflight al siguiente handler
+  preflightContinue: false
 };
 
+// Aplicar CORS globalmente
 app.use(cors(corsOptions));
+
+// Middleware para añadir header Vary: Origin (importante para CDN/caché)
+app.use((req, res, next) => {
+  res.setHeader('Vary', 'Origin');
+  next();
+});
 
 /**
  * Body Parsing Middleware
@@ -137,8 +206,28 @@ app.use(express.urlencoded({
   limit: '10mb'
 }));
 
-// Cookie parsing for JWT tokens in cookies
+/**
+ * Cookie parsing for JWT tokens in cookies
+ * Configuración con opciones de seguridad para CORS
+ */
 app.use(cookieParser());
+
+// Configurar opciones de cookies seguras para producción
+if (config.server.env === 'production') {
+  app.use((req, res, next) => {
+    // Wrapper para res.cookie con opciones seguras por defecto
+    const originalCookie = res.cookie.bind(res);
+    res.cookie = (name, value, options = {}) => {
+      return originalCookie(name, value, {
+        httpOnly: true,
+        secure: true, // Requiere HTTPS
+        sameSite: 'none', // Necesario para CORS con credentials
+        ...options
+      });
+    };
+    next();
+  });
+}
 
 /**
  * Logging Middleware

@@ -272,6 +272,42 @@ router.get('/docs', (req, res) => {
   );
 });
 
+/**
+ * @route   GET /api/v1/cors-test
+ * @desc    CORS diagnostic endpoint
+ * @access  Public
+ *
+ * Endpoint para diagnosticar configuración de CORS.
+ * Útil para debugging en desarrollo.
+ */
+router.get('/cors-test', (req, res) => {
+  const origin = req.get('origin') || 'No origin header';
+  
+  res.status(200).json(
+    createResponse(
+      'CORS test successful',
+      {
+        origin: origin,
+        allowedOrigins: config.security.corsOrigins,
+        requestHeaders: {
+          origin: req.get('origin'),
+          referer: req.get('referer'),
+          userAgent: req.get('user-agent'),
+          host: req.get('host')
+        },
+        responseHeaders: {
+          'access-control-allow-origin': res.get('access-control-allow-origin'),
+          'access-control-allow-credentials': res.get('access-control-allow-credentials'),
+          'vary': res.get('vary')
+        },
+        message: origin !== 'No origin header' 
+          ? 'Your origin is allowed by CORS policy' 
+          : 'Request has no origin (likely same-origin or non-browser client)'
+      }
+    )
+  );
+});
+
 // Mount authentication routes
 router.use('/auth', authRoutes);
 
