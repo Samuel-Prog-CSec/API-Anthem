@@ -8,6 +8,7 @@
 
 const pinoHttp = require('pino-http');
 const logger = require('../config/logger');
+const { formatError } = logger;
 
 /**
  * Configuración del middleware HTTP logger
@@ -57,6 +58,7 @@ const httpLoggerMiddleware = pinoHttp({
         host: req.headers.host,
         userAgent: req.headers['user-agent'],
         referer: req.headers.referer
+        // authorization y cookie se redactan automáticamente más abajo
       },
       remoteAddress: req.ip || req.connection?.remoteAddress,
       userId: req.user?.id,
@@ -93,15 +95,21 @@ const httpLoggerMiddleware = pinoHttp({
     }
   },
 
-  // Redactar información sensible
+  // Redactar información sensible (ajustado a la estructura del serializer)
   redact: {
     paths: [
+      'req.headers.authorization',
+      'req.headers.cookie',
       'request.headers.authorization',
       'request.headers.cookie',
       'request.body.password',
       'request.body.token',
       'request.body.newPassword',
-      'request.body.currentPassword'
+      'request.body.currentPassword',
+      'req.body.password',
+      'req.body.token',
+      'req.body.newPassword',
+      'req.body.currentPassword'
     ],
     remove: true
   }
@@ -129,29 +137,22 @@ const enrichRequestContext = (req, res, next) => {
  * Middleware para logear errores no capturados
  */
 const errorLogger = (err, req, res, next) => {
-  const errorLog = {
-    error: {
-      name: err.name,
-      message: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
-      statusCode: err.statusCode || 500,
-      code: err.code,
-      isOperational: err.isOperational
-    },
+  // Usar formatError para estructurar el error consistentemente
+  const formattedError = formatError(err, {
     request: {
       method: req.method,
       url: req.url,
       params: req.params,
       query: req.query,
-      body: req.body,
-      userId: req.user?.id
+      userId: req.user?.id,
+      ip: req.ip
     }
-  };
+  });
 
   if (req.log) {
-    req.log.error(errorLog, 'Unhandled error in request');
+    req.log.error(formattedError, 'Unhandled error in request');
   } else {
-    logger.error(errorLog, 'Unhandled error in request');
+    logger.error(formattedError, 'Unhandled error in request');
   }
 
   next(err);

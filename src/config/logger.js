@@ -8,7 +8,6 @@
  */
 
 const pino = require('pino');
-const path = require('path');
 
 const isDevelopment = process.env.NODE_ENV !== 'production';
 const isTest = process.env.NODE_ENV === 'test';
@@ -148,10 +147,21 @@ const importLogger = logger.child({ component: 'data-import' });
 const schedulerLogger = logger.child({ component: 'scheduler' });
 
 /**
+ * Logger específico para CORS
+ */
+const corsLogger = logger.child({ component: 'cors' });
+
+/**
+ * Logger específico para eventos de seguridad
+ */
+const securityLogger = logger.child({ component: 'security' });
+
+/**
  * Helper para logear tiempos de operación
  *
  * @param {string} operation - Nombre de la operación
  * @param {Function} fn - Función a ejecutar
+ * @param {Object} context - Contexto adicional para el log
  * @returns {Promise<any>} Resultado de la función
  *
  * @example
@@ -161,6 +171,7 @@ const schedulerLogger = logger.child({ component: 'scheduler' });
  */
 const logOperationTime = async (operation, fn, context = {}) => {
   const startTime = Date.now();
+  const slowOperationThreshold = parseInt(process.env.SLOW_OPERATION_THRESHOLD) || 3000;
 
   try {
     const result = await fn();
@@ -173,10 +184,11 @@ const logOperationTime = async (operation, fn, context = {}) => {
     }, `Operation completed: ${operation}`);
 
     // Warning si la operación tarda mucho
-    if (duration > 3000) {
+    if (duration > slowOperationThreshold) {
       logger.warn({
         operation,
         duration: `${duration}ms`,
+        threshold: `${slowOperationThreshold}ms`,
         ...context
       }, `Slow operation detected: ${operation}`);
     }
@@ -272,6 +284,8 @@ module.exports.cacheLogger = cacheLogger;
 module.exports.externalApiLogger = externalApiLogger;
 module.exports.importLogger = importLogger;
 module.exports.schedulerLogger = schedulerLogger;
+module.exports.corsLogger = corsLogger;
+module.exports.securityLogger = securityLogger;
 module.exports.logOperationTime = logOperationTime;
 module.exports.logQuery = logQuery;
 module.exports.logCache = logCache;

@@ -1,7 +1,7 @@
 {
   "name": "anthem-api-rest",
   "version": "0.1.0",
-  "description": "Professional REST API with Node.js, Express.js, MongoDB, and JWT authentication",
+  "description": "REST API con Node.js, Express.js, MongoDB y JWT para la gestión de datos urbanos en una ciudad inteligente.",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -19,6 +19,7 @@
     "deps:analyze": "npm run deps:check && npm run deps:unused",
     "analyze": "node scripts/analyze.js",
     "analyze:all": "npm run analyze",
+    "test:cors": "node tests/test-cors-configuration.js",
     "profile:doctor": "clinic doctor -- node src/server.js",
     "profile:flame": "clinic flame -- node src/server.js",
     "profile:heap": "clinic heapprofiler -- node src/server.js",

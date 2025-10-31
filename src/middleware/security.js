@@ -14,6 +14,7 @@ const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss');
 const config = require('../config/config');
 const { createRateLimitResponse, createErrorResponse } = require('../utils/responseHelper');
+const { securityLogger: pinoSecurityLogger } = require('../config/logger');
 
 /**
  * Rate limiting configuration
@@ -30,7 +31,7 @@ const generalLimiter = rateLimit({
   standardHeaders: true, // Return rate limit info in headers
   legacyHeaders: false, // Disable legacy headers
   handler: (req, res) => {
-    console.warn(`⚠️  Rate limit exceeded for IP: ${req.ip}`);
+    pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Rate limit exceeded');
     res.status(429).json(createRateLimitResponse(Math.ceil(config.security.rateLimitWindowMs / 1000)));
   }
 });
@@ -42,7 +43,7 @@ const authLimiter = rateLimit({
   message: createRateLimitResponse(15 * 60), // 15 minutes in seconds
   skipSuccessfulRequests: true, // Don't count successful requests
   handler: (req, res) => {
-    console.warn(`⚠️  Auth rate limit exceeded for IP: ${req.ip}`);
+    pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Auth rate limit exceeded');
     res.status(429).json(createRateLimitResponse(15 * 60));
   }
 });
@@ -91,7 +92,7 @@ const helmetConfig = helmet({
 const sanitizeInput = mongoSanitize({
   replaceWith: '_', // Replace prohibited characters with underscore
   onSanitize: ({ req, key }) => {
-    console.warn(`⚠️  Input sanitized: ${key} in request from IP: ${req.ip}`);
+    pinoSecurityLogger.warn({ key, ip: req.ip }, 'Input sanitized - potential NoSQL injection attempt');
   }
 });
 
@@ -115,7 +116,7 @@ const xssProtection = (req, res, next) => {
     }
 
     for (const key in obj) {
-      if (obj.hasOwnProperty(key)) {
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
         const value = obj[key];
 
         if (typeof value === 'string') {
@@ -124,9 +125,12 @@ const xssProtection = (req, res, next) => {
 
           // Log if XSS attempt detected
           if (sanitized !== value) {
-            console.warn(`⚠️  XSS attempt detected in ${key} from IP: ${req.ip}`);
-            console.warn(`   Original: ${value.substring(0, 100)}`);
-            console.warn(`   Sanitized: ${sanitized.substring(0, 100)}`);
+            pinoSecurityLogger.warn({
+              field: key,
+              ip: req.ip,
+              originalLength: value.length,
+              sanitizedLength: sanitized.length
+            }, 'XSS attempt detected and sanitized');
           }
 
           obj[key] = sanitized;
@@ -158,7 +162,7 @@ const xssProtection = (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error('Error en XSS protection middleware:', error);
+    pinoSecurityLogger.error({ error: error.message, stack: error.stack }, 'Error in XSS protection middleware');
     next(error);
   }
 };
@@ -197,7 +201,7 @@ const validateRequest = (req, res, next) => {
   const contentLength = req.get('Content-Length');
 
   if (contentLength && parseInt(contentLength) > maxSize) {
-    console.warn(`⚠️  Large request detected: ${contentLength} bytes from IP: ${req.ip}`);
+    pinoSecurityLogger.warn({ contentLength, ip: req.ip }, 'Large request detected - potential DoS attempt');
     return res.status(413).json(
       createErrorResponse('Request entity too large')
     );
@@ -227,7 +231,11 @@ const securityLogger = (req, res, next) => {
   const isSensitive = sensitiveEndpoints.some(endpoint => req.path.includes(endpoint));
 
   if (isSensitive) {
-    console.log(`🔒 Sensitive endpoint access: ${req.method} ${req.path} from IP: ${req.ip}`);
+    pinoSecurityLogger.info({
+      method: req.method,
+      path: req.path,
+      ip: req.ip
+    }, 'Sensitive endpoint access');
   }
 
   // Log response when request completes
@@ -235,7 +243,13 @@ const securityLogger = (req, res, next) => {
     const duration = Date.now() - startTime;
 
     if (res.statusCode >= 400) {
-      console.warn(`⚠️  Failed request: ${req.method} ${req.path} - Status: ${res.statusCode} - Duration: ${duration}ms - IP: ${req.ip}`);
+      pinoSecurityLogger.warn({
+        method: req.method,
+        path: req.path,
+        statusCode: res.statusCode,
+        duration: `${duration}ms`,
+        ip: req.ip
+      }, 'Failed request');
     }
   });
 

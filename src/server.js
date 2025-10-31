@@ -16,6 +16,7 @@ const { connectDB } = require('./config/database');
 
 // Import Pino logger
 const logger = require('./config/logger');
+const { corsLogger } = logger;
 const { httpLoggerMiddleware, enrichRequestContext, errorLogger } = require('./middleware/requestLogger');
 
 // Import middleware
@@ -87,69 +88,133 @@ app.use(securityLogger);
 
 /**
  * CORS Configuration
- * Configure cross-origin resource sharing
+ * Configure cross-origin resource sharing with strict security controls
  */
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, cURL, server-to-server)
+    // SEGURIDAD: No permitir peticiones sin origin en producción
+    // Las peticiones sin origin pueden venir de Postman, cURL, aplicaciones móviles nativas,
+    // o solicitudes servidor-a-servidor. En producción, esto debe ser controlado explícitamente
     if (!origin) {
+      if (config.server.env === 'production') {
+        corsLogger.warn(
+          { context: 'CORS validation' },
+          'Petición sin origin bloqueada en producción - considerar allowlist específica'
+        );
+        return callback(new Error('Not allowed by CORS'));
+      }
+      // Permitir en desarrollo para testing con herramientas
+      corsLogger.debug('Petición sin origin permitida en desarrollo');
       return callback(null, true);
     }
 
-    // SEGURIDAD: Evitar wildcard '*' en producción con credentials
+    // SEGURIDAD CRÍTICA: Evitar wildcard '*' en producción con credentials
     if (config.security.corsOrigins.includes('*')) {
-      // Wildcard no es compatible con credentials: true
-      // Si se usa '*', se debe deshabilitar credentials
+      // RFC 6454: wildcard no es compatible con credentials: true
       if (config.server.env === 'production') {
-        logger.error(
+        corsLogger.error(
           { origin, env: config.server.env },
           'CORS mal configurado: wildcard (*) no permitido en producción con credentials'
         );
         return callback(new Error('CORS misconfiguration'));
       }
-      logger.warn(
+      corsLogger.warn(
         { origin, env: config.server.env },
         'CORS con wildcard (*) detectado en desarrollo - no usar en producción'
       );
       return callback(null, true);
     }
 
+    // Normalizar origin para comparación segura
+    const normalizedOrigin = origin.trim().toLowerCase();
+
+    // SEGURIDAD: Prevenir ataques con origins extremadamente largos
+    if (normalizedOrigin.length > 2048) {
+      corsLogger.warn(
+        { originLength: normalizedOrigin.length },
+        'Origin demasiado largo rechazado - posible ataque DoS'
+      );
+      return callback(new Error('Not allowed by CORS'));
+    }
+
+    // SEGURIDAD: Prevenir bypass con null origin
+    if (normalizedOrigin === 'null') {
+      corsLogger.warn(
+        { originalOrigin: origin },
+        'Origen null bloqueado - posible ataque de CORS bypass'
+      );
+      return callback(new Error('Not allowed by CORS'));
+    }    // Validar formato del origin (debe ser URL válida)
+    try {
+      const originUrl = new URL(normalizedOrigin);
+
+      // SEGURIDAD: Rechazar protocolos no seguros en producción
+      if (config.server.env === 'production' && originUrl.protocol === 'http:') {
+        corsLogger.warn(
+          { origin: normalizedOrigin },
+          'Origen HTTP bloqueado en producción - solo HTTPS permitido'
+        );
+        return callback(new Error('Not allowed by CORS'));
+      }
+    } catch (error) {
+      corsLogger.warn(
+        { origin: normalizedOrigin, error: error.message },
+        'Formato de origin inválido'
+      );
+      return callback(new Error('Not allowed by CORS'));
+    }
+
     // Validar origen contra lista permitida
     const isAllowed = config.security.corsOrigins.some(allowedOrigin => {
+      const normalizedAllowed = allowedOrigin.trim().toLowerCase();
+
       // Soporte para patrones de subdominios (ej: *.example.com)
-      if (allowedOrigin.startsWith('*.')) {
-        const domain = allowedOrigin.slice(2); // Eliminar '*.'
-        return origin.endsWith(`.${domain}`) || origin === `https://${domain}` || origin === `http://${domain}`;
+      if (normalizedAllowed.startsWith('*.')) {
+        const domain = normalizedAllowed.slice(2); // Eliminar '*.'
+
+        try {
+          const originUrl = new URL(normalizedOrigin);
+          const hostname = originUrl.hostname;
+
+          // Verificar que el hostname termina con el dominio permitido
+          // y que no es solo el dominio sin subdominio (evitar *.com matchear con com)
+          const endsWithDomain = hostname.endsWith(`.${domain}`) || hostname === domain;
+          const hasValidSubdomainFormat = hostname.split('.').length >= domain.split('.').length;
+
+          return endsWithDomain && hasValidSubdomainFormat;
+        } catch {
+          return false;
+        }
       }
-      // Coincidencia exacta
-      return allowedOrigin === origin;
+
+      // Coincidencia exacta (insensible a mayúsculas)
+      return normalizedAllowed === normalizedOrigin;
     });
 
     if (isAllowed) {
-      logger.debug({ origin }, 'CORS request allowed from origin');
+      corsLogger.debug({ origin: normalizedOrigin }, 'Solicitud CORS permitida desde origin');
       return callback(null, true);
     }
 
-    // Log detallado de solicitud bloqueada
-    logger.warn(
+    // Log detallado de solicitud bloqueada con información útil para debugging
+    corsLogger.warn(
       {
-        origin,
-        allowedOrigins: config.security.corsOrigins,
-        userAgent: 'Blocked by CORS'
+        origin: normalizedOrigin,
+        allowedOrigins: config.security.corsOrigins
       },
-      'CORS blocked request from unauthorized origin'
+      'Solicitud CORS bloqueada desde origin no autorizado'
     );
     callback(new Error('Not allowed by CORS'));
   },
 
-  // Permitir envío de cookies y credenciales
+  // Permitir envío de cookies y credenciales (JWT en HttpOnly cookies)
   credentials: true,
 
   // Código de éxito para navegadores legacy (IE11)
   optionsSuccessStatus: 200,
 
-  // Métodos HTTP permitidos
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
+  // Métodos HTTP permitidos (solo los necesarios)
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
 
   // Headers que el cliente puede enviar
   allowedHeaders: [
@@ -158,8 +223,6 @@ const corsOptions = {
     'Content-Type',
     'Accept',
     'Authorization',
-    'Cache-Control',
-    'X-API-Key',
     'X-Request-ID'
   ],
 
@@ -173,8 +236,8 @@ const corsOptions = {
     'X-RateLimit-Reset'
   ],
 
-  // Caché de preflight request (24 horas)
-  maxAge: 86400,
+  // Caché de preflight request (1 hora - reducido para mayor flexibilidad)
+  maxAge: 3600,
 
   // Deshabilitar pass-through de CORS preflight al siguiente handler
   preflightContinue: false
@@ -183,9 +246,22 @@ const corsOptions = {
 // Aplicar CORS globalmente
 app.use(cors(corsOptions));
 
-// Middleware para añadir header Vary: Origin (importante para CDN/caché)
+/**
+ * Middleware para headers de caché CORS
+ * Añade 'Vary: Origin, Access-Control-Request-Headers, Access-Control-Request-Method'
+ * Esto es crítico para que CDNs y proxies cacheen correctamente las respuestas CORS
+ */
 app.use((req, res, next) => {
-  res.setHeader('Vary', 'Origin');
+  // Vary: Origin indica que la respuesta varía según el origin de la petición
+  // Esto evita que un CDN sirva una respuesta con headers CORS incorrectos
+  const varyHeaders = ['Origin'];
+
+  // Para preflight requests, también variar por los headers de solicitud CORS
+  if (req.method === 'OPTIONS') {
+    varyHeaders.push('Access-Control-Request-Headers', 'Access-Control-Request-Method');
+  }
+
+  res.setHeader('Vary', varyHeaders.join(', '));
   next();
 });
 
@@ -209,6 +285,14 @@ app.use(express.urlencoded({
 /**
  * Cookie parsing for JWT tokens in cookies
  * Configuración con opciones de seguridad para CORS
+ *
+ * IMPORTANTE: En producción con CORS y credentials:
+ * - httpOnly: true (previene acceso desde JavaScript)
+ * - secure: true (solo envía cookie por HTTPS)
+ * - sameSite: 'none' (permite cookies cross-origin con credentials: true)
+ *
+ * NOTA CRÍTICA: sameSite='none' requiere HTTPS obligatoriamente
+ * Si no se usa HTTPS, los navegadores rechazarán la cookie
  */
 app.use(cookieParser());
 
@@ -219,9 +303,9 @@ if (config.server.env === 'production') {
     const originalCookie = res.cookie.bind(res);
     res.cookie = (name, value, options = {}) => {
       return originalCookie(name, value, {
-        httpOnly: true,
-        secure: true, // Requiere HTTPS
-        sameSite: 'none', // Necesario para CORS con credentials
+        httpOnly: true,          // Previene XSS - cookie no accesible desde JS
+        secure: true,            // Solo HTTPS - obligatorio para sameSite='none'
+        sameSite: 'none',        // Permite CORS con credentials - requiere secure=true
         ...options
       });
     };
