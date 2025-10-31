@@ -8,6 +8,7 @@
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { query, param } = require('express-validator');
 
 const containerController = require('../controllers/containerController');
 const { authenticate } = require('../middleware/auth');

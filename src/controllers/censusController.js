@@ -8,9 +8,10 @@
 
 const { validationResult } = require('express-validator');
 const Census = require('../models/Census');
-const { AppError, createValidationError } = require('../utils/errorUtils');
-const { parsePaginationParams, createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { createValidationError, createInternalError } = require('../utils/errorUtils');
+const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
+const { buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
 
 /**
@@ -180,8 +181,7 @@ const getCensusData = async (req, res, next) => {
       barriosUnicos: []
     };
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Datos de censo obtenidos exitosamente',
       data,
       pagination: paginationMeta,
@@ -202,11 +202,13 @@ const getCensusData = async (req, res, next) => {
           gruposEdad: ['INFANTIL', 'JUVENIL', 'ADULTO_JOVEN', 'ADULTO', 'MAYOR', 'ANCIANO']
         }
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Datos de censo obtenidos exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo datos de censo:', error);
-    next(new AppError('Error interno del servidor al obtener datos de censo', 500));
+    next(createInternalError('Error al obtener datos de censo', error));
   }
 };
 
@@ -229,8 +231,7 @@ const getPopulationPyramid = async (req, res, next) => {
       incluirExtranjeros: incluirExtranjeros === 'true'
     });
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Pirámide poblacional obtenida exitosamente',
       data: {
         piramideDetallada: resultado.piramideDetallada,
@@ -242,11 +243,13 @@ const getPopulationPyramid = async (req, res, next) => {
         año: parseInt(año),
         incluirExtranjeros: incluirExtranjeros === 'true'
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Pirámide poblacional obtenida exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo pirámide poblacional:', error);
-    next(new AppError('Error interno del servidor al obtener pirámide poblacional', 500));
+    next(createInternalError('Error al obtener pirámide poblacional', error));
   }
 };
 
@@ -393,8 +396,7 @@ const getDistrictStatistics = async (req, res, next) => {
         .slice(0, 10)
     };
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Estadísticas de distritos obtenidas exitosamente',
       data: {
         estadisticasDistritos,
@@ -412,11 +414,13 @@ const getDistrictStatistics = async (req, res, next) => {
         mes: mes ? parseInt(mes) : null,
         incluirBarrios: incluirBarrios === 'true'
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Estadísticas de distritos obtenidas exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo estadísticas de distritos:', error);
-    next(new AppError('Error interno del servidor al obtener estadísticas', 500));
+    next(createInternalError('Error al obtener estadísticas de distritos', error));
   }
 };
 
@@ -443,8 +447,7 @@ const getDemographicAnalysis = async (req, res, next) => {
       distrito: distrito ? parseInt(distrito) : null
     });
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Análisis demográfico obtenido exitosamente',
       data: {
         distribuciones: resultado.distribuciones,
@@ -458,11 +461,13 @@ const getDemographicAnalysis = async (req, res, next) => {
         }
       },
       metadatos: resultado.metadatos
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Análisis demográfico obtenido exitosamente'));
 
   } catch (error) {
     console.error('Error en análisis demográfico:', error);
-    next(new AppError('Error interno del servidor en análisis demográfico', 500));
+    next(createInternalError('Error en análisis demográfico', error));
   }
 };
 
@@ -571,8 +576,7 @@ const getDemographicEvolution = async (req, res, next) => {
       };
     }
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Evolución demográfica obtenida exitosamente',
       data: {
         evolucion,
@@ -593,11 +597,13 @@ const getDemographicEvolution = async (req, res, next) => {
         },
         metrica
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Evolución demográfica obtenida exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo evolución demográfica:', error);
-    next(new AppError('Error interno del servidor al obtener evolución', 500));
+    next(createInternalError('Error al obtener evolución demográfica', error));
   }
 };
 
@@ -696,8 +702,7 @@ const getDemographicDashboard = async (req, res, next) => {
       { $sort: { poblacionTotal: -1 } }
     ]);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Dashboard demográfico obtenido exitosamente',
       data: {
         resumenGeneral: {
@@ -741,11 +746,13 @@ const getDemographicDashboard = async (req, res, next) => {
         año: parseInt(año),
         distrito: distrito ? parseInt(distrito) : 'TODOS'
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Dashboard demográfico obtenido exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo dashboard demográfico:', error);
-    next(new AppError('Error interno del servidor al obtener dashboard', 500));
+    next(createInternalError('Error al obtener dashboard demográfico', error));
   }
 };
 

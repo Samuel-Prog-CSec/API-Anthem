@@ -8,9 +8,19 @@
 
 const { validationResult } = require('express-validator');
 const User = require('../models/User');
-const { createResponse, createErrorResponse } = require('../utils/responseHelper');
+const { createResponse } = require('../utils/responseHelper');
 const { validatePassword } = require('../utils/passwordValidator');
-const { createValidationError } = require('../utils/errorUtils');
+const {
+  createValidationError,
+  createAuthError,
+  createInternalError,
+  createConflictError,
+  createNotFoundError,
+  createBadRequestError,
+  createForbiddenError,
+  handleMongoError,
+  formatErrorResponse
+} = require('../utils/errorUtils');
 
 /**
  * User Registration Controller
@@ -21,14 +31,12 @@ const { createValidationError } = require('../utils/errorUtils');
  * @route POST /api/v1/auth/register
  * @access Public
  */
-const register = async (req, res) => {
+const register = async (req, res, next) => {
   try {
     // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json(
-        createErrorResponse('Validation failed', errors.array())
-      );
+      return next(createValidationError('Errores de validación', errors.array()));
     }
 
     const { username, email, password } = req.body;
@@ -36,19 +44,15 @@ const register = async (req, res) => {
     // Validar fortaleza de contraseña ANTES de hashear
     const passwordValidation = validatePassword(password);
     if (!passwordValidation.isValid) {
-      return res.status(400).json(
-        createErrorResponse('La contraseña no cumple los requisitos de seguridad', {
-          errors: passwordValidation.errors
-        })
-      );
+      return next(createBadRequestError('La contraseña no cumple los requisitos de seguridad', {
+        errors: passwordValidation.errors
+      }));
     }
 
     // Check if user already exists
     const existingUser = await User.findByEmailOrUsername(email);
     if (existingUser) {
-      return res.status(409).json(
-        createErrorResponse('User already exists with this email or username')
-      );
+      return next(createConflictError('Ya existe un usuario con este email o nombre de usuario'));
     }
 
     // Create new user
@@ -81,7 +85,7 @@ const register = async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
-    console.log(`✅ New user registered: ${username} (${email})`);
+    req.log.info({ username, email }, 'Nuevo usuario registrado exitosamente');
 
     res.status(201).json(
       createResponse(
@@ -96,25 +100,15 @@ const register = async (req, res) => {
   } catch (error) {
     console.error('❌ Registration error:', error);
 
-    // Handle specific MongoDB errors
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyPattern)[0];
-      return res.status(409).json(
-        createErrorResponse(`User with this ${field} already exists`)
+    // Handle MongoDB errors
+    if (error.code === 11000 || error.name === 'ValidationError' || error.name === 'CastError') {
+      const mongoError = handleMongoError(error);
+      return res.status(mongoError.statusCode).json(
+        formatErrorResponse(mongoError)
       );
     }
 
-    // Handle validation errors
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json(
-        createErrorResponse('Validation failed', messages)
-      );
-    }
-
-    res.status(500).json(
-      createErrorResponse('Internal server error during registration')
-    );
+    return next(createInternalError('Error durante el registro', error));
   }
 };
 
@@ -127,14 +121,12 @@ const register = async (req, res) => {
  * @route POST /api/v1/auth/login
  * @access Public
  */
-const login = async (req, res) => {
+const login = async (req, res, next) => {
   try {
     // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json(
-        createErrorResponse('Validation failed', errors.array())
-      );
+      return next(createValidationError('Errores de validación', errors.array()));
     }
 
     const { identifier, password } = req.body;
@@ -142,32 +134,28 @@ const login = async (req, res) => {
     // Find user by email or username
     const user = await User.findByEmailOrUsername(identifier);
     if (!user) {
-      return res.status(401).json(
-        createErrorResponse('Invalid credentials')
-      );
+      return next(createAuthError('Credenciales inválidas'));
     }
 
     // Check if account is locked
     if (user.isLocked) {
       return res.status(423).json(
-        createErrorResponse('Account is temporarily locked due to too many failed login attempts')
+        formatErrorResponse(
+          createAuthError('Cuenta bloqueada temporalmente por demasiados intentos fallidos')
+        )
       );
     }
 
     // Check if account is active
     if (!user.isActive) {
-      return res.status(403).json(
-        createErrorResponse('Account is deactivated')
-      );
+      return next(createForbiddenError('La cuenta está desactivada'));
     }
 
     // Validate password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
       await user.handleFailedLogin();
-      return res.status(401).json(
-        createErrorResponse('Invalid credentials')
-      );
+      return next(createAuthError('Credenciales inválidas'));
     }
 
     // Handle successful login
@@ -194,7 +182,7 @@ const login = async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
-    console.log(`✅ User logged in: ${user.username} (${user.email})`);
+    req.log.info({ username: user.username, email: user.email }, 'Usuario inició sesión exitosamente');
 
     res.status(200).json(
       createResponse(
@@ -208,9 +196,7 @@ const login = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Login error:', error);
-    res.status(500).json(
-      createErrorResponse('Internal server error during login')
-    );
+    return next(createInternalError('Error durante el login', error));
   }
 };
 
@@ -222,12 +208,12 @@ const login = async (req, res) => {
  * @route POST /api/v1/auth/logout
  * @access Private
  */
-const logout = async (req, res) => {
+const logout = async (req, res, next) => {
   try {
     // Clear the authentication cookie
     res.clearCookie('token');
 
-    console.log(`✅ User logged out: ${req.user.username}`);
+    req.log.info({ username: req.user.username }, 'Usuario cerró sesión');
 
     res.status(200).json(
       createResponse('Logout successful')
@@ -235,9 +221,7 @@ const logout = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Logout error:', error);
-    res.status(500).json(
-      createErrorResponse('Internal server error during logout')
-    );
+    return next(createInternalError('Error durante el logout', error));
   }
 };
 
@@ -249,14 +233,12 @@ const logout = async (req, res) => {
  * @route GET /api/v1/auth/me
  * @access Private
  */
-const getProfile = async (req, res) => {
+const getProfile = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    const user = await User.findById(req.user.id).select('-password').lean();
 
     if (!user) {
-      return res.status(404).json(
-        createErrorResponse('User not found')
-      );
+      return next(createNotFoundError('Usuario', req.user.id));
     }
 
     res.status(200).json(
@@ -268,9 +250,7 @@ const getProfile = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Get profile error:', error);
-    res.status(500).json(
-      createErrorResponse('Internal server error while retrieving profile')
-    );
+    return next(createInternalError('Error al obtener el perfil', error));
   }
 };
 
@@ -282,14 +262,12 @@ const getProfile = async (req, res) => {
  * @route PUT /api/v1/auth/profile
  * @access Private
  */
-const updateProfile = async (req, res) => {
+const updateProfile = async (req, res, next) => {
   try {
     // Check for validation errors
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json(
-        createErrorResponse('Validation failed', errors.array())
-      );
+      return next(createValidationError('Errores de validación', errors.array()));
     }
 
     const { username, email } = req.body;
@@ -297,20 +275,20 @@ const updateProfile = async (req, res) => {
 
     // Check if new email is already taken by another user
     if (email && email !== req.user.email) {
-      const existingUser = await User.findOne({ email, _id: { $ne: userId } });
+      const existingUser = await User.findOne({ email, _id: { $ne: userId } }).lean();
       if (existingUser) {
-        return res.status(409).json(
-          createErrorResponse('Email already in use')
+        return next(
+          createConflictError('Email ya está en uso', { field: 'email', value: email })
         );
       }
     }
 
     // Check if new username is already taken by another user
     if (username && username !== req.user.username) {
-      const existingUser = await User.findOne({ username, _id: { $ne: userId } });
+      const existingUser = await User.findOne({ username, _id: { $ne: userId } }).lean();
       if (existingUser) {
-        return res.status(409).json(
-          createErrorResponse('Username already in use')
+        return next(
+          createConflictError('Username ya está en uso', { field: 'username', value: username })
         );
       }
     }
@@ -327,12 +305,10 @@ const updateProfile = async (req, res) => {
     ).select('-password');
 
     if (!user) {
-      return res.status(404).json(
-        createErrorResponse('User not found')
-      );
+      return next(createNotFoundError('Usuario', userId));
     }
 
-    console.log(`✅ Profile updated: ${user.username}`);
+    req.log.info({ username: user.username, userId }, 'Perfil de usuario actualizado');
 
     res.status(200).json(
       createResponse(
@@ -343,9 +319,7 @@ const updateProfile = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Update profile error:', error);
-    res.status(500).json(
-      createErrorResponse('Internal server error while updating profile')
-    );
+    return next(createInternalError('Error al actualizar el perfil', error));
   }
 };
 

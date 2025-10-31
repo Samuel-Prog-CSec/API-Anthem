@@ -1,21 +1,17 @@
 const Location = require('../models/Location');
 const { validationResult } = require('express-validator');
-const { AppError, createValidationError } = require('../utils/errorUtils');
+const { createValidationError, createInternalError, createBadRequestError } = require('../utils/errorUtils');
 const { parsePaginationParams, createPaginationMeta } = require('../utils/paginationHelper');
-const { DOMParser } = require('@xmldom/xmldom');
+const { createResponse } = require('../utils/responseHelper');
 
 /**
  * Obtener todas las ubicaciones con filtros
  */
-const getLocations = async (req, res) => {
+const getLocations = async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Errores de validación en los parámetros',
-        errors: errors.array()
-      });
+      return next(createValidationError('Errores de validación en los parámetros', errors.array()));
     }
 
     const {
@@ -75,27 +71,24 @@ const getLocations = async (req, res) => {
       Location.countDocuments(filter)
     ]);
 
-    res.json({
-      success: true,
+    const responseData = {
       data: {
         ubicaciones,
         pagination: createPaginationMeta(pagination.pageNum, pagination.limitNum, total)
       }
-    });
+    };
+
+    res.json(createResponse(responseData, 'Ubicaciones obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener ubicaciones:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor al obtener ubicaciones'
-    });
+    next(createInternalError('Error al obtener ubicaciones', error));
   }
 };
 
 /**
  * Obtener puntos de medición por tipo
  */
-const getMeasurementPoints = async (req, res) => {
+const getMeasurementPoints = async (req, res, next) => {
   try {
     const { tipo_medicion } = req.params;
 
@@ -105,10 +98,7 @@ const getMeasurementPoints = async (req, res) => {
     };
 
     if (!tiposValidos[tipo_medicion]) {
-      return res.status(400).json({
-        success: false,
-        message: 'Tipo de medición no válido. Use: acustica, trafico'
-      });
+      return next(createBadRequestError('Tipo de medición no válido. Use: acustica, trafico'));
     }
 
     const puntos = await Location.find({
@@ -117,28 +107,25 @@ const getMeasurementPoints = async (req, res) => {
     .select('nombre coordenadas nmt cod_cent geometry')
     .lean();
 
-    res.json({
-      success: true,
+    const responseData = {
       data: {
         tipo_medicion,
         total_puntos: puntos.length,
         puntos
       }
-    });
+    };
+
+    res.json(createResponse(responseData, 'Puntos de medición obtenidos exitosamente'));
 
   } catch (error) {
-    console.error(`Error al obtener puntos de medición de ${req.params.tipo_medicion}:`, error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor'
-    });
+    next(createInternalError(`Error al obtener puntos de medición de ${req.params.tipo_medicion}`, error));
   }
 };
 
 /**
  * Obtener rutas de transporte público
  */
-const getTransportRoutes = async (req, res) => {
+const getTransportRoutes = async (req, res, next) => {
   try {
     const { tipo_transporte } = req.params;
 
@@ -155,10 +142,7 @@ const getTransportRoutes = async (req, res) => {
     if (tipo_transporte !== 'todos') {
       const tipoCompleto = `ruta_${tipo_transporte}`;
       if (!tiposTransporte.includes(tipoCompleto) && tipo_transporte !== 'zona_taxi') {
-        return res.status(400).json({
-          success: false,
-          message: 'Tipo de transporte no válido'
-        });
+        return next(createBadRequestError('Tipo de transporte no válido'));
       }
       filter.tipo = tipoCompleto;
     } else {
@@ -169,36 +153,30 @@ const getTransportRoutes = async (req, res) => {
       .select('tipo nombre coordenadas geometry')
       .lean();
 
-    res.json({
-      success: true,
+    const responseData = {
       data: {
         tipo_transporte,
         total_rutas: rutas.length,
         rutas
       }
-    });
+    };
+
+    res.json(createResponse(responseData, 'Rutas de transporte obtenidas exitosamente'));
 
   } catch (error) {
-    console.error(`Error al obtener rutas de transporte:`, error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor'
-    });
+    next(createInternalError('Error al obtener rutas de transporte', error));
   }
 };
 
 /**
  * Análisis de proximidad entre puntos
  */
-const getProximityAnalysis = async (req, res) => {
+const getProximityAnalysis = async (req, res, next) => {
   try {
     const { x, y, radio = 1000 } = req.query;
 
     if (!x || !y) {
-      return res.status(400).json({
-        success: false,
-        message: 'Coordenadas x e y son requeridas'
-      });
+      return next(createBadRequestError('Coordenadas x e y son requeridas'));
     }
 
     // GeoJSON usa [longitude, latitude], por lo que x es longitude y y es latitude
@@ -241,22 +219,18 @@ const getProximityAnalysis = async (req, res) => {
       }
     ]);
 
-    res.json({
-      success: true,
+    const responseData = {
       data: {
         punto_referencia: { x: parseFloat(x), y: parseFloat(y) },
         radio_metros: parseInt(radio),
         analisis_proximidad: ubicacionesCercanas
       }
-    });
+    };
+
+    res.json(createResponse(responseData, 'Análisis de proximidad obtenido exitosamente'));
 
   } catch (error) {
-    console.error('Error en análisis de proximidad:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor',
-      error: error.message // Añadido para debugging
-    });
+    next(createInternalError('Error en análisis de proximidad', error));
   }
 };
 

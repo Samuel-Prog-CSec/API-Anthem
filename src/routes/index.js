@@ -282,7 +282,7 @@ router.get('/docs', (req, res) => {
  */
 router.get('/cors-test', (req, res) => {
   const origin = req.get('origin') || 'No origin header';
-  
+
   res.status(200).json(
     createResponse(
       'CORS test successful',
@@ -300,8 +300,8 @@ router.get('/cors-test', (req, res) => {
           'access-control-allow-credentials': res.get('access-control-allow-credentials'),
           'vary': res.get('vary')
         },
-        message: origin !== 'No origin header' 
-          ? 'Your origin is allowed by CORS policy' 
+        message: origin !== 'No origin header'
+          ? 'Your origin is allowed by CORS policy'
           : 'Request has no origin (likely same-origin or non-browser client)'
       }
     )

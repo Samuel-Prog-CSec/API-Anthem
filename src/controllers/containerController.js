@@ -6,8 +6,10 @@
  */
 
 const Container = require('../models/Container');
+const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { parsePaginationParams, createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
 
 /**
@@ -53,15 +55,15 @@ exports.getAllContainers = async (req, res, next) => {
       Container.countDocuments(filters)
     ]);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data,
       pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, total)
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Contenedores obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener contenedores:', error);
-    next(error);
+    next(createInternalError('Error al obtener contenedores', error));
   }
 };
 
@@ -82,10 +84,7 @@ exports.getNearbyContainers = async (req, res, next) => {
 
     // Validar parámetros requeridos
     if (!longitude || !latitude) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requieren los parámetros longitude y latitude'
-      });
+      return next(createBadRequestError('Se requieren los parámetros longitude y latitude'));
     }
 
     const lng = parseFloat(longitude);
@@ -94,10 +93,7 @@ exports.getNearbyContainers = async (req, res, next) => {
 
     // Validar coordenadas
     if (isNaN(lng) || isNaN(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) {
-      return res.status(400).json({
-        success: false,
-        message: 'Coordenadas no válidas'
-      });
+      return next(createBadRequestError('Coordenadas no válidas'));
     }
 
     const containers = await Container.findNearby(
@@ -107,8 +103,7 @@ exports.getNearbyContainers = async (req, res, next) => {
       tipoContenedor ? tipoContenedor.toUpperCase() : null
     );
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         ubicacion: {
           longitude: lng,
@@ -119,11 +114,12 @@ exports.getNearbyContainers = async (req, res, next) => {
         total: containers.length,
         contenedores: containers
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Contenedores cercanos obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error al buscar contenedores cercanos:', error);
-    next(error);
+    next(createInternalError('Error al buscar contenedores cercanos', error));
   }
 };
 
@@ -138,20 +134,17 @@ exports.getContainerStats = async (req, res, next) => {
     const summary = await Container.getGeneralSummary();
 
     if (!summary || summary.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontraron datos de contenedores'
-      });
+      return next(createNotFoundError('Datos de contenedores'));
     }
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: summary[0]
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener estadísticas de contenedores:', error);
-    next(error);
+    next(createInternalError('Error al obtener estadísticas de contenedores', error));
   }
 };
 
@@ -170,26 +163,21 @@ exports.getStatsByDistrict = async (req, res, next) => {
     );
 
     if (!stats || stats.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: distrito
-          ? `No se encontraron contenedores en el distrito ${distrito}`
-          : 'No se encontraron datos de contenedores'
-      });
+      return next(createNotFoundError('Contenedores', distrito ? `distrito ${distrito}` : null));
     }
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         ...(distrito && { distrito }),
         total: stats.length,
         estadisticas: stats
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Estadísticas por distrito obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener estadísticas por distrito:', error);
-    next(error);
+    next(createInternalError('Error al obtener estadísticas por distrito', error));
   }
 };
 
@@ -205,34 +193,28 @@ exports.getStatsByNeighborhood = async (req, res, next) => {
 
     // Validar que se proporcione al menos el distrito
     if (!distrito) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requiere el parámetro distrito'
-      });
+      return next(createBadRequestError('Se requiere el parámetro distrito'));
     }
 
     const stats = await Container.getStatsByBarrio(distrito, barrio || null);
 
     if (!stats || stats.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: `No se encontraron contenedores en ${barrio ? `el barrio ${barrio} del ` : ''}distrito ${distrito}`
-      });
+      return next(createNotFoundError('Contenedores', barrio ? `barrio ${barrio} del distrito ${distrito}` : `distrito ${distrito}`));
     }
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         distrito,
         ...(barrio && { barrio }),
         total: stats.length,
         estadisticas: stats
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Estadísticas por barrio obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener estadísticas por barrio:', error);
-    next(error);
+    next(createInternalError('Error al obtener estadísticas por barrio', error));
   }
 };
 
@@ -248,22 +230,19 @@ exports.countByType = async (req, res, next) => {
 
     // Validar que se proporcione al menos el distrito
     if (!distrito) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requiere el parámetro distrito'
-      });
+      return next(createBadRequestError('Se requiere el parámetro distrito'));
     }
 
     const count = await Container.countByType(distrito, barrio || null);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: count
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Conteo por tipo obtenido exitosamente'));
 
   } catch (error) {
-    console.error('Error al contar contenedores por tipo:', error);
-    next(error);
+    next(createInternalError('Error al contar contenedores por tipo', error));
   }
 };
 
@@ -277,17 +256,17 @@ exports.getDistricts = async (req, res, next) => {
   try {
     const districts = await Container.distinct('distrito');
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         total: districts.length,
         distritos: districts.sort()
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Distritos obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener distritos:', error);
-    next(error);
+    next(createInternalError('Error al obtener distritos', error));
   }
 };
 
@@ -304,24 +283,21 @@ exports.getNeighborhoodsByDistrict = async (req, res, next) => {
     const neighborhoods = await Container.distinct('barrio', { distrito });
 
     if (!neighborhoods || neighborhoods.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: `No se encontraron barrios en el distrito ${distrito}`
-      });
+      return next(createNotFoundError('Barrios', `distrito ${distrito}`));
     }
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         distrito,
         total: neighborhoods.length,
         barrios: neighborhoods.sort()
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Barrios obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener barrios:', error);
-    next(error);
+    next(createInternalError('Error al obtener barrios', error));
   }
 };
 
@@ -336,10 +312,7 @@ exports.searchByAddress = async (req, res, next) => {
     const { q, tipoContenedor, limit = 50 } = req.query;
 
     if (!q) {
-      return res.status(400).json({
-        success: false,
-        message: 'Se requiere el parámetro de búsqueda q'
-      });
+      return next(createBadRequestError('Se requiere el parámetro de búsqueda q'));
     }
 
     // Construir consulta de búsqueda
@@ -359,19 +332,19 @@ exports.searchByAddress = async (req, res, next) => {
       .select('-__v')
       .lean();
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         busqueda: q,
         ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
         total: containers.length,
         contenedores: containers
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Búsqueda completada exitosamente'));
 
   } catch (error) {
-    console.error('Error al buscar contenedores por dirección:', error);
-    next(error);
+    next(createInternalError('Error al buscar contenedores por dirección', error));
   }
 };
 
@@ -400,18 +373,18 @@ exports.getHeatmapData = async (req, res, next) => {
       { $limit: 5000 } // Limitar para no sobrecargar el frontend
     ]);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
         total: heatmapData.length,
         puntos: heatmapData
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Datos de mapa de calor obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener datos de mapa de calor:', error);
-    next(error);
+    next(createInternalError('Error al obtener datos de mapa de calor', error));
   }
 };
 
@@ -462,16 +435,16 @@ exports.getCoverageAnalysis = async (req, res, next) => {
       { $sort: { distrito: 1 } }
     ]);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         ...(distrito && { distrito }),
         analisisCobertura: coverage
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Análisis de cobertura obtenido exitosamente'));
 
   } catch (error) {
-    console.error('Error al analizar cobertura:', error);
-    next(error);
+    next(createInternalError('Error al analizar cobertura', error));
   }
 };

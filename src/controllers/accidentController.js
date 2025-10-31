@@ -7,12 +7,11 @@
  */
 
 const Accident = require('../models/Accident');
-const { validationResult } = require('express-validator');
-const { AppError } = require('../utils/errorUtils');
-const { parsePaginationParams, createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
+const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
+const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
-const logger = require('../config/logger');
 
 
 /**
@@ -39,10 +38,10 @@ const getAllAccidents = async (req, res, next) => {
     // Filtros booleanos especiales
     const filters = buildFilters(req.query, filterConfig);
     const { conAlcohol, conDrogas } = req.query;
-    if (conAlcohol === 'true') filters['personaAfectada.positivaAlcohol'] = 'S';
-    if (conAlcohol === 'false') filters['personaAfectada.positivaAlcohol'] = 'N';
-    if (conDrogas === 'true') filters['personaAfectada.positivaDroga'] = 'S';
-    if (conDrogas === 'false') filters['personaAfectada.positivaDroga'] = 'N';
+    if (conAlcohol === 'true') {filters['personaAfectada.positivaAlcohol'] = 'S';}
+    if (conAlcohol === 'false') {filters['personaAfectada.positivaAlcohol'] = 'N';}
+    if (conDrogas === 'true') {filters['personaAfectada.positivaDroga'] = 'S';}
+    if (conDrogas === 'false') {filters['personaAfectada.positivaDroga'] = 'N';}
 
     // Configurar ordenamiento usando queryHelper
     const sortMapping = {
@@ -102,8 +101,7 @@ const getAllAccidents = async (req, res, next) => {
       }
     ]);
 
-    const response = {
-      success: true,
+    const responseData = {
       data: accidents,
       pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalCount),
       filters: {
@@ -129,7 +127,7 @@ const getAllAccidents = async (req, res, next) => {
       filters: Object.keys(filters)
     });
 
-    res.status(200).json(response);
+    res.status(200).json(createResponse(responseData, 'Accidentes obtenidos exitosamente'));
 
   } catch (error) {
     console.log('Error al obtener datos de accidentes', {
@@ -137,7 +135,7 @@ const getAllAccidents = async (req, res, next) => {
       stack: error.stack,
       query: req.query
     });
-    next(new AppError('Error al obtener los datos de accidentes', 500));
+    next(createInternalError('Error al obtener los datos de accidentes', error));
   }
 };
 
@@ -157,10 +155,7 @@ const getAccidentByExpediente = async (req, res, next) => {
       .lean();
 
     if (!accidentData || accidentData.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontró el accidente con el expediente especificado'
-      });
+      return next(createNotFoundError('Accidente con expediente', numero));
     }
 
     // Agrupar información del accidente
@@ -189,17 +184,14 @@ const getAccidentByExpediente = async (req, res, next) => {
       }
     };
 
-    res.status(200).json({
-      success: true,
-      data: accidentInfo
-    });
+    res.status(200).json(createResponse({ data: accidentInfo }, 'Accidente obtenido exitosamente'));
 
   } catch (error) {
     console.log('Error al obtener accidente por expediente', {
       error: error.message,
       expediente: req.params.numero
     });
-    next(new AppError('Error al obtener el accidente', 500));
+    next(createInternalError('Error al obtener el accidente', error));
   }
 };
 
@@ -217,12 +209,10 @@ const getAccidentStats = async (req, res, next) => {
       distrito
     });
 
-    const filters = {};
-    if (startDate || endDate) {
-      filters.fecha = {};
-      if (startDate) {filters.fecha.$gte = new Date(startDate);}
-      if (endDate) {filters.fecha.$lte = new Date(endDate);}
-    }
+    // Construir filtros usando parseDateRangeFilter
+    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
+    const filters = dateFilter || {};
+
     if (distrito) {filters['ubicacion.nombreDistrito'] = new RegExp(distrito, 'i');}
 
     // Estadísticas generales
@@ -252,8 +242,7 @@ const getAccidentStats = async (req, res, next) => {
       Accident.getRiskFactorsAnalysis(filters)
     ]);
 
-    const response = {
-      success: true,
+    const responseData = {
       data: {
         resumen: generalStats[0] || {},
         puntosNegros: blackSpots,
@@ -273,14 +262,14 @@ const getAccidentStats = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(response);
+    res.status(200).json(createResponse(responseData, 'Estadísticas completas obtenidas exitosamente'));
 
   } catch (error) {
     console.log('Error al obtener estadísticas de accidentalidad', {
       error: error.message,
       query: req.query
     });
-    next(new AppError('Error al obtener estadísticas de accidentalidad', 500));
+    next(createInternalError('Error al obtener estadísticas de accidentalidad', error));
   }
 };
 
@@ -292,20 +281,16 @@ const getAccidentHeatmap = async (req, res, next) => {
   try {
     const { startDate, endDate, gravedad, limite = 500 } = req.query;
 
-    // Construir filtros
-    const filters = {};
-    if (startDate || endDate) {
-      filters.fecha = {};
-      if (startDate) filters.fecha.$gte = new Date(startDate);
-      if (endDate) filters.fecha.$lte = new Date(endDate);
-    }
-    if (gravedad) filters['circunstancias.gravedad'] = gravedad.toUpperCase();
+    // Construir filtros usando parseDateRangeFilter
+    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
+    const filters = dateFilter || {};
+
+    if (gravedad) {filters['circunstancias.gravedad'] = gravedad.toUpperCase();}
 
     // Obtener datos del heatmap desde el modelo
     const heatmapResult = await Accident.getHeatmapDataOptimized(filters, limite);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         ...heatmapResult,
         estadisticas: {
@@ -316,13 +301,15 @@ const getAccidentHeatmap = async (req, res, next) => {
           }
         }
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Mapa de calor generado exitosamente'));
 
   } catch (error) {
     console.log('Error al generar mapa de calor', {
       error: error.message
     });
-    next(new AppError('Error al generar el mapa de calor', 500));
+    next(createInternalError('Error al generar el mapa de calor', error));
   }
 };
 
@@ -349,8 +336,7 @@ const getSafetyAnalysis = async (req, res, next) => {
       Accident.getWeatherCorrelation(filters)
     ]);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         seguridadCalles: streetSafety,
         tendencias: trendAnalysis,
@@ -362,13 +348,15 @@ const getSafetyAnalysis = async (req, res, next) => {
           distrito: distrito || 'TODOS'
         }
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Puntos negros analizados exitosamente'));
 
   } catch (error) {
     console.log('Error en análisis de seguridad vial', {
       error: error.message
     });
-    next(new AppError('Error al realizar el análisis de seguridad vial', 500));
+    next(createInternalError('Error al realizar el análisis de seguridad vial', error));
   }
 };
 
@@ -397,8 +385,7 @@ const getDistrictComparison = async (req, res, next) => {
       mayorRiesgo: [...districtComparison].sort((a, b) => b.indiceRiesgoTotal - a.indiceRiesgoTotal).slice(0, 5)
     };
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         comparativa: districtComparison,
         rankings,
@@ -410,13 +397,15 @@ const getDistrictComparison = async (req, res, next) => {
           }
         }
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Comparativa de distritos obtenida exitosamente'));
 
   } catch (error) {
     console.log('Error en comparativa de distritos', {
       error: error.message
     });
-    next(new AppError('Error al comparar distritos', 500));
+    next(createInternalError('Error al comparar distritos', error));
   }
 };
 

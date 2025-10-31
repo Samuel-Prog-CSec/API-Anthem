@@ -7,9 +7,10 @@
 
 const { validationResult } = require('express-validator');
 const AirQuality = require('../models/AirQuality');
-const { AppError, createValidationError } = require('../utils/errorUtils');
+const { AppError, createValidationError, createInternalError } = require('../utils/errorUtils');
 const { parsePaginationParams, createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange } = require('../utils/queryHelper');
+const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
 
 /**
@@ -91,8 +92,7 @@ const getAirQualityData = async (req, res, next) => {
     // Calcular metadatos de paginación
     const paginationMeta = createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Datos de calidad de aire obtenidos exitosamente',
       data,
       pagination: paginationMeta,
@@ -102,11 +102,13 @@ const getAirQualityData = async (req, res, next) => {
           magnitudes: AirQuality.getMagnitudes()
         }
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Datos de calidad de aire obtenidos exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo datos de calidad de aire:', error);
-    next(new AppError('Error interno del servidor al obtener datos', 500));
+    next(createInternalError('Error al obtener datos de calidad de aire', error));
   }
 };
 
@@ -151,8 +153,7 @@ const getAirQualityById = async (req, res, next) => {
       porcentajeValidez: (valores.length / 24) * 100
     } : null;
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Detalles de calidad de aire obtenidos exitosamente',
       data: {
         ...data,
@@ -160,11 +161,13 @@ const getAirQualityById = async (req, res, next) => {
         estadisticas,
         magnitudDescripcion: AirQuality.getMagnitudes()[data.magnitud] || 'Desconocida'
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Detalles de calidad de aire obtenidos exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo detalles de calidad de aire:', error);
-    next(new AppError('Error interno del servidor', 500));
+    next(createInternalError('Error al obtener registro por ID', error));
   }
 };
 
@@ -181,32 +184,30 @@ const getAirQualityStatistics = async (req, res, next) => {
 
     const { startDate, endDate, provincia, municipio, magnitud, groupBy = 'day' } = req.query;
 
-    // Construir filtros base
-    const filters = {};
-    if (startDate || endDate) {
-      filters.fecha = {};
-      if (startDate) filters.fecha.$gte = new Date(startDate);
-      if (endDate) filters.fecha.$lte = new Date(endDate);
-    }
-    if (provincia) filters.provincia = parseInt(provincia);
-    if (municipio) filters.municipio = parseInt(municipio);
-    if (magnitud) filters.magnitud = parseInt(magnitud);
+    // Construir filtros base usando parseDateRangeFilter
+    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
+    const filters = dateFilter || {};
+
+    if (provincia) {filters.provincia = parseInt(provincia);}
+    if (municipio) {filters.municipio = parseInt(municipio);}
+    if (magnitud) {filters.magnitud = parseInt(magnitud);}
 
     // Llamar al método optimizado del modelo
     const result = await AirQuality.getStatisticsOptimized(filters, groupBy);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Estadísticas de calidad de aire obtenidas exitosamente',
       data: {
         ...result,
         magnitudes: AirQuality.getMagnitudes()
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Estadísticas de calidad de aire obtenidas exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo estadísticas de calidad de aire:', error);
-    next(new AppError('Error interno del servidor al calcular estadísticas', 500));
+    next(createInternalError('Error al calcular estadísticas', error));
   }
 };
 
@@ -225,8 +226,8 @@ const getAirQualityTrends = async (req, res, next) => {
       startDate,
       endDate,
       provincia = 28, // Madrid por defecto
-      municipio = 79,  // Madrid ciudad por defecto
-      magnitud = 10    // PM10 por defecto
+      municipio = 79, // Madrid ciudad por defecto
+      magnitud = 10 // PM10 por defecto
     } = req.query;
 
     // Llamar al método optimizado del modelo
@@ -238,8 +239,7 @@ const getAirQualityTrends = async (req, res, next) => {
       endDate
     );
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Tendencias de calidad de aire obtenidas exitosamente',
       data: {
         ...result,
@@ -250,13 +250,13 @@ const getAirQualityTrends = async (req, res, next) => {
           magnitudDescripcion: AirQuality.getMagnitudes()[parseInt(magnitud)]
         }
       }
-    });
+    };
 
-    res.status(200).json(response);
+    res.status(200).json(createResponse(responseData, 'Tendencias obtenidas exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo tendencias de calidad de aire:', error);
-    next(new AppError('Error interno del servidor al calcular tendencias', 500));
+    next(createInternalError('Error al calcular tendencias', error));
   }
 };
 

@@ -2,11 +2,14 @@ import js from "@eslint/js";
 import globals from "globals";
 
 export default [
+  // Configuración base recomendada de ESLint
   js.configs.recommended,
+
+  // Configuración para archivos JavaScript
   {
     files: ["**/*.js"],
     languageOptions: {
-      ecmaVersion: 2021,
+      ecmaVersion: 2022,
       sourceType: "commonjs",
       globals: {
         ...globals.node,
@@ -14,27 +17,102 @@ export default [
       }
     },
     rules: {
-      // Errores comunes
-      "no-console": "off", // Permitimos console.log por ahora (luego migrar a Pino)
-      "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+      // === Errores comunes ===
+      "no-console": "warn", // Advertir uso de console (debe usar Pino logger)
+      "no-unused-vars": [
+        "warn",
+        {
+          "argsIgnorePattern": "^_",
+          "varsIgnorePattern": "^_",
+          "caughtErrorsIgnorePattern": "^_",
+          "destructuredArrayIgnorePattern": "^_"
+        }
+      ],
       "no-undef": "error",
+      "no-duplicate-imports": "error",
+      "no-unreachable": "error",
+      "no-constant-condition": ["error", { "checkLoops": false }],
 
-      // Buenas prácticas
-      "eqeqeq": ["error", "always"], // Usar === en vez de ==
-      "curly": ["error", "all"], // Siempre usar llaves en if/else
+      // === Buenas prácticas ===
+      "eqeqeq": ["error", "always", { "null": "ignore" }], // Usar === (excepto con null)
+      "curly": ["error", "all"], // Siempre usar llaves en if/else/for/while
       "no-var": "error", // No usar var, solo let/const
       "prefer-const": "warn", // Preferir const cuando no se reasigna
+      "no-lonely-if": "warn", // Evitar if solitarios en else
+      "no-else-return": ["warn", { "allowElseIf": false }], // Evitar else innecesarios después de return
+      "no-useless-return": "warn", // Evitar returns innecesarios
+      "dot-notation": "warn", // Usar notación de punto cuando sea posible
+      "no-unneeded-ternary": "warn", // Evitar ternarios innecesarios
 
-      // Seguridad
+      // === Async/Await ===
+      "require-await": "warn", // Advertir funciones async sin await
+      "no-async-promise-executor": "error", // No usar async en Promise executor
+      "prefer-promise-reject-errors": "error", // Rechazar Promises solo con Error objects
+      "no-return-await": "warn", // No usar return await innecesariamente
+
+      // === Seguridad ===
       "no-eval": "error",
       "no-implied-eval": "error",
+      "no-new-func": "error",
+      "no-script-url": "error",
+
+      // === Calidad de código ===
+      "no-shadow": ["warn", { "builtinGlobals": false, "hoist": "functions" }],
+      "no-use-before-define": ["error", { "functions": false, "classes": true, "variables": true }],
+      "complexity": ["warn", 20], // Advertir sobre complejidad ciclomática alta
+      "max-depth": ["warn", 4], // Máximo 4 niveles de anidamiento
+      "max-lines-per-function": ["warn", { "max": 150, "skipBlankLines": true, "skipComments": true }],
+
+      // === Estilo y consistencia ===
+      "camelcase": ["warn", { "properties": "never", "ignoreDestructuring": true }],
+      "consistent-return": "warn",
+      "default-case-last": "error",
+      "no-multi-spaces": "warn",
+      "no-trailing-spaces": "warn",
+      "semi": ["error", "always"],
+      "quotes": ["warn", "single", { "avoidEscape": true, "allowTemplateLiterals": true }],
+      "comma-dangle": ["warn", "only-multiline"],
+    }
+  },
+
+  // Configuración específica para scripts de importación y análisis
+  {
+    files: ["scripts/**/*.js"],
+    rules: {
+      "no-console": "off", // Permitir console en scripts
+      "max-lines-per-function": ["warn", { "max": 250 }], // Scripts pueden ser más largos
+      "complexity": ["warn", 30], // Mayor complejidad permitida en scripts
+    }
+  },
+
+  // Configuración específica para archivos de test
+  {
+    files: ["tests/**/*.js", "**/*.test.js", "**/*.spec.js"],
+    languageOptions: {
+      globals: {
+        ...globals.jest,
+        ...globals.node,
+      }
     },
+    rules: {
+      "no-console": "off", // Permitir console en tests
+      "max-lines-per-function": "off", // Tests pueden ser largos
+      "no-unused-expressions": "off", // Tests usan expect().to.be...
+    }
+  },
+
+  // Archivos y directorios a ignorar
+  {
     ignores: [
       "node_modules/**",
       "datos_hpe/**",
       "docs/**",
       "coverage/**",
-      "reports/**"
+      "reports/**",
+      "dist/**",
+      "build/**",
+      ".clinic/**",
+      "*.min.js"
     ]
   }
 ];

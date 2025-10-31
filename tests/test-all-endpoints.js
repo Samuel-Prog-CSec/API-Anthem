@@ -96,12 +96,12 @@ async function testEndpoint(name, method, url, options = {}) {
       logSuccess(name, response.status, time);
       stats.endpoints.push({ name, status: response.status, success: true, time });
       return { success: true, response };
-    } else {
+    }
       stats.failed++;
       logFail(name, response.status, response.data?.message || 'Unknown error');
       stats.endpoints.push({ name, status: response.status, success: false, time });
       return { success: false, response };
-    }
+
 
   } catch (error) {
     const time = Date.now() - startTime;

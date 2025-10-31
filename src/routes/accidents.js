@@ -7,6 +7,7 @@
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { query, body } = require('express-validator');
 
 const accidentController = require('../controllers/accidentController');
 const { authenticate } = require('../middleware/auth');

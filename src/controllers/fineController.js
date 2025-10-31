@@ -8,9 +8,10 @@
 
 const { validationResult } = require('express-validator');
 const Fine = require('../models/Fine');
-const { AppError, createValidationError } = require('../utils/errorUtils');
-const { parsePaginationParams, createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
-const { buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { AppError, createValidationError, createInternalError } = require('../utils/errorUtils');
+const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
 
 /**
@@ -46,54 +47,20 @@ const getFines = async (req, res, next) => {
       includeCoordinates = false
     } = req.query;
 
-    // Construir filtros de consulta
-    const filters = {};
+    // Configuración de filtros usando buildFilters
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'calificacion', type: 'in', param: 'calificacion', transform: v => Array.isArray(v) ? v.map(c => c.toUpperCase()) : [v.toUpperCase()] },
+      { field: 'lugar', type: 'regex', param: 'lugar' },
+      { field: 'metadatos.tipoInfraccion', type: 'in', param: 'tipoInfraccion' },
+      { field: 'denunciante', type: 'regex', param: 'denunciante' },
+      { field: 'importeFinal', type: 'range', params: ['minImporte', 'maxImporte'], transform: parseFloat },
+      { field: 'puntosDetraídos', type: 'range', params: ['minPuntos', 'maxPuntos'], transform: parseInt }
+    ];
 
-    // Filtros de fecha usando helper
-    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
-    if (dateFilter) {
-      Object.assign(filters, dateFilter);
-    }
+    const filters = buildFilters(req.query, filterConfig);
 
-    // Filtros básicos
-    if (calificacion) {
-      if (Array.isArray(calificacion)) {
-        filters.calificacion = { $in: calificacion.map(c => c.toUpperCase()) };
-      } else {
-        filters.calificacion = calificacion.toUpperCase();
-      }
-    }
-
-    if (lugar) {
-      filters.lugar = { $regex: lugar, $options: 'i' };
-    }
-
-    if (tipoInfraccion) {
-      if (Array.isArray(tipoInfraccion)) {
-        filters['metadatos.tipoInfraccion'] = { $in: tipoInfraccion };
-      } else {
-        filters['metadatos.tipoInfraccion'] = tipoInfraccion;
-      }
-    }
-
-    if (denunciante) {
-      filters.denunciante = { $regex: denunciante, $options: 'i' };
-    }
-
-    // Filtros numéricos
-    if (minImporte || maxImporte) {
-      filters.importeFinal = {};
-      if (minImporte) {filters.importeFinal.$gte = parseFloat(minImporte);}
-      if (maxImporte) {filters.importeFinal.$lte = parseFloat(maxImporte);}
-    }
-
-    if (minPuntos || maxPuntos) {
-      filters.puntosDetraídos = {};
-      if (minPuntos) {filters.puntosDetraídos.$gte = parseInt(minPuntos);}
-      if (maxPuntos) {filters.puntosDetraídos.$lte = parseInt(maxPuntos);}
-    }
-
-    // Filtros booleanos
+    // Filtros booleanos adicionales
     if (conDescuento !== undefined) {
       filters.tieneDescuento = conDescuento === 'true';
     }
@@ -163,8 +130,7 @@ const getFines = async (req, res, next) => {
       }
     ]);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Multas obtenidas exitosamente',
       data,
       pagination: paginationMeta,
@@ -185,11 +151,13 @@ const getFines = async (req, res, next) => {
           ]
         }
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Multas obtenidas exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo multas:', error);
-    next(new AppError('Error interno del servidor al obtener multas', 500));
+    next(createInternalError('Error al obtener multas', error));
   }
 };
 
@@ -215,19 +183,20 @@ const getFineById = async (req, res, next) => {
       porcentajeDescuento: multa.tieneDescuento ? 50 : 0
     };
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Detalles de multa obtenidos exitosamente',
       data: {
         ...multa,
         impactoEconomico,
         gravedad: multa.calificacion === 'GRAVE' || multa.calificacion === 'MUY GRAVE' ? 'ALTA' : 'BAJA'
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Detalles de multa obtenidos exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo detalles de multa:', error);
-    next(new AppError('Error interno del servidor', 500));
+    next(createInternalError('Error al obtener multa por ID', error));
   }
 };
 
@@ -257,8 +226,7 @@ const getFinesStatistics = async (req, res, next) => {
       limit: parseInt(limit)
     });
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Estadísticas de multas obtenidas exitosamente',
       data: {
         estadisticas: resultado.estadisticas,
@@ -269,11 +237,13 @@ const getFinesStatistics = async (req, res, next) => {
           limite: parseInt(limit)
         }
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Estadísticas de multas obtenidas exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo estadísticas de multas:', error);
-    next(new AppError('Error interno del servidor al calcular estadísticas', 500));
+    next(createInternalError('Error al calcular estadísticas', error));
   }
 };
 
@@ -298,8 +268,7 @@ const getLocationsRanking = async (req, res, next) => {
       limit: parseInt(limit)
     });
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Ranking de ubicaciones obtenido exitosamente',
       data: {
         ranking,
@@ -312,11 +281,13 @@ const getLocationsRanking = async (req, res, next) => {
           fechaConsulta: new Date()
         }
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Ranking de ubicaciones obtenido exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo ranking de ubicaciones:', error);
-    next(new AppError('Error interno del servidor al obtener ranking', 500));
+    next(createInternalError('Error al obtener ranking', error));
   }
 };
 
@@ -339,8 +310,7 @@ const getTemporalAnalysis = async (req, res, next) => {
       tipoAnalisis
     });
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Análisis temporal obtenido exitosamente',
       data: {
         analisis: resultado.analisis,
@@ -354,11 +324,13 @@ const getTemporalAnalysis = async (req, res, next) => {
           fechaConsulta: new Date()
         }
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Análisis temporal obtenido exitosamente'));
 
   } catch (error) {
     console.error('Error en análisis temporal de multas:', error);
-    next(new AppError('Error interno del servidor en análisis temporal', 500));
+    next(createInternalError('Error en análisis temporal', error));
   }
 };
 
@@ -461,8 +433,7 @@ const getDashboardMetrics = async (req, res, next) => {
       { $sort: { '_id.fecha': 1 } }
     ]);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Métricas del dashboard obtenidas exitosamente',
       data: {
         periodo: {
@@ -491,11 +462,13 @@ const getDashboardMetrics = async (req, res, next) => {
             (metricsGeneral.puntosTotal / metricsGeneral.totalMultas).toFixed(2) : 0
         }
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Métricas del dashboard obtenidas exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo métricas del dashboard:', error);
-    next(new AppError('Error interno del servidor al obtener métricas', 500));
+    next(createInternalError('Error al obtener métricas', error));
   }
 };
 

@@ -45,9 +45,9 @@ const {
  * Response: User object and JWT token
  */
 router.post('/register',
-  authLimiter,           // Apply strict rate limiting for auth endpoints
-  validateRegistration,  // Validate input data
-  register              // Controller function
+  authLimiter, // Apply strict rate limiting for auth endpoints
+  validateRegistration, // Validate input data
+  register // Controller function
 );
 
 /**
@@ -63,9 +63,9 @@ router.post('/register',
  * Response: User object and JWT token
  */
 router.post('/login',
-  authLimiter,      // Apply strict rate limiting for auth endpoints
-  validateLogin,    // Validate input data
-  login            // Controller function
+  authLimiter, // Apply strict rate limiting for auth endpoints
+  validateLogin, // Validate input data
+  login // Controller function
 );
 
 /**
@@ -77,8 +77,8 @@ router.post('/login',
  * Response: Success message
  */
 router.post('/logout',
-  authenticate,     // Require authentication
-  logout           // Controller function
+  authenticate, // Require authentication
+  logout // Controller function
 );
 
 /**
@@ -90,8 +90,8 @@ router.post('/logout',
  * Response: Current user's profile information
  */
 router.get('/me',
-  authenticate,     // Require authentication
-  getProfile       // Controller function
+  authenticate, // Require authentication
+  getProfile // Controller function
 );
 
 /**
@@ -107,9 +107,9 @@ router.get('/me',
  * Response: Updated user profile
  */
 router.put('/profile',
-  authenticate,           // Require authentication
-  validateProfileUpdate,  // Validate input data
-  updateProfile          // Controller function
+  authenticate, // Require authentication
+  validateProfileUpdate, // Validate input data
+  updateProfile // Controller function
 );
 
 /**
@@ -121,7 +121,7 @@ router.put('/profile',
  * Response: Token validation status and user info
  */
 router.get('/verify-token',
-  authenticate,     // Require authentication
+  authenticate, // Require authentication
   (req, res) => {
     // If we reach here, the token is valid (authenticate middleware passed)
     const { createResponse } = require('../utils/responseHelper');

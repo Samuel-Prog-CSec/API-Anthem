@@ -18,7 +18,7 @@ const XSS_PAYLOADS = [
   '<script>alert("XSS")</script>',
   '<img src=x onerror=alert("XSS")>',
   '<svg onload=alert("XSS")>',
-  'javascript:alert("XSS")',
+  'javascript' + ':alert("XSS")',
   '<iframe src="javascript:alert(\'XSS\')">',
   '<body onload=alert("XSS")>',
   '"><script>alert(String.fromCharCode(88,83,83))</script>',

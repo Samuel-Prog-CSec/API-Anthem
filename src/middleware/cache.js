@@ -14,64 +14,64 @@ const NodeCache = require('node-cache');
 const caches = {
   // Datos demográficos (cambian raramente) - 1 hora
   demographic: new NodeCache({
-    stdTTL: 3600,           // 1 hora
-    checkperiod: 600,       // Limpieza cada 10 minutos
-    useClones: false,       // Performance: no clonar objetos
+    stdTTL: 3600, // 1 hora
+    checkperiod: 600, // Limpieza cada 10 minutos
+    useClones: false, // Performance: no clonar objetos
     deleteOnExpire: true
   }),
 
   // Estadísticas de multas (cambios diarios) - 30 minutos
   statistics: new NodeCache({
-    stdTTL: 1800,           // 30 minutos
-    checkperiod: 300,       // Limpieza cada 5 minutos
+    stdTTL: 1800, // 30 minutos
+    checkperiod: 300, // Limpieza cada 5 minutos
     useClones: false,
     deleteOnExpire: true
   }),
 
   // Datos de tráfico (cambian frecuentemente) - 5 minutos
   traffic: new NodeCache({
-    stdTTL: 300,            // 5 minutos
-    checkperiod: 60,        // Limpieza cada minuto
+    stdTTL: 300, // 5 minutos
+    checkperiod: 60, // Limpieza cada minuto
     useClones: false,
     deleteOnExpire: true
   }),
 
   // Datos estáticos (ubicaciones, configuración) - 24 horas
   static: new NodeCache({
-    stdTTL: 86400,          // 24 horas
-    checkperiod: 3600,      // Limpieza cada hora
+    stdTTL: 86400, // 24 horas
+    checkperiod: 3600, // Limpieza cada hora
     useClones: false,
     deleteOnExpire: true
   }),
 
   // Calidad del aire (cambios cada 30 min) - 30 minutos
   airQuality: new NodeCache({
-    stdTTL: 1800,           // 30 minutos
-    checkperiod: 300,       // Limpieza cada 5 minutos
+    stdTTL: 1800, // 30 minutos
+    checkperiod: 300, // Limpieza cada 5 minutos
     useClones: false,
     deleteOnExpire: true
   }),
 
   // Disponibilidad de bicicletas (cambios frecuentes) - 5 minutos
   bikes: new NodeCache({
-    stdTTL: 300,            // 5 minutos
-    checkperiod: 60,        // Limpieza cada minuto
+    stdTTL: 300, // 5 minutos
+    checkperiod: 60, // Limpieza cada minuto
     useClones: false,
     deleteOnExpire: true
   }),
 
   // Contenedores de residuos (datos estáticos) - 24 horas
   containers: new NodeCache({
-    stdTTL: 86400,          // 24 horas
-    checkperiod: 3600,      // Limpieza cada hora
+    stdTTL: 86400, // 24 horas
+    checkperiod: 3600, // Limpieza cada hora
     useClones: false,
     deleteOnExpire: true
   }),
 
   // Contaminación acústica (cambios cada 30 min) - 30 minutos
   noise: new NodeCache({
-    stdTTL: 1800,           // 30 minutos
-    checkperiod: 300,       // Limpieza cada 5 minutos
+    stdTTL: 1800, // 30 minutos
+    checkperiod: 300, // Limpieza cada 5 minutos
     useClones: false,
     deleteOnExpire: true
   })
@@ -222,12 +222,12 @@ const clearCache = (cacheType = null, pattern = null) => {
       caches[cacheType].del(matchingKeys);
       console.log(`Caché limpiado: ${cacheType} (${matchingKeys.length} claves con patrón "${pattern}")`);
       return { deletedKeys: matchingKeys.length, pattern, type: cacheType };
-    } else {
+    }
       caches[cacheType].flushAll();
       console.log(`Caché limpiado: ${cacheType} (todas las claves)`);
       return { message: `Caché ${cacheType} limpiado completamente` };
-    }
-  } else if (!cacheType) {
+
+  } if (!cacheType) {
     Object.keys(caches).forEach(type => {
       caches[type].flushAll();
     });

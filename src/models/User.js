@@ -7,8 +7,8 @@
 
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const config = require('../config/config');
+const { generateAccessToken } = require('../utils/tokenHelper');
 
 /**
  * Esquema de Usuario
@@ -148,12 +148,7 @@ userSchema.methods.generateAuthToken = function() {
     role: this.role
   };
 
-  return jwt.sign(payload, config.jwt.secret, {
-    expiresIn: config.jwt.expiresIn,
-    algorithm: config.jwt.algorithm,
-    issuer: 'api-rest-auth',
-    audience: 'api-rest-auth-client'
-  });
+  return generateAccessToken(payload);
 };
 
 /**

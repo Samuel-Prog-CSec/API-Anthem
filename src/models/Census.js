@@ -208,12 +208,12 @@ const censusSchema = new mongoose.Schema({
     grupoEdad: {
       type: String,
       enum: [
-        'INFANTIL',      // 0-14 años
-        'JUVENIL',       // 15-24 años
-        'ADULTO_JOVEN',  // 25-44 años
-        'ADULTO',        // 45-64 años
-        'MAYOR',         // 65+ años
-        'ANCIANO'        // 85+ años
+        'INFANTIL', // 0-14 años
+        'JUVENIL', // 15-24 años
+        'ADULTO_JOVEN', // 25-44 años
+        'ADULTO', // 45-64 años
+        'MAYOR', // 65+ años
+        'ANCIANO' // 85+ años
       ],
       default: 'ADULTO_JOVEN'
     },

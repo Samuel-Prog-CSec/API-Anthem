@@ -7,9 +7,10 @@
 
 const { validationResult } = require('express-validator');
 const NoiseMonitoring = require('../models/NoiseMonitoring');
-const { AppError, createValidationError } = require('../utils/errorUtils');
+const { AppError, createValidationError, createInternalError } = require('../utils/errorUtils');
 const { parsePaginationParams, createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
 
 /**
@@ -80,8 +81,7 @@ const getNoiseMonitoringData = async (req, res, next) => {
       };
     });
 
-    const response = {
-      success: true,
+    const responseData = {
       message: 'Datos de contaminación acústica obtenidos exitosamente',
       data: dataWithCompliance,
       pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments),
@@ -90,11 +90,11 @@ const getNoiseMonitoringData = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(response);
+    res.status(200).json(createResponse(responseData, 'Datos obtenidos exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo datos de contaminación acústica:', error);
-    next(new AppError('Error interno del servidor al obtener datos', 500));
+    next(createInternalError('Error al obtener datos de contaminación acústica', error));
   }
 };
 
@@ -150,8 +150,7 @@ const getNoiseMonitoringById = async (req, res, next) => {
         })
       : null;
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: 'Detalles de contaminación acústica obtenidos exitosamente',
       data: {
         ...data,
@@ -166,11 +165,13 @@ const getNoiseMonitoringById = async (req, res, next) => {
           } : null
         }
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Detalles obtenidos exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo detalles de contaminación acústica:', error);
-    next(new AppError('Error interno del servidor', 500));
+    next(createInternalError('Error al obtener registro por ID', error));
   }
 };
 
@@ -316,8 +317,7 @@ const getNoiseStatistics = async (req, res, next) => {
       }
     ]);
 
-    const response = {
-      success: true,
+    const responseData = {
       message: 'Estadísticas de contaminación acústica obtenidas exitosamente',
       data: {
         estadisticas,
@@ -341,11 +341,11 @@ const getNoiseStatistics = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(response);
+    res.status(200).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo estadísticas de contaminación acústica:', error);
-    next(new AppError('Error interno del servidor al calcular estadísticas', 500));
+    next(createInternalError('Error al calcular estadísticas', error));
   }
 };
 
@@ -414,8 +414,7 @@ const getNoiseRanking = async (req, res, next) => {
 
     const ranking = await NoiseMonitoring.aggregate(pipeline);
 
-    const response = {
-      success: true,
+    const responseData = {
       message: 'Ranking de contaminación acústica obtenido exitosamente',
       data: {
         ranking,
@@ -439,11 +438,11 @@ const getNoiseRanking = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(response);
+    res.status(200).json(createResponse(responseData, 'Ranking obtenido exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo ranking de contaminación acústica:', error);
-    next(new AppError('Error interno del servidor al generar ranking', 500));
+    next(createInternalError('Error al generar ranking', error));
   }
 };
 
@@ -486,8 +485,7 @@ const searchStations = async (req, res, next) => {
 
     const estaciones = await NoiseMonitoring.aggregate(pipeline);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       message: `Encontradas ${estaciones.length} estaciones`,
       data: estaciones,
       busqueda: {
@@ -495,11 +493,13 @@ const searchStations = async (req, res, next) => {
         resultados: estaciones.length,
         limite: parseInt(limit)
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Búsqueda completada exitosamente'));
 
   } catch (error) {
     console.error('Error buscando estaciones:', error);
-    next(new AppError('Error interno del servidor en la búsqueda', 500));
+    next(createInternalError('Error en la búsqueda', error));
   }
 };
 

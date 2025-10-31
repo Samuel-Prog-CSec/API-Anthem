@@ -39,12 +39,12 @@ async function testAllowedOrigin() {
       console.log(`${colors.green}✓ PASS${colors.reset} - Origin permitido correctamente`);
       console.log(`  Access-Control-Allow-Origin: ${corsHeader}`);
       return true;
-    } else {
+    }
       console.log(`${colors.red}✗ FAIL${colors.reset} - Header CORS incorrecto`);
       console.log(`  Esperado: http://localhost:3030`);
       console.log(`  Recibido: ${corsHeader}`);
       return false;
-    }
+
   } catch (error) {
     console.log(`${colors.red}✗ FAIL${colors.reset} - Error en petición`);
     console.log(`  ${error.message}`);
@@ -73,11 +73,11 @@ async function testBlockedOrigin() {
       console.log(`${colors.green}✓ PASS${colors.reset} - Origin bloqueado correctamente`);
       console.log(`  Origin: http://malicious-site.com rechazado`);
       return true;
-    } else {
+    }
       console.log(`${colors.yellow}? WARN${colors.reset} - Error inesperado`);
       console.log(`  ${error.message}`);
       return false;
-    }
+
   }
 }
 
@@ -151,17 +151,17 @@ async function testVaryHeader() {
       }
     });
 
-    const varyHeader = response.headers['vary'];
+    const varyHeader = response.headers.vary;
 
     if (varyHeader && varyHeader.includes('Origin')) {
       console.log(`${colors.green}✓ PASS${colors.reset} - Header Vary configurado correctamente`);
       console.log(`  Vary: ${varyHeader}`);
       return true;
-    } else {
+    }
       console.log(`${colors.red}✗ FAIL${colors.reset} - Header Vary faltante o incorrecto`);
       console.log(`  Vary: ${varyHeader || 'no presente'}`);
       return false;
-    }
+
   } catch (error) {
     console.log(`${colors.red}✗ FAIL${colors.reset} - Error al verificar header Vary`);
     console.log(`  ${error.message}`);
@@ -182,11 +182,11 @@ async function testNoOrigin() {
       console.log(`${colors.green}✓ PASS${colors.reset} - Petición sin origin permitida en desarrollo`);
       console.log(`  Status: ${response.status}`);
       return true;
-    } else {
+    }
       console.log(`${colors.red}✗ FAIL${colors.reset} - Petición sin origin rechazada`);
       console.log(`  Status: ${response.status}`);
       return false;
-    }
+
   } catch (error) {
     console.log(`${colors.red}✗ FAIL${colors.reset} - Error en petición sin origin`);
     console.log(`  ${error.message}`);

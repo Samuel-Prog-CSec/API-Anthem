@@ -6,10 +6,10 @@
 
 const Traffic = require('../models/Traffic');
 const Location = require('../models/Location');
-const { validationResult } = require('express-validator');
-const { AppError } = require('../utils/errorUtils');
-const { parsePaginationParams, createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
-const { buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
+const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
 
 /**
@@ -41,20 +41,16 @@ const getAllTrafficData = async (req, res, next) => {
       { defaultLimit: PAGINATION.DEFAULT_LIMIT, maxLimit: PAGINATION.MAX_LIMIT }
     );
 
-    // Construir filtros
-    const filters = {};
+    // Construir filtros usando buildFilters
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'puntoMedidaId', type: 'exact', param: 'puntoMedidaId' },
+      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: v => v.toUpperCase() },
+      { field: 'analisis.nivelCongestion', type: 'exact', param: 'nivelCongestion', transform: v => v.toUpperCase() },
+      { field: 'calidadDatos.calidadGeneral', type: 'exact', param: 'calidad', transform: v => v.toUpperCase() }
+    ];
 
-    // Filtros temporales usando helper
-    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
-    if (dateFilter) {
-      Object.assign(filters, dateFilter);
-    }
-
-    // Filtros específicos
-    if (puntoMedidaId) filters.puntoMedidaId = puntoMedidaId;
-    if (tipoElemento) filters.tipoElemento = tipoElemento.toUpperCase();
-    if (nivelCongestion) filters['analisis.nivelCongestion'] = nivelCongestion.toUpperCase();
-    if (calidad) filters['calidadDatos.calidadGeneral'] = calidad.toUpperCase();
+    const filters = buildFilters(req.query, filterConfig);
 
     // Configurar ordenamiento usando queryHelper
     const sortMapping = {
@@ -106,8 +102,7 @@ const getAllTrafficData = async (req, res, next) => {
       }
     ]);
 
-    const response = {
-      success: true,
+    const responseData = {
       data: trafficData,
       pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalCount),
       filters: {
@@ -131,7 +126,7 @@ const getAllTrafficData = async (req, res, next) => {
       filters: Object.keys(filters)
     });
 
-    res.status(200).json(response);
+    res.status(200).json(createResponse(responseData, 'Datos de tráfico obtenidos exitosamente'));
 
   } catch (error) {
     console.log('Error al obtener datos de tráfico', {
@@ -139,7 +134,7 @@ const getAllTrafficData = async (req, res, next) => {
       stack: error.stack,
       query: req.query
     });
-    next(new AppError('Error al obtener los datos de tráfico', 500));
+    next(createInternalError('Error al obtener los datos de tráfico', error));
   }
 };
 
@@ -178,10 +173,7 @@ const getTrafficByPoint = async (req, res, next) => {
     ]);
 
     if (!trafficData || trafficData.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontraron datos para el punto de medida especificado'
-      });
+      return next(createNotFoundError('Datos de tráfico para el punto de medida', id));
     }
 
     // Calcular estadísticas del punto
@@ -210,8 +202,7 @@ const getTrafficByPoint = async (req, res, next) => {
       }
     ]);
 
-    const response = {
-      success: true,
+    const responseData = {
       data: {
         punto: pointInfo,
         mediciones: trafficData,
@@ -219,14 +210,14 @@ const getTrafficByPoint = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(response);
+    res.status(200).json(createResponse(responseData, 'Datos de tráfico por punto obtenidos exitosamente'));
 
   } catch (error) {
     console.log('Error al obtener datos de tráfico por punto', {
       error: error.message,
       puntoId: req.params.id
     });
-    next(new AppError('Error al obtener datos del punto de medida', 500));
+    next(createInternalError('Error al obtener datos del punto de medida', error));
   }
 };
 
@@ -256,20 +247,21 @@ const getTrafficStats = async (req, res, next) => {
     // Llamar al método optimizado del modelo (3 agregaciones en paralelo)
     const estadisticas = await Traffic.getTrafficStatisticsOptimized(filters);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: estadisticas,
       periodo: {
         inicio: filters.fecha?.$gte,
         fin: filters.fecha?.$lte
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Estadísticas de tráfico obtenidas exitosamente'));
 
   } catch (error) {
     console.error('Error obteniendo estadísticas de tráfico', {
       error: error.message
     });
-    next(new AppError('Error al obtener estadísticas de tráfico', 500));
+    next(createInternalError('Error al obtener estadísticas de tráfico', error));
   }
 };
 
@@ -291,8 +283,7 @@ const getCongestionAnalysis = async (req, res, next) => {
     // Llamar al método optimizado del modelo
     const analisis = await Traffic.getCongestionAnalysisOptimized(filters, groupBy);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         analisis,
         agrupacion: groupBy,
@@ -302,13 +293,15 @@ const getCongestionAnalysis = async (req, res, next) => {
         },
         total: analisis.length
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Análisis de congestión obtenido exitosamente'));
 
   } catch (error) {
     console.error('Error en análisis de congestión', {
       error: error.message
     });
-    next(new AppError('Error al analizar la congestión', 500));
+    next(createInternalError('Error al analizar la congestión', error));
   }
 };
 
@@ -340,8 +333,7 @@ const getHistoricalData = async (req, res, next) => {
     // Llamar al método optimizado del modelo
     const historicalData = await Traffic.getHistoricalDataOptimized(filters, aggregation);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         serie: historicalData,
         configuracion: {
@@ -354,14 +346,16 @@ const getHistoricalData = async (req, res, next) => {
         },
         total: historicalData.length
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Datos históricos obtenidos exitosamente'));
 
   } catch (error) {
     console.error('Error al obtener datos históricos', {
       error: error.message,
       query: req.query
     });
-    next(new AppError('Error al obtener datos históricos', 500));
+    next(createInternalError('Error al obtener datos históricos', error));
   }
 };
 

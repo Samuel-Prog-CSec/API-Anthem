@@ -128,18 +128,18 @@ function validateAndTransformRow(row, rowIndex) {
     }
 
     // Datos del contenedor
-    const modelo = cleanString(row['Modelo']);
+    const modelo = cleanString(row.Modelo);
     const descripcionModelo = cleanString(row['Descripcion Modelo']);
-    const cantidad = parseInt(row['Cantidad']) || 1;
-    const lote = parseInt(row['Lote']);
+    const cantidad = parseInt(row.Cantidad) || 1;
+    const lote = parseInt(row.Lote);
 
     if (!lote || ![1, 2, 3].includes(lote)) {
-      throw new Error(`Lote inválido: ${row['Lote']}`);
+      throw new Error(`Lote inválido: ${row.Lote}`);
     }
 
     // Información geográfica
-    const distrito = cleanString(row['Distrito']);
-    const barrio = cleanString(row['Barrio']);
+    const distrito = cleanString(row.Distrito);
+    const barrio = cleanString(row.Barrio);
 
     if (!distrito) {
       throw new Error('Distrito faltante');
@@ -150,7 +150,7 @@ function validateAndTransformRow(row, rowIndex) {
 
     // Dirección
     const tipoVia = cleanString(row['Tipo V�a'] || row['Tipo Vía']);
-    const nombreVia = cleanString(row['Nombre']);
+    const nombreVia = cleanString(row.Nombre);
     const numero = cleanString(row['N�mero'] || row['Número']);
 
     // Coordenadas UTM (en centímetros según documentación)
@@ -162,8 +162,8 @@ function validateAndTransformRow(row, rowIndex) {
     }
 
     // Coordenadas geográficas (longitud, latitud)
-    const longitude = parseNumber(row['LONGITUD']);
-    const latitude = parseNumber(row['LATITUD']);
+    const longitude = parseNumber(row.LONGITUD);
+    const latitude = parseNumber(row.LATITUD);
 
     if (longitude === null || latitude === null) {
       throw new Error('Coordenadas geográficas faltantes');

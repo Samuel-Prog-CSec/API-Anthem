@@ -7,9 +7,10 @@
 
 const { validationResult } = require('express-validator');
 const BikeAvailability = require('../models/BikeAvailability');
-const { AppError } = require('../utils/errorUtils');
+const { AppError, createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { parsePaginationParams, createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
 
 /**
@@ -52,15 +53,15 @@ exports.getAllBikeAvailability = async (req, res, next) => {
       BikeAvailability.countDocuments(filters)
     ]);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data,
       pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, total)
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Disponibilidad obtenida exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener disponibilidad de bicicletas:', error);
-    next(error);
+    next(createInternalError('Error al obtener disponibilidad de bicicletas', error));
   }
 };
 
@@ -77,10 +78,7 @@ exports.getBikeAvailabilityByDate = async (req, res, next) => {
 
     // Validar fecha
     if (isNaN(targetDate.getTime())) {
-      return res.status(400).json({
-        success: false,
-        message: 'Formato de fecha no válido'
-      });
+      return next(createBadRequestError('Formato de fecha no válido'));
     }
 
     const data = await BikeAvailability.findOne({ dia: targetDate })
@@ -88,20 +86,17 @@ exports.getBikeAvailabilityByDate = async (req, res, next) => {
       .lean();
 
     if (!data) {
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontraron datos para la fecha especificada'
-      });
+      return next(createNotFoundError('Datos de disponibilidad de bicicletas', date));
     }
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Datos obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener disponibilidad por fecha:', error);
-    next(error);
+    next(createInternalError('Error al obtener disponibilidad por fecha', error));
   }
 };
 
@@ -122,14 +117,10 @@ exports.getBikeStats = async (req, res, next) => {
     const stats = await BikeAvailability.getStatsByDateRange(start, end);
 
     if (!stats || stats.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontraron datos para el rango de fechas especificado'
-      });
+      return next(createNotFoundError('Estadísticas de bicicletas', `rango ${start.toISOString().split('T')[0]} - ${end.toISOString().split('T')[0]}`));
     }
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         periodo: {
           inicio: start.toISOString().split('T')[0],
@@ -137,11 +128,12 @@ exports.getBikeStats = async (req, res, next) => {
         },
         estadisticas: stats[0]
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener estadísticas de bicicletas:', error);
-    next(error);
+    next(createInternalError('Error al obtener estadísticas de bicicletas', error));
   }
 };
 
@@ -158,10 +150,7 @@ exports.getMonthlyTrends = async (req, res, next) => {
     const trends = await BikeAvailability.getMonthlyTrends(parseInt(year));
 
     if (!trends || trends.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: `No se encontraron datos para el año ${year}`
-      });
+      return next(createNotFoundError('Tendencias mensuales', `año ${year}`));
     }
 
     // Mapear números de mes a nombres
@@ -181,17 +170,17 @@ exports.getMonthlyTrends = async (req, res, next) => {
       porcentajeAnual: Math.round((item.totalUsosAnual / item.totalUsos) * 100 * 100) / 100
     }));
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         year: parseInt(year),
         tendencias: formattedTrends
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Tendencias mensuales obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener tendencias mensuales:', error);
-    next(error);
+    next(createInternalError('Error al obtener tendencias mensuales', error));
   }
 };
 
@@ -207,17 +196,17 @@ exports.getTopUsageDays = async (req, res, next) => {
 
     const topDays = await BikeAvailability.getTopUsageDays(parseInt(limit));
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         diasMayorUso: topDays.topDays,
         diasMenorUso: topDays.bottomDays
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Días de uso obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener días de mayor uso:', error);
-    next(error);
+    next(createInternalError('Error al obtener días de mayor uso', error));
   }
 };
 
@@ -238,14 +227,10 @@ exports.getSubscriptionComparison = async (req, res, next) => {
     const comparison = await BikeAvailability.compareSubscriptionTypes(start, end);
 
     if (!comparison || comparison.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontraron datos para el rango especificado'
-      });
+      return next(createNotFoundError('Datos de comparación', `rango ${start.toISOString().split('T')[0]} - ${end.toISOString().split('T')[0]}`));
     }
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         periodo: {
           inicio: start.toISOString().split('T')[0],
@@ -253,11 +238,12 @@ exports.getSubscriptionComparison = async (req, res, next) => {
         },
         comparacion: comparison[0]
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Comparación obtenida exitosamente'));
 
   } catch (error) {
-    console.error('Error al comparar tipos de abonado:', error);
-    next(error);
+    next(createInternalError('Error al comparar tipos de abonado', error));
   }
 };
 
@@ -274,28 +260,29 @@ exports.getEfficiencyAnalysis = async (req, res, next) => {
     const filters = {};
     if (startDate || endDate) {
       filters.dia = {};
-      if (startDate) filters.dia.$gte = new Date(startDate);
-      if (endDate) filters.dia.$lte = new Date(endDate);
+      if (startDate) {
+        filters.dia.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        filters.dia.$lte = new Date(endDate);
+      }
     }
 
     // Llamar al método optimizado del modelo
     const analysis = await BikeAvailability.getEfficiencyAnalysisOptimized(filters);
 
     if (!analysis) {
-      return res.status(404).json({
-        success: false,
-        message: 'No se encontraron datos para el análisis'
-      });
+      return next(createNotFoundError('Datos de análisis de eficiencia'));
     }
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: analysis
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Análisis de eficiencia obtenido exitosamente'));
 
   } catch (error) {
-    console.error('Error al analizar eficiencia:', error);
-    next(error);
+    next(createInternalError('Error al analizar eficiencia', error));
   }
 };
 
@@ -312,25 +299,29 @@ exports.getHistoricalData = async (req, res, next) => {
     const filters = {};
     if (startDate || endDate) {
       filters.dia = {};
-      if (startDate) filters.dia.$gte = new Date(startDate);
-      if (endDate) filters.dia.$lte = new Date(endDate);
+      if (startDate) {
+        filters.dia.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        filters.dia.$lte = new Date(endDate);
+      }
     }
 
     // Llamar al método optimizado del modelo
     const historicalData = await BikeAvailability.getHistoricalDataOptimized(filters, aggregation);
 
-    res.status(200).json({
-      success: true,
+    const responseData = {
       data: {
         aggregation,
         total: historicalData.length,
         historico: historicalData
       }
-    });
+    };
+
+    res.status(200).json(createResponse(responseData, 'Datos históricos obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener datos históricos:', error);
-    next(error);
+    next(createInternalError('Error al obtener datos históricos', error));
   }
 };
 

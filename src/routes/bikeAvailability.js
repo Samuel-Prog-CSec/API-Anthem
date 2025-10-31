@@ -7,7 +7,7 @@
  */
 
 const express = require('express');
-const { param } = require('express-validator');
+const { param, query } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 
 const bikeController = require('../controllers/bikeAvailabilityController');

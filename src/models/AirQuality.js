@@ -489,8 +489,8 @@ airQualitySchema.statics.getTrendsOptimized = async function(provincia, municipi
 
   if (startDate || endDate) {
     matchFilters.fecha = {};
-    if (startDate) matchFilters.fecha.$gte = new Date(startDate);
-    if (endDate) matchFilters.fecha.$lte = new Date(endDate);
+    if (startDate) {matchFilters.fecha.$gte = new Date(startDate);}
+    if (endDate) {matchFilters.fecha.$lte = new Date(endDate);}
   }
 
   // Pipeline para tendencia diaria

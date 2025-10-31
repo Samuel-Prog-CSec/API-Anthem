@@ -79,22 +79,22 @@ function parseDate(dateStr) {
 function validateAndTransformRow(row, rowIndex) {
   try {
     // Parsear fecha (nombre columna en mayúsculas)
-    const dia = parseDate(row['DIA']);
+    const dia = parseDate(row.DIA);
 
     // Parsear todos los valores numéricos (manejar espacios en nombres de columna)
-    const horasTotalesUsosBicicletas = parseSpanishNumber(row['HORAS_TOTALES_USOS_BICICLETAS']);
+    const horasTotalesUsosBicicletas = parseSpanishNumber(row.HORAS_TOTALES_USOS_BICICLETAS);
 
     // El nombre de esta columna tiene un espacio extra en el CSV
     const horasTotalesDisponibilidadBicicletasEnAnclajes = parseSpanishNumber(
       row['HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN _ANCLAJES'] ||
-      row['HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN_ANCLAJES']
+      row.HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN_ANCLAJES
     );
 
-    const totalHorasServicioBicicletas = parseSpanishNumber(row['TOTAL_HORAS_SERVICIO_BICICLETAS']);
-    const mediaBicicletasDisponibles = parseSpanishNumber(row['MEDIA_BICICLETAS_DISPONIBLES']);
-    const usosAbonadoAnual = parseInt(row['USOS_ABONADO_ANUAL']) || 0;
-    const usosAbonadoOcasional = parseInt(row['USOS_ABONADO_OCASIONAL']) || 0;
-    const totalUsos = parseInt(row['TOTAL_USOS']) || 0;
+    const totalHorasServicioBicicletas = parseSpanishNumber(row.TOTAL_HORAS_SERVICIO_BICICLETAS);
+    const mediaBicicletasDisponibles = parseSpanishNumber(row.MEDIA_BICICLETAS_DISPONIBLES);
+    const usosAbonadoAnual = parseInt(row.USOS_ABONADO_ANUAL) || 0;
+    const usosAbonadoOcasional = parseInt(row.USOS_ABONADO_OCASIONAL) || 0;
+    const totalUsos = parseInt(row.TOTAL_USOS) || 0;
 
     // Validar valores mínimos
     if (horasTotalesUsosBicicletas < 0 ||

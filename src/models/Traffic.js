@@ -198,13 +198,13 @@ const trafficSchema = new mongoose.Schema({
 
         if (this.calidadDatos.error === 'N' && this.calidadDatos.periodoIntegracion >= 4) {
           return 'ALTA';
-        } else if (this.calidadDatos.error === 'E' && this.calidadDatos.periodoIntegracion >= 2) {
+        } if (this.calidadDatos.error === 'E' && this.calidadDatos.periodoIntegracion >= 2) {
           return 'MEDIA';
-        } else if (this.calidadDatos.error === 'S' || this.calidadDatos.periodoIntegracion < 2) {
+        } if (this.calidadDatos.error === 'S' || this.calidadDatos.periodoIntegracion < 2) {
           return 'BAJA';
-        } else {
-          return 'SIN_DATOS';
         }
+          return 'SIN_DATOS';
+
       }
     }
   },
@@ -228,13 +228,13 @@ const trafficSchema = new mongoose.Schema({
 
         if (ocupacion < 10 && carga < 25) {
           return 'FLUIDO';
-        } else if (ocupacion < 30 && carga < 50) {
+        } if (ocupacion < 30 && carga < 50) {
           return 'DENSO';
-        } else if (ocupacion < 60 && carga < 80) {
+        } if (ocupacion < 60 && carga < 80) {
           return 'CONGESTIONADO';
-        } else {
-          return 'COLAPSADO';
         }
+          return 'COLAPSADO';
+
       },
       index: true
     },
@@ -255,15 +255,15 @@ const trafficSchema = new mongoose.Schema({
 
         if (intensidad < 200) {
           return 'MUY_BAJA';
-        } else if (intensidad < 500) {
+        } if (intensidad < 500) {
           return 'BAJA';
-        } else if (intensidad < 1000) {
+        } if (intensidad < 1000) {
           return 'MEDIA';
-        } else if (intensidad < 2000) {
+        } if (intensidad < 2000) {
           return 'ALTA';
-        } else {
-          return 'MUY_ALTA';
         }
+          return 'MUY_ALTA';
+
       },
       index: true
     },
@@ -278,15 +278,15 @@ const trafficSchema = new mongoose.Schema({
 
         if (hora >= 0 && hora < 6) {
           return 'MADRUGADA';
-        } else if (hora >= 6 && hora < 12) {
+        } if (hora >= 6 && hora < 12) {
           return 'MAÑANA';
-        } else if (hora >= 12 && hora < 15) {
+        } if (hora >= 12 && hora < 15) {
           return 'MEDIODIA';
-        } else if (hora >= 15 && hora < 21) {
+        } if (hora >= 15 && hora < 21) {
           return 'TARDE';
-        } else {
-          return 'NOCHE';
         }
+          return 'NOCHE';
+
       },
       index: true
     },
@@ -302,11 +302,11 @@ const trafficSchema = new mongoose.Schema({
         const dayOfWeek = new Date(this.fecha).getDay();
         if (dayOfWeek === 0) {
           return 'DOMINGO_FESTIVO';
-        } else if (dayOfWeek === 6) {
+        } if (dayOfWeek === 6) {
           return 'SABADO';
-        } else {
-          return 'LABORABLE';
         }
+          return 'LABORABLE';
+
       },
       index: true
     }

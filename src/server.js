@@ -144,7 +144,7 @@ const corsOptions = {
         'Origen null bloqueado - posible ataque de CORS bypass'
       );
       return callback(new Error('Not allowed by CORS'));
-    }    // Validar formato del origin (debe ser URL válida)
+    } // Validar formato del origin (debe ser URL válida)
     try {
       const originUrl = new URL(normalizedOrigin);
 
@@ -303,9 +303,9 @@ if (config.server.env === 'production') {
     const originalCookie = res.cookie.bind(res);
     res.cookie = (name, value, options = {}) => {
       return originalCookie(name, value, {
-        httpOnly: true,          // Previene XSS - cookie no accesible desde JS
-        secure: true,            // Solo HTTPS - obligatorio para sameSite='none'
-        sameSite: 'none',        // Permite CORS con credentials - requiere secure=true
+        httpOnly: true, // Previene XSS - cookie no accesible desde JS
+        secure: true, // Solo HTTPS - obligatorio para sameSite='none'
+        sameSite: 'none', // Permite CORS con credentials - requiere secure=true
         ...options
       });
     };
@@ -360,8 +360,8 @@ app.get('/', (req, res) => {
  * Error Handling Middleware
  * Must be last in the middleware chain
  */
-app.use(errorLogger);       // Log errors with Pino
-app.use(notFoundHandler);   // Handle 404 errors
+app.use(errorLogger); // Log errors with Pino
+app.use(notFoundHandler); // Handle 404 errors
 app.use(globalErrorHandler); // Handle all other errors
 
 /**

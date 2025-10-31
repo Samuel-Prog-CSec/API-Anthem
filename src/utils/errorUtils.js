@@ -119,6 +119,50 @@ const handleJWTError = (error) => {
 };
 
 /**
+ * Crear error de recurso no encontrado (404)
+ * @param {string} resource - Nombre del recurso (ej: 'Usuario', 'Multa', 'Accidente')
+ * @param {string|number} identifier - Identificador del recurso buscado (opcional)
+ * @returns {AppError} Error 404
+ */
+const createNotFoundError = (resource, identifier = null) => {
+  const message = identifier
+    ? `${resource} con identificador '${identifier}' no encontrado`
+    : `${resource} no encontrado`;
+
+  return new AppError(message, 404, {
+    type: 'not_found_error',
+    resource,
+    identifier
+  });
+};
+
+/**
+ * Crear error de solicitud incorrecta (400)
+ * @param {string} message - Mensaje del error
+ * @param {Object} details - Detalles adicionales del error (opcional)
+ * @returns {AppError} Error 400
+ */
+const createBadRequestError = (message, details = null) => {
+  return new AppError(message, 400, {
+    type: 'bad_request_error',
+    details
+  });
+};
+
+/**
+ * Crear error de prohibido/acceso denegado (403)
+ * @param {string} message - Mensaje del error
+ * @param {Object} details - Detalles adicionales (opcional)
+ * @returns {AppError} Error 403
+ */
+const createForbiddenError = (message = 'Acceso denegado', details = null) => {
+  return new AppError(message, 403, {
+    type: 'forbidden_error',
+    details
+  });
+};
+
+/**
  * Formatear error para respuesta HTTP
  * @param {AppError} error - Error a formatear
  * @param {boolean} includeStack - Incluir stack trace (solo desarrollo)
@@ -149,6 +193,9 @@ module.exports = {
   createAuthError,
   createInternalError,
   createConflictError,
+  createNotFoundError,
+  createBadRequestError,
+  createForbiddenError,
   handleMongoError,
   handleJWTError,
   formatErrorResponse
