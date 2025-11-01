@@ -17,28 +17,53 @@ const bikeAvailabilitySchema = new mongoose.Schema({
   // Fecha del registro
   dia: {
     type: Date,
-    required: [true, 'La fecha es obligatoria']
+    required: [true, 'La fecha es obligatoria'],
+    validate: {
+      validator: function(v) {
+        // No permitir fechas futuras
+        return v <= new Date();
+      },
+      message: 'La fecha no puede ser futura'
+    }
   },
 
   // Horas totales que los usuarios han utilizado bicicletas
   horasTotalesUsosBicicletas: {
     type: Number,
     required: [true, 'Horas totales de uso es obligatorio'],
-    min: [0, 'Las horas de uso no pueden ser negativas']
+    min: [0, 'Las horas de uso no pueden ser negativas'],
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v) || v % 1 !== 0;
+      },
+      message: 'Las horas de uso deben ser un número válido'
+    }
   },
 
   // Horas totales que ha habido bicicletas disponibles en anclajes
   horasTotalesDisponibilidadBicicletasEnAnclajes: {
     type: Number,
     required: [true, 'Horas totales de disponibilidad es obligatorio'],
-    min: [0, 'Las horas de disponibilidad no pueden ser negativas']
+    min: [0, 'Las horas de disponibilidad no pueden ser negativas'],
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v) || v % 1 !== 0;
+      },
+      message: 'Las horas de disponibilidad deben ser un número válido'
+    }
   },
 
   // Sumatorio de horas de uso y disponibilidad
   totalHorasServicioBicicletas: {
     type: Number,
     required: [true, 'Total de horas de servicio es obligatorio'],
-    min: [0, 'El total de horas de servicio no puede ser negativo']
+    min: [0, 'El total de horas de servicio no puede ser negativo'],
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v) || v % 1 !== 0;
+      },
+      message: 'El total de horas de servicio debe ser un número válido'
+    }
   },
 
   // Media de bicicletas disponibles (total horas servicio / 24)
@@ -53,7 +78,13 @@ const bikeAvailabilitySchema = new mongoose.Schema({
     type: Number,
     required: [true, 'Usos de abonado anual es obligatorio'],
     min: [0, 'Los usos no pueden ser negativos'],
-    default: 0
+    default: 0,
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v);
+      },
+      message: 'Los usos deben ser un número entero'
+    }
   },
 
   // Número de viajes de usuarios con abono ocasional
@@ -61,14 +92,26 @@ const bikeAvailabilitySchema = new mongoose.Schema({
     type: Number,
     required: [true, 'Usos de abonado ocasional es obligatorio'],
     min: [0, 'Los usos no pueden ser negativos'],
-    default: 0
+    default: 0,
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v);
+      },
+      message: 'Los usos deben ser un número entero'
+    }
   },
 
   // Total de viajes del día
   totalUsos: {
     type: Number,
     required: [true, 'Total de usos es obligatorio'],
-    min: [0, 'El total de usos no puede ser negativo']
+    min: [0, 'El total de usos no puede ser negativo'],
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v);
+      },
+      message: 'El total de usos debe ser un número entero'
+    }
   },
 
   // Campos calculados para análisis

@@ -7,20 +7,22 @@
 
 const { formatErrorResponse, handleMongoError, handleJWTError } = require('../utils/errorUtils');
 const config = require('../config/config');
+const logger = require('../config/logger');
 
 /**
  * Middleware para manejo centralizado de errores
  */
-const globalErrorHandler = (err, req, res, next) => {
-  // Log del error
-  console.error('Error capturado por globalErrorHandler:', {
-    message: err.message,
+const globalErrorHandler = (err, req, res, _next) => {
+  // Log del error con logger
+  logger.error({
+    error: err.message,
     stack: err.stack,
     url: req.originalUrl,
     method: req.method,
     ip: req.ip,
-    userAgent: req.get('User-Agent')
-  });
+    userAgent: req.get('User-Agent'),
+    userId: req.user?.id
+  }, 'Error capturado por globalErrorHandler');
 
   // Manejar errores específicos de MongoDB
   if (err.name === 'ValidationError' || err.name === 'CastError' || err.code === 11000) {
@@ -44,18 +46,19 @@ const globalErrorHandler = (err, req, res, next) => {
 /**
  * Middleware para rutas no encontradas
  */
-const notFoundHandler = (req, res, next) => {
+const notFoundHandler = (req, res, _next) => {
   const error = {
     message: `Ruta ${req.originalUrl} no encontrada`,
     statusCode: 404,
     status: 'fail'
   };
 
-  console.log('Ruta no encontrada:', {
+  logger.warn({
     url: req.originalUrl,
     method: req.method,
-    ip: req.ip
-  });
+    ip: req.ip,
+    userAgent: req.get('User-Agent')
+  }, 'Ruta no encontrada');
 
   res.status(404).json({
     success: false,
@@ -72,12 +75,12 @@ const notFoundHandler = (req, res, next) => {
  */
 const handleUnhandledRejection = () => {
   process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Unhandled Rejection:', {
+    logger.fatal({
       reason: reason,
       promise: promise
-    });
+    }, '❌ Unhandled Rejection detectado');
 
-    console.error('⚠️  Proceso terminado debido a Unhandled Rejection');
+    logger.fatal('⚠️ Proceso terminado debido a Unhandled Rejection');
     process.exit(1);
   });
 };
@@ -87,12 +90,12 @@ const handleUnhandledRejection = () => {
  */
 const handleUncaughtException = () => {
   process.on('uncaughtException', (error) => {
-    console.error('❌ Uncaught Exception:', {
-      message: error.message,
+    logger.fatal({
+      error: error.message,
       stack: error.stack
-    });
+    }, '❌ Uncaught Exception detectado');
 
-    console.error('⚠️  Proceso terminado debido a Uncaught Exception');
+    logger.fatal('⚠️ Proceso terminado debido a Uncaught Exception');
     process.exit(1);
   });
 };
@@ -103,11 +106,12 @@ const handleUncaughtException = () => {
 const timeoutHandler = (timeout = 30000) => {
   return (req, res, next) => {
     res.setTimeout(timeout, () => {
-      console.error('Request timeout:', {
+      logger.error({
         url: req.originalUrl,
         method: req.method,
-        timeout: timeout
-      });
+        timeout: timeout,
+        ip: req.ip
+      }, 'Request timeout');
 
       res.status(408).json({
         success: false,

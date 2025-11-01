@@ -12,6 +12,7 @@ const { query, body } = require('express-validator');
 const accidentController = require('../controllers/accidentController');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
+const logger = require('../config/logger');
 const {
   validateDateRange,
   validateDistritoQuery,
@@ -199,13 +200,14 @@ router.get('/export',
   validateAccidentFilters,
   async (req, res, next) => {
     try {
-      console.log('Exportación de datos de accidentes solicitada', {
-        user: req.user.id,
+      logger.info({
+        userId: req.user.id,
         format: req.query.format || 'json',
         includePersonalData: req.query.includePersonalData === 'true',
-        anonymize: req.query.anonymize !== 'false', // Por defecto anonymize = true
-        filters: req.query
-      });
+        anonymize: req.query.anonymize !== 'false',
+        filters: req.query,
+        endpoint: 'POST /api/accidents/export'
+      }, 'Exportación de datos de accidentes solicitada');
 
       // Por seguridad, siempre anonimizar para no-admins
       if (req.user.role !== 'admin' && req.query.includePersonalData === 'true') {
@@ -253,11 +255,12 @@ router.post('/bulk-update',
     try {
       const { operation, filters } = req.body;
 
-      console.log('Actualización masiva de accidentes solicitada', {
-        user: req.user.id,
+      logger.info({
+        userId: req.user.id,
         operation,
-        filters
-      });
+        filters,
+        endpoint: 'PUT /api/accidents/bulk-update'
+      }, 'Actualización masiva de accidentes solicitada');
 
       // TODO: Implementar operaciones de actualización masiva
       res.status(501).json({
@@ -298,11 +301,12 @@ router.delete('/cleanup',
     try {
       const { operation, olderThanDays } = req.body;
 
-      console.log('Limpieza de datos de accidentes solicitada', {
-        user: req.user.id,
+      logger.info({
+        userId: req.user.id,
         operation,
-        olderThanDays
-      });
+        olderThanDays,
+        endpoint: 'DELETE /api/accidents/cleanup'
+      }, 'Limpieza de datos de accidentes solicitada');
 
       // TODO: Implementar lógica de limpieza
       res.status(501).json({
@@ -338,10 +342,11 @@ router.get('/risk-prediction',
   ],
   async (req, res, next) => {
     try {
-      console.log('Análisis predictivo de riesgo solicitado', {
-        user: req.user.id,
-        modelo: req.query.modelo
-      });
+      logger.info({
+        userId: req.user.id,
+        modelo: req.query.modelo,
+        endpoint: 'POST /api/accidents/predictive-analysis'
+      }, 'Análisis predictivo de riesgo solicitado');
 
       // TODO: Implementar modelos predictivos
       res.status(501).json({
@@ -364,14 +369,14 @@ router.use((req, res, next) => {
   res.on('finish', () => {
     const duration = Date.now() - start;
 
-    console.log('Consulta de accidentes completada', {
+    logger.debug({
       method: req.method,
       path: req.path,
       statusCode: res.statusCode,
       duration: `${duration}ms`,
-      user: req.user?.id,
+      userId: req.user?.id,
       query: Object.keys(req.query).length > 0 ? req.query : undefined
-    });
+    }, 'Consulta de accidentes completada');
   });
 
   next();
@@ -380,18 +385,21 @@ router.use((req, res, next) => {
 /**
  * Manejo de errores específico para rutas de accidentes
  */
-router.use((error, req, res, next) => {
-  console.log('Error en rutas de accidentes', {
+router.use((error, req, res, _next) => {
+  logger.error({
     error: error.message,
     stack: error.stack,
     path: req.path,
     method: req.method,
-    user: req.user?.id
-  });
+    userId: req.user?.id
+  }, 'Error en rutas de accidentes');
 
   // Si el error ya fue manejado, pasarlo al siguiente middleware
   if (error.status || error.statusCode) {
-    return next(error);
+    return res.status(error.status || error.statusCode).json({
+      success: false,
+      message: error.message
+    });
   }
 
   // Error específico de accidentes

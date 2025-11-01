@@ -19,6 +19,7 @@ const {
   validateTrafficFilters
 } = require('../middleware/validation');
 const { cacheMiddleware } = require('../middleware/cache');
+const logger = require('../config/logger');
 
 
 const router = express.Router();
@@ -204,11 +205,12 @@ router.get('/export',
   validateTrafficFilters,
   async (req, res, next) => {
     try {
-      console.log('Exportación de datos de tráfico solicitada', {
-        user: req.user.id,
+      logger.info({
+        userId: req.user.id,
         format: req.query.format || 'json',
-        filters: req.query
-      });
+        filters: req.query,
+        endpoint: 'POST /api/traffic/export'
+      }, 'Exportación de datos de tráfico solicitada');
 
       // TODO: Implementar lógica de exportación
       res.status(501).json({
@@ -244,10 +246,11 @@ router.delete('/cleanup',
     try {
       const { olderThanDays } = req.body;
 
-      console.log('Limpieza de datos de tráfico solicitada', {
-        user: req.user.id,
-        olderThanDays
-      });
+      logger.info({
+        userId: req.user.id,
+        olderThanDays,
+        endpoint: 'DELETE /api/traffic/cleanup'
+      }, 'Limpieza de datos de tráfico solicitada');
 
       // TODO: Implementar lógica de limpieza
       res.status(501).json({
@@ -270,14 +273,14 @@ router.use((req, res, next) => {
   res.on('finish', () => {
     const duration = Date.now() - start;
 
-    console.log('Consulta de tráfico completada', {
+    logger.debug({
       method: req.method,
       path: req.path,
       statusCode: res.statusCode,
       duration: `${duration}ms`,
-      user: req.user?.id,
+      userId: req.user?.id,
       query: Object.keys(req.query).length > 0 ? req.query : undefined
-    });
+    }, 'Consulta de tráfico completada');
   });
 
   next();
@@ -286,18 +289,21 @@ router.use((req, res, next) => {
 /**
  * Manejo de errores específico para rutas de tráfico
  */
-router.use((error, req, res, next) => {
-  console.log('Error en rutas de tráfico', {
+router.use((error, req, res, _next) => {
+  logger.error({
     error: error.message,
     stack: error.stack,
     path: req.path,
     method: req.method,
-    user: req.user?.id
-  });
+    userId: req.user?.id
+  }, 'Error en rutas de tráfico');
 
   // Si el error ya fue manejado, pasarlo al siguiente middleware
   if (error.status || error.statusCode) {
-    return next(error);
+    return res.status(error.status || error.statusCode).json({
+      success: false,
+      message: error.message
+    });
   }
 
   // Error específico de tráfico

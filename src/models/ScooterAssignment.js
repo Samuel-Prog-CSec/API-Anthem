@@ -50,7 +50,14 @@ const scooterAssignmentSchema = new mongoose.Schema({
     type: Date,
     required: [true, 'Fecha de asignación obligatoria'],
     default: Date.now,
-    index: true
+    index: true,
+    validate: {
+      validator: function(v) {
+        // No permitir fechas futuras
+        return v <= new Date();
+      },
+      message: 'La fecha de asignación no puede ser futura'
+    }
   },
 
   // Información geográfica administrativa
@@ -93,15 +100,33 @@ const scooterAssignmentSchema = new mongoose.Schema({
       type: Number,
       required: [true, 'Total de patinetes obligatorio'],
       min: [0, 'Total no puede ser negativo'],
-      index: true
+      index: true,
+      validate: {
+        validator: function(v) {
+          return Number.isInteger(v);
+        },
+        message: 'Total de patinetes debe ser un número entero'
+      }
     },
     totalProveedores: {
       type: Number,
-      min: [0, 'Total proveedores no puede ser negativo']
+      min: [0, 'Total proveedores no puede ser negativo'],
+      validate: {
+        validator: function(v) {
+          return v === undefined || v === null || Number.isInteger(v);
+        },
+        message: 'Total proveedores debe ser un número entero'
+      }
     },
     proveedoresActivos: {
       type: Number,
-      min: [0, 'Proveedores activos no puede ser negativo']
+      min: [0, 'Proveedores activos no puede ser negativo'],
+      validate: {
+        validator: function(v) {
+          return v === undefined || v === null || Number.isInteger(v);
+        },
+        message: 'Proveedores activos debe ser un número entero'
+      }
     },
     promedioPatinetesPorProveedor: {
       type: Number,
@@ -276,6 +301,13 @@ scooterAssignmentSchema.index({ fechaAsignacion: 1, 'proveedores.nombre': 1 }, {
 // Usado en: series temporales de distribución, comparativas distritales
 scooterAssignmentSchema.index({ 'distrito.nombre': 1, fechaAsignacion: 1 }, {
   name: 'idx_scooters_district_evolution',
+  background: true
+});
+
+// Índice compuesto fecha + totalPatinetes (consultas de disponibilidad)
+// Usado en: análisis de disponibilidad temporal, ranking de zonas por capacidad
+scooterAssignmentSchema.index({ fechaAsignacion: 1, 'estadisticas.totalPatinetes': -1 }, {
+  name: 'idx_scooters_availability_ranking',
   background: true
 });
 
@@ -833,6 +865,196 @@ scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = n
     analisisDesbalance,
     recomendaciones
   }));
+};
+
+/**
+ * Obtener asignaciones con filtros complejos y paginación
+ * Consolida la lógica de filtrado, ordenación, paginación y projection
+ * @param {Object} filters - Filtros construidos desde queryHelper
+ * @param {Object} sortOptions - Opciones de ordenación
+ * @param {Object} pagination - Opciones de paginación (skip, limit)
+ * @param {Object} projection - Proyección condicional de campos
+ * @returns {Promise<Object>} - Datos paginados con metadata
+ */
+scooterAssignmentSchema.statics.getAssignmentsWithFilters = async function(filters, sortOptions, pagination, projection = {}) {
+  const { skip, limit } = pagination;
+
+  // Consulta principal con projection
+  const query = this.find(filters, projection)
+    .sort(sortOptions)
+    .skip(skip)
+    .limit(limit)
+    .lean();
+
+  // Total de documentos que coinciden con filtros
+  const total = await this.countDocuments(filters);
+
+  // Ejecutar consulta
+  const asignaciones = await query;
+
+  return {
+    asignaciones,
+    total,
+    page: Math.floor(skip / limit) + 1,
+    totalPages: Math.ceil(total / limit),
+    hasNextPage: skip + limit < total,
+    hasPrevPage: skip > 0
+  };
+};
+
+/**
+ * Obtener detalles optimizados de un área específica
+ * Incluye datos del área, historial y comparación con áreas similares
+ * @param {String} distrito - Nombre del distrito
+ * @param {String} barrio - Nombre del barrio
+ * @param {Date|null} fecha - Fecha específica o null para más reciente
+ * @returns {Promise<Object>} - Detalles completos del área
+ */
+scooterAssignmentSchema.statics.getAreaDetailsOptimized = async function(distrito, barrio, fecha = null) {
+  // Construir filtro base
+  const baseFilter = {
+    'distrito.nombre': new RegExp(distrito, 'i'),
+    'barrio.nombre': new RegExp(barrio, 'i')
+  };
+
+  // Buscar el área específica
+  const areaFilter = { ...baseFilter };
+  if (fecha) {
+    const fechaInicio = new Date(fecha);
+    const fechaFin = new Date(fechaInicio.getTime() + 24 * 60 * 60 * 1000);
+    areaFilter.fechaAsignacion = { $gte: fechaInicio, $lt: fechaFin };
+  } else {
+    // Si no hay fecha, buscar el más reciente
+    const ultimoRegistro = await this.findOne(baseFilter)
+      .sort({ fechaAsignacion: -1 })
+      .lean();
+
+    if (!ultimoRegistro) {
+      return null;
+    }
+
+    const fechaInicio = new Date(ultimoRegistro.fechaAsignacion);
+    const fechaFin = new Date(fechaInicio.getTime() + 24 * 60 * 60 * 1000);
+    areaFilter.fechaAsignacion = { $gte: fechaInicio, $lt: fechaFin };
+  }
+
+  // Ejecutar consultas en paralelo
+  const [area, historial, areasSimilares] = await Promise.all([
+    // 1. Área principal
+    this.findOne(areaFilter).lean(),
+
+    // 2. Historial (últimos 10 registros) - solo si no se especificó fecha
+    fecha ? Promise.resolve([]) : this.find(baseFilter)
+      .select('fechaAsignacion estadisticas.totalPatinetes estadisticas.densidadPatinetes')
+      .sort({ fechaAsignacion: -1 })
+      .limit(10)
+      .lean(),
+
+    // 3. Áreas similares (misma clasificación, diferente ubicación)
+    (async () => {
+      const areaTemp = await this.findOne(areaFilter).lean();
+      if (!areaTemp) {
+        return [];
+      }
+
+      return this.find({
+        'clasificacionArea.tipoZona': areaTemp.clasificacionArea.tipoZona,
+        'distrito.nombre': { $ne: areaTemp.distrito.nombre },
+        fechaAsignacion: areaTemp.fechaAsignacion
+      })
+      .select('distrito.nombre barrio.nombre estadisticas.totalPatinetes')
+      .sort({ 'estadisticas.totalPatinetes': -1 })
+      .limit(5)
+      .lean();
+    })()
+  ]);
+
+  if (!area) {
+    return null;
+  }
+
+  return {
+    area,
+    historial,
+    areasSimilares
+  };
+};
+
+/**
+ * Obtener comparativa temporal entre ubicaciones
+ * Agrupa datos por fecha y ubicación con estadísticas agregadas
+ * @param {Date} fechaInicio - Fecha de inicio del rango
+ * @param {Date} fechaFin - Fecha de fin del rango
+ * @param {String|null} distrito - Distrito específico o null para todos
+ * @param {String} agrupacion - Tipo de agrupación: 'distrito' o 'barrio'
+ * @returns {Promise<Object>} - Datos procesados listos para frontend
+ */
+scooterAssignmentSchema.statics.getTemporalComparisonData = async function(fechaInicio, fechaFin, distrito = null, agrupacion = 'distrito') {
+  // Construir condición de match
+  const matchCondition = {
+    fechaAsignacion: {
+      $gte: new Date(fechaInicio),
+      $lte: new Date(fechaFin)
+    }
+  };
+
+  if (distrito) {
+    matchCondition['distrito.nombre'] = new RegExp(distrito, 'i');
+  }
+
+  // Campo de agrupación dinámico
+  const groupField = agrupacion === 'barrio' ?
+    { distrito: '$distrito.nombre', barrio: '$barrio.nombre' } :
+    '$distrito.nombre';
+
+  // Ejecutar agregación
+  const comparativa = await this.aggregate([
+    { $match: matchCondition },
+    {
+      $group: {
+        _id: {
+          fecha: {
+            $dateToString: {
+              format: '%Y-%m-%d',
+              date: '$fechaAsignacion'
+            }
+          },
+          ubicacion: groupField
+        },
+        totalPatinetes: { $sum: '$estadisticas.totalPatinetes' },
+        totalProveedores: { $avg: '$estadisticas.totalProveedores' },
+        densidadPromedio: { $avg: '$estadisticas.promedioPatinetesPorProveedor' }
+      }
+    },
+    {
+      $sort: { '_id.fecha': 1, '_id.ubicacion': 1 }
+    }
+  ]);
+
+  // Procesar datos para estructura amigable al frontend
+  const datosProcessados = {};
+  comparativa.forEach(item => {
+    const fecha = item._id.fecha;
+    const ubicacion = typeof item._id.ubicacion === 'object' ?
+      `${item._id.ubicacion.distrito} - ${item._id.ubicacion.barrio}` :
+      item._id.ubicacion;
+
+    if (!datosProcessados[ubicacion]) {
+      datosProcessados[ubicacion] = [];
+    }
+
+    datosProcessados[ubicacion].push({
+      fecha,
+      totalPatinetes: item.totalPatinetes,
+      totalProveedores: Math.round(item.totalProveedores),
+      densidadPromedio: Math.round(item.densidadPromedio * 100) / 100
+    });
+  });
+
+  return {
+    comparativa: datosProcessados,
+    totalUbicaciones: Object.keys(datosProcessados).length
+  };
 };
 
 // Crear y exportar el modelo

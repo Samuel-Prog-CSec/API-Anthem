@@ -4,13 +4,12 @@
  * Handles JWT token validation and user authentication.
  * Protects routes that require user authentication.
  *
- * @author API Development Team
- * @version 1.0.0
  */
 
 const User = require('../models/User');
 const { verifyToken, extractToken } = require('../utils/tokenHelper');
 const { createUnauthorizedResponse } = require('../utils/responseHelper');
+const { authLogger } = require('../config/logger');
 
 /**
  * Authentication middleware
@@ -73,7 +72,13 @@ const authenticate = async (req, res, next) => {
     next();
 
   } catch (error) {
-    console.error('❌ Authentication middleware error:', error);
+    authLogger.error({
+      error: error.message,
+      stack: error.stack,
+      path: req.path,
+      method: req.method,
+      ip: req.ip
+    }, 'Authentication middleware error');
     return res.status(500).json(
       createUnauthorizedResponse('Authentication error')
     );

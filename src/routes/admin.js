@@ -15,6 +15,7 @@ const { validateRequest } = require('../middleware/security');
 // Utilidades de caché
 const { clearCache, getCacheStats } = require('../middleware/cache');
 const { AppError } = require('../utils/errorUtils');
+const logger = require('../config/logger');
 
 const router = express.Router();
 
@@ -44,7 +45,12 @@ router.get('/cache/stats',
         }
       });
     } catch (error) {
-      console.error('Error obteniendo estadísticas de caché:', error);
+      logger.error({
+        error: error.message,
+        stack: error.stack,
+        endpoint: 'GET /api/v1/admin/cache/stats',
+        userId: req.user?.id
+      }, 'Error obteniendo estadísticas de caché');
       next(new AppError('Error interno del servidor al obtener estadísticas', 500));
     }
   }
@@ -86,10 +92,19 @@ router.delete('/cache/clear',
         }
       });
 
-      console.log(`[ADMIN] Caché limpiado por administrador. Patrón: ${pattern || 'ALL'}, Entradas eliminadas: ${result.deletedKeys || 'ALL'}`);
+      logger.info({
+        pattern: pattern || 'ALL',
+        deletedEntries: result.deletedKeys || 'ALL',
+        userId: req.user?.id
+      }, '[ADMIN] Caché limpiado por administrador');
 
     } catch (error) {
-      console.error('Error limpiando caché:', error);
+      logger.error({
+        error: error.message,
+        stack: error.stack,
+        endpoint: 'DELETE /api/v1/admin/cache/clear',
+        userId: req.user?.id
+      }, 'Error limpiando caché');
       next(new AppError('Error interno del servidor al limpiar caché', 500));
     }
   }
@@ -164,7 +179,12 @@ router.get('/system/health',
       });
 
     } catch (error) {
-      console.error('Error obteniendo estado de salud:', error);
+      logger.error({
+        error: error.message,
+        stack: error.stack,
+        endpoint: 'GET /api/v1/admin/system/health',
+        userId: req.user?.id
+      }, 'Error obteniendo estado de salud');
       next(new AppError('Error interno del servidor al obtener estado de salud', 500));
     }
   }

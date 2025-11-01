@@ -41,21 +41,39 @@ const airQualitySchema = new mongoose.Schema({
     required: [true, 'Código de provincia obligatorio'],
     min: [1, 'Código de provincia inválido'],
     max: [99, 'Código de provincia inválido'],
-    index: true
+    index: true,
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v);
+      },
+      message: 'El código de provincia debe ser un número entero'
+    }
   },
 
   municipio: {
     type: Number,
     required: [true, 'Código de municipio obligatorio'],
     min: [1, 'Código de municipio inválido'],
-    index: true
+    index: true,
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v);
+      },
+      message: 'El código de municipio debe ser un número entero'
+    }
   },
 
   estacion: {
     type: Number,
     required: [true, 'Código de estación obligatorio'],
     min: [1, 'Código de estación inválido'],
-    index: true
+    index: true,
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v);
+      },
+      message: 'El código de estación debe ser un número entero'
+    }
   },
 
   // Tipo de contaminante medido
@@ -67,9 +85,9 @@ const airQualitySchema = new mongoose.Schema({
       validator: function(v) {
         // Códigos comunes de magnitudes según normativa y datos reales
         const validMagnitudes = [1, 6, 7, 8, 9, 10, 12, 14, 20, 30, 35, 42, 43, 44];
-        return validMagnitudes.includes(v);
+        return Number.isInteger(v) && validMagnitudes.includes(v);
       },
-      message: 'Código de magnitud no válido'
+      message: 'Código de magnitud no válido o no es entero'
     }
   },
 
@@ -78,14 +96,27 @@ const airQualitySchema = new mongoose.Schema({
     type: String,
     required: [true, 'Punto de muestreo obligatorio'],
     trim: true,
-    index: true
+    index: true,
+    validate: {
+      validator: function(v) {
+        return v && v.length > 0;
+      },
+      message: 'Punto de muestreo no puede estar vacío'
+    }
   },
 
   // Fecha de la medición
   fecha: {
     type: Date,
     required: [true, 'Fecha de medición obligatoria'],
-    index: true
+    index: true,
+    validate: {
+      validator: function(v) {
+        // No permitir fechas futuras
+        return v <= new Date();
+      },
+      message: 'La fecha de medición no puede ser futura'
+    }
   },
 
   // Mediciones horarias (24 horas del día)
@@ -114,13 +145,20 @@ const airQualitySchema = new mongoose.Schema({
     },
     validMeasurements: {
       type: Number,
-      min: 0,
-      max: 24
+      min: [0, 'Mediciones válidas no puede ser negativo'],
+      max: [24, 'Mediciones válidas no puede superar 24'],
+      default: 0,
+      validate: {
+        validator: function(v) {
+          return Number.isInteger(v);
+        },
+        message: 'Mediciones válidas debe ser un número entero'
+      }
     },
     dataQualityScore: {
       type: Number,
-      min: 0,
-      max: 1,
+      min: [0, 'Score de calidad debe estar entre 0 y 1'],
+      max: [1, 'Score de calidad debe estar entre 0 y 1'],
       default: 0
     }
   }

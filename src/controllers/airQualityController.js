@@ -8,10 +8,11 @@
 const { validationResult } = require('express-validator');
 const AirQuality = require('../models/AirQuality');
 const { AppError, createValidationError, createInternalError } = require('../utils/errorUtils');
-const { parsePaginationParams, createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
+const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
+const logger = require('../config/logger');
 
 /**
  * Obtener datos de calidad de aire con filtros
@@ -49,7 +50,7 @@ const getAirQualityData = async (req, res, next) => {
       return next(new AppError(dateValidation.error, 400));
     }
 
-    // Configurar ordenamiento usando queryHelper
+    // Configurar ordenamiento y paginación usando queryHelper
     const sortOptions = buildSortOptions(
       req.query.sortBy || 'fecha',
       req.query.sortOrder || 'desc',
@@ -57,7 +58,6 @@ const getAirQualityData = async (req, res, next) => {
       'fecha'
     );
 
-    // Configurar paginación usando queryHelper
     const paginationOptions = buildPaginationOptions(req.query, {
       defaultLimit: PAGINATION.DEFAULT_LIMIT,
       maxLimit: PAGINATION.MAX_LIMIT,
@@ -65,37 +65,35 @@ const getAirQualityData = async (req, res, next) => {
     });
 
     // Ejecutar consulta con proyección optimizada
+    const projection = {
+      fecha: 1,
+      año: 1,
+      mes: 1,
+      provincia: 1,
+      municipio: 1,
+      estacion: 1,
+      magnitud: 1,
+      puntoMuestreo: 1,
+      'processingMetadata.validMeasurements': 1,
+      'processingMetadata.averageValue': 1,
+      'processingMetadata.maxValue': 1,
+      'processingMetadata.minValue': 1,
+      createdAt: 1
+    };
+
     const [data, totalDocuments] = await Promise.all([
-      AirQuality.find(filters)
+      AirQuality.find(filters, projection)
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .select({
-          fecha: 1,
-          año: 1,
-          mes: 1,
-          provincia: 1,
-          municipio: 1,
-          estacion: 1,
-          magnitud: 1,
-          puntoMuestreo: 1,
-          'processingMetadata.validMeasurements': 1,
-          'processingMetadata.averageValue': 1,
-          'processingMetadata.maxValue': 1,
-          'processingMetadata.minValue': 1,
-          createdAt: 1
-        })
         .lean(),
       AirQuality.countDocuments(filters)
     ]);
 
-    // Calcular metadatos de paginación
-    const paginationMeta = createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
-
     const responseData = {
       message: 'Datos de calidad de aire obtenidos exitosamente',
       data,
-      pagination: paginationMeta,
+      pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments),
       filters: {
         applied: Object.keys(filters).length > 0 ? filters : null,
         available: {
@@ -107,7 +105,12 @@ const getAirQualityData = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Datos de calidad de aire obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo datos de calidad de aire:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/air-quality'
+    }, 'Error obteniendo datos de calidad de aire');
     next(createInternalError('Error al obtener datos de calidad de aire', error));
   }
 };
@@ -128,21 +131,25 @@ const getAirQualityById = async (req, res, next) => {
 
     // Convertir mediciones horarias para respuesta
     const medicionesArray = [];
+    const valores = [];
+
     if (data.medicionesHorarias) {
       for (const [hora, medicion] of Object.entries(data.medicionesHorarias)) {
+        const horaNum = parseInt(hora.substring(1));
+        const esValido = medicion.validationCode === 'V';
         medicionesArray.push({
-          hora: parseInt(hora.substring(1)),
+          hora: horaNum,
           valor: medicion.value,
           codigoValidacion: medicion.validationCode,
-          esValido: medicion.validationCode === 'V'
+          esValido
         });
+        if (esValido && medicion.value !== null) {
+          valores.push(medicion.value);
+        }
       }
     }
 
     // Calcular estadísticas
-    const medicionesValidas = medicionesArray.filter(m => m.esValido && m.valor !== null);
-    const valores = medicionesValidas.map(m => m.valor);
-
     const estadisticas = valores.length > 0 ? {
       promedio: valores.reduce((sum, val) => sum + val, 0) / valores.length,
       maximo: Math.max(...valores),
@@ -166,7 +173,12 @@ const getAirQualityById = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Detalles de calidad de aire obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo detalles de calidad de aire:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      airQualityId: req.params.id,
+      endpoint: 'GET /api/v1/air-quality/:id'
+    }, 'Error obteniendo detalles de calidad de aire');
     next(createInternalError('Error al obtener registro por ID', error));
   }
 };
@@ -206,7 +218,12 @@ const getAirQualityStatistics = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Estadísticas de calidad de aire obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo estadísticas de calidad de aire:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/air-quality/statistics'
+    }, 'Error obteniendo estadísticas de calidad de aire');
     next(createInternalError('Error al calcular estadísticas', error));
   }
 };
@@ -255,7 +272,12 @@ const getAirQualityTrends = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Tendencias obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo tendencias de calidad de aire:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/air-quality/trends'
+    }, 'Error obteniendo tendencias de calidad de aire');
     next(createInternalError('Error al calcular tendencias', error));
   }
 };

@@ -6,6 +6,8 @@
  */
 
 const NodeCache = require('node-cache');
+const logger = require('../config/logger');
+const { cacheLogger } = logger;
 
 /**
  * Diferentes instancias de caché según el tipo de datos
@@ -140,7 +142,7 @@ const cacheMiddleware = (cacheType = 'traffic', keyGenerator = null) => {
       next();
 
     } catch (error) {
-      console.warn('Error en middleware de caché:', error);
+      cacheLogger.warn({ error: error.message, cacheType }, 'Error en middleware de caché');
       next();
     }
   };
@@ -176,7 +178,7 @@ const statsCacheMiddleware = () => {
       next();
 
     } catch (error) {
-      console.warn('Error en middleware de caché de estadísticas:', error);
+      cacheLogger.warn({ error: error.message }, 'Error en middleware de caché de estadísticas');
       next();
     }
   };
@@ -220,18 +222,18 @@ const clearCache = (cacheType = null, pattern = null) => {
       const keys = caches[cacheType].keys();
       const matchingKeys = keys.filter(key => key.includes(pattern));
       caches[cacheType].del(matchingKeys);
-      console.log(`Caché limpiado: ${cacheType} (${matchingKeys.length} claves con patrón "${pattern}")`);
+      cacheLogger.info({ cacheType, deletedKeys: matchingKeys.length, pattern }, 'Caché limpiado con patrón');
       return { deletedKeys: matchingKeys.length, pattern, type: cacheType };
     }
       caches[cacheType].flushAll();
-      console.log(`Caché limpiado: ${cacheType} (todas las claves)`);
+      cacheLogger.info({ cacheType }, 'Caché limpiado completamente');
       return { message: `Caché ${cacheType} limpiado completamente` };
 
   } if (!cacheType) {
     Object.keys(caches).forEach(type => {
       caches[type].flushAll();
     });
-    console.log('Todos los cachés limpiados');
+    cacheLogger.info('Todos los cachés limpiados');
     return { message: 'Todos los cachés limpiados' };
   }
   return { message: 'Tipo de caché no encontrado' };

@@ -13,6 +13,7 @@ const rateLimit = require('express-rate-limit');
 const bikeController = require('../controllers/bikeAvailabilityController');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
+const logger = require('../config/logger');
 const {
   validatePagination,
   validateDateRange,
@@ -182,14 +183,14 @@ router.use((req, res, next) => {
   res.on('finish', () => {
     const duration = Date.now() - start;
 
-    console.log('Consulta de bicicletas completada', {
+    logger.debug({
       method: req.method,
       path: req.path,
       statusCode: res.statusCode,
       duration: `${duration}ms`,
-      user: req.user?.id,
+      userId: req.user?.id,
       query: Object.keys(req.query).length > 0 ? req.query : undefined
-    });
+    }, 'Consulta de bicicletas completada');
   });
 
   next();
@@ -198,17 +199,20 @@ router.use((req, res, next) => {
 /**
  * Manejo de errores específico para rutas de bicicletas
  */
-router.use((error, req, res, next) => {
-  console.error('Error en rutas de bicicletas', {
+router.use((error, req, res, _next) => {
+  logger.error({
     error: error.message,
     stack: error.stack,
     path: req.path,
     method: req.method,
-    user: req.user?.id
-  });
+    userId: req.user?.id
+  }, 'Error en rutas de bicicletas');
 
   if (error.status || error.statusCode) {
-    return next(error);
+    return res.status(error.status || error.statusCode).json({
+      success: false,
+      message: error.message
+    });
   }
 
   res.status(500).json({

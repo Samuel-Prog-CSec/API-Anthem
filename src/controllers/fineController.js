@@ -13,6 +13,7 @@ const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginat
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
+const logger = require('../config/logger');
 
 /**
  * Obtener multas con filtros avanzados
@@ -156,7 +157,12 @@ const getFines = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Multas obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo multas:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/fines'
+    }, 'Error obteniendo multas');
     next(createInternalError('Error al obtener multas', error));
   }
 };
@@ -195,7 +201,12 @@ const getFineById = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Detalles de multa obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo detalles de multa:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      fineId: req.params.id,
+      endpoint: 'GET /api/v1/fines/:id'
+    }, 'Error obteniendo detalles de multa');
     next(createInternalError('Error al obtener multa por ID', error));
   }
 };
@@ -242,7 +253,12 @@ const getFinesStatistics = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Estadísticas de multas obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo estadísticas de multas:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/fines/statistics'
+    }, 'Error obteniendo estadísticas de multas');
     next(createInternalError('Error al calcular estadísticas', error));
   }
 };
@@ -286,7 +302,12 @@ const getLocationsRanking = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Ranking de ubicaciones obtenido exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo ranking de ubicaciones:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/fines/ranking/locations'
+    }, 'Error obteniendo ranking de ubicaciones');
     next(createInternalError('Error al obtener ranking', error));
   }
 };
@@ -329,7 +350,12 @@ const getTemporalAnalysis = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Análisis temporal obtenido exitosamente'));
 
   } catch (error) {
-    console.error('Error en análisis temporal de multas:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/fines/temporal-analysis'
+    }, 'Error en análisis temporal de multas');
     next(createInternalError('Error en análisis temporal', error));
   }
 };
@@ -467,7 +493,12 @@ const getDashboardMetrics = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Métricas del dashboard obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo métricas del dashboard:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/fines/dashboard-metrics'
+    }, 'Error obteniendo métricas del dashboard');
     next(createInternalError('Error al obtener métricas', error));
   }
 };

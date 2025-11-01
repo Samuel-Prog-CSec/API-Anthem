@@ -7,10 +7,10 @@
 
 const Container = require('../models/Container');
 const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
-const { parsePaginationParams, createPaginationMeta } = require('../utils/paginationHelper');
+const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION } = require('../constants');
+const { PAGINATION } = require('../constants');
 
 /**
  * Obtener todos los contenedores con filtros y paginación
@@ -358,20 +358,7 @@ exports.getHeatmapData = async (req, res, next) => {
   try {
     const { tipoContenedor } = req.query;
 
-    const filter = tipoContenedor ? { tipoContenedor: tipoContenedor.toUpperCase() } : {};
-
-    const heatmapData = await Container.aggregate([
-      { $match: filter },
-      {
-        $project: {
-          latitude: { $arrayElemAt: ['$location.coordinates', 1] },
-          longitude: { $arrayElemAt: ['$location.coordinates', 0] },
-          cantidad: 1,
-          tipoContenedor: 1
-        }
-      },
-      { $limit: 5000 } // Limitar para no sobrecargar el frontend
-    ]);
+    const heatmapData = await Container.getHeatmapData(tipoContenedor);
 
     const responseData = {
       data: {
@@ -398,42 +385,7 @@ exports.getCoverageAnalysis = async (req, res, next) => {
   try {
     const { distrito } = req.query;
 
-    const matchStage = distrito ? { $match: { distrito } } : { $match: {} };
-
-    const coverage = await Container.aggregate([
-      matchStage,
-      {
-        $group: {
-          _id: {
-            distrito: '$distrito',
-            tipoContenedor: '$tipoContenedor'
-          },
-          totalContenedores: { $sum: '$cantidad' },
-          totalUbicaciones: { $sum: 1 },
-          puntos: {
-            $push: {
-              lng: { $arrayElemAt: ['$location.coordinates', 0] },
-              lat: { $arrayElemAt: ['$location.coordinates', 1] }
-            }
-          }
-        }
-      },
-      {
-        $group: {
-          _id: '$_id.distrito',
-          distrito: { $first: '$_id.distrito' },
-          tipos: {
-            $push: {
-              tipo: '$_id.tipoContenedor',
-              total: '$totalContenedores',
-              ubicaciones: '$totalUbicaciones'
-            }
-          },
-          totalGeneral: { $sum: '$totalContenedores' }
-        }
-      },
-      { $sort: { distrito: 1 } }
-    ]);
+    const coverage = await Container.getCoverageAnalysis(distrito);
 
     const responseData = {
       data: {

@@ -8,10 +8,11 @@
 const { validationResult } = require('express-validator');
 const NoiseMonitoring = require('../models/NoiseMonitoring');
 const { AppError, createValidationError, createInternalError } = require('../utils/errorUtils');
-const { parsePaginationParams, createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
+const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION } = require('../constants');
+const { PAGINATION } = require('../constants');
+const logger = require('../config/logger');
 
 /**
  * Obtener datos de contaminación acústica con filtros
@@ -61,25 +62,16 @@ const getNoiseMonitoringData = async (req, res, next) => {
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .select('-percentiles -dataQuality -processingInfo') // Excluir datos detallados por defecto
+        .select('-percentiles -dataQuality -processingInfo')
         .lean(),
       NoiseMonitoring.countDocuments(filters)
     ]);
 
-    // Agregar información de cumplimiento normativo
-    const dataWithCompliance = data.map(item => {
-      const compliance = {
-        diurno: item.nivelDiurno <= 65,
-        vespertino: item.nivelVespertino <= 65,
-        nocturno: item.nivelNocturno <= 55,
-        global: item.nivelDiurno <= 65 && item.nivelVespertino <= 65 && item.nivelNocturno <= 55
-      };
-
-      return {
-        ...item,
-        cumplimientoNormativo: compliance
-      };
-    });
+    // Agregar cumplimiento normativo usando método del modelo
+    const dataWithCompliance = data.map(item => ({
+      ...item,
+      cumplimientoNormativo: NoiseMonitoring.calcularCumplimientoNormativo(item)
+    }));
 
     const responseData = {
       message: 'Datos de contaminación acústica obtenidos exitosamente',
@@ -93,7 +85,12 @@ const getNoiseMonitoringData = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Datos obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo datos de contaminación acústica:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/noise-monitoring'
+    }, 'Error obteniendo datos de contaminación acústica');
     next(createInternalError('Error al obtener datos de contaminación acústica', error));
   }
 };
@@ -112,34 +109,36 @@ const getNoiseMonitoringById = async (req, res, next) => {
       return next(new AppError('Registro de contaminación acústica no encontrado', 404));
     }
 
+    const { LIMITES_NORMATIVOS } = NoiseMonitoring;
+
     // Calcular análisis de cumplimiento normativo detallado
     const analisisNormativo = {
       limites: {
-        diurno: { valor: 65, descripcion: 'Límite diurno (07:00-19:00)' },
-        vespertino: { valor: 65, descripcion: 'Límite vespertino (19:00-23:00)' },
-        nocturno: { valor: 55, descripcion: 'Límite nocturno (23:00-07:00)' }
+        diurno: { valor: LIMITES_NORMATIVOS.DIURNO, descripcion: 'Límite diurno (07:00-19:00)' },
+        vespertino: { valor: LIMITES_NORMATIVOS.VESPERTINO, descripcion: 'Límite vespertino (19:00-23:00)' },
+        nocturno: { valor: LIMITES_NORMATIVOS.NOCTURNO, descripcion: 'Límite nocturno (23:00-07:00)' }
       },
       cumplimiento: {
         diurno: {
-          cumple: data.nivelDiurno ? data.nivelDiurno <= 65 : null,
-          exceso: data.nivelDiurno ? Math.max(0, data.nivelDiurno - 65) : 0
+          cumple: data.nivelDiurno ? data.nivelDiurno <= LIMITES_NORMATIVOS.DIURNO : null,
+          exceso: data.nivelDiurno ? Math.max(0, data.nivelDiurno - LIMITES_NORMATIVOS.DIURNO) : 0
         },
         vespertino: {
-          cumple: data.nivelVespertino ? data.nivelVespertino <= 65 : null,
-          exceso: data.nivelVespertino ? Math.max(0, data.nivelVespertino - 65) : 0
+          cumple: data.nivelVespertino ? data.nivelVespertino <= LIMITES_NORMATIVOS.VESPERTINO : null,
+          exceso: data.nivelVespertino ? Math.max(0, data.nivelVespertino - LIMITES_NORMATIVOS.VESPERTINO) : 0
         },
         nocturno: {
-          cumple: data.nivelNocturno ? data.nivelNocturno <= 55 : null,
-          exceso: data.nivelNocturno ? Math.max(0, data.nivelNocturno - 55) : 0
+          cumple: data.nivelNocturno ? data.nivelNocturno <= LIMITES_NORMATIVOS.NOCTURNO : null,
+          exceso: data.nivelNocturno ? Math.max(0, data.nivelNocturno - LIMITES_NORMATIVOS.NOCTURNO) : 0
         }
       }
     };
 
     // Determinar período más problemático
     const niveles = [
-      { periodo: 'diurno', valor: data.nivelDiurno, limite: 65 },
-      { periodo: 'vespertino', valor: data.nivelVespertino, limite: 65 },
-      { periodo: 'nocturno', valor: data.nivelNocturno, limite: 55 }
+      { periodo: 'diurno', valor: data.nivelDiurno, limite: LIMITES_NORMATIVOS.DIURNO },
+      { periodo: 'vespertino', valor: data.nivelVespertino, limite: LIMITES_NORMATIVOS.VESPERTINO },
+      { periodo: 'nocturno', valor: data.nivelNocturno, limite: LIMITES_NORMATIVOS.NOCTURNO }
     ].filter(n => n.valor !== null);
 
     const periodoMasProblematico = niveles.length > 0
@@ -170,7 +169,12 @@ const getNoiseMonitoringById = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Detalles obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo detalles de contaminación acústica:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      noiseId: req.params.id,
+      endpoint: 'GET /api/v1/noise-monitoring/:id'
+    }, 'Error obteniendo detalles de contaminación acústica');
     next(createInternalError('Error al obtener registro por ID', error));
   }
 };
@@ -186,12 +190,7 @@ const getNoiseStatistics = async (req, res, next) => {
       return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
     }
 
-    const {
-      startDate,
-      endDate,
-      nmt,
-      groupBy = 'station' // station, month, year
-    } = req.query;
+    const { groupBy = 'station' } = req.query;
 
     // Construir filtros usando queryHelper
     const filterConfig = [
@@ -200,142 +199,23 @@ const getNoiseStatistics = async (req, res, next) => {
     ];
 
     const matchStage = buildFilters(req.query, filterConfig);
-    matchStage['dataQuality.hasValidData'] = true;
 
-    // Configurar agrupación
-    let groupByConfig = {};
-    let sortStage = {};
-
-    switch (groupBy) {
-      case 'month':
-        groupByConfig = { año: '$año', mes: '$mes' };
-        sortStage = { '_id.año': -1, '_id.mes': -1 };
-        break;
-
-      case 'year':
-        groupByConfig = { año: '$año' };
-        sortStage = { '_id.año': -1 };
-        break;
-
-      case 'station':
-      default:
-        groupByConfig = { nmt: '$nmt', nombre: '$nombre' };
-        sortStage = { '_id.nmt': 1 };
-        break;
-    }
-
-    // Pipeline de agregación
-    const pipeline = [
-      { $match: matchStage },
-      {
-        $group: {
-          _id: groupByConfig,
-          promedioDiurno: { $avg: '$nivelDiurno' },
-          promedioVespertino: { $avg: '$nivelVespertino' },
-          promedioNocturno: { $avg: '$nivelNocturno' },
-          promedioLaeq24: { $avg: '$laeq24' },
-          maximoDiurno: { $max: '$nivelDiurno' },
-          maximoVespertino: { $max: '$nivelVespertino' },
-          maximoNocturno: { $max: '$nivelNocturno' },
-          maximoLaeq24: { $max: '$laeq24' },
-          minimoDiurno: { $min: '$nivelDiurno' },
-          minimoVespertino: { $min: '$nivelVespertino' },
-          minimoNocturno: { $min: '$nivelNocturno' },
-          minimoLaeq24: { $min: '$laeq24' },
-          totalMediciones: { $sum: 1 },
-          // Calcular incumplimientos
-          incumplimientosDiurnos: {
-            $sum: { $cond: [{ $gt: ['$nivelDiurno', 65] }, 1, 0] }
-          },
-          incumplimientosVespertinos: {
-            $sum: { $cond: [{ $gt: ['$nivelVespertino', 65] }, 1, 0] }
-          },
-          incumplimientosNocturnos: {
-            $sum: { $cond: [{ $gt: ['$nivelNocturno', 55] }, 1, 0] }
-          }
-        }
-      },
-      {
-        $addFields: {
-          // Calcular porcentajes de cumplimiento
-          cumplimientoDiurno: {
-            $multiply: [
-              { $divide: [
-                { $subtract: ['$totalMediciones', '$incumplimientosDiurnos'] },
-                '$totalMediciones'
-              ]},
-              100
-            ]
-          },
-          cumplimientoVespertino: {
-            $multiply: [
-              { $divide: [
-                { $subtract: ['$totalMediciones', '$incumplimientosVespertinos'] },
-                '$totalMediciones'
-              ]},
-              100
-            ]
-          },
-          cumplimientoNocturno: {
-            $multiply: [
-              { $divide: [
-                { $subtract: ['$totalMediciones', '$incumplimientosNocturnos'] },
-                '$totalMediciones'
-              ]},
-              100
-            ]
-          }
-        }
-      },
-      { $sort: sortStage },
-      { $limit: 200 }
-    ];
-
-    const estadisticas = await NoiseMonitoring.aggregate(pipeline);
-
-    // Obtener resumen general
-    const resumenGeneral = await NoiseMonitoring.aggregate([
-      { $match: matchStage },
-      {
-        $group: {
-          _id: null,
-          totalRegistros: { $sum: 1 },
-          estacionesUnicas: { $addToSet: '$nmt' },
-          promedioGeneralLaeq24: { $avg: '$laeq24' },
-          fechaInicio: { $min: '$fecha' },
-          fechaFin: { $max: '$fecha' },
-          totalIncumplimientos: {
-            $sum: {
-              $add: [
-                { $cond: [{ $gt: ['$nivelDiurno', 65] }, 1, 0] },
-                { $cond: [{ $gt: ['$nivelVespertino', 65] }, 1, 0] },
-                { $cond: [{ $gt: ['$nivelNocturno', 55] }, 1, 0] }
-              ]
-            }
-          }
-        }
-      }
-    ]);
+    // Obtener estadísticas con método optimizado del modelo
+    const { estadisticas, resumen } = await NoiseMonitoring.getStatisticsOptimized(matchStage, groupBy);
 
     const responseData = {
       message: 'Estadísticas de contaminación acústica obtenidas exitosamente',
       data: {
         estadisticas,
-        resumen: resumenGeneral[0] ? {
-          ...resumenGeneral[0],
-          totalEstaciones: resumenGeneral[0].estacionesUnicas.length,
-          porcentajeCumplimientoGeneral: resumenGeneral[0].totalRegistros > 0
-            ? ((resumenGeneral[0].totalRegistros * 3 - resumenGeneral[0].totalIncumplimientos) / (resumenGeneral[0].totalRegistros * 3)) * 100
-            : 0
-        } : null,
+        resumen,
         configuracion: {
           agrupacion: groupBy,
-          filtros: Object.keys(matchStage).length > 1 ? matchStage : null
+          filtros: Object.keys(matchStage).length > 0 ? matchStage : null
         },
         limitesNormativos: {
-          diurno: 65,
-          vespertino: 65,
-          nocturno: 55,
+          diurno: NoiseMonitoring.LIMITES_NORMATIVOS.DIURNO,
+          vespertino: NoiseMonitoring.LIMITES_NORMATIVOS.VESPERTINO,
+          nocturno: NoiseMonitoring.LIMITES_NORMATIVOS.NOCTURNO,
           descripcion: 'Límites en decibelios (dB) según normativa'
         }
       }
@@ -344,7 +224,12 @@ const getNoiseStatistics = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo estadísticas de contaminación acústica:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/noise-monitoring/statistics'
+    }, 'Error obteniendo estadísticas de contaminación acústica');
     next(createInternalError('Error al calcular estadísticas', error));
   }
 };
@@ -356,9 +241,7 @@ const getNoiseStatistics = async (req, res, next) => {
 const getNoiseRanking = async (req, res, next) => {
   try {
     const {
-      startDate,
-      endDate,
-      orderBy = 'laeq24', // laeq24, diurno, vespertino, nocturno
+      orderBy = 'laeq24',
       limit = 20
     } = req.query;
 
@@ -368,51 +251,9 @@ const getNoiseRanking = async (req, res, next) => {
     ];
 
     const matchStage = buildFilters(req.query, filterConfig);
-    matchStage['dataQuality.hasValidData'] = true;
 
-    // Configurar campo de ordenamiento
-    const orderByField = {
-      'diurno': '$nivelDiurno',
-      'vespertino': '$nivelVespertino',
-      'nocturno': '$nivelNocturno',
-      'laeq24': '$laeq24'
-    }[orderBy] || '$laeq24';
-
-    const pipeline = [
-      { $match: matchStage },
-      {
-        $group: {
-          _id: { nmt: '$nmt', nombre: '$nombre' },
-          promedioOrden: { $avg: orderByField },
-          promedioDiurno: { $avg: '$nivelDiurno' },
-          promedioVespertino: { $avg: '$nivelVespertino' },
-          promedioNocturno: { $avg: '$nivelNocturno' },
-          promedioLaeq24: { $avg: '$laeq24' },
-          maximoRegistrado: { $max: orderByField },
-          totalMediciones: { $sum: 1 },
-          ultimaMedicion: { $max: '$fecha' }
-        }
-      },
-      {
-        $addFields: {
-          cumplimientoGeneral: {
-            $cond: [
-              { $and: [
-                { $lte: ['$promedioDiurno', 65] },
-                { $lte: ['$promedioVespertino', 65] },
-                { $lte: ['$promedioNocturno', 55] }
-              ]},
-              'CUMPLE',
-              'NO_CUMPLE'
-            ]
-          }
-        }
-      },
-      { $sort: { promedioOrden: -1 } }, // Descendente (más ruidosos primero)
-      { $limit: parseInt(limit) }
-    ];
-
-    const ranking = await NoiseMonitoring.aggregate(pipeline);
+    // Obtener ranking con método optimizado del modelo
+    const ranking = await NoiseMonitoring.getRankingOptimized(matchStage, orderBy, parseInt(limit));
 
     const responseData = {
       message: 'Ranking de contaminación acústica obtenido exitosamente',
@@ -421,19 +262,16 @@ const getNoiseRanking = async (req, res, next) => {
         configuracion: {
           ordenadoPor: orderBy,
           descripcion: {
-            'laeq24': 'Nivel continuo equivalente 24h',
-            'diurno': 'Nivel diurno (07:00-19:00)',
-            'vespertino': 'Nivel vespertino (19:00-23:00)',
-            'nocturno': 'Nivel nocturno (23:00-07:00)'
+            laeq24: 'Nivel continuo equivalente 24h',
+            diurno: 'Nivel diurno (07:00-19:00)',
+            vespertino: 'Nivel vespertino (19:00-23:00)',
+            nocturno: 'Nivel nocturno (23:00-07:00)'
           }[orderBy],
           limite: parseInt(limit)
         },
         interpretacion: {
           orden: 'Descendente (de mayor a menor nivel de ruido)',
-          cumplimiento: {
-            'CUMPLE': 'Cumple con todos los límites normativos',
-            'NO_CUMPLE': 'Excede al menos un límite normativo'
-          }
+          limitesNormativos: NoiseMonitoring.LIMITES_NORMATIVOS
         }
       }
     };
@@ -441,7 +279,12 @@ const getNoiseRanking = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Ranking obtenido exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo ranking de contaminación acústica:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/noise-monitoring/ranking'
+    }, 'Error obteniendo ranking de contaminación acústica');
     next(createInternalError('Error al generar ranking', error));
   }
 };
@@ -498,7 +341,12 @@ const searchStations = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Búsqueda completada exitosamente'));
 
   } catch (error) {
-    console.error('Error buscando estaciones:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/noise-monitoring/search-stations'
+    }, 'Error buscando estaciones');
     next(createInternalError('Error en la búsqueda', error));
   }
 };

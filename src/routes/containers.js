@@ -14,6 +14,7 @@ const containerController = require('../controllers/containerController');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
+const logger = require('../config/logger');
 const {
   validatePagination,
   validateDistritoQuery,
@@ -249,14 +250,14 @@ router.use((req, res, next) => {
   res.on('finish', () => {
     const duration = Date.now() - start;
 
-    console.log('Consulta de contenedores completada', {
+    logger.debug({
       method: req.method,
       path: req.path,
       statusCode: res.statusCode,
       duration: `${duration}ms`,
-      user: req.user?.id,
+      userId: req.user?.id,
       query: Object.keys(req.query).length > 0 ? req.query : undefined
-    });
+    }, 'Consulta de contenedores completada');
   });
 
   next();
@@ -265,17 +266,20 @@ router.use((req, res, next) => {
 /**
  * Manejo de errores específico para rutas de contenedores
  */
-router.use((error, req, res, next) => {
-  console.error('Error en rutas de contenedores', {
+router.use((error, req, res, _next) => {
+  logger.error({
     error: error.message,
     stack: error.stack,
     path: req.path,
     method: req.method,
-    user: req.user?.id
-  });
+    userId: req.user?.id
+  }, 'Error en rutas de contenedores');
 
   if (error.status || error.statusCode) {
-    return next(error);
+    return res.status(error.status || error.statusCode).json({
+      success: false,
+      message: error.message
+    });
   }
 
   res.status(500).json({

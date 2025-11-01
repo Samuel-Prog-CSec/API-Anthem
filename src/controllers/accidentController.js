@@ -12,6 +12,7 @@ const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginat
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
+const logger = require('../config/logger');
 
 
 /**
@@ -35,29 +36,24 @@ const getAllAccidents = async (req, res, next) => {
       fecha: { type: 'dateRange', startDate: 'startDate', endDate: 'endDate' }
     };
 
-    // Filtros booleanos especiales
     const filters = buildFilters(req.query, filterConfig);
-    const { conAlcohol, conDrogas } = req.query;
-    if (conAlcohol === 'true') {filters['personaAfectada.positivaAlcohol'] = 'S';}
-    if (conAlcohol === 'false') {filters['personaAfectada.positivaAlcohol'] = 'N';}
-    if (conDrogas === 'true') {filters['personaAfectada.positivaDroga'] = 'S';}
-    if (conDrogas === 'false') {filters['personaAfectada.positivaDroga'] = 'N';}
 
-    // Configurar ordenamiento usando queryHelper
-    const sortMapping = {
-      fecha: 'fecha',
-      gravedad: 'analisis.puntuacionGravedad',
-      distrito: 'ubicacion.nombreDistrito'
-    };
+    // Filtros booleanos especiales
+    const { conAlcohol, conDrogas } = req.query;
+    if (conAlcohol === 'true') { filters['personaAfectada.positivaAlcohol'] = 'S'; }
+    if (conAlcohol === 'false') { filters['personaAfectada.positivaAlcohol'] = 'N'; }
+    if (conDrogas === 'true') { filters['personaAfectada.positivaDroga'] = 'S'; }
+    if (conDrogas === 'false') { filters['personaAfectada.positivaDroga'] = 'N'; }
+
+    // Configurar ordenamiento y paginación usando queryHelper
     const sortOptions = buildSortOptions(
       req.query,
-      sortMapping,
+      { fecha: 'fecha', gravedad: 'analisis.puntuacionGravedad', distrito: 'ubicacion.nombreDistrito' },
       Object.keys(SORT_FIELDS.ACCIDENT),
       'fecha',
       'desc'
     );
 
-    // Configurar paginación usando queryHelper
     const paginationOptions = buildPaginationOptions(
       req.query.page,
       req.query.limit,
@@ -65,40 +61,32 @@ const getAllAccidents = async (req, res, next) => {
       PAGINATION.MAX_LIMIT
     );
 
-    // Ejecutar consulta principal
-    const [accidents, totalCount] = await Promise.all([
+    // Ejecutar consulta principal y estadísticas en paralelo
+    const [accidents, totalCount, stats] = await Promise.all([
       Accident.find(filters)
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
         .lean(),
-      Accident.countDocuments(filters)
-    ]);
-
-    // Calcular estadísticas básicas para la respuesta
-    const stats = await Accident.aggregate([
-      { $match: filters },
-      {
-        $group: {
-          _id: null,
-          accidentesGraves: {
-            $sum: {
-              $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
-            }
-          },
-          accidentesMortales: {
-            $sum: {
-              $cond: [{ $eq: ['$circunstancias.gravedad', 'MORTAL'] }, 1, 0]
-            }
-          },
-          puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' },
-          accidentesConAlcohol: {
-            $sum: {
-              $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', 'S'] }, 1, 0]
+      Accident.countDocuments(filters),
+      Accident.aggregate([
+        { $match: filters },
+        {
+          $group: {
+            _id: null,
+            accidentesGraves: {
+              $sum: { $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0] }
+            },
+            accidentesMortales: {
+              $sum: { $cond: [{ $eq: ['$circunstancias.gravedad', 'MORTAL'] }, 1, 0] }
+            },
+            puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' },
+            accidentesConAlcohol: {
+              $sum: { $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', 'S'] }, 1, 0] }
             }
           }
         }
-      }
+      ])
     ]);
 
     const responseData = {
@@ -121,20 +109,22 @@ const getAllAccidents = async (req, res, next) => {
       }
     };
 
-    console.log('Datos de accidentes obtenidos exitosamente', {
+    logger.info({
       totalItems: totalCount,
       page: paginationOptions.page,
-      filters: Object.keys(filters)
-    });
+      filtersApplied: Object.keys(filters).length,
+      endpoint: 'GET /api/accidents'
+    }, 'Datos de accidentes obtenidos exitosamente');
 
-    res.status(200).json(createResponse(responseData, 'Accidentes obtenidos exitosamente'));
+    res.status(200).json(createResponse(responseData, 'Datos de accidentes obtenidos exitosamente'));
 
   } catch (error) {
-    console.log('Error al obtener datos de accidentes', {
+    logger.error({
       error: error.message,
       stack: error.stack,
-      query: req.query
-    });
+      query: req.query,
+      endpoint: 'GET /api/accidents'
+    }, 'Error al obtener datos de accidentes');
     next(createInternalError('Error al obtener los datos de accidentes', error));
   }
 };
@@ -147,7 +137,10 @@ const getAccidentByExpediente = async (req, res, next) => {
   try {
     const { numero } = req.params;
 
-    console.log('Obteniendo accidente por expediente', { expediente: numero });
+    logger.debug({
+      expediente: numero,
+      endpoint: 'GET /api/accidents/expediente/:numero'
+    }, 'Obteniendo accidente por expediente');
 
     // Buscar todas las personas afectadas en el mismo expediente
     const accidentData = await Accident.find({ numeroExpediente: numero })
@@ -158,40 +151,47 @@ const getAccidentByExpediente = async (req, res, next) => {
       return next(createNotFoundError('Accidente con expediente', numero));
     }
 
-    // Agrupar información del accidente
+    // Construir resumen sin múltiples filtros repetidos
+    const accidente = accidentData[0];
+    const personasAfectadas = accidentData.map(acc => ({
+      tipoPersona: acc.personaAfectada.tipoPersona,
+      rangoEdad: acc.personaAfectada.rangoEdad,
+      sexo: acc.personaAfectada.sexo,
+      tipoLesion: acc.personaAfectada.tipoLesion,
+      positivaAlcohol: acc.personaAfectada.positivaAlcohol,
+      positivaDroga: acc.personaAfectada.positivaDroga
+    }));
+
+    const resumen = personasAfectadas.reduce((acc, persona) => {
+      if (persona.tipoPersona === 'CONDUCTOR') { acc.conductores++; }
+      if (persona.tipoPersona === 'PEATON') { acc.peatones++; }
+      if (['GRAVE', 'FALLECIDO'].includes(persona.tipoLesion)) { acc.personasGraves++; }
+      if (persona.positivaAlcohol === 'S') { acc.conAlcohol++; }
+      return acc;
+    }, { totalPersonas: accidentData.length, conductores: 0, peatones: 0, personasGraves: 0, conAlcohol: 0 });
+
     const accidentInfo = {
-      expediente: accidentData[0].numeroExpediente,
-      fecha: accidentData[0].fecha,
-      hora: accidentData[0].hora,
-      ubicacion: accidentData[0].ubicacion,
-      circunstancias: accidentData[0].circunstancias,
-      vehiculo: accidentData[0].vehiculo,
-      analisis: accidentData[0].analisis,
-      personasAfectadas: accidentData.map(acc => ({
-        tipoPersona: acc.personaAfectada.tipoPersona,
-        rangoEdad: acc.personaAfectada.rangoEdad,
-        sexo: acc.personaAfectada.sexo,
-        tipoLesion: acc.personaAfectada.tipoLesion,
-        positivaAlcohol: acc.personaAfectada.positivaAlcohol,
-        positivaDroga: acc.personaAfectada.positivaDroga
-      })),
-      resumen: {
-        totalPersonas: accidentData.length,
-        conductores: accidentData.filter(acc => acc.personaAfectada.tipoPersona === 'CONDUCTOR').length,
-        peatones: accidentData.filter(acc => acc.personaAfectada.tipoPersona === 'PEATON').length,
-        personasGraves: accidentData.filter(acc => ['GRAVE', 'FALLECIDO'].includes(acc.personaAfectada.tipoLesion)).length,
-        conAlcohol: accidentData.filter(acc => acc.personaAfectada.positivaAlcohol === 'S').length
-      }
+      expediente: accidente.numeroExpediente,
+      fecha: accidente.fecha,
+      hora: accidente.hora,
+      ubicacion: accidente.ubicacion,
+      circunstancias: accidente.circunstancias,
+      vehiculo: accidente.vehiculo,
+      analisis: accidente.analisis,
+      personasAfectadas,
+      resumen
     };
 
-    res.status(200).json(createResponse({ data: accidentInfo }, 'Accidente obtenido exitosamente'));
+    return res.status(200).json(createResponse({ data: accidentInfo }, 'Accidente obtenido exitosamente'));
 
   } catch (error) {
-    console.log('Error al obtener accidente por expediente', {
+    logger.error({
       error: error.message,
-      expediente: req.params.numero
-    });
-    next(createInternalError('Error al obtener el accidente', error));
+      stack: error.stack,
+      expediente: req.params.numero,
+      endpoint: 'GET /api/accidents/expediente/:numero'
+    }, 'Error al obtener accidente por expediente');
+    return next(createInternalError('Error al obtener el accidente', error));
   }
 };
 
@@ -203,11 +203,12 @@ const getAccidentStats = async (req, res, next) => {
   try {
     const { startDate, endDate, distrito } = req.query;
 
-    console.log('Obteniendo estadísticas de accidentalidad', {
+    logger.debug({
       startDate,
       endDate,
-      distrito
-    });
+      distrito,
+      endpoint: 'GET /api/accidents/stats'
+    }, 'Obteniendo estadísticas de accidentalidad');
 
     // Construir filtros usando parseDateRangeFilter
     const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
@@ -265,10 +266,12 @@ const getAccidentStats = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Estadísticas completas obtenidas exitosamente'));
 
   } catch (error) {
-    console.log('Error al obtener estadísticas de accidentalidad', {
+    logger.error({
       error: error.message,
-      query: req.query
-    });
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/accidents/statistics-complete'
+    }, 'Error al obtener estadísticas de accidentalidad');
     next(createInternalError('Error al obtener estadísticas de accidentalidad', error));
   }
 };
@@ -306,9 +309,12 @@ const getAccidentHeatmap = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Mapa de calor generado exitosamente'));
 
   } catch (error) {
-    console.log('Error al generar mapa de calor', {
-      error: error.message
-    });
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/accidents/heatmap'
+    }, 'Error al generar mapa de calor');
     next(createInternalError('Error al generar el mapa de calor', error));
   }
 };
@@ -319,7 +325,7 @@ const getAccidentHeatmap = async (req, res, next) => {
  */
 const getSafetyAnalysis = async (req, res, next) => {
   try {
-    const { distrito, startDate, endDate } = req.query;
+    const { distrito } = req.query;
 
     // Construir filtros
     const filterConfig = {
@@ -353,9 +359,12 @@ const getSafetyAnalysis = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Puntos negros analizados exitosamente'));
 
   } catch (error) {
-    console.log('Error en análisis de seguridad vial', {
-      error: error.message
-    });
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/accidents/black-spots'
+    }, 'Error en análisis de seguridad vial');
     next(createInternalError('Error al realizar el análisis de seguridad vial', error));
   }
 };
@@ -366,8 +375,6 @@ const getSafetyAnalysis = async (req, res, next) => {
  */
 const getDistrictComparison = async (req, res, next) => {
   try {
-    const { startDate, endDate } = req.query;
-
     // Construir filtros usando queryHelper
     const filterConfig = {
       fecha: { type: 'dateRange', startDate: 'startDate', endDate: 'endDate' }
@@ -402,9 +409,12 @@ const getDistrictComparison = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Comparativa de distritos obtenida exitosamente'));
 
   } catch (error) {
-    console.log('Error en comparativa de distritos', {
-      error: error.message
-    });
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/accidents/district-comparison-complete'
+    }, 'Error en comparativa de distritos');
     next(createInternalError('Error al comparar distritos', error));
   }
 };

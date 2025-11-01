@@ -158,13 +158,28 @@ const accidentSchema = new mongoose.Schema({
   fecha: {
     type: Date,
     required: [true, 'Fecha del accidente obligatoria'],
-    index: true
+    index: true,
+    validate: {
+      validator: function(v) {
+        // No permitir fechas futuras
+        return v <= new Date();
+      },
+      message: 'La fecha del accidente no puede ser futura'
+    }
   },
 
   año: {
     type: Number,
     required: [true, 'Año obligatorio'],
-    index: true
+    min: [2000, 'Año debe ser mayor o igual a 2000'],
+    max: [2100, 'Año debe ser menor o igual a 2100'],
+    index: true,
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v);
+      },
+      message: 'El año debe ser un número entero'
+    }
   },
 
   mes: {
@@ -172,14 +187,26 @@ const accidentSchema = new mongoose.Schema({
     required: [true, 'Mes obligatorio'],
     min: [1, 'Mes debe estar entre 1 y 12'],
     max: [12, 'Mes debe estar entre 1 y 12'],
-    index: true
+    index: true,
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v);
+      },
+      message: 'El mes debe ser un número entero'
+    }
   },
 
   dia: {
     type: Number,
     required: [true, 'Día obligatorio'],
     min: [1, 'Día debe estar entre 1 y 31'],
-    max: [31, 'Día debe estar entre 1 y 31']
+    max: [31, 'Día debe estar entre 1 y 31'],
+    validate: {
+      validator: function(v) {
+        return Number.isInteger(v);
+      },
+      message: 'El día debe ser un número entero'
+    }
   },
 
   // Hora en formato de rango (ej: "1:15:00")

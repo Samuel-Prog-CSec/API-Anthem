@@ -3,7 +3,18 @@
  *
  * Maneja las operaciones CRUD y consultas para datos demográficos del censo.
  * Incluye análisis poblacional, distribución geográfica, pirámides poblacionales
- * y métricas demográficas avanzadas para el dashboard del frontend.
+ * y métric    res.status(200).json(createResponse(responseData, 'Datos de censo obtenidos exitosamente'));
+
+  } catch (error) {
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/census'
+    }, 'Error obteniendo datos de censo');
+    next(createInternalError('Error al obtener datos del censo', error));
+  }
+};gráficas avanzadas para el dashboard del frontend.
  */
 
 const { validationResult } = require('express-validator');
@@ -13,6 +24,7 @@ const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginat
 const { buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
+const logger = require('../config/logger');
 
 /**
  * Obtener datos de censo con filtros
@@ -207,7 +219,11 @@ const getCensusData = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Datos de censo obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo datos de censo:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      endpoint: 'GET /api/v1/census (otra función)'
+    }, 'Error obteniendo datos de censo');
     next(createInternalError('Error al obtener datos de censo', error));
   }
 };
@@ -248,7 +264,12 @@ const getPopulationPyramid = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Pirámide poblacional obtenida exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo pirámide poblacional:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/census/population-pyramid'
+    }, 'Error obteniendo pirámide poblacional');
     next(createInternalError('Error al obtener pirámide poblacional', error));
   }
 };
@@ -419,7 +440,12 @@ const getDistrictStatistics = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Estadísticas de distritos obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo estadísticas de distritos:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/census/district-statistics'
+    }, 'Error obteniendo estadísticas de distritos');
     next(createInternalError('Error al obtener estadísticas de distritos', error));
   }
 };
@@ -466,7 +492,12 @@ const getDemographicAnalysis = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Análisis demográfico obtenido exitosamente'));
 
   } catch (error) {
-    console.error('Error en análisis demográfico:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/census/demographic-analysis'
+    }, 'Error en análisis demográfico');
     next(createInternalError('Error en análisis demográfico', error));
   }
 };
@@ -602,7 +633,12 @@ const getDemographicEvolution = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Evolución demográfica obtenida exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo evolución demográfica:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/census/demographic-evolution'
+    }, 'Error obteniendo evolución demográfica');
     next(createInternalError('Error al obtener evolución demográfica', error));
   }
 };
@@ -751,7 +787,12 @@ const getDemographicDashboard = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Dashboard demográfico obtenido exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo dashboard demográfico:', error);
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/census/dashboard'
+    }, 'Error obteniendo dashboard demográfico');
     next(createInternalError('Error al obtener dashboard demográfico', error));
   }
 };

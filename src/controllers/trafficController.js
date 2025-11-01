@@ -11,6 +11,7 @@ const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginat
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
+const logger = require('../config/logger');
 
 /**
  * Obtener todas las mediciones de tráfico con filtros avanzados
@@ -18,19 +19,15 @@ const { SORT_FIELDS, PAGINATION } = require('../constants');
  */
 const getAllTrafficData = async (req, res, next) => {
   try {
-    console.log('Obteniendo datos de tráfico con filtros', {
+    logger.debug({
       query: req.query,
-      user: req.user?.id
-    });
+      userId: req.user?.id,
+      endpoint: 'GET /api/traffic'
+    }, 'Obteniendo datos de tráfico con filtros');
+
     const {
       page = 1,
       limit = 50,
-      startDate,
-      endDate,
-      puntoMedidaId,
-      tipoElemento,
-      nivelCongestion,
-      calidad,
       sortBy = 'fecha',
       sortOrder = 'desc'
     } = req.query;
@@ -120,20 +117,22 @@ const getAllTrafficData = async (req, res, next) => {
       }
     };
 
-    console.log('Datos de tráfico obtenidos exitosamente', {
+    logger.info({
       totalItems: totalCount,
       page: paginationOptions.page,
-      filters: Object.keys(filters)
-    });
+      filtersApplied: Object.keys(filters).length,
+      endpoint: 'GET /api/traffic'
+    }, 'Datos de tráfico obtenidos exitosamente');
 
     res.status(200).json(createResponse(responseData, 'Datos de tráfico obtenidos exitosamente'));
 
   } catch (error) {
-    console.log('Error al obtener datos de tráfico', {
+    logger.error({
       error: error.message,
       stack: error.stack,
-      query: req.query
-    });
+      query: req.query,
+      endpoint: 'GET /api/traffic'
+    }, 'Error al obtener datos de tráfico');
     next(createInternalError('Error al obtener los datos de tráfico', error));
   }
 };
@@ -147,11 +146,12 @@ const getTrafficByPoint = async (req, res, next) => {
     const { id } = req.params;
     const { startDate, endDate, limit = 100 } = req.query;
 
-    console.log('Obteniendo datos de tráfico por punto', {
+    logger.debug({
       puntoId: id,
       startDate,
-      endDate
-    });
+      endDate,
+      endpoint: 'GET /api/traffic/punto/:id'
+    }, 'Obteniendo datos de tráfico por punto');
 
     const filters = { puntoMedidaId: id };
 
@@ -213,10 +213,12 @@ const getTrafficByPoint = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Datos de tráfico por punto obtenidos exitosamente'));
 
   } catch (error) {
-    console.log('Error al obtener datos de tráfico por punto', {
+    logger.error({
       error: error.message,
-      puntoId: req.params.id
-    });
+      stack: error.stack,
+      puntoId: req.params.id,
+      endpoint: 'GET /api/traffic/punto/:id'
+    }, 'Error al obtener datos de tráfico por punto');
     next(createInternalError('Error al obtener datos del punto de medida', error));
   }
 };
@@ -229,11 +231,12 @@ const getTrafficStats = async (req, res, next) => {
   try {
     const { startDate, endDate, tipoElemento } = req.query;
 
-    console.log('Obteniendo estadísticas de tráfico', {
+    logger.debug({
       startDate,
       endDate,
-      tipoElemento
-    });
+      tipoElemento,
+      endpoint: 'GET /api/traffic/stats'
+    }, 'Obteniendo estadísticas de tráfico');
 
     // Construir filtros
     const filters = {};
@@ -258,9 +261,12 @@ const getTrafficStats = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Estadísticas de tráfico obtenidas exitosamente'));
 
   } catch (error) {
-    console.error('Error obteniendo estadísticas de tráfico', {
-      error: error.message
-    });
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/traffic/stats'
+    }, 'Error obteniendo estadísticas de tráfico');
     next(createInternalError('Error al obtener estadísticas de tráfico', error));
   }
 };
@@ -298,9 +304,12 @@ const getCongestionAnalysis = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Análisis de congestión obtenido exitosamente'));
 
   } catch (error) {
-    console.error('Error en análisis de congestión', {
-      error: error.message
-    });
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/traffic/congestion-analysis'
+    }, 'Error en análisis de congestión');
     next(createInternalError('Error al analizar la congestión', error));
   }
 };
@@ -351,10 +360,12 @@ const getHistoricalData = async (req, res, next) => {
     res.status(200).json(createResponse(responseData, 'Datos históricos obtenidos exitosamente'));
 
   } catch (error) {
-    console.error('Error al obtener datos históricos', {
+    logger.error({
       error: error.message,
-      query: req.query
-    });
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/traffic/historical'
+    }, 'Error al obtener datos históricos');
     next(createInternalError('Error al obtener datos históricos', error));
   }
 };

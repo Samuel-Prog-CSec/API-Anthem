@@ -62,7 +62,7 @@ This is a professional REST API built with Node.js, Express.js, and MongoDB, fea
 - Ensure proper MongoDB indexes for frequent queries
 
 ### Code Organization Patterns
-- Use utils/queryHelper.js for query construction (eliminates ~420 lines)
+- Use utils/queryHelper.js for query construction
 - Use utils/paginationHelper.js for consistent pagination
 - Centralize constants in src/constants/index.js
 - Move complex aggregations to Model static methods

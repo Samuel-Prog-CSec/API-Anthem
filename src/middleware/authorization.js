@@ -9,6 +9,7 @@
  */
 
 const { createForbiddenResponse } = require('../utils/responseHelper');
+const { authLogger } = require('../config/logger');
 
 /**
  * Role-based authorization middleware factory
@@ -30,14 +31,25 @@ const authorize = (...roles) => {
 
     // Check if user has required role
     if (!roles.includes(req.user.role)) {
-      console.warn(`⚠️  Authorization failed: User ${req.user.username} (${req.user.role}) attempted to access resource requiring roles: ${roles.join(', ')}`);
+      authLogger.warn({
+        username: req.user.username,
+        userRole: req.user.role,
+        requiredRoles: roles,
+        path: req.path,
+        method: req.method
+      }, 'Authorization failed - insufficient permissions');
 
       return res.status(403).json(
         createForbiddenResponse('Insufficient permissions to access this resource')
       );
     }
 
-    console.log(`✅ Authorization granted: User ${req.user.username} (${req.user.role}) accessing resource requiring roles: ${roles.join(', ')}`);
+    authLogger.debug({
+      username: req.user.username,
+      userRole: req.user.role,
+      requiredRoles: roles,
+      path: req.path
+    }, 'Authorization granted');
     next();
   };
 };

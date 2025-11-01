@@ -6,6 +6,8 @@
  */
 
 const mongoose = require('mongoose');
+const logger = require('./logger');
+const { dbLogger } = logger;
 
 /**
  * Conectar a la base de datos MongoDB
@@ -29,20 +31,23 @@ const connectDB = async (uri) => {
     // Conectar a MongoDB
     const conn = await mongoose.connect(uri, options);
 
-    console.log(`MongoDB conectado: ${conn.connection.host}:${conn.connection.port}`);
-    console.log(`Base de datos: ${conn.connection.name}`);
+    dbLogger.info({
+      host: conn.connection.host,
+      port: conn.connection.port,
+      database: conn.connection.name
+    }, 'MongoDB conectado exitosamente');
 
     // Listeners de eventos de conexión para monitoreo
     mongoose.connection.on('error', (err) => {
-      console.error('Error de conexión a MongoDB:', err);
+      dbLogger.error({ error: err.message }, 'Error de conexión a MongoDB');
     });
 
     mongoose.connection.on('disconnected', () => {
-      console.warn('MongoDB desconectado. Intentando reconectar...');
+      dbLogger.warn('MongoDB desconectado. Intentando reconectar...');
     });
 
     mongoose.connection.on('reconnected', () => {
-      console.log('Reconexión a MongoDB exitosa');
+      dbLogger.info('Reconexión a MongoDB exitosa');
     });
 
     // Manejo de cierre de la conexión al terminar la aplicación
@@ -55,11 +60,14 @@ const connectDB = async (uri) => {
     // });
 
   } catch (error) {
-    console.error('Fallo de conexión a la base de datos:', error.message);
+    dbLogger.error({
+      error: error.message,
+      stack: error.stack
+    }, 'Fallo de conexión a la base de datos');
 
     // Reintentar la conexión después de un retraso
     setTimeout(() => {
-      console.log('Reintentando la conexión a la base de datos...');
+      dbLogger.info('Reintentando la conexión a la base de datos...');
       connectDB(uri);
     }, 5000);
   }

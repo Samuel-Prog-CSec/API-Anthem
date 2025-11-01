@@ -37,6 +37,7 @@ const validateEnvironment = () => {
 
   // Validar la fortaleza de JWT_SECRET
   if (process.env.JWT_SECRET.length < 32) {
+    // eslint-disable-next-line no-console
     console.warn('Advertencia: JWT_SECRET debe tener al menos 32 caracteres para mayor seguridad');
   }
 };
@@ -88,8 +89,10 @@ const config = {
 // Validar la configuración al cargar el módulo
 try {
   validateEnvironment();
+  // eslint-disable-next-line no-console
   console.log(`Configuración cargada para el entorno ${config.server.env}`);
 } catch (error) {
+  // eslint-disable-next-line no-console
   console.error('Error de configuración:', error.message);
   process.exit(1);
 }

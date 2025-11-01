@@ -69,7 +69,13 @@ const containerSchema = new mongoose.Schema({
     type: String,
     required: [true, 'El distrito es obligatorio'],
     trim: true,
-    index: true
+    index: true,
+    validate: {
+      validator: function(v) {
+        return v && v.length > 0;
+      },
+      message: 'El distrito no puede estar vacío'
+    }
   },
 
   // Información geográfica - Barrio
@@ -91,7 +97,13 @@ const containerSchema = new mongoose.Schema({
       type: String,
       required: [true, 'El nombre de la vía es obligatorio'],
       trim: true,
-      index: true
+      index: true,
+      validate: {
+        validator: function(v) {
+          return v && v.length > 0;
+        },
+        message: 'El nombre de la vía no puede estar vacío'
+      }
     },
     numero: {
       type: String,
@@ -416,6 +428,73 @@ containerSchema.statics.findWithinArea = async function(coordinates, tipoContene
   }
 
   return this.find(query).select('-__v');
+};
+
+/**
+ * Obtener datos para mapa de calor de contenedores
+ * @param {String} tipoContenedor - Tipo de contenedor a filtrar (opcional)
+ * @param {Number} limit - Límite de puntos (default: 5000)
+ * @returns {Promise<Array>} Array de puntos con coordenadas
+ */
+containerSchema.statics.getHeatmapData = async function(tipoContenedor = null, limit = 5000) {
+  const filter = tipoContenedor ? { tipoContenedor: tipoContenedor.toUpperCase() } : {};
+
+  return this.aggregate([
+    { $match: filter },
+    {
+      $project: {
+        latitude: { $arrayElemAt: ['$location.coordinates', 1] },
+        longitude: { $arrayElemAt: ['$location.coordinates', 0] },
+        cantidad: 1,
+        tipoContenedor: 1
+      }
+    },
+    { $limit: limit }
+  ]);
+};
+
+/**
+ * Análisis de cobertura por tipo de contenedor y distrito
+ * @param {String} distrito - Distrito específico (opcional, null para todos)
+ * @returns {Promise<Array>} Análisis de cobertura por distrito y tipo
+ */
+containerSchema.statics.getCoverageAnalysis = async function(distrito = null) {
+  const matchStage = distrito ? { $match: { distrito } } : { $match: {} };
+
+  return this.aggregate([
+    matchStage,
+    {
+      $group: {
+        _id: {
+          distrito: '$distrito',
+          tipoContenedor: '$tipoContenedor'
+        },
+        totalContenedores: { $sum: '$cantidad' },
+        totalUbicaciones: { $sum: 1 },
+        puntos: {
+          $push: {
+            lng: { $arrayElemAt: ['$location.coordinates', 0] },
+            lat: { $arrayElemAt: ['$location.coordinates', 1] }
+          }
+        }
+      }
+    },
+    {
+      $group: {
+        _id: '$_id.distrito',
+        distrito: { $first: '$_id.distrito' },
+        tipos: {
+          $push: {
+            tipo: '$_id.tipoContenedor',
+            total: '$totalContenedores',
+            ubicaciones: '$totalUbicaciones'
+          }
+        },
+        totalGeneral: { $sum: '$totalContenedores' }
+      }
+    },
+    { $sort: { distrito: 1 } }
+  ]);
 };
 
 // Crear y exportar el modelo

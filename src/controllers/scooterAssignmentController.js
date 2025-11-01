@@ -88,15 +88,13 @@ const getScooterAssignments = async (req, res, next) => {
       'proveedores': 1
     };
 
-    // Ejecutar consulta principal
-    const [assignments, total] = await Promise.all([
-      ScooterAssignment.find(filters, projection)
-        .sort(sortOptions)
-        .skip(pagination.skip)
-        .limit(pagination.limitNum)
-        .lean(),
-      ScooterAssignment.countDocuments(filters)
-    ]);
+    // Obtener datos con método optimizado del modelo
+    const resultado = await ScooterAssignment.getAssignmentsWithFilters(
+      filters,
+      sortOptions,
+      { skip: pagination.skip, limit: pagination.limitNum },
+      projection
+    );
 
     // Calcular estadísticas de la consulta
     const estadisticasConsulta = await ScooterAssignment.aggregate([
@@ -126,8 +124,8 @@ const getScooterAssignments = async (req, res, next) => {
     const responseData = {
       message: 'Datos de asignación de patinetes obtenidos correctamente',
       data: {
-        assignments,
-        pagination: createPaginationMeta(pagination.pageNum, pagination.limitNum, total),
+        assignments: resultado.asignaciones,
+        pagination: createPaginationMeta(pagination.pageNum, pagination.limitNum, resultado.total),
         estadisticas: estadisticasConsulta[0] || {
           totalPatinetes: 0,
           promedioPatinetes: 0,
@@ -346,61 +344,22 @@ const getAreaDetails = async (req, res, next) => {
     const { distrito, barrio } = req.params;
     const { fecha } = req.query;
 
-    // Construir filtros
-    const filters = {
-      'distrito.nombre': new RegExp(distrito, 'i'),
-      'barrio.nombre': new RegExp(barrio, 'i')
-    };
+    // Obtener datos optimizados del modelo
+    const resultado = await ScooterAssignment.getAreaDetailsOptimized(distrito, barrio, fecha);
 
-    if (fecha) {
-      const fechaInicio = new Date(fecha);
-      const fechaFin = new Date(fechaInicio.getTime() + 24 * 60 * 60 * 1000);
-      filters.fechaAsignacion = {
-        $gte: fechaInicio,
-        $lt: fechaFin
-      };
-    }
-
-    // Buscar el área
-    const area = await ScooterAssignment.findOne(filters).lean();
-
-    if (!area) {
+    if (!resultado) {
       return next(new AppError('Área no encontrada', 404));
     }
-
-    // Obtener historial si no se especifica fecha
-    let historial = [];
-    if (!fecha) {
-      historial = await ScooterAssignment.find({
-        'distrito.nombre': new RegExp(distrito, 'i'),
-        'barrio.nombre': new RegExp(barrio, 'i')
-      })
-      .select('fechaAsignacion estadisticas.totalPatinetes estadisticas.densidadPatinetes')
-      .sort({ fechaAsignacion: -1 })
-      .limit(10)
-      .lean();
-    }
-
-    // Obtener comparación con áreas similares
-    const areasSimilares = await ScooterAssignment.find({
-      'clasificacionArea.tipoZona': area.clasificacionArea.tipoZona,
-      'distrito.nombre': { $ne: area.distrito.nombre },
-      fechaAsignacion: area.fechaAsignacion
-    })
-    .select('distrito.nombre barrio.nombre estadisticas.totalPatinetes')
-    .sort({ 'estadisticas.totalPatinetes': -1 })
-    .limit(5)
-    .lean();
 
     const responseData = {
       message: 'Detalles del área obtenidos correctamente',
       data: {
         area: {
-          ...area,
-          resumen: new ScooterAssignment(area).getResumenAsignacion()
+          ...resultado.area,
+          resumen: new ScooterAssignment(resultado.area).getResumenAsignacion()
         },
-        historial,
-        areasSimilares,
+        historial: resultado.historial,
+        areasSimilares: resultado.areasSimilares,
         parametros: {
           distrito,
           barrio,
@@ -470,74 +429,24 @@ const getTemporalComparison = async (req, res, next) => {
       return next(new AppError('Fechas de inicio y fin son obligatorias', 400));
     }
 
-    const matchCondition = {
-      fechaAsignacion: {
-        $gte: new Date(fechaInicio),
-        $lte: new Date(fechaFin)
-      }
-    };
-
-    if (distrito) {
-      matchCondition['distrito.nombre'] = new RegExp(distrito, 'i');
-    }
-
-    const groupField = agrupacion === 'barrio' ?
-      { distrito: '$distrito.nombre', barrio: '$barrio.nombre' } :
-      '$distrito.nombre';
-
-    const comparativa = await ScooterAssignment.aggregate([
-      { $match: matchCondition },
-      {
-        $group: {
-          _id: {
-            fecha: {
-              $dateToString: {
-                format: '%Y-%m-%d',
-                date: '$fechaAsignacion'
-              }
-            },
-            ubicacion: groupField
-          },
-          totalPatinetes: { $sum: '$estadisticas.totalPatinetes' },
-          totalProveedores: { $avg: '$estadisticas.totalProveedores' },
-          densidadPromedio: { $avg: '$estadisticas.promedioPatinetesPorProveedor' }
-        }
-      },
-      {
-        $sort: { '_id.fecha': 1, '_id.ubicacion': 1 }
-      }
-    ]);
-
-    // Procesar datos para el frontend
-    const datosProcessados = {};
-    comparativa.forEach(item => {
-      const fecha = item._id.fecha;
-      const ubicacion = typeof item._id.ubicacion === 'object' ?
-        `${item._id.ubicacion.distrito} - ${item._id.ubicacion.barrio}` :
-        item._id.ubicacion;
-
-      if (!datosProcessados[ubicacion]) {
-        datosProcessados[ubicacion] = [];
-      }
-
-      datosProcessados[ubicacion].push({
-        fecha,
-        totalPatinetes: item.totalPatinetes,
-        totalProveedores: Math.round(item.totalProveedores),
-        densidadPromedio: Math.round(item.densidadPromedio * 100) / 100
-      });
-    });
+    // Obtener datos con método optimizado del modelo
+    const resultado = await ScooterAssignment.getTemporalComparisonData(
+      fechaInicio,
+      fechaFin,
+      distrito,
+      agrupacion
+    );
 
     const responseData = {
       message: 'Comparativa temporal obtenida correctamente',
       data: {
-        comparativa: datosProcessados,
+        comparativa: resultado.comparativa,
         parametros: {
           fechaInicio,
           fechaFin,
           distrito: distrito || 'Todos',
           agrupacion,
-          totalUbicaciones: Object.keys(datosProcessados).length
+          totalUbicaciones: resultado.totalUbicaciones
         }
       }
     };

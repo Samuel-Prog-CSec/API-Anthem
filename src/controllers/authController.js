@@ -21,6 +21,7 @@ const {
   handleMongoError,
   formatErrorResponse
 } = require('../utils/errorUtils');
+const { authLogger } = require('../config/logger');
 
 /**
  * User Registration Controller
@@ -98,7 +99,12 @@ const register = async (req, res, next) => {
     );
 
   } catch (error) {
-    console.error('❌ Registration error:', error);
+    authLogger.error({
+      error: error.message,
+      stack: error.stack,
+      username: req.body?.username,
+      endpoint: 'POST /api/auth/register'
+    }, 'Error en registro de usuario');
 
     // Handle MongoDB errors
     if (error.code === 11000 || error.name === 'ValidationError' || error.name === 'CastError') {
@@ -195,7 +201,12 @@ const login = async (req, res, next) => {
     );
 
   } catch (error) {
-    console.error('❌ Login error:', error);
+    authLogger.error({
+      error: error.message,
+      stack: error.stack,
+      username: req.body?.username,
+      endpoint: 'POST /api/auth/login'
+    }, 'Error durante el login');
     return next(createInternalError('Error durante el login', error));
   }
 };
@@ -220,7 +231,12 @@ const logout = async (req, res, next) => {
     );
 
   } catch (error) {
-    console.error('❌ Logout error:', error);
+    authLogger.error({
+      error: error.message,
+      stack: error.stack,
+      userId: req.user?.id,
+      endpoint: 'POST /api/auth/logout'
+    }, 'Error durante el logout');
     return next(createInternalError('Error durante el logout', error));
   }
 };
@@ -249,7 +265,12 @@ const getProfile = async (req, res, next) => {
     );
 
   } catch (error) {
-    console.error('❌ Get profile error:', error);
+    authLogger.error({
+      error: error.message,
+      stack: error.stack,
+      userId: req.user?.id,
+      endpoint: 'GET /api/auth/profile'
+    }, 'Error al obtener el perfil');
     return next(createInternalError('Error al obtener el perfil', error));
   }
 };
@@ -318,7 +339,12 @@ const updateProfile = async (req, res, next) => {
     );
 
   } catch (error) {
-    console.error('❌ Update profile error:', error);
+    authLogger.error({
+      error: error.message,
+      stack: error.stack,
+      userId: req.user?.id,
+      endpoint: 'PUT /api/auth/profile'
+    }, 'Error al actualizar el perfil');
     return next(createInternalError('Error al actualizar el perfil', error));
   }
 };
