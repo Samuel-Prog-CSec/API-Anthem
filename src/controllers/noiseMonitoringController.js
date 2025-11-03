@@ -7,7 +7,7 @@
 
 const { validationResult } = require('express-validator');
 const NoiseMonitoring = require('../models/NoiseMonitoring');
-const { AppError, createValidationError, createInternalError } = require('../utils/errorUtils');
+const { AppError, createValidationError, createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
@@ -351,10 +351,160 @@ const searchStations = async (req, res, next) => {
   }
 };
 
+/**
+ * Comparación entre estaciones de monitoreo
+ * GET /api/v1/noise-monitoring/stations/compare
+ */
+const compareStations = async (req, res, next) => {
+  try {
+    const { stations, startDate, endDate, metric = 'laeq24' } = req.query;
+
+    if (!stations) {
+      return next(new AppError('Se requiere el parámetro "stations"', 400));
+    }
+
+    const stationArray = Array.isArray(stations) ? stations.map(Number) : [Number(stations)];
+
+    if (stationArray.length < 2) {
+      return next(new AppError('Se requieren al menos 2 estaciones para comparar', 400));
+    }
+
+    const comparison = await NoiseMonitoring.getStationComparison({
+      stations: stationArray,
+      startDate: startDate ? new Date(startDate) : new Date('2051-01-01'),
+      endDate: endDate ? new Date(endDate) : new Date('2051-12-31'),
+      metric
+    });
+
+    if (!comparison || comparison.length === 0) {
+      return next(createNotFoundError('Datos de comparación', `estaciones ${stationArray.join(', ')}`));
+    }
+
+    const responseData = {
+      message: `Comparación de ${comparison.length} estaciones`,
+      data: {
+        metrica: metric,
+        periodo: {
+          inicio: startDate || '2051-01-01',
+          fin: endDate || '2051-12-31'
+        },
+        estaciones: comparison,
+        totalEstaciones: comparison.length
+      }
+    };
+
+    res.status(200).json(createResponse(responseData, 'Comparación de estaciones obtenida exitosamente'));
+
+  } catch (error) {
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/noise-monitoring/stations/compare'
+    }, 'Error comparando estaciones');
+    next(createInternalError('Error al comparar estaciones', error));
+  }
+};
+
+/**
+ * Tendencias temporales de ruido
+ * GET /api/v1/noise-monitoring/trends/temporal
+ */
+const getTemporalTrends = async (req, res, next) => {
+  try {
+    const { nmt, startDate, endDate, groupBy = 'month', metric = 'laeq24' } = req.query;
+
+    const trends = await NoiseMonitoring.getTemporalTrends({
+      nmt: nmt ? Number(nmt) : undefined,
+      startDate: startDate ? new Date(startDate) : new Date('2051-01-01'),
+      endDate: endDate ? new Date(endDate) : new Date('2051-12-31'),
+      groupBy,
+      metric
+    });
+
+    if (!trends || trends.length === 0) {
+      return next(createNotFoundError('Tendencias temporales', nmt ? `estación NMT ${nmt}` : 'todas las estaciones'));
+    }
+
+    const responseData = {
+      data: {
+        metrica: metric,
+        agrupacion: groupBy,
+        periodo: {
+          inicio: startDate || '2051-01-01',
+          fin: endDate || '2051-12-31'
+        },
+        ...(nmt && { estacion: Number(nmt) }),
+        tendencias: trends,
+        totalPeriodos: trends.length
+      }
+    };
+
+    res.status(200).json(createResponse(responseData, 'Tendencias temporales obtenidas exitosamente'));
+
+  } catch (error) {
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/noise-monitoring/trends/temporal'
+    }, 'Error obteniendo tendencias temporales');
+    next(createInternalError('Error al obtener tendencias temporales', error));
+  }
+};
+
+/**
+ * Análisis de cumplimiento normativo por zona
+ * GET /api/v1/noise-monitoring/compliance/zone
+ */
+const getComplianceByZone = async (req, res, next) => {
+  try {
+    const { startDate, endDate, threshold = 65, zoneType = 'mixed' } = req.query;
+
+    const compliance = await NoiseMonitoring.getComplianceAnalysisByZone({
+      startDate: startDate ? new Date(startDate) : new Date('2051-01-01'),
+      endDate: endDate ? new Date(endDate) : new Date('2051-12-31'),
+      threshold: Number(threshold),
+      zoneType
+    });
+
+    if (!compliance || compliance.length === 0) {
+      return next(createNotFoundError('Datos de cumplimiento normativo'));
+    }
+
+    const responseData = {
+      data: {
+        umbralNormativo: Number(threshold),
+        tipoZona: zoneType,
+        periodo: {
+          inicio: startDate || '2051-01-01',
+          fin: endDate || '2051-12-31'
+        },
+        analisisPorZona: compliance,
+        totalZonasAnalizadas: compliance.length
+      }
+    };
+
+    res.status(200).json(createResponse(responseData, 'Análisis de cumplimiento normativo obtenido exitosamente'));
+
+  } catch (error) {
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/noise-monitoring/compliance/zone'
+    }, 'Error analizando cumplimiento normativo');
+    next(createInternalError('Error al analizar cumplimiento normativo', error));
+  }
+};
+
 module.exports = {
   getNoiseMonitoringData,
   getNoiseMonitoringById,
   getNoiseStatistics,
   getNoiseRanking,
-  searchStations
+  searchStations,
+  compareStations,
+  getTemporalTrends,
+  getComplianceByZone
 };

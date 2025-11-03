@@ -6,7 +6,7 @@
  */
 
 const express = require('express');
-const { body, query, param } = require('express-validator');
+const { query, param } = require('express-validator');
 
 const {
   getScooterAssignments,
@@ -21,6 +21,7 @@ const {
 
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
+const { cacheMiddleware } = require('../middleware/cache');
 const {
   validateDateRange,
   validateDistritoQuery,
@@ -195,6 +196,7 @@ router.get('/',
       .toBoolean()
   ],
   validateRequest,
+  cacheMiddleware('traffic', (req) => `scooters:list:${JSON.stringify(req.query)}`),
   getScooterAssignments
 );
 
@@ -210,6 +212,7 @@ router.get('/statistics/districts',
     ...dateValidation
   ],
   validateRequest,
+  cacheMiddleware('traffic', (req) => `scooters:stats:districts:${req.query.fecha || 'all'}`),
   getDistrictStatistics
 );
 
@@ -225,6 +228,7 @@ router.get('/market-analysis/providers',
     ...dateValidation
   ],
   validateRequest,
+  cacheMiddleware('traffic', (req) => `scooters:market:providers:${req.query.fecha || 'all'}`),
   getProviderMarketAnalysis
 );
 
@@ -245,6 +249,7 @@ router.get('/concentration-zones',
       .toInt()
   ],
   validateRequest,
+  cacheMiddleware('traffic', (req) => `scooters:concentration:${req.query.fecha || 'all'}:${req.query.limite || 10}`),
   getConcentrationZones
 );
 
@@ -260,6 +265,7 @@ router.get('/dashboard',
     ...dateValidation
   ],
   validateRequest,
+  cacheMiddleware('traffic', (req) => `scooters:dashboard:${req.query.fecha || 'all'}`),
   getDistributionDashboard
 );
 
@@ -276,6 +282,7 @@ router.get('/area/:distrito/:barrio',
     ...dateValidation
   ],
   validateRequest,
+  cacheMiddleware('traffic', (req) => `scooters:area:${req.params.distrito}:${req.params.barrio}:${req.query.fecha || 'all'}`),
   getAreaDetails
 );
 
@@ -291,6 +298,7 @@ router.get('/optimization-analysis',
     ...dateValidation
   ],
   validateRequest,
+  cacheMiddleware('traffic', (req) => `scooters:optimization:${req.query.fecha || 'all'}`),
   getOptimizationAnalysis
 );
 
@@ -311,6 +319,7 @@ router.get('/temporal-comparison',
       .withMessage('Agrupación debe ser "distrito" o "barrio"')
   ],
   validateRequest,
+  cacheMiddleware('traffic', (req) => `scooters:temporal:${req.query.fechaInicio}:${req.query.fechaFin}:${req.query.agrupacion || 'distrito'}`),
   getTemporalComparison
 );
 

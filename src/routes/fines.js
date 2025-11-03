@@ -6,7 +6,7 @@
  */
 
 const express = require('express');
-const { body, query, param } = require('express-validator');
+const { query, param } = require('express-validator');
 
 const {
   getFines,
@@ -21,7 +21,7 @@ const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
 
 // Middleware de caché optimizado
-const { cacheMiddleware, statsCacheMiddleware, compressionMiddleware } = require('../middleware/cache');
+const { cacheMiddleware } = require('../middleware/cache');
 
 const router = express.Router();
 
@@ -160,6 +160,9 @@ router.get('/',
 
   // Middleware de validación
   validateRequest,
+
+  // Middleware de caché (30 minutos para datos de multas)
+  cacheMiddleware('statistics', (req) => `fines:list:${JSON.stringify(req.query)}`),
 
   // Controlador
   getFines
@@ -300,6 +303,9 @@ router.get('/:id',
 
   // Middleware de validación
   validateRequest,
+
+  // Middleware de caché (30 minutos para datos individuales)
+  cacheMiddleware('statistics', (req) => `fines:detail:${req.params.id}`),
 
   // Controlador
   getFineById

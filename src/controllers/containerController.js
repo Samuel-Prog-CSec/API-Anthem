@@ -400,3 +400,42 @@ exports.getCoverageAnalysis = async (req, res, next) => {
     next(createInternalError('Error al analizar cobertura', error));
   }
 };
+
+/**
+ * Análisis de densidad de contenedores por distrito
+ *
+ * @route GET /api/containers/analysis/density
+ * @access Private
+ */
+exports.getDensityAnalysis = async (req, res, next) => {
+  try {
+    const { distrito, tipoContenedor, includeBarrios = 'true' } = req.query;
+
+    const options = {
+      distrito,
+      tipoContenedor: tipoContenedor ? tipoContenedor.toUpperCase() : undefined,
+      includeBarrios: includeBarrios === 'true'
+    };
+
+    const densityAnalysis = await Container.getDensityAnalysisByDistrict(options);
+
+    if (!densityAnalysis || densityAnalysis.length === 0) {
+      return next(createNotFoundError('Análisis de densidad', distrito ? `distrito ${distrito}` : null));
+    }
+
+    const responseData = {
+      data: {
+        ...(distrito && { distrito }),
+        ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
+        includeBarrios: options.includeBarrios,
+        analisisDensidad: densityAnalysis,
+        totalZonasAnalizadas: densityAnalysis.length
+      }
+    };
+
+    res.status(200).json(createResponse(responseData, 'Análisis de densidad obtenido exitosamente'));
+
+  } catch (error) {
+    next(createInternalError('Error al analizar densidad', error));
+  }
+};

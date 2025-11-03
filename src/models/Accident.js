@@ -14,23 +14,11 @@ const mongoose = require('mongoose');
 const coordinatesSchema = new mongoose.Schema({
   x: {
     type: Number,
-    required: false,
-    validate: {
-      validator: function(v) {
-        return v === null || v === undefined || (v >= 100000 && v <= 1000000);
-      },
-      message: 'Coordenada X UTM debe estar entre 100,000 y 1,000,000 metros'
-    }
+    required: false
   },
   y: {
     type: Number,
-    required: false,
-    validate: {
-      validator: function(v) {
-        return v === null || v === undefined || (v >= 3000000 && v <= 5000000);
-      },
-      message: 'Coordenada Y UTM debe estar entre 3,000,000 y 5,000,000 metros'
-    }
+    required: false
   }
 }, { _id: false });
 
@@ -40,70 +28,35 @@ const coordinatesSchema = new mongoose.Schema({
 const personaAfectadaSchema = new mongoose.Schema({
   tipoPersona: {
     type: String,
-    required: [true, 'Tipo de persona obligatorio'],
-    enum: {
-      values: ['CONDUCTOR', 'PEATON', 'TESTIGO', 'VIAJERO', 'PASAJERO'],
-      message: 'Tipo de persona debe ser CONDUCTOR, PEATON, TESTIGO, VIAJERO o PASAJERO'
-    },
+    required: true,
+    enum: ['CONDUCTOR', 'PEATON', 'TESTIGO', 'VIAJERO', 'PASAJERO'],
     uppercase: true
   },
 
   rangoEdad: {
     type: String,
-    required: [true, 'Rango de edad obligatorio'],
-    trim: true,
-    validate: {
-      validator: function(v) {
-        // Acepta formatos como "De 18 a 20 años", "Más de 65", etc.
-        return v && v.length > 0;
-      },
-      message: 'Rango de edad no puede estar vacío'
-    }
+    required: true,
+    trim: true
   },
 
   sexo: {
     type: String,
-    required: [true, 'Sexo obligatorio'],
-    enum: {
-      values: ['HOMBRE', 'MUJER', 'NO_ASIGNADO'],
-      message: 'Sexo debe ser HOMBRE, MUJER o NO_ASIGNADO'
-    },
+    required: true,
+    enum: ['HOMBRE', 'MUJER', 'NO_ASIGNADO'],
     uppercase: true
   },
 
   // Información de lesiones
   codigoLesividad: {
     type: String,
-    required: false,
-    validate: {
-      validator: function(v) {
-        if (!v) {return true;}
-        return /^(0[1-7]|14|77)$/.test(v);
-      },
-      message: 'Código de lesividad no válido'
-    }
+    required: false
   },
 
   tipoLesion: {
     type: String,
-    enum: {
-      values: ['LEVE', 'GRAVE', 'FALLECIDO', 'SIN_ASISTENCIA', 'DESCONOCIDO'],
-      message: 'Tipo de lesión debe ser LEVE, GRAVE, FALLECIDO, SIN_ASISTENCIA o DESCONOCIDO'
-    },
+    enum: ['LEVE', 'GRAVE', 'FALLECIDO', 'SIN_ASISTENCIA', 'DESCONOCIDO'],
     uppercase: true,
-    default: function() {
-      // Mapear códigos de lesividad a tipos
-      const codigoMap = {
-        '01': 'LEVE', '02': 'LEVE', '05': 'LEVE',
-        '06': 'LEVE', '07': 'LEVE',
-        '03': 'GRAVE',
-        '04': 'FALLECIDO',
-        '14': 'SIN_ASISTENCIA',
-        '77': 'DESCONOCIDO'
-      };
-      const codigo = this.codigoLesividad;
-      return codigoMap[codigo] || 'DESCONOCIDO';
-    }
+    default: 'DESCONOCIDO'
   },
 
   // Análisis de sustancias
@@ -141,99 +94,47 @@ const accidentSchema = new mongoose.Schema({
   // Identificación del expediente
   numeroExpediente: {
     type: String,
-    required: [true, 'Número de expediente obligatorio'],
-    unique: false, // Un expediente puede tener múltiples registros (personas afectadas)
+    required: true,
+    unique: false,
     index: true,
-    trim: true,
-    validate: {
-      validator: function(v) {
-        // Formato: aaaasnnnnnn (año + s + correlativo)
-        return /^\d{4}S\d{6}$/.test(v);
-      },
-      message: 'Formato de expediente inválido. Debe ser AAAASnnnnnn'
-    }
+    trim: true
   },
 
   // Información temporal
   fecha: {
     type: Date,
-    required: [true, 'Fecha del accidente obligatoria'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        // No permitir fechas futuras
-        return v <= new Date();
-      },
-      message: 'La fecha del accidente no puede ser futura'
-    }
+    required: true,
+    index: true
   },
 
   año: {
     type: Number,
-    required: [true, 'Año obligatorio'],
-    min: [2000, 'Año debe ser mayor o igual a 2000'],
-    max: [2100, 'Año debe ser menor o igual a 2100'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v);
-      },
-      message: 'El año debe ser un número entero'
-    }
+    required: true,
+    index: true
   },
 
   mes: {
     type: Number,
-    required: [true, 'Mes obligatorio'],
-    min: [1, 'Mes debe estar entre 1 y 12'],
-    max: [12, 'Mes debe estar entre 1 y 12'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v);
-      },
-      message: 'El mes debe ser un número entero'
-    }
+    required: true,
+    index: true
   },
 
   dia: {
     type: Number,
-    required: [true, 'Día obligatorio'],
-    min: [1, 'Día debe estar entre 1 y 31'],
-    max: [31, 'Día debe estar entre 1 y 31'],
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v);
-      },
-      message: 'El día debe ser un número entero'
-    }
+    required: true
   },
 
   // Hora en formato de rango (ej: "1:15:00")
   hora: {
     type: String,
-    required: [true, 'Hora del accidente obligatoria'],
+    required: true,
     trim: true,
-    validate: {
-      validator: function(v) {
-        // Acepta formatos como "1:15:00", "23:45:00"
-        return /^\d{1,2}:\d{2}:\d{2}$/.test(v);
-      },
-      message: 'Formato de hora inválido. Debe ser H:MM:SS'
-    },
     index: true
   },
 
   franjaHoraria: {
     type: Number,
-    min: 0,
-    max: 23,
-    default: function() {
-      if (this.hora) {
-        return parseInt(this.hora.split(':')[0]);
-      }
-      return null;
-    },
+    default: null,
     index: true
   },
 
@@ -241,30 +142,28 @@ const accidentSchema = new mongoose.Schema({
   ubicacion: {
     calle: {
       type: String,
-      required: [true, 'Calle del accidente obligatoria'],
+      required: true,
       trim: true,
-      maxlength: [300, 'Calle no puede exceder 300 caracteres'],
       index: true
     },
 
     numero: {
       type: String,
       required: false,
-      trim: true,
-      maxlength: [10, 'Número no puede exceder 10 caracteres']
+      trim: true
     },
 
     // Información del distrito
     codigoDistrito: {
       type: String,
-      required: [true, 'Código de distrito obligatorio'],
+      required: true,
       trim: true,
       index: true
     },
 
     nombreDistrito: {
       type: String,
-      required: [true, 'Nombre de distrito obligatorio'],
+      required: true,
       trim: true,
       uppercase: true,
       index: true
@@ -281,41 +180,22 @@ const accidentSchema = new mongoose.Schema({
   circunstancias: {
     tipoAccidente: {
       type: String,
-      required: [true, 'Tipo de accidente obligatorio'],
+      required: true,
       trim: true,
-      enum: {
-        values: [
-          'COLISION_DOBLE',
-          'COLISION_MULTIPLE',
-          'ALCANCE',
-          'CHOQUE_OBSTACULO',
-          'CHOQUE_OBSTACULO_FIJO',
-          'ATROPELLO_PERSONA',
-          'VUELCO',
-          'CAIDA',
-          'COLISION_FRONTO_LATERAL',
-          'OTRAS_CAUSAS'
-        ],
-        message: 'Tipo de accidente no válido'
-      },
+      enum: [
+        'COLISION_DOBLE',
+        'COLISION_MULTIPLE',
+        'ALCANCE',
+        'CHOQUE_OBSTACULO',
+        'CHOQUE_OBSTACULO_FIJO',
+        'ATROPELLO_PERSONA',
+        'VUELCO',
+        'CAIDA',
+        'COLISION_FRONTO_LATERAL',
+        'OTRAS_CAUSAS'
+      ],
       index: true,
-      default: function() {
-        // Normalizar texto original a enum
-        const original = this.circunstancias && this.circunstancias.tipoAccidenteOriginal;
-        if (!original) {return 'OTRAS_CAUSAS';}
-
-        const lower = original.toLowerCase();
-        if (lower.includes('colisión doble')) {return 'COLISION_DOBLE';}
-        if (lower.includes('colisión múltiple')) {return 'COLISION_MULTIPLE';}
-        if (lower.includes('alcance')) {return 'ALCANCE';}
-        if (lower.includes('choque contra obstáculo fijo')) {return 'CHOQUE_OBSTACULO_FIJO';}
-        if (lower.includes('choque contra obstáculo')) {return 'CHOQUE_OBSTACULO';}
-        if (lower.includes('atropello')) {return 'ATROPELLO_PERSONA';}
-        if (lower.includes('vuelco')) {return 'VUELCO';}
-        if (lower.includes('caída')) {return 'CAIDA';}
-        if (lower.includes('fronto-lateral')) {return 'COLISION_FRONTO_LATERAL';}
-        return 'OTRAS_CAUSAS';
-      }
+      default: 'OTRAS_CAUSAS'
     },
 
     // Campo temporal para procesar
@@ -328,21 +208,18 @@ const accidentSchema = new mongoose.Schema({
       type: String,
       required: false,
       trim: true,
-      enum: {
-        values: [
-          'DESPEJADO',
-          'NUBLADO',
-          'LLUVIA_LIGERA',
-          'LLUVIA_INTENSA',
-          'NIEBLA',
-          'VIENTO_FUERTE',
-          'GRANIZO',
-          'NIEVE',
-          'DESCONOCIDO',
-          'NULL'
-        ],
-        message: 'Estado meteorológico no válido'
-      },
+      enum: [
+        'DESPEJADO',
+        'NUBLADO',
+        'LLUVIA_LIGERA',
+        'LLUVIA_INTENSA',
+        'NIEBLA',
+        'VIENTO_FUERTE',
+        'GRANIZO',
+        'NIEVE',
+        'DESCONOCIDO',
+        'NULL'
+      ],
       uppercase: true,
       default: 'DESCONOCIDO'
     },
@@ -360,41 +237,23 @@ const accidentSchema = new mongoose.Schema({
   vehiculo: {
     tipo: {
       type: String,
-      required: [true, 'Tipo de vehículo obligatorio'],
+      required: true,
       trim: true,
-      enum: {
-        values: [
-          'TURISMO',
-          'MOTOCICLETA',
-          'CICLOMOTOR',
-          'BICICLETA',
-          'AUTOBUS',
-          'CAMION',
-          'FURGONETA',
-          'TAXI',
-          'AMBULANCIA',
-          'OTROS'
-        ],
-        message: 'Tipo de vehículo no válido'
-      },
+      enum: [
+        'TURISMO',
+        'MOTOCICLETA',
+        'CICLOMOTOR',
+        'BICICLETA',
+        'AUTOBUS',
+        'CAMION',
+        'FURGONETA',
+        'TAXI',
+        'AMBULANCIA',
+        'OTROS'
+      ],
       uppercase: true,
       index: true,
-      default: function() {
-        const original = this.vehiculo && this.vehiculo.tipoVehiculoOriginal;
-        if (!original) {return 'OTROS';}
-
-        const lower = original.toLowerCase();
-        if (lower.includes('turismo')) {return 'TURISMO';}
-        if (lower.includes('motocicleta')) {return 'MOTOCICLETA';}
-        if (lower.includes('ciclomotor')) {return 'CICLOMOTOR';}
-        if (lower.includes('bicicleta')) {return 'BICICLETA';}
-        if (lower.includes('autobús') || lower.includes('autobus')) {return 'AUTOBUS';}
-        if (lower.includes('camión') || lower.includes('camion')) {return 'CAMION';}
-        if (lower.includes('furgoneta')) {return 'FURGONETA';}
-        if (lower.includes('taxi')) {return 'TAXI';}
-        if (lower.includes('ambulancia')) {return 'AMBULANCIA';}
-        return 'OTROS';
-      }
+      default: 'OTROS'
     },
 
     tipoVehiculoOriginal: {
@@ -406,7 +265,7 @@ const accidentSchema = new mongoose.Schema({
   // Persona afectada (cada registro representa una persona)
   personaAfectada: {
     type: personaAfectadaSchema,
-    required: [true, 'Información de la persona afectada obligatoria']
+    required: true
   },
 
   // Análisis automático
@@ -415,39 +274,20 @@ const accidentSchema = new mongoose.Schema({
     periodoDia: {
       type: String,
       enum: ['MADRUGADA', 'MAÑANA', 'MEDIODIA', 'TARDE', 'NOCHE'],
-      default: function() {
-        const hora = this.franjaHoraria;
-        if (hora !== null && hora !== undefined) {
-          if (hora >= 0 && hora < 6) {return 'MADRUGADA';}
-          if (hora >= 6 && hora < 12) {return 'MAÑANA';}
-          if (hora >= 12 && hora < 15) {return 'MEDIODIA';}
-          if (hora >= 15 && hora < 21) {return 'TARDE';}
-          return 'NOCHE';
-        }
-        return 'MAÑANA';
-      },
+      default: 'MAÑANA',
       index: true
     },
 
     // Día de la semana
     diaSemana: {
       type: Number,
-      min: 0,
-      max: 6,
-      default: function() {
-        return this.fecha ? this.fecha.getDay() : null;
-      }
+      default: null
     },
 
     tipoJornada: {
       type: String,
       enum: ['LABORABLE', 'SABADO', 'DOMINGO_FESTIVO'],
-      default: function() {
-        const dayOfWeek = this.analisis && this.analisis.diaSemana;
-        if (dayOfWeek === 0) {return 'DOMINGO_FESTIVO';}
-        if (dayOfWeek === 6) {return 'SABADO';}
-        return 'LABORABLE';
-      },
+      default: 'LABORABLE',
       index: true
     },
 
@@ -468,28 +308,7 @@ const accidentSchema = new mongoose.Schema({
     // Puntuación de gravedad (0-10)
     puntuacionGravedad: {
       type: Number,
-      min: 0,
-      max: 10,
-      default: function() {
-        let puntos = 0;
-
-        // Puntos por tipo de lesión
-        const persona = this.personaAfectada;
-        if (persona && persona.tipoLesion === 'FALLECIDO') {puntos += 10;}
-        else if (persona && persona.tipoLesion === 'GRAVE') {puntos += 7;}
-        else if (persona && persona.tipoLesion === 'LEVE') {puntos += 3;}
-
-        // Puntos por tipo de accidente
-        const circs = this.circunstancias;
-        if (circs && circs.tipoAccidente === 'ATROPELLO_PERSONA') {puntos += 3;}
-        if (circs && circs.tipoAccidente === 'COLISION_MULTIPLE') {puntos += 2;}
-
-        // Puntos por sustancias
-        if (persona && persona.positivaAlcohol === 'S') {puntos += 2;}
-        if (persona && persona.positivaDroga === 'S') {puntos += 2;}
-
-        return Math.min(puntos, 10);
-      }
+      default: 0
     }
   },
 

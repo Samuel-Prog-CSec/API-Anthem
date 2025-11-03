@@ -27,76 +27,52 @@ const trafficSchema = new mongoose.Schema({
   // Identificación del punto de medida
   puntoMedidaId: {
     type: String,
-    required: [true, 'ID del punto de medida obligatorio'],
+    required: true,
     index: true,
-    trim: true,
-    validate: {
-      validator: function(v) {
-        return /^\d+$/.test(v);
-      },
-      message: 'ID del punto de medida debe ser numérico'
-    }
+    trim: true
   },
 
   // Información temporal
   fecha: {
     type: Date,
-    required: [true, 'Fecha y hora de medición obligatoria'],
+    required: true,
     index: true
   },
 
   // Para facilitar consultas por periodos
   año: {
     type: Number,
-    required: [true, 'Año obligatorio'],
+    required: true,
     index: true
   },
 
   mes: {
     type: Number,
-    required: [true, 'Mes obligatorio'],
-    min: [1, 'Mes debe estar entre 1 y 12'],
-    max: [12, 'Mes debe estar entre 1 y 12'],
+    required: true,
     index: true
   },
 
   dia: {
     type: Number,
-    required: [true, 'Día obligatorio'],
-    min: [1, 'Día debe estar entre 1 y 31'],
-    max: [31, 'Día debe estar entre 1 y 31']
+    required: true
   },
 
   hora: {
     type: Number,
-    required: [true, 'Hora obligatoria'],
-    min: [0, 'Hora debe estar entre 0 y 23'],
-    max: [23, 'Hora debe estar entre 0 y 23'],
+    required: true,
     index: true
   },
 
   minutos: {
     type: Number,
-    required: [true, 'Minutos obligatorios'],
-    min: [0, 'Minutos deben estar entre 0 y 59'],
-    max: [59, 'Minutos deben estar entre 0 y 59'],
-    validate: {
-      validator: function(v) {
-        // Las mediciones son cada 15 minutos: 0, 15, 30, 45
-        return [0, 15, 30, 45].includes(v);
-      },
-      message: 'Las mediciones deben ser cada 15 minutos (0, 15, 30, 45)'
-    }
+    required: true
   },
 
   // Clasificación del punto de medida
   tipoElemento: {
     type: String,
-    required: [true, 'Tipo de elemento obligatorio'],
-    enum: {
-      values: ['URB', 'M-30'],
-      message: 'Tipo de elemento debe ser URB (urbano) o M-30 (interurbano)'
-    },
+    required: true,
+    enum: ['URB', 'M-30'],
     index: true
   },
 
@@ -105,59 +81,26 @@ const trafficSchema = new mongoose.Schema({
     // Intensidad del tráfico (vehículos/hora)
     intensidad: {
       type: Number,
-      required: [true, 'Intensidad obligatoria'],
-      validate: {
-        validator: function(v) {
-          // Valor negativo indica ausencia de datos
-          return v >= -1 && v <= 10000;
-        },
-        message: 'Intensidad debe estar entre -1 y 10000 veh/h'
-      },
+      required: true,
       index: true
     },
 
     // Porcentaje de ocupación de la vía
     ocupacion: {
       type: Number,
-      required: [true, 'Ocupación obligatoria'],
-      validate: {
-        validator: function(v) {
-          // Valor negativo indica ausencia de datos
-          return v >= -1 && v <= 100;
-        },
-        message: 'Ocupación debe estar entre -1 y 100%'
-      }
+      required: true
     },
 
     // Carga de la vía (0-100)
     carga: {
       type: Number,
-      required: [true, 'Carga obligatoria'],
-      validate: {
-        validator: function(v) {
-          // Valor negativo indica ausencia de datos
-          return v >= -1 && v <= 100;
-        },
-        message: 'Carga debe estar entre -1 y 100'
-      }
+      required: true
     },
 
     // Velocidad media (solo para M-30)
     velocidadMedia: {
       type: Number,
-      required: function() {
-        return this.tipoElemento === 'M-30';
-      },
-      validate: {
-        validator: function(v) {
-          if (this.tipoElemento === 'URB' && (v === null || v === undefined)) {
-            return true; // Para urbanos, la velocidad puede ser nula
-          }
-          // Valor negativo indica ausencia de datos
-          return v >= -1 && v <= 200;
-        },
-        message: 'Velocidad media debe estar entre -1 y 200 km/h'
-      }
+      required: false
     }
   },
 
@@ -166,46 +109,22 @@ const trafficSchema = new mongoose.Schema({
     // Indicador de error
     error: {
       type: String,
-      required: [true, 'Indicador de error obligatorio'],
-      enum: {
-        values: ['N', 'E', 'S'],
-        message: 'Error debe ser N (sin errores), E (errores de calidad) o S (muestras erróneas)'
-      },
+      required: true,
+      enum: ['N', 'E', 'S'],
       default: 'N'
     },
 
     // Número de muestras integradas
     periodoIntegracion: {
       type: Number,
-      required: [true, 'Período de integración obligatorio'],
-      min: [0, 'Período de integración no puede ser negativo'],
-      max: [20, 'Período de integración no puede exceder 20 muestras'],
-      validate: {
-        validator: function(v) {
-          return Number.isInteger(v);
-        },
-        message: 'Período de integración debe ser un número entero'
-      }
+      required: true
     },
 
     // Calidad general de la medición
     calidadGeneral: {
       type: String,
       enum: ['ALTA', 'MEDIA', 'BAJA', 'SIN_DATOS'],
-      default: function() {
-        // Verificar que calidadDatos existe antes de acceder a sus propiedades
-        if (!this.calidadDatos) {return 'SIN_DATOS';}
-
-        if (this.calidadDatos.error === 'N' && this.calidadDatos.periodoIntegracion >= 4) {
-          return 'ALTA';
-        } if (this.calidadDatos.error === 'E' && this.calidadDatos.periodoIntegracion >= 2) {
-          return 'MEDIA';
-        } if (this.calidadDatos.error === 'S' || this.calidadDatos.periodoIntegracion < 2) {
-          return 'BAJA';
-        }
-          return 'SIN_DATOS';
-
-      }
+      default: 'SIN_DATOS'
     }
   },
 
@@ -215,27 +134,7 @@ const trafficSchema = new mongoose.Schema({
     nivelCongestion: {
       type: String,
       enum: ['FLUIDO', 'DENSO', 'CONGESTIONADO', 'COLAPSADO', 'SIN_DATOS'],
-      default: function() {
-        // Verificar que metricas existe antes de acceder
-        if (!this.metricas) {return 'SIN_DATOS';}
-
-        if (this.metricas.ocupacion < 0 || this.metricas.carga < 0) {
-          return 'SIN_DATOS';
-        }
-
-        const ocupacion = this.metricas.ocupacion;
-        const carga = this.metricas.carga;
-
-        if (ocupacion < 10 && carga < 25) {
-          return 'FLUIDO';
-        } if (ocupacion < 30 && carga < 50) {
-          return 'DENSO';
-        } if (ocupacion < 60 && carga < 80) {
-          return 'CONGESTIONADO';
-        }
-          return 'COLAPSADO';
-
-      },
+      default: 'SIN_DATOS',
       index: true
     },
 
@@ -243,28 +142,7 @@ const trafficSchema = new mongoose.Schema({
     clasificacionIntensidad: {
       type: String,
       enum: ['MUY_BAJA', 'BAJA', 'MEDIA', 'ALTA', 'MUY_ALTA', 'SIN_DATOS'],
-      default: function() {
-        // Verificar que metricas existe antes de acceder
-        if (!this.metricas) {return 'SIN_DATOS';}
-
-        if (this.metricas.intensidad < 0) {
-          return 'SIN_DATOS';
-        }
-
-        const intensidad = this.metricas.intensidad;
-
-        if (intensidad < 200) {
-          return 'MUY_BAJA';
-        } if (intensidad < 500) {
-          return 'BAJA';
-        } if (intensidad < 1000) {
-          return 'MEDIA';
-        } if (intensidad < 2000) {
-          return 'ALTA';
-        }
-          return 'MUY_ALTA';
-
-      },
+      default: 'SIN_DATOS',
       index: true
     },
 
@@ -272,22 +150,7 @@ const trafficSchema = new mongoose.Schema({
     periodoDia: {
       type: String,
       enum: ['MADRUGADA', 'MAÑANA', 'MEDIODIA', 'TARDE', 'NOCHE'],
-      default: function() {
-        // Usar hora directamente si está disponible, sino derivar de fecha
-        const hora = this.hora || (this.fecha ? this.fecha.getHours() : 0);
-
-        if (hora >= 0 && hora < 6) {
-          return 'MADRUGADA';
-        } if (hora >= 6 && hora < 12) {
-          return 'MAÑANA';
-        } if (hora >= 12 && hora < 15) {
-          return 'MEDIODIA';
-        } if (hora >= 15 && hora < 21) {
-          return 'TARDE';
-        }
-          return 'NOCHE';
-
-      },
+      default: 'MAÑANA',
       index: true
     },
 
@@ -295,19 +158,7 @@ const trafficSchema = new mongoose.Schema({
     tipoJornada: {
       type: String,
       enum: ['LABORABLE', 'SABADO', 'DOMINGO_FESTIVO'],
-      default: function() {
-        // Verificar que fecha existe antes de acceder
-        if (!this.fecha) {return 'LABORABLE';}
-
-        const dayOfWeek = new Date(this.fecha).getDay();
-        if (dayOfWeek === 0) {
-          return 'DOMINGO_FESTIVO';
-        } if (dayOfWeek === 6) {
-          return 'SABADO';
-        }
-          return 'LABORABLE';
-
-      },
+      default: 'LABORABLE',
       index: true
     }
   },

@@ -15,126 +15,65 @@ const mongoose = require('mongoose');
 const hourlyMeasurementSchema = new mongoose.Schema({
   value: {
     type: Number,
-    required: false, // Puede ser null/undefined si no hay medición válida
-    min: 0
+    required: false
   },
   validationCode: {
     type: String,
-    enum: ['V', 'N'], // V = válido, N = no válido
+    enum: ['V', 'N'],
     required: true
   }
-}, { _id: false }); // No generar _id para subdocumentos
+}, { _id: false });
 
 /**
  * Esquema principal de Calidad del Aire
- *
- * Basado en la estructura de los CSV de aire:
- * - PROVINCIA, MUNICIPIO, ESTACION: códigos de identificación geográfica
- * - MAGNITUD: tipo de contaminante medido
- * - PUNTO_MUESTREO: identificador único del punto de medición
- * - H01-H24 con V01-V24: mediciones horarias con validación
  */
 const airQualitySchema = new mongoose.Schema({
   // Identificación geográfica y del sensor
   provincia: {
     type: Number,
-    required: [true, 'Código de provincia obligatorio'],
-    min: [1, 'Código de provincia inválido'],
-    max: [99, 'Código de provincia inválido'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v);
-      },
-      message: 'El código de provincia debe ser un número entero'
-    }
+    required: true,
+    index: true
   },
 
   municipio: {
     type: Number,
-    required: [true, 'Código de municipio obligatorio'],
-    min: [1, 'Código de municipio inválido'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v);
-      },
-      message: 'El código de municipio debe ser un número entero'
-    }
+    required: true,
+    index: true
   },
 
   estacion: {
     type: Number,
-    required: [true, 'Código de estación obligatorio'],
-    min: [1, 'Código de estación inválido'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v);
-      },
-      message: 'El código de estación debe ser un número entero'
-    }
+    required: true,
+    index: true
   },
 
   // Tipo de contaminante medido
   magnitud: {
     type: Number,
-    required: [true, 'Código de magnitud obligatorio'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        // Códigos comunes de magnitudes según normativa y datos reales
-        const validMagnitudes = [1, 6, 7, 8, 9, 10, 12, 14, 20, 30, 35, 42, 43, 44];
-        return Number.isInteger(v) && validMagnitudes.includes(v);
-      },
-      message: 'Código de magnitud no válido o no es entero'
-    }
+    required: true,
+    index: true
   },
 
   // Identificador único del punto de medición
   puntoMuestreo: {
     type: String,
-    required: [true, 'Punto de muestreo obligatorio'],
+    required: true,
     trim: true,
-    index: true,
-    validate: {
-      validator: function(v) {
-        return v && v.length > 0;
-      },
-      message: 'Punto de muestreo no puede estar vacío'
-    }
+    index: true
   },
 
   // Fecha de la medición
   fecha: {
     type: Date,
-    required: [true, 'Fecha de medición obligatoria'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        // No permitir fechas futuras
-        return v <= new Date();
-      },
-      message: 'La fecha de medición no puede ser futura'
-    }
+    required: true,
+    index: true
   },
 
   // Mediciones horarias (24 horas del día)
   medicionesHorarias: {
     type: Map,
     of: hourlyMeasurementSchema,
-    required: true,
-    validate: {
-      validator: function(map) {
-        // Verificar que existan las 24 mediciones (H01 a H24)
-        for (let i = 1; i <= 24; i++) {
-          const key = `H${i.toString().padStart(2, '0')}`;
-          if (!map.has(key)) {return false;}
-        }
-        return true;
-      },
-      message: 'Deben existir las 24 mediciones horarias'
-    }
+    required: true
   },
 
   // Metadatos de calidad y procesamiento
@@ -145,20 +84,10 @@ const airQualitySchema = new mongoose.Schema({
     },
     validMeasurements: {
       type: Number,
-      min: [0, 'Mediciones válidas no puede ser negativo'],
-      max: [24, 'Mediciones válidas no puede superar 24'],
-      default: 0,
-      validate: {
-        validator: function(v) {
-          return Number.isInteger(v);
-        },
-        message: 'Mediciones válidas debe ser un número entero'
-      }
+      default: 0
     },
     dataQualityScore: {
       type: Number,
-      min: [0, 'Score de calidad debe estar entre 0 y 1'],
-      max: [1, 'Score de calidad debe estar entre 0 y 1'],
       default: 0
     }
   }

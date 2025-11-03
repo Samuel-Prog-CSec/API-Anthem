@@ -18,19 +18,14 @@ const containerSchema = new mongoose.Schema({
   // Código de identificación del situado/punto de aportación
   codigoInternoSituado: {
     type: String,
-    required: [true, 'El código interno del situado es obligatorio'],
-    index: true
+    required: true
   },
 
   // Tipo de residuo que recoge el contenedor
   tipoContenedor: {
     type: String,
-    required: [true, 'El tipo de contenedor es obligatorio'],
-    enum: {
-      values: ['ORGANICA', 'RESTO', 'ENVASES', 'VIDRIO', 'PAPEL-CARTON'],
-      message: 'Tipo de contenedor no válido'
-    },
-    index: true
+    required: true,
+    enum: ['ORGANICA', 'RESTO', 'ENVASES', 'VIDRIO', 'PAPEL-CARTON']
   },
 
   // Modelo del contenedor (código interno)
@@ -48,34 +43,22 @@ const containerSchema = new mongoose.Schema({
   // Cantidad de contenedores en el situado
   cantidad: {
     type: Number,
-    required: [true, 'La cantidad es obligatoria'],
-    min: [1, 'La cantidad debe ser al menos 1'],
+    required: true,
     default: 1
   },
 
   // Lote al que pertenece (1, 2 o 3)
   lote: {
     type: Number,
-    required: [true, 'El lote es obligatorio'],
-    enum: {
-      values: [1, 2, 3],
-      message: 'El lote debe ser 1, 2 o 3'
-    },
-    index: true
+    required: true,
+    enum: [1, 2, 3]
   },
 
   // Información geográfica - Distrito
   distrito: {
     type: String,
-    required: [true, 'El distrito es obligatorio'],
-    trim: true,
-    index: true,
-    validate: {
-      validator: function(v) {
-        return v && v.length > 0;
-      },
-      message: 'El distrito no puede estar vacío'
-    }
+    required: true,
+    trim: true
   },
 
   // Información geográfica - Barrio
@@ -83,7 +66,6 @@ const containerSchema = new mongoose.Schema({
     type: String,
     required: false, // Opcional - algunos registros no tienen barrio especificado
     trim: true,
-    index: true,
     default: 'SIN ESPECIFICAR'
   },
 
@@ -95,15 +77,8 @@ const containerSchema = new mongoose.Schema({
     },
     nombre: {
       type: String,
-      required: [true, 'El nombre de la vía es obligatorio'],
-      trim: true,
-      index: true,
-      validate: {
-        validator: function(v) {
-          return v && v.length > 0;
-        },
-        message: 'El nombre de la vía no puede estar vacío'
-      }
+      required: true,
+      trim: true
     },
     numero: {
       type: String,
@@ -120,11 +95,11 @@ const containerSchema = new mongoose.Schema({
   coordenadas: {
     x: {
       type: Number,
-      required: [true, 'La coordenada X es obligatoria']
+      required: true
     },
     y: {
       type: Number,
-      required: [true, 'La coordenada Y es obligatoria']
+      required: true
     }
   },
 
@@ -136,16 +111,8 @@ const containerSchema = new mongoose.Schema({
       default: 'Point'
     },
     coordinates: {
-      type: [Number], // [longitud, latitud]
-      required: [true, 'Las coordenadas geográficas son obligatorias'],
-      validate: {
-        validator: function(coords) {
-          return coords.length === 2 &&
-                 coords[0] >= -180 && coords[0] <= 180 &&
-                 coords[1] >= -90 && coords[1] <= 90;
-        },
-        message: 'Coordenadas geográficas no válidas'
-      }
+      type: [Number],
+      required: true
     }
   }
 
@@ -177,32 +144,86 @@ containerSchema.pre('save', function(next) {
  * Índices para optimización de consultas
  */
 
-// Índice compuesto para búsquedas por código y tipo
+// Índice único compuesto para evitar duplicados
 containerSchema.index({
   codigoInternoSituado: 1,
   tipoContenedor: 1
+}, {
+  name: 'idx_containers_unique_code_type',
+  background: true
 });
 
-// Índice geoespacial para búsquedas por proximidad
-containerSchema.index({ location: '2dsphere' });
+// Índice geoespacial 2dsphere para búsquedas por proximidad y áreas
+// Usado en: findNearby(), findWithinArea(), queries geoespaciales
+containerSchema.index({ location: '2dsphere' }, {
+  name: 'idx_containers_geospatial',
+  background: true
+});
 
-// Índice compuesto para consultas por distrito y barrio
+// Índice compuesto jerárquico: distrito + barrio
+// Usado en: GET /api/containers?distrito=X&barrio=Y, filtrado por ubicación
 containerSchema.index({
   distrito: 1,
-  barrio: 1,
-  tipoContenedor: 1
+  barrio: 1
+}, {
+  name: 'idx_containers_location_hierarchy',
+  background: true
+});
+
+// Índice compuesto: tipo + distrito (consultas de cobertura por tipo)
+// Usado en: análisis de distribución de tipos por distrito, estadísticas
+containerSchema.index({
+  tipoContenedor: 1,
+  distrito: 1
+}, {
+  name: 'idx_containers_type_district',
+  background: true
+});
+
+// Índice compuesto para análisis de densidad: distrito + tipo + geolocalización
+// Usado en: análisis de densidad, mapas de calor, cobertura por área
+containerSchema.index({
+  distrito: 1,
+  tipoContenedor: 1,
+  location: '2dsphere'
+}, {
+  name: 'idx_containers_density_analysis',
+  background: true
 });
 
 // Índice para búsquedas por lote y tipo
+// Usado en: queries por gestión de lotes, mantenimiento
 containerSchema.index({
   lote: 1,
   tipoContenedor: 1
+}, {
+  name: 'idx_containers_batch_type',
+  background: true
 });
 
-// Índice para búsquedas de texto en direcciones
+// Índice de texto para búsquedas de direcciones
+// Usado en: búsqueda textual de contenedores por dirección
 containerSchema.index({
   'direccion.nombre': 'text',
   'direccion.completa': 'text'
+}, {
+  name: 'idx_containers_address_search',
+  background: true,
+  weights: {
+    'direccion.nombre': 10,
+    'direccion.completa': 5
+  }
+});
+
+// Índice compuesto para consultas por barrio y tipo
+// Usado en: estadísticas detalladas por barrio, filtrado específico
+containerSchema.index({
+  barrio: 1,
+  tipoContenedor: 1,
+  cantidad: 1
+}, {
+  name: 'idx_containers_neighborhood_type',
+  background: true
 });
 
 /**
@@ -218,7 +239,7 @@ containerSchema.index({
  * @param {string} tipoContenedor - Tipo de contenedor (opcional)
  * @returns {Promise<Array>} Contenedores cercanos ordenados por distancia
  */
-containerSchema.statics.findNearby = async function(longitude, latitude, maxDistance = 500, tipoContenedor = null) {
+containerSchema.statics.findNearby = function(longitude, latitude, maxDistance = 500, tipoContenedor = null) {
   const query = {
     location: {
       $near: {
@@ -246,7 +267,7 @@ containerSchema.statics.findNearby = async function(longitude, latitude, maxDist
  * @param {string} distrito - Nombre del distrito (opcional)
  * @returns {Promise<Array>} Estadísticas por tipo de contenedor
  */
-containerSchema.statics.getStatsByDistrict = async function(distrito = null) {
+containerSchema.statics.getStatsByDistrict = function(distrito = null) {
   const matchStage = distrito ? { $match: { distrito } } : { $match: {} };
 
   return this.aggregate([
@@ -288,7 +309,7 @@ containerSchema.statics.getStatsByDistrict = async function(distrito = null) {
  * @param {string} barrio - Nombre del barrio (opcional)
  * @returns {Promise<Array>} Estadísticas por tipo de contenedor
  */
-containerSchema.statics.getStatsByBarrio = async function(distrito, barrio = null) {
+containerSchema.statics.getStatsByBarrio = function(distrito, barrio = null) {
   const matchStage = barrio
     ? { $match: { distrito, barrio } }
     : { $match: { distrito } };
@@ -335,7 +356,7 @@ containerSchema.statics.getStatsByBarrio = async function(distrito, barrio = nul
  *
  * @returns {Promise<Object>} Resumen con totales por tipo
  */
-containerSchema.statics.getGeneralSummary = async function() {
+containerSchema.statics.getGeneralSummary = function() {
   return this.aggregate([
     {
       $group: {
@@ -370,7 +391,9 @@ containerSchema.statics.getGeneralSummary = async function() {
  */
 containerSchema.statics.countByType = async function(distrito, barrio = null) {
   const query = { distrito };
-  if (barrio) {query.barrio = barrio;}
+  if (barrio) {
+    query.barrio = barrio;
+  }
 
   const results = await this.aggregate([
     { $match: query },
@@ -411,7 +434,7 @@ containerSchema.statics.countByType = async function(distrito, barrio = null) {
  * @param {string} tipoContenedor - Tipo de contenedor (opcional)
  * @returns {Promise<Array>} Contenedores dentro del área
  */
-containerSchema.statics.findWithinArea = async function(coordinates, tipoContenedor = null) {
+containerSchema.statics.findWithinArea = function(coordinates, tipoContenedor = null) {
   const query = {
     location: {
       $geoWithin: {
@@ -436,7 +459,7 @@ containerSchema.statics.findWithinArea = async function(coordinates, tipoContene
  * @param {Number} limit - Límite de puntos (default: 5000)
  * @returns {Promise<Array>} Array de puntos con coordenadas
  */
-containerSchema.statics.getHeatmapData = async function(tipoContenedor = null, limit = 5000) {
+containerSchema.statics.getHeatmapData = function(tipoContenedor = null, limit = 5000) {
   const filter = tipoContenedor ? { tipoContenedor: tipoContenedor.toUpperCase() } : {};
 
   return this.aggregate([
@@ -458,7 +481,7 @@ containerSchema.statics.getHeatmapData = async function(tipoContenedor = null, l
  * @param {String} distrito - Distrito específico (opcional, null para todos)
  * @returns {Promise<Array>} Análisis de cobertura por distrito y tipo
  */
-containerSchema.statics.getCoverageAnalysis = async function(distrito = null) {
+containerSchema.statics.getCoverageAnalysis = function(distrito = null) {
   const matchStage = distrito ? { $match: { distrito } } : { $match: {} };
 
   return this.aggregate([
@@ -495,6 +518,134 @@ containerSchema.statics.getCoverageAnalysis = async function(distrito = null) {
     },
     { $sort: { distrito: 1 } }
   ]);
+};
+
+/**
+ * Análisis de densidad de contenedores por distrito
+ *
+ * Calcula la densidad de contenedores por distrito y tipo, incluyendo
+ * métricas de distribución espacial. Utiliza el índice idx_containers_density_analysis
+ * para optimización de consultas geoespaciales.
+ *
+ * @param {Object} options - Opciones de análisis
+ * @param {String} [options.distrito] - Distrito específico (opcional)
+ * @param {String} [options.tipoContenedor] - Tipo de contenedor específico (opcional)
+ * @param {Boolean} [options.includeBarrios=true] - Incluir desglose por barrios
+ * @returns {Promise<Array>} Array con análisis de densidad por distrito
+ *
+ * @example
+ * const density = await Container.getDensityAnalysisByDistrict({
+ *   distrito: 'CENTRO',
+ *   tipoContenedor: 'ORGANICA',
+ *   includeBarrios: true
+ * });
+ */
+containerSchema.statics.getDensityAnalysisByDistrict = function(options = {}) {
+  const { distrito, tipoContenedor, includeBarrios = true } = options;
+
+  const matchStage = {};
+  if (distrito) {
+    matchStage.distrito = distrito;
+  }
+  if (tipoContenedor) {
+    matchStage.tipoContenedor = tipoContenedor;
+  }
+
+  const groupByDistrict = [
+    { $match: Object.keys(matchStage).length > 0 ? matchStage : { distrito: { $exists: true } } },
+    {
+      $group: {
+        _id: {
+          distrito: '$distrito',
+          ...(includeBarrios && { barrio: '$barrio' }),
+          ...(tipoContenedor ? {} : { tipo: '$tipoContenedor' })
+        },
+        totalContenedores: { $sum: '$cantidad' },
+        totalPuntos: { $sum: 1 },
+        contenedoresPorTipo: {
+          $push: {
+            tipo: '$tipoContenedor',
+            cantidad: '$cantidad',
+            lote: '$lote'
+          }
+        },
+        coordenadas: {
+          $push: {
+            type: 'Point',
+            coordinates: '$location.coordinates'
+          }
+        }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        distrito: '$_id.distrito',
+        ...(includeBarrios && { barrio: '$_id.barrio' }),
+        ...(!tipoContenedor && { tipoContenedor: '$_id.tipo' }),
+        totalContenedores: 1,
+        totalPuntos: 1,
+        densidad: {
+          contenedoresPorPunto: {
+            $round: [{ $divide: ['$totalContenedores', '$totalPuntos'] }, 2]
+          }
+        },
+        distribucionTipos: {
+          $reduce: {
+            input: '$contenedoresPorTipo',
+            initialValue: {},
+            in: {
+              $mergeObjects: [
+                '$$value',
+                {
+                  $cond: [
+                    { $eq: ['$$this.tipo', 'ORGANICA'] },
+                    { ORGANICA: { $add: [{ $ifNull: ['$$value.ORGANICA', 0] }, '$$this.cantidad'] } },
+                    '$$value'
+                  ]
+                },
+                {
+                  $cond: [
+                    { $eq: ['$$this.tipo', 'RESTO'] },
+                    { RESTO: { $add: [{ $ifNull: ['$$value.RESTO', 0] }, '$$this.cantidad'] } },
+                    '$$value'
+                  ]
+                },
+                {
+                  $cond: [
+                    { $eq: ['$$this.tipo', 'ENVASES'] },
+                    { ENVASES: { $add: [{ $ifNull: ['$$value.ENVASES', 0] }, '$$this.cantidad'] } },
+                    '$$value'
+                  ]
+                },
+                {
+                  $cond: [
+                    { $eq: ['$$this.tipo', 'VIDRIO'] },
+                    { VIDRIO: { $add: [{ $ifNull: ['$$value.VIDRIO', 0] }, '$$this.cantidad'] } },
+                    '$$value'
+                  ]
+                },
+                {
+                  $cond: [
+                    { $eq: ['$$this.tipo', 'PAPEL-CARTON'] },
+                    { 'PAPEL-CARTON': { $add: [{ $ifNull: ['$$value.PAPEL-CARTON', 0] }, '$$this.cantidad'] } },
+                    '$$value'
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      $sort: includeBarrios
+        ? { distrito: 1, barrio: 1 }
+        : { distrito: 1, totalContenedores: -1 }
+    }
+  ];
+
+  return this.aggregate(groupByDistrict);
 };
 
 // Crear y exportar el modelo

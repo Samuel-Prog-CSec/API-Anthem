@@ -23,158 +23,74 @@ const noiseMonitoringSchema = new mongoose.Schema({
   // Información temporal
   fecha: {
     type: Date,
-    required: [true, 'Fecha de medición obligatoria'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        // No permitir fechas futuras
-        return v <= new Date();
-      },
-      message: 'La fecha de medición no puede ser futura'
-    }
+    required: true
   },
 
   mes: {
     type: Number,
-    required: [true, 'Mes obligatorio'],
-    min: [1, 'Mes debe estar entre 1 y 12'],
-    max: [12, 'Mes debe estar entre 1 y 12'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v);
-      },
-      message: 'El mes debe ser un número entero'
-    }
+    required: true
   },
 
   año: {
     type: Number,
-    required: [true, 'Año obligatorio'],
-    min: [2000, 'Año debe ser mayor o igual a 2000'],
-    max: [2100, 'Año debe ser menor o igual a 2100'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v);
-      },
-      message: 'El año debe ser un número entero'
-    }
+    required: true
   },
 
   // Identificación de la estación
   nmt: {
     type: Number,
-    required: [true, 'Número de estación (NMT) obligatorio'],
-    min: [1, 'NMT debe ser mayor a 0'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v);
-      },
-      message: 'El NMT debe ser un número entero'
-    }
+    required: true
   },
 
   nombre: {
     type: String,
-    required: [true, 'Nombre de la estación obligatorio'],
-    trim: true,
-    maxlength: [100, 'Nombre no puede exceder 100 caracteres'],
-    index: true,
-    validate: {
-      validator: function(v) {
-        return v && v.length > 0;
-      },
-      message: 'El nombre no puede estar vacío'
-    }
+    required: true,
+    trim: true
   },
 
   // Niveles de ruido por periodo (en decibelios)
   nivelDiurno: { // Ld: 07:00 - 19:00
     type: Number,
-    required: false, // Puede ser null si no hay datos válidos
-    min: [0, 'Nivel de ruido no puede ser negativo'],
-    max: [150, 'Nivel de ruido excesivo'],
-    validate: {
-      validator: function(v) {
-        return v === null || (v >= 0 && v <= 150);
-      },
-      message: 'Nivel diurno debe estar entre 0 y 150 dB o ser nulo'
-    }
+    required: false
   },
 
   nivelVespertino: { // Le: 19:00 - 23:00
     type: Number,
-    required: false,
-    min: [0, 'Nivel de ruido no puede ser negativo'],
-    max: [150, 'Nivel de ruido excesivo'],
-    validate: {
-      validator: function(v) {
-        return v === null || (v >= 0 && v <= 150);
-      },
-      message: 'Nivel vespertino debe estar entre 0 y 150 dB o ser nulo'
-    }
+    required: false
   },
 
   nivelNocturno: { // Ln: 23:00 - 07:00
     type: Number,
-    required: false,
-    min: [0, 'Nivel de ruido no puede ser negativo'],
-    max: [150, 'Nivel de ruido excesivo'],
-    validate: {
-      validator: function(v) {
-        return v === null || (v >= 0 && v <= 150);
-      },
-      message: 'Nivel nocturno debe estar entre 0 y 150 dB o ser nulo'
-    }
+    required: false
   },
 
   // Nivel equivalente continuo de 24 horas
   laeq24: {
     type: Number,
-    required: false,
-    min: [0, 'LAeq24 no puede ser negativo'],
-    max: [150, 'LAeq24 excesivo'],
-    validate: {
-      validator: function(v) {
-        return v === null || (v >= 0 && v <= 150);
-      },
-      message: 'LAeq24 debe estar entre 0 y 150 dB o ser nulo'
-    }
+    required: false
   },
 
   // Percentiles estadísticos (LAS01, LAS10, LAS50, LAS90, LAS99)
   percentiles: {
     las01: { // Percentil 1 (superado el 1% del tiempo)
       type: Number,
-      required: false,
-      min: [0, 'Percentil no puede ser negativo'],
-      max: [150, 'Percentil excesivo']
+      required: false
     },
     las10: { // Percentil 10 (superado el 10% del tiempo)
       type: Number,
-      required: false,
-      min: [0, 'Percentil no puede ser negativo'],
-      max: [150, 'Percentil excesivo']
+      required: false
     },
     las50: { // Percentil 50 (mediana)
       type: Number,
-      required: false,
-      min: [0, 'Percentil no puede ser negativo'],
-      max: [150, 'Percentil excesivo']
+      required: false
     },
     las90: { // Percentil 90 (superado el 90% del tiempo)
       type: Number,
-      required: false,
-      min: [0, 'Percentil no puede ser negativo'],
-      max: [150, 'Percentil excesivo']
+      required: false
     },
     las99: { // Percentil 99 (ruido de fondo)
       type: Number,
-      required: false,
-      min: [0, 'Percentil no puede ser negativo'],
-      max: [150, 'Percentil excesivo']
+      required: false
     }
   },
 
@@ -190,8 +106,6 @@ const noiseMonitoringSchema = new mongoose.Schema({
     }],
     qualityScore: {
       type: Number,
-      min: 0,
-      max: 1,
       default: 1
     }
   },
@@ -222,13 +136,11 @@ noiseMonitoringSchema.index(
   { unique: true, name: 'unique_station_period' }
 );
 
-// Índices para consultas comunes
-noiseMonitoringSchema.index({ fecha: -1, nmt: 1 });
-noiseMonitoringSchema.index({ nombre: 1, fecha: -1 });
-noiseMonitoringSchema.index({ año: 1, mes: 1, nmt: 1 });
-
 // Índice de texto para búsqueda por nombre de estación
-noiseMonitoringSchema.index({ nombre: 'text' });
+noiseMonitoringSchema.index({ nombre: 'text' }, {
+  name: 'idx_noise_text_search',
+  background: true
+});
 
 // Índice compuesto estacion (nmt) + fecha (consultas por estación específica)
 // Usado en: GET /api/noise-monitoring?nmt=X&fecha=Y, series temporales por estación
@@ -244,6 +156,40 @@ noiseMonitoringSchema.index({ fecha: 1, laeq24: 1 }, {
   name: 'idx_noise_date_level_alerts',
   background: true,
   sparse: true // Solo documentos con laeq24 válido
+});
+
+// Índice compuesto año + mes + nombre para búsquedas por nombre de estación en periodo
+// Usado en: búsquedas por nombre de ubicación y rango temporal específico
+// Ejemplo: GET /api/noise-monitoring?nombre=CENTRO&año=2051&mes=1
+noiseMonitoringSchema.index({ año: 1, mes: 1, nombre: 1 }, {
+  name: 'idx_noise_period_station_name',
+  background: true
+});
+
+// Índice compuesto para análisis de cumplimiento normativo
+// Usado en: agregaciones para detectar incumplimientos y estadísticas de calidad
+// Ejemplo: Queries que filtran por fecha y niveles de ruido superiores a límites
+noiseMonitoringSchema.index({ fecha: 1, nivelDiurno: 1, nivelNocturno: 1 }, {
+  name: 'idx_noise_compliance_analysis',
+  background: true,
+  sparse: true // Solo documentos con datos válidos
+});
+
+// Índice para consultas recientes por estación con nivel de ruido
+// Usado en: dashboards en tiempo real, alertas de niveles altos recientes
+// Ejemplo: SELECT * FROM noise WHERE fecha >= recent ORDER BY laeq24 DESC
+noiseMonitoringSchema.index({ fecha: -1, laeq24: -1 }, {
+  name: 'idx_noise_recent_levels',
+  background: true,
+  sparse: true
+});
+
+// Índice compuesto para búsqueda por nombre de estación y rango de fechas
+// Usado en: series temporales específicas de una estación por nombre
+// Ejemplo: GET /api/noise-monitoring?nombre=PLAZA%20MAYOR&startDate=X&endDate=Y
+noiseMonitoringSchema.index({ nombre: 1, fecha: -1 }, {
+  name: 'idx_noise_station_name_timeline',
+  background: true
 });
 
 /**
@@ -579,6 +525,285 @@ noiseMonitoringSchema.statics.calcularCumplimientoNormativo = function(niveles) 
     nocturno: niveles.nivelNocturno <= NOCTURNO,
     global: niveles.nivelDiurno <= DIURNO && niveles.nivelVespertino <= VESPERTINO && niveles.nivelNocturno <= NOCTURNO
   };
+};
+
+/**
+ * Comparación entre estaciones de monitorización
+ *
+ * Compara niveles de ruido entre múltiples estaciones en un periodo determinado.
+ * Utiliza el índice idx_noise_station_timeline para optimización.
+ *
+ * @param {Object} options - Opciones de comparación
+ * @param {Array<Number>} options.stations - Array de NMT de estaciones a comparar
+ * @param {Date} options.startDate - Fecha de inicio del periodo
+ * @param {Date} options.endDate - Fecha de fin del periodo
+ * @param {String} [options.metric='laeq24'] - Métrica a comparar: 'laeq24', 'nivelDiurno', 'nivelVespertino', 'nivelNocturno'
+ * @returns {Promise<Array>} Array con datos comparativos de cada estación
+ *
+ * @example
+ * const comparison = await NoiseMonitoring.getStationComparison({
+ *   stations: [1, 2, 3],
+ *   startDate: new Date('2051-01-01'),
+ *   endDate: new Date('2051-12-31'),
+ *   metric: 'laeq24'
+ * });
+ */
+noiseMonitoringSchema.statics.getStationComparison = function(options) {
+  const { stations, startDate, endDate, metric = 'laeq24' } = options;
+
+  if (!stations || !Array.isArray(stations) || stations.length === 0) {
+    throw new Error('Se requiere un array de estaciones para comparar');
+  }
+
+  if (!startDate || !endDate) {
+    throw new Error('Se requieren fechas de inicio y fin');
+  }
+
+  const metricField = `$${metric}`;
+  const matchStage = {
+    nmt: { $in: stations },
+    fecha: { $gte: startDate, $lte: endDate },
+    [metric]: { $ne: null }
+  };
+
+  const pipeline = [
+    { $match: matchStage },
+    {
+      $group: {
+        _id: { nmt: '$nmt', nombre: '$nombre' },
+        promedioNivel: { $avg: metricField },
+        minimoNivel: { $min: metricField },
+        maximoNivel: { $max: metricField },
+        desviacionEstandar: { $stdDevPop: metricField },
+        totalMediciones: { $sum: 1 },
+        medicionesValidas: {
+          $sum: { $cond: [{ $ne: [metricField, null] }, 1, 0] }
+        }
+      }
+    },
+    {
+      $project: {
+        nmt: '$_id.nmt',
+        nombre: '$_id.nombre',
+        promedioNivel: { $round: ['$promedioNivel', 2] },
+        minimoNivel: { $round: ['$minimoNivel', 2] },
+        maximoNivel: { $round: ['$maximoNivel', 2] },
+        desviacionEstandar: { $round: ['$desviacionEstandar', 2] },
+        totalMediciones: 1,
+        medicionesValidas: 1,
+        rangoVariacion: {
+          $round: [{ $subtract: ['$maximoNivel', '$minimoNivel'] }, 2]
+        },
+        calidadDatos: {
+          $round: [
+            { $multiply: [{ $divide: ['$medicionesValidas', '$totalMediciones'] }, 100] },
+            2
+          ]
+        },
+        _id: 0
+      }
+    },
+    { $sort: { promedioNivel: -1 } }
+  ];
+
+  return this.aggregate(pipeline);
+};
+
+/**
+ * Análisis de tendencias temporales de ruido
+ *
+ * Analiza la evolución temporal de los niveles de ruido agrupados por diferentes
+ * periodos (día, mes, año). Utiliza índices temporales para optimización.
+ *
+ * @param {Object} options - Opciones de análisis
+ * @param {Number} [options.nmt] - NMT de estación específica (opcional)
+ * @param {Date} options.startDate - Fecha de inicio del análisis
+ * @param {Date} options.endDate - Fecha de fin del análisis
+ * @param {String} [options.groupBy='month'] - Agrupación temporal: 'day', 'month', 'year'
+ * @param {String} [options.metric='laeq24'] - Métrica a analizar
+ * @returns {Promise<Array>} Array con tendencias temporales
+ *
+ * @example
+ * const trends = await NoiseMonitoring.getTemporalTrends({
+ *   nmt: 1,
+ *   startDate: new Date('2051-01-01'),
+ *   endDate: new Date('2051-12-31'),
+ *   groupBy: 'month',
+ *   metric: 'laeq24'
+ * });
+ */
+noiseMonitoringSchema.statics.getTemporalTrends = function(options) {
+  const { nmt, startDate, endDate, groupBy = 'month', metric = 'laeq24' } = options;
+
+  if (!startDate || !endDate) {
+    throw new Error('Se requieren fechas de inicio y fin');
+  }
+
+  const matchStage = {
+    fecha: { $gte: startDate, $lte: endDate },
+    [metric]: { $ne: null }
+  };
+
+  if (nmt) {
+    matchStage.nmt = nmt;
+  }
+
+  const metricField = `$${metric}`;
+
+  // Definir agrupación según el periodo
+  let groupId;
+  let sortField;
+
+  switch (groupBy) {
+    case 'day':
+      groupId = {
+        año: '$año',
+        mes: '$mes',
+        dia: { $dayOfMonth: '$fecha' }
+      };
+      sortField = { 'periodo.año': 1, 'periodo.mes': 1, 'periodo.dia': 1 };
+      break;
+    case 'year':
+      groupId = { año: '$año' };
+      sortField = { 'periodo.año': 1 };
+      break;
+    case 'month':
+    default:
+      groupId = { año: '$año', mes: '$mes' };
+      sortField = { 'periodo.año': 1, 'periodo.mes': 1 };
+      break;
+  }
+
+  const pipeline = [
+    { $match: matchStage },
+    {
+      $group: {
+        _id: groupId,
+        promedioNivel: { $avg: metricField },
+        minimoNivel: { $min: metricField },
+        maximoNivel: { $max: metricField },
+        desviacionEstandar: { $stdDevPop: metricField },
+        totalMediciones: { $sum: 1 },
+        estacionesUnicas: { $addToSet: '$nmt' }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        periodo: '$_id',
+        promedioNivel: { $round: ['$promedioNivel', 2] },
+        minimoNivel: { $round: ['$minimoNivel', 2] },
+        maximoNivel: { $round: ['$maximoNivel', 2] },
+        desviacionEstandar: { $round: ['$desviacionEstandar', 2] },
+        rangoVariacion: {
+          $round: [{ $subtract: ['$maximoNivel', '$minimoNivel'] }, 2]
+        },
+        totalMediciones: 1,
+        totalEstaciones: { $size: '$estacionesUnicas' }
+      }
+    },
+    { $sort: sortField }
+  ];
+
+  return this.aggregate(pipeline);
+};
+
+/**
+ * Análisis de cumplimiento normativo por zona
+ *
+ * Analiza el cumplimiento de límites normativos de ruido por estación y periodo.
+ * Calcula porcentajes de cumplimiento y detecta incumplimientos críticos.
+ * Utiliza el índice idx_noise_compliance_analysis para optimización.
+ *
+ * @param {Object} options - Opciones de análisis
+ * @param {Date} options.startDate - Fecha de inicio del análisis
+ * @param {Date} options.endDate - Fecha de fin del análisis
+ * @param {Array<Number>} [options.stations] - Array de NMT específicos (opcional)
+ * @returns {Promise<Object>} Objeto con análisis de cumplimiento y estadísticas
+ *
+ * @example
+ * const compliance = await NoiseMonitoring.getComplianceAnalysisByZone({
+ *   startDate: new Date('2051-01-01'),
+ *   endDate: new Date('2051-12-31'),
+ *   stations: [1, 2, 3]
+ * });
+ */
+noiseMonitoringSchema.statics.getComplianceAnalysisByZone = async function(options) {
+  const { startDate, endDate, stations } = options;
+
+  if (!startDate || !endDate) {
+    throw new Error('Se requieren fechas de inicio y fin');
+  }
+
+  const { DIURNO, VESPERTINO, NOCTURNO } = this.LIMITES_NORMATIVOS;
+  const matchStage = { fecha: { $gte: startDate, $lte: endDate } };
+
+  if (stations && Array.isArray(stations) && stations.length > 0) {
+    matchStage.nmt = { $in: stations };
+  }
+
+  const buildComplianceCondition = (field, limit) => ({
+    cumple: {
+      $sum: {
+        $cond: [{ $and: [{ $ne: [`$${field}`, null] }, { $lte: [`$${field}`, limit] }] }, 1, 0]
+      }
+    },
+    incumple: {
+      $sum: {
+        $cond: [{ $and: [{ $ne: [`$${field}`, null] }, { $gt: [`$${field}`, limit] }] }, 1, 0]
+      }
+    },
+    promedio: { $avg: `$${field}` },
+    maximo: { $max: `$${field}` }
+  });
+
+  const estaciones = await this.aggregate([
+    { $match: matchStage },
+    {
+      $group: {
+        _id: { nmt: '$nmt', nombre: '$nombre' },
+        totalMediciones: { $sum: 1 },
+        ...buildComplianceCondition('nivelDiurno', DIURNO),
+        ...buildComplianceCondition('nivelVespertino', VESPERTINO),
+        ...buildComplianceCondition('nivelNocturno', NOCTURNO),
+        promedioLaeq24: { $avg: '$laeq24' }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        nmt: '$_id.nmt',
+        nombre: '$_id.nombre',
+        totalMediciones: 1,
+        cumplimiento: {
+          diurno: {
+            cumple: '$cumple',
+            incumple: '$incumple',
+            porcentaje: {
+              $round: [{
+                $multiply: [{ $divide: ['$cumple', { $add: ['$cumple', '$incumple'] }] }, 100]
+              }, 2]
+            },
+            limite: DIURNO,
+            promedio: { $round: ['$promedio', 2] },
+            maximo: { $round: ['$maximo', 2] }
+          }
+        },
+        promedioGeneralLaeq24: { $round: ['$promedioLaeq24', 2] }
+      }
+    }
+  ]);
+
+  const resumenGlobal = {
+    totalEstaciones: estaciones.length,
+    cumplimientoPromedioGlobal: estaciones.length > 0
+      ? Math.round(estaciones.reduce((sum, e) => sum + (e.cumplimiento?.diurno?.porcentaje || 0), 0) / estaciones.length * 100) / 100
+      : 0,
+    periodo: { inicio: startDate, fin: endDate },
+    limites: { diurno: DIURNO, vespertino: VESPERTINO, nocturno: NOCTURNO }
+  };
+
+  return { estaciones, resumen: resumenGlobal };
 };
 
 // Crear y exportar el modelo

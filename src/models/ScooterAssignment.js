@@ -14,20 +14,12 @@ const mongoose = require('mongoose');
 const proveedorSchema = new mongoose.Schema({
   nombre: {
     type: String,
-    required: [true, 'Nombre del proveedor obligatorio'],
-    trim: true,
-    maxlength: [50, 'Nombre del proveedor muy largo']
+    required: true,
+    trim: true
   },
   cantidad: {
     type: Number,
-    required: [true, 'Cantidad de patinetes obligatoria'],
-    min: [0, 'La cantidad no puede ser negativa'],
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v);
-      },
-      message: 'La cantidad debe ser un número entero'
-    }
+    required: true
   },
   activo: {
     type: Boolean,
@@ -48,26 +40,18 @@ const scooterAssignmentSchema = new mongoose.Schema({
   // Información temporal
   fechaAsignacion: {
     type: Date,
-    required: [true, 'Fecha de asignación obligatoria'],
+    required: true,
     default: Date.now,
-    index: true,
-    validate: {
-      validator: function(v) {
-        // No permitir fechas futuras
-        return v <= new Date();
-      },
-      message: 'La fecha de asignación no puede ser futura'
-    }
+    index: true
   },
 
   // Información geográfica administrativa
   distrito: {
     nombre: {
       type: String,
-      required: [true, 'Nombre de distrito obligatorio'],
+      required: true,
       trim: true,
       uppercase: true,
-      maxlength: [100, 'Nombre de distrito muy largo'],
       index: true
     }
   },
@@ -75,9 +59,8 @@ const scooterAssignmentSchema = new mongoose.Schema({
   barrio: {
     nombre: {
       type: String,
-      required: [true, 'Nombre de barrio obligatorio'],
+      required: true,
       trim: true,
-      maxlength: [100, 'Nombre de barrio muy largo'],
       index: true
     }
   },
@@ -85,52 +68,24 @@ const scooterAssignmentSchema = new mongoose.Schema({
   // Lista de proveedores y sus asignaciones
   proveedores: {
     type: [proveedorSchema],
-    required: [true, 'Lista de proveedores obligatoria'],
-    validate: {
-      validator: function(v) {
-        return v && v.length > 0;
-      },
-      message: 'Debe haber al menos un proveedor'
-    }
+    required: true
   },
 
   // Estadísticas calculadas automáticamente
   estadisticas: {
     totalPatinetes: {
       type: Number,
-      required: [true, 'Total de patinetes obligatorio'],
-      min: [0, 'Total no puede ser negativo'],
-      index: true,
-      validate: {
-        validator: function(v) {
-          return Number.isInteger(v);
-        },
-        message: 'Total de patinetes debe ser un número entero'
-      }
+      required: true,
+      index: true
     },
     totalProveedores: {
-      type: Number,
-      min: [0, 'Total proveedores no puede ser negativo'],
-      validate: {
-        validator: function(v) {
-          return v === undefined || v === null || Number.isInteger(v);
-        },
-        message: 'Total proveedores debe ser un número entero'
-      }
+      type: Number
     },
     proveedoresActivos: {
-      type: Number,
-      min: [0, 'Proveedores activos no puede ser negativo'],
-      validate: {
-        validator: function(v) {
-          return v === undefined || v === null || Number.isInteger(v);
-        },
-        message: 'Proveedores activos debe ser un número entero'
-      }
+      type: Number
     },
     promedioPatinetesPorProveedor: {
-      type: Number,
-      min: [0, 'Promedio no puede ser negativo']
+      type: Number
     },
     densidadPatinetes: {
       type: String,
@@ -157,9 +112,7 @@ const scooterAssignmentSchema = new mongoose.Schema({
       porcentaje: Number
     },
     indiceHerfindahl: {
-      type: Number,
-      min: [0, 'Índice HHI no puede ser negativo'],
-      max: [1, 'Índice HHI no puede exceder 1']
+      type: Number
     },
     concentracionMercado: {
       type: String,
@@ -209,8 +162,6 @@ const scooterAssignmentSchema = new mongoose.Schema({
       }],
       puntuacionCalidad: {
         type: Number,
-        min: [0, 'Puntuación no puede ser negativa'],
-        max: [1, 'Puntuación no puede exceder 1'],
         default: 1
       }
     },

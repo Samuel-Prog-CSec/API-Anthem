@@ -238,7 +238,36 @@ router.get('/coverage',
       .withMessage('Distrito no puede estar vacío'),
     validateRequest
   ],
-  cacheMiddleware('containers'), // Cache por 24 horas (datos est�ticos)`n  containerController.getCoverageAnalysis
+  cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
+  containerController.getCoverageAnalysis
+);
+
+/**
+ * @route   GET /api/containers/analysis/density
+ * @desc    Obtener análisis de densidad de contenedores por distrito
+ * @access  Private
+ */
+router.get('/analysis/density',
+  generalLimit,
+  authenticate,
+  [
+    query('distrito')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Distrito no puede estar vacío'),
+    query('tipoContenedor')
+      .optional()
+      .isIn(['ORGANICA', 'RESTO', 'ENVASES', 'VIDRIO', 'PAPEL-CARTON'])
+      .withMessage('Tipo de contenedor inválido'),
+    query('includeBarrios')
+      .optional()
+      .isBoolean()
+      .withMessage('includeBarrios debe ser true o false'),
+    validateRequest
+  ],
+  cacheMiddleware('containers'), // Cache por 24 horas
+  containerController.getDensityAnalysis
 );
 
 /**

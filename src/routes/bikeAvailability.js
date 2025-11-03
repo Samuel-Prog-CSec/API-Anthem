@@ -175,6 +175,66 @@ router.get('/historical',
 );
 
 /**
+ * @route   GET /api/bikes/trends/usage
+ * @desc    Obtener tendencias de uso con agregación flexible
+ * @access  Private
+ */
+router.get('/trends/usage',
+  generalLimit,
+  authenticate,
+  [
+    query('startDate')
+      .notEmpty()
+      .withMessage('startDate es requerido')
+      .isISO8601()
+      .withMessage('startDate debe ser una fecha válida'),
+    query('endDate')
+      .notEmpty()
+      .withMessage('endDate es requerido')
+      .isISO8601()
+      .withMessage('endDate debe ser una fecha válida'),
+    query('groupBy')
+      .optional()
+      .isIn(['day', 'week', 'month'])
+      .withMessage('groupBy debe ser day, week o month'),
+    query('includeUserTypes')
+      .optional()
+      .isBoolean()
+      .withMessage('includeUserTypes debe ser true o false'),
+    validateRequest
+  ],
+  cacheMiddleware('bikes'), // Cache por 10 minutos
+  bikeController.getUsageTrendsAnalysis
+);
+
+/**
+ * @route   GET /api/bikes/prediction/demand
+ * @desc    Obtener predicción de demanda basada en patrones históricos
+ * @access  Private
+ */
+router.get('/prediction/demand',
+  generalLimit,
+  authenticate,
+  [
+    query('startDate')
+      .optional()
+      .isISO8601()
+      .withMessage('startDate debe ser una fecha válida'),
+    query('endDate')
+      .optional()
+      .isISO8601()
+      .withMessage('endDate debe ser una fecha válida'),
+    query('threshold')
+      .optional()
+      .isInt({ min: 50, max: 100 })
+      .withMessage('threshold debe ser un número entre 50 y 100'),
+    validateRequest
+  ],
+  cacheMiddleware('bikes'), // Cache por 30 minutos
+  bikeController.getDemandPredictionAnalysis
+);
+
+/**
  * Middleware de logging para todas las rutas de bicicletas
  */
 router.use((req, res, next) => {

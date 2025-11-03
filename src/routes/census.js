@@ -6,7 +6,7 @@
  */
 
 const express = require('express');
-const { body, query, param } = require('express-validator');
+const { query } = require('express-validator');
 
 const {
   getCensusData,
@@ -184,6 +184,9 @@ router.get('/',
   // Middleware de validación
   validateRequest,
 
+  // Middleware de caché (1 hora para datos demográficos)
+  cacheMiddleware('demographic', (req) => `census:list:${JSON.stringify(req.query)}`),
+
   // Controlador
   getCensusData
 );
@@ -256,6 +259,11 @@ router.get('/districts/statistics',
 
   // Middleware de validación
   validateRequest,
+
+  // Middleware de caché (1 hora para datos demográficos)
+  cacheMiddleware('demographic', (req) =>
+    `census:districts:stats:${req.query.año || 2051}:${req.query.mes || 'all'}:${req.query.incluirBarrios || false}`
+  ),
 
   // Controlador
   getDistrictStatistics
@@ -340,6 +348,11 @@ router.get('/evolution',
   // Middleware de validación
   validateRequest,
 
+  // Middleware de caché (1 hora para datos demográficos)
+  cacheMiddleware('demographic', (req) =>
+    `census:evolution:${req.query.distrito || 'all'}:${req.query.startYear || 2050}:${req.query.endYear || 2051}:${req.query.metrica || 'poblacionTotal'}`
+  ),
+
   // Controlador
   getDemographicEvolution
 );
@@ -367,6 +380,11 @@ router.get('/dashboard',
 
   // Middleware de validación
   validateRequest,
+
+  // Middleware de caché (1 hora para datos demográficos)
+  cacheMiddleware('demographic', (req) =>
+    `census:dashboard:${req.query.año || 2051}:${req.query.distrito || 'all'}`
+  ),
 
   // Controlador
   getDemographicDashboard

@@ -15,25 +15,11 @@ const mongoose = require('mongoose');
 const coordinatesSchema = new mongoose.Schema({
   x: {
     type: Number,
-    required: false, // Algunas multas pueden no tener coordenadas
-    validate: {
-      validator: function(v) {
-        // Coordenadas UTM para España: X (Este) entre 200,000 y 900,000 metros
-        return v === null || (v >= 100000 && v <= 1000000);
-      },
-      message: 'Coordenada X UTM debe estar entre 100,000 y 1,000,000 metros'
-    }
+    required: false
   },
   y: {
     type: Number,
-    required: false,
-    validate: {
-      validator: function(v) {
-        // Coordenadas UTM para España: Y (Norte) entre 3,500,000 y 4,900,000 metros
-        return v === null || (v >= 3000000 && v <= 5000000);
-      },
-      message: 'Coordenada Y UTM debe estar entre 3,000,000 y 5,000,000 metros'
-    }
+    required: false
   }
 }, { _id: false });
 
@@ -57,48 +43,34 @@ const fineSchema = new mongoose.Schema({
   // Información temporal
   fecha: {
     type: Date,
-    required: [true, 'Fecha de la multa obligatoria'],
+    required: true,
     index: true
   },
 
   mes: {
     type: Number,
-    required: [true, 'Mes obligatorio'],
-    min: [1, 'Mes debe estar entre 1 y 12'],
-    max: [12, 'Mes debe estar entre 1 y 12'],
+    required: true,
     index: true
   },
 
   año: {
     type: Number,
-    required: [true, 'Año obligatorio'],
-    min: [2000, 'Año no válido'],
-    max: [3000, 'Año no válido'],
+    required: true,
     index: true
   },
 
   hora: {
     type: String,
-    required: [true, 'Hora de la infracción obligatoria'],
+    required: true,
     trim: true,
-    validate: {
-      validator: function(v) {
-        // Formato esperado: HH.MM
-        return /^([0-1]?[0-9]|2[0-3])\.([0-5]?[0-9])$/.test(v);
-      },
-      message: 'Hora debe tener formato HH.MM'
-    },
     index: true
   },
 
   // Clasificación de la infracción
   calificacion: {
     type: String,
-    required: [true, 'Calificación de la infracción obligatoria'],
-    enum: {
-      values: ['LEVE', 'GRAVE', 'MUY GRAVE'],
-      message: 'Calificación debe ser LEVE, GRAVE o MUY GRAVE'
-    },
+    required: true,
+    enum: ['LEVE', 'GRAVE', 'MUY GRAVE'],
     uppercase: true,
     index: true
   },
@@ -106,9 +78,8 @@ const fineSchema = new mongoose.Schema({
   // Ubicación
   lugar: {
     type: String,
-    required: [true, 'Lugar de la infracción obligatorio'],
+    required: true,
     trim: true,
-    maxlength: [200, 'Lugar no puede exceder 200 caracteres'],
     index: true
   },
 
@@ -120,80 +91,56 @@ const fineSchema = new mongoose.Schema({
   // Información económica
   importeBoletín: {
     type: Number,
-    required: [true, 'Importe del boletín obligatorio'],
-    min: [0, 'El importe no puede ser negativo'],
-    validate: {
-      validator: function(v) {
-        // Verificar que tiene máximo 2 decimales
-        return Math.round(v * 100) === v * 100;
-      },
-      message: 'El importe debe tener máximo 2 decimales'
-    },
+    required: true,
     index: true
   },
 
   tieneDescuento: {
     type: Boolean,
-    required: [true, 'Información de descuento obligatoria'],
+    required: true,
     default: false,
     index: true
   },
 
   importeFinal: {
     type: Number,
-    required: false, // Se calculará automáticamente
-    min: [0, 'El importe final no puede ser negativo']
+    required: false
   },
 
   // Penalizaciones
   puntosDetraídos: {
     type: Number,
-    required: [true, 'Puntos detraídos obligatorios'],
-    min: [0, 'Los puntos no pueden ser negativos'],
-    max: [12, 'No se pueden detraer más de 12 puntos'],
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v);
-      },
-      message: 'Los puntos deben ser un número entero'
-    },
+    required: true,
     index: true
   },
 
   // Información de la denuncia
   denunciante: {
     type: String,
-    required: [true, 'Denunciante obligatorio'],
+    required: true,
     trim: true,
-    maxlength: [100, 'Denunciante no puede exceder 100 caracteres'],
     index: true
   },
 
   descripcionInfraccion: {
     type: String,
-    required: [true, 'Descripción de la infracción obligatoria'],
-    trim: true,
-    maxlength: [500, 'Descripción no puede exceder 500 caracteres']
+    required: true,
+    trim: true
   },
 
   // Datos específicos de infracciones de velocidad
   datosVelocidad: {
     velocidadLimite: {
       type: Number,
-      required: false,
-      min: [0, 'Velocidad límite no puede ser negativa'],
-      max: [300, 'Velocidad límite excesiva']
+      required: false
     },
     velocidadCirculacion: {
       type: Number,
-      required: false,
-      min: [0, 'Velocidad de circulación no puede ser negativa'],
-      max: [400, 'Velocidad de circulación excesiva']
+      required: false
     },
     exceso: {
       type: Number,
-      required: false,
-      min: [0, 'El exceso no puede ser negativo']
+      required: false
     }
   },
 

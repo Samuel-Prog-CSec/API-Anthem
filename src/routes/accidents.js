@@ -12,6 +12,7 @@ const { query, body } = require('express-validator');
 const accidentController = require('../controllers/accidentController');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
+const { cacheMiddleware } = require('../middleware/cache');
 const logger = require('../config/logger');
 const {
   validateDateRange,
@@ -86,6 +87,7 @@ router.get('/',
   validateDateRange(730), // 2 años
   validatePagination,
   validateAccidentFilters,
+  cacheMiddleware('statistics', (req) => `accidents:list:${JSON.stringify(req.query)}`),
   accidentController.getAllAccidents
 );
 
@@ -113,6 +115,7 @@ router.get('/stats',
   authenticate,
   validateDistritoQuery,
   validateDateRange(730), // 2 años
+  cacheMiddleware('statistics', (req) => `accidents:stats:${JSON.stringify(req.query)}`),
   accidentController.getAccidentStats
 );
 
@@ -139,6 +142,7 @@ router.get('/heatmap',
     validateRequest
   ],
   validateDateRange(730), // 2 años
+  cacheMiddleware('statistics', (req) => `accidents:heatmap:${JSON.stringify(req.query)}`),
   accidentController.getAccidentHeatmap
 );
 
@@ -153,6 +157,7 @@ router.get('/safety-analysis',
   authenticate,
   validateDistritoQuery,
   validateDateRange(730), // 2 años
+  cacheMiddleware('statistics', (req) => `accidents:safety:${JSON.stringify(req.query)}`),
   accidentController.getSafetyAnalysis
 );
 
@@ -166,6 +171,7 @@ router.get('/district-comparison',
   generalLimit,
   authenticate,
   validateDateRange(730), // 2 años
+  cacheMiddleware('statistics', (req) => `accidents:district-comp:${JSON.stringify(req.query)}`),
   accidentController.getDistrictComparison
 );
 

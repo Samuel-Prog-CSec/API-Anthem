@@ -15,49 +15,21 @@ const populationDataSchema = new mongoose.Schema({
   españoles: {
     hombres: {
       type: Number,
-      required: [true, 'Cantidad de hombres españoles obligatoria'],
-      min: [0, 'La cantidad no puede ser negativa'],
-      validate: {
-        validator: function(v) {
-          return Number.isInteger(v);
-        },
-        message: 'La cantidad debe ser un número entero'
-      }
+      required: true
     },
     mujeres: {
       type: Number,
-      required: [true, 'Cantidad de mujeres españolas obligatoria'],
-      min: [0, 'La cantidad no puede ser negativa'],
-      validate: {
-        validator: function(v) {
-          return Number.isInteger(v);
-        },
-        message: 'La cantidad debe ser un número entero'
-      }
+      required: true
     }
   },
   extranjeros: {
     hombres: {
       type: Number,
-      required: [true, 'Cantidad de hombres extranjeros obligatoria'],
-      min: [0, 'La cantidad no puede ser negativa'],
-      validate: {
-        validator: function(v) {
-          return Number.isInteger(v);
-        },
-        message: 'La cantidad debe ser un número entero'
-      }
+      required: true
     },
     mujeres: {
       type: Number,
-      required: [true, 'Cantidad de mujeres extranjeras obligatoria'],
-      min: [0, 'La cantidad no puede ser negativa'],
-      validate: {
-        validator: function(v) {
-          return Number.isInteger(v);
-        },
-        message: 'La cantidad debe ser un número entero'
-      }
+      required: true
     }
   }
 }, { _id: false });
@@ -80,23 +52,19 @@ const censusSchema = new mongoose.Schema({
   // Información temporal
   fechaCenso: {
     type: Date,
-    required: [true, 'Fecha del censo obligatoria'],
+    required: true,
     index: true
   },
 
   mes: {
     type: Number,
-    required: [true, 'Mes obligatorio'],
-    min: [1, 'Mes debe estar entre 1 y 12'],
-    max: [12, 'Mes debe estar entre 1 y 12'],
+    required: true,
     index: true
   },
 
   año: {
     type: Number,
-    required: [true, 'Año obligatorio'],
-    min: [2000, 'Año no válido'],
-    max: [3000, 'Año no válido'],
+    required: true,
     index: true
   },
 
@@ -104,15 +72,13 @@ const censusSchema = new mongoose.Schema({
   distrito: {
     codigo: {
       type: Number,
-      required: [true, 'Código de distrito obligatorio'],
-      min: [1, 'Código de distrito inválido'],
+      required: true,
       index: true
     },
     descripcion: {
       type: String,
-      required: [true, 'Descripción de distrito obligatoria'],
+      required: true,
       trim: true,
-      maxlength: [100, 'Descripción de distrito muy larga'],
       index: true
     }
   },
@@ -120,21 +86,18 @@ const censusSchema = new mongoose.Schema({
   barrio: {
     codigoDistritoBarrio: {
       type: Number,
-      required: [true, 'Código distrito-barrio obligatorio'],
-      min: [1, 'Código distrito-barrio inválido'],
+      required: true,
       index: true
     },
     codigo: {
       type: Number,
-      required: [true, 'Código de barrio obligatorio'],
-      min: [1, 'Código de barrio inválido'],
+      required: true,
       index: true
     },
     descripcion: {
       type: String,
-      required: [true, 'Descripción de barrio obligatoria'],
+      required: true,
       trim: true,
-      maxlength: [100, 'Descripción de barrio muy larga'],
       index: true
     }
   },
@@ -142,13 +105,12 @@ const censusSchema = new mongoose.Schema({
   seccionCensal: {
     codigoDistritoSeccion: {
       type: Number,
-      required: [true, 'Código distrito-sección obligatorio'],
-      min: [1, 'Código distrito-sección inválido'],
+      required: true,
       index: true
     },
     codigo: {
       type: Number,
-      required: [true, 'Código de sección obligatorio'],
+      required: true,
       min: [1, 'Código de sección inválido'],
       index: true
     }
@@ -180,26 +142,20 @@ const censusSchema = new mongoose.Schema({
       min: [0, 'Total extranjeros no puede ser negativo']
     },
     totalHombres: {
-      type: Number,
-      min: [0, 'Total hombres no puede ser negativo']
+      type: Number
     },
     totalMujeres: {
-      type: Number,
-      min: [0, 'Total mujeres no puede ser negativo']
+      type: Number
     },
     totalPoblacion: {
       type: Number,
-      min: [0, 'Total población no puede ser negativo'],
       index: true
     },
     porcentajeExtranjeros: {
-      type: Number,
-      min: [0, 'Porcentaje no puede ser negativo'],
-      max: [100, 'Porcentaje no puede exceder 100']
+      type: Number
     },
     ratioGenero: {
-      type: Number,
-      min: [0, 'Ratio de género no puede ser negativo']
+      type: Number
     }
   },
 
@@ -219,15 +175,11 @@ const censusSchema = new mongoose.Schema({
     },
     esGrupoProductivo: {
       type: Boolean,
-      default: function() {
-        return this.edad >= 16 && this.edad <= 65;
-      }
+      default: false
     },
     esTerceraEdad: {
       type: Boolean,
-      default: function() {
-        return this.edad >= 65;
-      }
+      default: false
     }
   },
 
@@ -299,54 +251,142 @@ censusSchema.index(
     año: 1,
     mes: 1
   },
-  { unique: true, name: 'unique_census_record' }
+  { unique: true, name: 'unique_census_record', background: true }
 );
 
-// Índices para consultas frecuentes
-censusSchema.index({ fechaCenso: -1, 'distrito.codigo': 1 });
-censusSchema.index({ año: 1, mes: 1, 'distrito.codigo': 1 });
-censusSchema.index({ 'estadisticas.totalPoblacion': -1, fechaCenso: -1 });
-censusSchema.index({ 'clasificacionEdad.grupoEdad': 1, fechaCenso: -1 });
+// Índice compuesto: distrito + fecha (consultas por distrito en periodo)
+// Usado en: GET /api/census?distrito=X&año=Y, estadísticas por distrito
+censusSchema.index(
+  { 'distrito.codigo': 1, fechaCenso: 1 },
+  {
+    name: 'idx_census_district_date',
+    background: true
+  }
+);
 
-// Índices para análisis demográfico
-censusSchema.index({ 'estadisticas.porcentajeExtranjeros': -1 });
-censusSchema.index({ 'clasificacionEdad.esGrupoProductivo': 1, fechaCenso: -1 });
-censusSchema.index({ 'clasificacionEdad.esTerceraEdad': 1, fechaCenso: -1 });
+// Índice compuesto: distrito + edad (análisis demográfico por edad)
+// Usado en: pirámide poblacional, análisis de grupos de edad por distrito
+censusSchema.index(
+  { 'distrito.codigo': 1, edad: 1 },
+  {
+    name: 'idx_census_district_age',
+    background: true
+  }
+);
 
-// NUEVO: Índice compuesto para queries de pirámide y análisis demográfico
+// Índice compuesto: fecha + porcentaje extranjeros (análisis de diversidad cultural)
+// Usado en: ranking de barrios/distritos por diversidad, análisis temporal
+censusSchema.index(
+  { fechaCenso: 1, 'estadisticas.porcentajeExtranjeros': -1 },
+  {
+    name: 'idx_census_foreign_population',
+    background: true
+  }
+);
+
+// Índice compuesto para pirámide poblacional completa
+// Usado en: análisis demográfico completo, generación de pirámides poblacionales
 censusSchema.index(
   {
-    año: 1,
+    fechaCenso: 1,
     'distrito.codigo': 1,
+    edad: 1,
     'clasificacionEdad.grupoEdad': 1
   },
   {
-    name: 'idx_demographic_queries',
+    name: 'idx_census_population_pyramid',
     background: true
   }
 );
 
-// NUEVO: Índice compuesto para aggregations de edad y género
+// Índice para consultas temporales por año y mes
+// Usado en: evolución demográfica, comparación entre periodos
+censusSchema.index(
+  { año: 1, mes: 1, 'distrito.codigo': 1 },
+  {
+    name: 'idx_census_temporal_district',
+    background: true
+  }
+);
+
+// Índice para ranking de población
+// Usado en: identificación de áreas más/menos pobladas
+censusSchema.index(
+  { 'estadisticas.totalPoblacion': -1, fechaCenso: -1 },
+  {
+    name: 'idx_census_population_ranking',
+    background: true
+  }
+);
+
+// Índice para análisis de grupos de edad específicos
+// Usado en: consultas filtradas por grupo de edad
+censusSchema.index(
+  { 'clasificacionEdad.grupoEdad': 1, fechaCenso: -1 },
+  {
+    name: 'idx_census_age_group_timeline',
+    background: true
+  }
+);
+
+// Índice para análisis de población productiva
+// Usado en: indicadores económicos, análisis de fuerza laboral
+censusSchema.index(
+  { 'clasificacionEdad.esGrupoProductivo': 1, fechaCenso: -1 },
+  {
+    name: 'idx_census_working_age',
+    background: true
+  }
+);
+
+// Índice para análisis de tercera edad
+// Usado en: planificación de servicios sociales, análisis de envejecimiento
+censusSchema.index(
+  { 'clasificacionEdad.esTerceraEdad': 1, fechaCenso: -1 },
+  {
+    name: 'idx_census_elderly',
+    background: true
+  }
+);
+
+// Índice compuesto para análisis por barrio
+// Usado en: estadísticas detalladas a nivel de barrio
 censusSchema.index(
   {
-    año: 1,
-    edad: 1,
-    'distrito.codigo': 1
+    'barrio.codigo': 1,
+    fechaCenso: 1,
+    edad: 1
   },
   {
-    name: 'idx_age_aggregations',
+    name: 'idx_census_neighborhood_demographics',
     background: true
   }
 );
 
-// Índices geográficos
-censusSchema.index({ 'distrito.descripcion': 1, 'barrio.descripcion': 1 });
+// Índices geográficos para búsqueda por nombre
+censusSchema.index(
+  { 'distrito.descripcion': 1, 'barrio.descripcion': 1 },
+  {
+    name: 'idx_census_geographic_names',
+    background: true
+  }
+);
 
-// Índice de texto para búsqueda
-censusSchema.index({
-  'distrito.descripcion': 'text',
-  'barrio.descripcion': 'text'
-});
+// Índice de texto para búsqueda textual
+censusSchema.index(
+  {
+    'distrito.descripcion': 'text',
+    'barrio.descripcion': 'text'
+  },
+  {
+    name: 'idx_census_text_search',
+    background: true,
+    weights: {
+      'distrito.descripcion': 10,
+      'barrio.descripcion': 5
+    }
+  }
+);
 
 /**
  * Middleware pre-save para cálculos automáticos

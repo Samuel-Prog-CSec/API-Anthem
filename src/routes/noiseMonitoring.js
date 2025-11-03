@@ -23,7 +23,10 @@ const {
   getNoiseMonitoringById,
   getNoiseStatistics,
   getNoiseRanking,
-  searchStations
+  searchStations,
+  compareStations,
+  getTemporalTrends,
+  getComplianceByZone
 } = require('../controllers/noiseMonitoringController');
 
 const router = express.Router();
@@ -233,6 +236,105 @@ router.get('/ranking',
   cacheMiddleware('noise'), // Cache por 1 hora
   compressionMiddleware(),
   getNoiseRanking
+);
+
+/**
+ * @route   GET /api/v1/noise-monitoring/stations/compare
+ * @desc    Comparar niveles de ruido entre estaciones
+ * @access  Privado (requiere autenticación)
+ */
+router.get('/stations/compare',
+  noiseStatisticsLimiter,
+  authenticate,
+  [
+    query('stations')
+      .notEmpty()
+      .withMessage('Se requiere el parámetro "stations"'),
+    query('startDate')
+      .optional()
+      .isISO8601()
+      .withMessage('startDate debe ser una fecha válida'),
+    query('endDate')
+      .optional()
+      .isISO8601()
+      .withMessage('endDate debe ser una fecha válida'),
+    query('metric')
+      .optional()
+      .isIn(['laeq24', 'diurno', 'vespertino', 'nocturno'])
+      .withMessage('metric debe ser un tipo válido')
+  ],
+  validateRequest,
+  cacheMiddleware('noise'),
+  compressionMiddleware(),
+  compareStations
+);
+
+/**
+ * @route   GET /api/v1/noise-monitoring/trends/temporal
+ * @desc    Obtener tendencias temporales de ruido
+ * @access  Privado (requiere autenticación)
+ */
+router.get('/trends/temporal',
+  noiseStatisticsLimiter,
+  authenticate,
+  [
+    query('nmt')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('nmt debe ser un número entero positivo'),
+    query('startDate')
+      .optional()
+      .isISO8601()
+      .withMessage('startDate debe ser una fecha válida'),
+    query('endDate')
+      .optional()
+      .isISO8601()
+      .withMessage('endDate debe ser una fecha válida'),
+    query('groupBy')
+      .optional()
+      .isIn(['day', 'week', 'month', 'year'])
+      .withMessage('groupBy debe ser "day", "week", "month" o "year"'),
+    query('metric')
+      .optional()
+      .isIn(['laeq24', 'diurno', 'vespertino', 'nocturno'])
+      .withMessage('metric debe ser un tipo válido')
+  ],
+  validateRequest,
+  cacheMiddleware('noise'),
+  compressionMiddleware(),
+  getTemporalTrends
+);
+
+/**
+ * @route   GET /api/v1/noise-monitoring/compliance/zone
+ * @desc    Análisis de cumplimiento normativo por zona
+ * @access  Privado (requiere autenticación)
+ */
+router.get('/compliance/zone',
+  noiseStatisticsLimiter,
+  authenticate,
+  [
+    query('startDate')
+      .optional()
+      .isISO8601()
+      .withMessage('startDate debe ser una fecha válida'),
+    query('endDate')
+      .optional()
+      .isISO8601()
+      .withMessage('endDate debe ser una fecha válida'),
+    query('threshold')
+      .optional()
+      .isInt({ min: 40, max: 100 })
+      .withMessage('threshold debe ser un número entre 40 y 100'),
+    query('zoneType')
+      .optional()
+      .isIn(['residential', 'commercial', 'industrial', 'mixed'])
+      .withMessage('zoneType debe ser un tipo de zona válido')
+  ],
+  validateRequest,
+  cacheMiddleware('noise'),
+  compressionMiddleware(),
+  getComplianceByZone
 );
 
 /**

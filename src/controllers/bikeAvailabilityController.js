@@ -325,3 +325,91 @@ exports.getHistoricalData = async (req, res, next) => {
   }
 };
 
+/**
+ * Tendencias de uso de bicicletas con agregación flexible
+ *
+ * @route GET /api/bikes/trends/usage
+ * @access Private
+ */
+exports.getUsageTrendsAnalysis = async (req, res, next) => {
+  try {
+    const { startDate, endDate, groupBy = 'month', includeUserTypes = 'true' } = req.query;
+
+    if (!startDate || !endDate) {
+      return next(createBadRequestError('Se requieren los parámetros startDate y endDate'));
+    }
+
+    const options = {
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      groupBy,
+      includeUserTypes: includeUserTypes === 'true'
+    };
+
+    const usageTrends = await BikeAvailability.getUsageTrends(options);
+
+    if (!usageTrends || usageTrends.length === 0) {
+      return next(createNotFoundError('Tendencias de uso'));
+    }
+
+    const responseData = {
+      data: {
+        periodo: {
+          inicio: startDate,
+          fin: endDate
+        },
+        agrupacion: groupBy,
+        includeDistribucionUsuarios: options.includeUserTypes,
+        tendencias: usageTrends,
+        totalPeriodos: usageTrends.length
+      }
+    };
+
+    res.status(200).json(createResponse(responseData, 'Tendencias de uso obtenidas exitosamente'));
+
+  } catch (error) {
+    next(createInternalError('Error al obtener tendencias de uso', error));
+  }
+};
+
+/**
+ * Predicción de demanda basada en patrones históricos
+ *
+ * @route GET /api/bikes/prediction/demand
+ * @access Private
+ */
+exports.getDemandPredictionAnalysis = async (req, res, next) => {
+  try {
+    const { startDate, endDate, threshold = '80' } = req.query;
+
+    const options = {
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+      threshold: Number(threshold)
+    };
+
+    const demandPrediction = await BikeAvailability.getDemandPrediction(options);
+
+    if (!demandPrediction) {
+      return next(createNotFoundError('Datos de predicción de demanda'));
+    }
+
+    const responseData = {
+      data: {
+        ...(startDate && endDate && {
+          periodo: {
+            inicio: startDate,
+            fin: endDate
+          }
+        }),
+        umbralAltaDemanda: options.threshold,
+        prediccion: demandPrediction
+      }
+    };
+
+    res.status(200).json(createResponse(responseData, 'Predicción de demanda obtenida exitosamente'));
+
+  } catch (error) {
+    next(createInternalError('Error al predecir demanda', error));
+  }
+};
