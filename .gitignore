@@ -1,5 +1,6 @@
 node_modules/
 .git/
+.github/
 datos_hpe/
 logs/
 reports/
