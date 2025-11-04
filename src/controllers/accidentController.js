@@ -61,9 +61,32 @@ const getAllAccidents = async (req, res, next) => {
       PAGINATION.MAX_LIMIT
     );
 
+    // Proyección optimizada: solo campos necesarios para listado
+    // Reduce ~50% tamaño de respuesta y memoria
+    const projection = {
+      numeroExpediente: 1,
+      fecha: 1,
+      hora: 1,
+      'ubicacion.codigoDistrito': 1,
+      'ubicacion.nombreDistrito': 1,
+      'ubicacion.localizacion': 1,
+      'circunstancias.tipoAccidente': 1,
+      'circunstancias.gravedad': 1,
+      'circunstancias.estadoMeteorologico': 1,
+      'vehiculo.tipo': 1,
+      'personaAfectada.tipoPersona': 1,
+      'personaAfectada.tipoLesion': 1,
+      'personaAfectada.positivaAlcohol': 1,
+      'personaAfectada.positivaDroga': 1,
+      'personaAfectada.rangoEdad': 1,
+      'personaAfectada.sexo': 1,
+      'analisis.puntuacionGravedad': 1,
+      'analisis.factoresRiesgo': 1
+    };
+
     // Ejecutar consulta principal y estadísticas en paralelo
     const [accidents, totalCount, stats] = await Promise.all([
-      Accident.find(filters)
+      Accident.find(filters, projection)
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)

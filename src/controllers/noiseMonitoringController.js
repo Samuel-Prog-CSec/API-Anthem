@@ -56,13 +56,26 @@ const getNoiseMonitoringData = async (req, res, next) => {
       maxLimit: PAGINATION.MAX_LIMIT
     });
 
+    // Proyección optimizada: seleccionar solo campos necesarios
+    const projection = {
+      fecha: 1,
+      estacion: 1,
+      lden: 1,
+      ld: 1,
+      le: 1,
+      ln: 1,
+      'ubicacion.distrito': 1,
+      'ubicacion.coordenadas': 1,
+      'mediciones.tipo': 1,
+      'mediciones.valor': 1
+    };
+
     // Ejecutar consulta
     const [data, totalDocuments] = await Promise.all([
-      NoiseMonitoring.find(filters)
+      NoiseMonitoring.find(filters, projection)
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .select('-percentiles -dataQuality -processingInfo')
         .lean(),
       NoiseMonitoring.countDocuments(filters)
     ]);

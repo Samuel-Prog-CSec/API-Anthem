@@ -23,41 +23,6 @@ CONTROL DE DUPLICADOS???
 
 ---
 
-# Prompt
-Bien, la API REST que estamos diseniando esta tomando forma. Actualmente, vamos a pasar a desarrollar la seccion de Disponibilidad de bicicletas eléctricas y Contenedores. Para ello, tienes la carpeta de "datos_hpe" donde estan los .csv con los datos brutos que se deben importan en la BD, pueden consultar los .csv aunque algunos pueden ser muy largos, tienes tmb el archivo #file:dataset_information.md que he escrito para que tengas mayor contexto (para la parte de "Trafico", puedes consultar lo que ya hemos hecho en la de Ubicaciones, ya que se menciona "PuntoMedidaTrafico.csv").
-
-Por supuesto, tmb hay que diseniar las rutas y controllers correspondientes (ademas de los modelos de Mongoose), a las rutas debes aplicarles las medidas de seguridad que ya hemos desarrollado y aplicado en otras rutas ya desarrolladas. Ademas, para desarrollar las funcionalidades y filtros del controller y los servicios que se van a exponer en las rutas, debes tener en cuenta el front-end (en ReactJS) que se va diseniar en el futuro y las necesidades que debe satisfacer la API para diseniar correctamente dicho dashboard de la ciudad inteligente. Sera un dashboard que muestre datos estaticos e historicos (nada de tiempo real), tmb como ya la API es bastante compleja y esta muy nutrida, no te compliques en exceso con las rutas y las funciones que se exponen para estas, vamos a lo elemental y funciones solidas y eficientes, sin entrar en cosas super complejas o excesivamente enrevesadas.
-
-El proceso que debes seguir para desarrollar esto es el siguiente: primero el modelo de mongoose, despues el controller y las rutas que usaran dichas funciones y por ultimo el script de importacion (uno disntinto para Disponibilidad de bicicletas eléctricas y Contenedores). Tras haber diseniado todo esto, hay que probar que todo funcione correctamente, para ello, primero ejecutaremos los scripts de importacion (ejecucion normal para cargar todos los datos en la BD para tenerla lista en produccion), esto puede tardar, tmb hay que corregir todos los fallos y errores que ocurran en esta fase, cuando este todo listo pasaremos a probar las rutas y que devuelvan los resultados correctamente tanto en tiempo, como en forma.
-
-Es importante que analices los .csv implicados para que puedas valorar si hay un numero muy elevado de lineas y por tanto, puedas aplicar alguna medida de optimizacion para que la ingesta en BD no sea un tiempo excesivo. Debes tener cuidado tmb que cuando termine el script de importacion se cierre la conexion correctamente y no se quede colgada y el script en un bucle infinito (te ha pasado otras veces). Asegurante de aplicar tmb un control de duplicados para obviar los lineas que ya se haya introducido en ejecuciones previas y SOLO introducir aaquellas que puedan formar documentos nuevos.
-
----
-
-# Dificultad
-2. Ocupación Aparcamientos Rotacionales
-  Razón: Datos agregados mensuales, estructura sencilla
-  Campos: Año/mes, ocupación porcentual, número de plazas
-  Complejidad: Baja - Consultas por fecha y distrito
-4. Reserva Paradas Taxi
-  Razón: Datos estáticos con coordenadas y configuración
-  Campos: Ubicación, tipo reserva, número plazas
-  Complejidad: Media - Gestión de coordenadas y tipos
-5. Peatones y Bicicletas Aforo
-  Razón: Series temporales con ubicaciones fijas
-  Campos: Fecha/hora, conteos, coordenadas estación
-  Complejidad: Media - Agregaciones temporales y geoespaciales
-6. Objetos Perdidos Taxi
-  Razón: Flujo de trabajo complejo con estados y resoluciones
-  Campos: Estados, fechas múltiples, tipos de iniciativa
-  Complejidad: Media-Alta - Lógica de negocio compleja
-7. Callejero (Mayor dificultad)
-  Razón: Dataset masivo con múltiples relaciones jerárquicas
-  Campos: Códigos complejos, jerarquía distrito/barrio, coordenadas
-  Complejidad: Alta - Optimización de búsquedas, índices múltiples
-
----
-
 # OPTIMIZACIÓN DE RUTAS
 
 ## Análisis de Rendimiento - Endpoints >1500ms

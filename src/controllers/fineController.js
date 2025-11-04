@@ -92,19 +92,33 @@ const getFines = async (req, res, next) => {
       'desc'
     );
 
-    // Configurar campos de respuesta
-    let selectFields = '-descripcionInfraccion -procesamiento -__v';
-    if (!includeCoordinates) {
-      selectFields += ' -coordenadas';
+    // Proyección optimizada: seleccionar solo campos necesarios
+    const projection = {
+      numeroExpediente: 1,
+      fecha: 1,
+      hora: 1,
+      tipoInfraccion: 1,
+      calificacion: 1,
+      importeInicial: 1,
+      importeFinal: 1,
+      puntosDetraídos: 1,
+      tieneDescuento: 1,
+      'ubicacion.distrito': 1,
+      'ubicacion.nombreVia': 1,
+      'metadatos.esInfraccionGrave': 1
+    };
+
+    // Incluir coordenadas si se solicita
+    if (includeCoordinates) {
+      projection.coordenadas = 1;
     }
 
     // Ejecutar consulta
     const [data, totalDocuments] = await Promise.all([
-      Fine.find(filters)
+      Fine.find(filters, projection)
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .select(selectFields)
         .lean(),
       Fine.countDocuments(filters)
     ]);

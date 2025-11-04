@@ -136,19 +136,38 @@ const getCensusData = async (req, res, next) => {
       'desc'
     );
 
-    // Configurar campos de respuesta
-    let selectFields = '-procesamiento -__v';
-    if (!includeEstadisticas) {
-      selectFields += ' -estadisticas -metadatos';
-    }
+    // Proyección optimizada: seleccionar solo campos necesarios
+    const projection = includeEstadisticas ? {
+      fechaCenso: 1,
+      edad: 1,
+      'distrito.codigo': 1,
+      'distrito.descripcion': 1,
+      'barrio.codigo': 1,
+      'barrio.descripcion': 1,
+      'estadisticas.totalPoblacion': 1,
+      'estadisticas.totalEspañoles': 1,
+      'estadisticas.totalExtranjeros': 1,
+      'estadisticas.porcentajeExtranjeros': 1,
+      'estadisticas.totalHombres': 1,
+      'estadisticas.totalMujeres': 1,
+      'clasificacionEdad.grupoEdad': 1,
+      'clasificacionEdad.esGrupoProductivo': 1,
+      'clasificacionEdad.esTerceraEdad': 1
+    } : {
+      fechaCenso: 1,
+      edad: 1,
+      'distrito.codigo': 1,
+      'distrito.descripcion': 1,
+      'barrio.codigo': 1,
+      'barrio.descripcion': 1
+    };
 
     // Ejecutar consulta
     const [data, totalDocuments] = await Promise.all([
-      Census.find(filters)
+      Census.find(filters, projection)
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .select(selectFields)
         .lean(),
       Census.countDocuments(filters)
     ]);

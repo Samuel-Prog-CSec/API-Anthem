@@ -62,9 +62,18 @@ const getLocations = async (req, res, next) => {
     // Procesar parámetros de paginación
     const pagination = parsePaginationParams(page, limit);
 
+    // Proyección optimizada: solo campos esenciales
+    const projection = {
+      tipo: 1,
+      nombre: 1,
+      'coordenadas.x': 1,
+      'coordenadas.y': 1,
+      distrito: 1,
+      barrio: 1
+    };
+
     const [ubicaciones, total] = await Promise.all([
-      Location.find(filter)
-        .select('tipo nombre coordenadas nmt cod_cent tipo_elem distrito barrio geometry')
+      Location.find(filter, projection)
         .limit(pagination.limitNum)
         .skip(pagination.skip)
         .lean(),
