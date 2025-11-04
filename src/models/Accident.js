@@ -7,20 +7,7 @@
  */
 
 const mongoose = require('mongoose');
-
-/**
- * Sub-esquema para coordenadas UTM
- */
-const coordinatesSchema = new mongoose.Schema({
-  x: {
-    type: Number,
-    required: false
-  },
-  y: {
-    type: Number,
-    required: false
-  }
-}, { _id: false });
+const { coordinatesUTMSchema, validateHoraFormat, validateFechaNoFutura, validateEdad } = require('./schemas/commonSchemas');
 
 /**
  * Sub-esquema para información de la persona afectada
@@ -36,7 +23,14 @@ const personaAfectadaSchema = new mongoose.Schema({
   rangoEdad: {
     type: String,
     required: true,
-    trim: true
+    trim: true,
+    validate: {
+      validator: function(v) {
+        // Validar que sea un rango válido (ej: "18-25", "65+", "0-17")
+        return /^(\d+-\d+|\d+\+|DESCONOCIDO)$/i.test(v);
+      },
+      message: 'Rango de edad debe tener formato válido (ej: "18-25", "65+", "DESCONOCIDO")'
+    }
   },
 
   sexo: {
@@ -49,7 +43,32 @@ const personaAfectadaSchema = new mongoose.Schema({
   // Información de lesiones
   codigoLesividad: {
     type: String,
-    required: false
+    required: false,
+    trim: true,
+    validate: {
+      validator: function(v) {
+        // Validar coherencia entre código y tipo de lesión
+        if (!v || !this.tipoLesion) {
+          return true;
+        }
+
+        // Mapeo de códigos comunes de lesividad
+        const codigosFallecido = ['14', '04', 'FALLECIDO'];
+
+        // No permitir códigos de fallecido en lesiones leves
+        if (this.tipoLesion === 'LEVE' && codigosFallecido.includes(v)) {
+          return false;
+        }
+
+        // Validar que fallecidos tengan códigos apropiados
+        if (this.tipoLesion === 'FALLECIDO' && !codigosFallecido.includes(v)) {
+          return false;
+        }
+
+        return true;
+      },
+      message: 'El código de lesividad no es coherente con el tipo de lesión'
+    }
   },
 
   tipoLesion: {
@@ -63,13 +82,15 @@ const personaAfectadaSchema = new mongoose.Schema({
   positivaAlcohol: {
     type: String,
     enum: ['S', 'N', 'NULL'],
-    default: 'NULL'
+    default: 'NULL',
+    uppercase: true
   },
 
   positivaDroga: {
     type: String,
     enum: ['S', 'N', 'NULL'],
-    default: 'NULL'
+    default: 'NULL',
+    uppercase: true
   }
 
 }, { _id: false });
@@ -104,24 +125,34 @@ const accidentSchema = new mongoose.Schema({
   fecha: {
     type: Date,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateFechaNoFutura,
+      message: 'La fecha del accidente no puede ser futura'
+    }
   },
 
   año: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    min: [2000, 'Año debe ser 2000 o posterior'],
+    max: [new Date().getFullYear(), 'Año no puede ser futuro']
   },
 
   mes: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    min: [1, 'Mes debe estar entre 1 y 12'],
+    max: [12, 'Mes debe estar entre 1 y 12']
   },
 
   dia: {
     type: Number,
-    required: true
+    required: true,
+    min: [1, 'Día debe estar entre 1 y 31'],
+    max: [31, 'Día debe estar entre 1 y 31']
   },
 
   // Hora en formato de rango (ej: "1:15:00")
@@ -129,7 +160,11 @@ const accidentSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateHoraFormat,
+      message: 'Hora debe tener formato válido HH:MM o HH.MM (ej: "14:30" o "08:00")'
+    }
   },
 
   franjaHoraria: {
@@ -171,7 +206,7 @@ const accidentSchema = new mongoose.Schema({
 
     // Coordenadas geográficas
     coordenadas: {
-      type: coordinatesSchema,
+      type: coordinatesUTMSchema,
       required: false
     }
   },
@@ -340,76 +375,159 @@ const accidentSchema = new mongoose.Schema({
 /**
  * Índices para optimización de consultas
  */
+/**
+ * Índices para optimización de consultas
+ */
 
-// Índice principal para consultas por expediente
+// ========================================
+// ÍNDICE PRINCIPAL - Búsqueda por expediente
+// ========================================
+
+// Índice compuesto: numeroExpediente + fecha
+// Usado en: GET /api/accidents/:numeroExpediente
+// Soporta: Búsqueda de accidentes específicos por número de expediente
 accidentSchema.index({ numeroExpediente: 1, fecha: -1 });
 
-// Índices temporales
-accidentSchema.index({ fecha: -1, 'ubicacion.nombreDistrito': 1 });
+// ========================================
+// ÍNDICES TEMPORALES
+// ========================================
+
+// Índice para componentes temporales descompuestos
+// Usado en: Agregaciones por año, mes, día
+// Soporta: Análisis de tendencias temporales, patrones estacionales
 accidentSchema.index({ año: 1, mes: 1, dia: 1 });
+
+// Índice para análisis por franja horaria
+// Usado en: Análisis de patrones horarios (MADRUGADA, MAÑANA, TARDE, NOCHE)
+// Soporta: GET /api/accidents?franjaHoraria=MAÑANA
 accidentSchema.index({ franjaHoraria: 1, fecha: -1 });
 
-// Índices por ubicación
-accidentSchema.index({ 'ubicacion.calle': 1, fecha: -1 });
-accidentSchema.index({ 'ubicacion.nombreDistrito': 1, fecha: -1 });
-accidentSchema.index({ 'ubicacion.coordenadas.x': 1, 'ubicacion.coordenadas.y': 1 });
+// ========================================
+// ÍNDICES POR UBICACIÓN
+// ========================================
 
-// Índices por circunstancias
+// Índice para consultas por calle
+// Usado en: GET /api/accidents?calle=GRAN+VIA
+// Soporta: Análisis de puntos negros (calles con más accidentes)
+accidentSchema.index({ 'ubicacion.calle': 1, fecha: -1 });
+
+// Índice para consultas por distrito
+// Usado en: GET /api/accidents?distrito=CENTRO
+// Soporta: Estadísticas por distrito, comparativas geográficas
+accidentSchema.index({ 'ubicacion.nombreDistrito': 1, fecha: -1 });
+
+// Índice compuesto para coordenadas UTM
+// Usado en: Búsquedas geográficas exactas por coordenadas
+// Soporta: Mapas de accidentes, análisis de proximidad
+// SPARSE: Coordenadas opcionales, solo indexar documentos con coordenadas
+accidentSchema.index({ 'ubicacion.coordenadas.x': 1, 'ubicacion.coordenadas.y': 1 }, {
+  sparse: true
+});
+
+// Índice geoespacial 2dsphere para consultas avanzadas
+// Usado en: $near, $geoWithin - Heatmaps, búsquedas por radio
+// Soporta: "Accidentes en radio de 500m", análisis geográfico
+// SPARSE: Solo documentos con coordenadas válidas
+accidentSchema.index({ 'ubicacion.coordenadas': '2dsphere' }, {
+  name: 'idx_accidents_geo_heatmap',
+  background: true,
+  sparse: true
+});
+
+// ========================================
+// ÍNDICES POR CIRCUNSTANCIAS DEL ACCIDENTE
+// ========================================
+
+// Índice para tipo de accidente
+// Usado en: GET /api/accidents?tipoAccidente=COLISION
+// Tipos: COLISION, ATROPELLO, CAIDA, VUELCO, etc.
 accidentSchema.index({ 'circunstancias.tipoAccidente': 1, fecha: -1 });
+
+// Índice para gravedad del accidente
+// Usado en: GET /api/accidents?gravedad=MORTAL
+// Niveles: LEVE, GRAVE, MORTAL
 accidentSchema.index({ 'circunstancias.gravedad': 1, fecha: -1 });
+
+// Índice compuesto: tipoAccidente + gravedad
+// Usado en: Análisis de peligrosidad por tipo de accidente
+// Soporta: "Colisiones mortales", "Atropellos graves"
+accidentSchema.index({ 'circunstancias.tipoAccidente': 1, 'circunstancias.gravedad': 1 }, {
+  name: 'idx_accidents_tipo_gravedad_analysis',
+  background: true
+});
+
+// ========================================
+// ÍNDICES POR VEHÍCULO
+// ========================================
+
+// Índice para tipo de vehículo involucrado
+// Usado en: GET /api/accidents?tipoVehiculo=TURISMO
+// Tipos: TURISMO, MOTOCICLETA, BICICLETA, PESADO, etc.
 accidentSchema.index({ 'vehiculo.tipo': 1, fecha: -1 });
 
-// Índices por persona afectada
+// ========================================
+// ÍNDICES POR PERSONA AFECTADA
+// ========================================
+
+// Índice para tipo de persona afectada
+// Usado en: GET /api/accidents?tipoPersona=PEATON
+// Tipos: CONDUCTOR, PASAJERO, PEATON
 accidentSchema.index({ 'personaAfectada.tipoPersona': 1, fecha: -1 });
+
+// Índice para tipo de lesión
+// Usado en: GET /api/accidents?tipoLesion=GRAVE
+// Soporta: Análisis de severidad de lesiones
 accidentSchema.index({ 'personaAfectada.tipoLesion': 1, fecha: -1 });
 
-// Índices compuestos para análisis avanzados
+// ========================================
+// ÍNDICES PARA AGREGACIONES COMPLEJAS
+// ========================================
+
+// Índice compuesto para análisis temporal de patrones
+// Usado en: Agregaciones por período del día + tipo de jornada
+// Soporta: "Accidentes en hora punta", "Accidentes nocturnos"
 accidentSchema.index({
   'analisis.periodoDia': 1,
   'analisis.tipoJornada': 1,
   fecha: -1
 });
 
+// Índice compuesto: tipo accidente + tipo lesión
+// Usado en: Correlación entre tipo de accidente y gravedad de lesiones
+// Soporta: "Atropellos con lesiones mortales"
 accidentSchema.index({
   'circunstancias.tipoAccidente': 1,
   'personaAfectada.tipoLesion': 1,
   fecha: -1
 });
 
-// Índice de texto completo
-accidentSchema.index({
-  'ubicacion.calle': 'text',
-  'ubicacion.nombreDistrito': 'text',
-  'circunstancias.tipoAccidente': 'text'
-});
-
-// Índice compuesto fecha + distrito (consultas filtradas por distrito)
-// Usado en: GET /api/accidents?distrito=X&fecha=Y
+// Índice compuesto: fecha + distrito (consultas filtradas frecuentes)
+// Usado en: GET /api/accidents?distrito=X&startDate=Y&endDate=Z
+// Optimizado para ordenamiento DESC por fecha + filtro distrito
 accidentSchema.index({ fecha: 1, 'ubicacion.nombreDistrito': 1 }, {
   name: 'idx_accidents_fecha_distrito_smartcity',
   background: true
 });
 
-// Índice geoespacial 2dsphere para consultas de proximidad y mapas de calor
-// Usado en: heatmaps, búsquedas por radio, análisis geográfico
-accidentSchema.index({ 'ubicacion.coordenadas': '2dsphere' }, {
-  name: 'idx_accidents_geo_heatmap',
-  background: true,
-  sparse: true // Solo documentos con coordenadas
-});
-
-// Índice compuesto tipoAccidente + gravedad (análisis de peligrosidad)
-// Usado en: estadísticas de gravedad por tipo, filtros combinados
-accidentSchema.index({ 'circunstancias.tipoAccidente': 1, 'circunstancias.gravedad': 1 }, {
-  name: 'idx_accidents_tipo_gravedad_analysis',
-  background: true
-});
-
-// Índice compuesto fecha DESC + tipo + gravedad (listados ordenados filtrados)
-// Usado en: GET /api/accidents (ordenados por fecha reciente con filtros)
+// Índice compuesto principal: fecha DESC + tipo + gravedad
+// Usado en: GET /api/accidents con sort por fecha + filtros combinados
+// Soporta: Listados ordenados con múltiples filtros
 accidentSchema.index({ fecha: -1, 'circunstancias.tipoAccidente': 1, 'circunstancias.gravedad': 1 }, {
   name: 'idx_accidents_timeline_severity',
   background: true
+});
+
+// ========================================
+// ÍNDICE DE BÚSQUEDA TEXTUAL
+// ========================================
+
+// Índice de texto completo para búsquedas flexibles
+// Usado en: Búsqueda general con $text
+// Campos indexados: calle, distrito, tipo de accidente
+accidentSchema.index({
+  'ubicacion.calle': 'text',
+  'ubicacion.nombreDistrito': 'text',
+  'circunstancias.tipoAccidente': 'text'
 });
 
 /**
@@ -436,66 +554,6 @@ accidentSchema.pre('save', function(next) {
 
   next();
 });
-
-/**
- * Métodos de instancia
- */
-
-/**
- * Calcular gravedad del accidente
- */
-accidentSchema.methods.calcularGravedad = function() {
-  const tipoLesion = this.personaAfectada.tipoLesion;
-
-  if (tipoLesion === 'FALLECIDO') {
-    this.circunstancias.gravedad = 'MORTAL';
-  } else if (tipoLesion === 'GRAVE') {
-    this.circunstancias.gravedad = 'GRAVE';
-  } else if (tipoLesion === 'SIN_ASISTENCIA') {
-    this.circunstancias.gravedad = 'SIN_LESIONES';
-  } else {
-    this.circunstancias.gravedad = 'LEVE';
-  }
-};
-
-/**
- * Identificar factores de riesgo
- */
-accidentSchema.methods.identificarFactoresRiesgo = function() {
-  const factores = [];
-
-  // Alcohol y drogas
-  if (this.personaAfectada.positivaAlcohol === 'S') {
-    factores.push('ALCOHOL');
-  }
-  if (this.personaAfectada.positivaDroga === 'S') {
-    factores.push('DROGAS');
-  }
-
-  // Condiciones meteorológicas adversas
-  if (['LLUVIA_INTENSA', 'NIEBLA', 'GRANIZO', 'NIEVE'].includes(this.circunstancias.estadoMeteorologico)) {
-    factores.push('CONDICIONES_METEOROLOGICAS');
-  }
-
-  // Hora de madrugada (mayor riesgo)
-  if (this.franjaHoraria >= 0 && this.franjaHoraria < 6) {
-    factores.push('HORA_MADRUGADA');
-  }
-
-  // Vehículos de dos ruedas (mayor vulnerabilidad)
-  if (['MOTOCICLETA', 'CICLOMOTOR', 'BICICLETA'].includes(this.vehiculo.tipo)) {
-    factores.push('VEHICULO_DOS_RUEDAS');
-  }
-
-  this.analisis.factoresRiesgo = factores;
-};
-
-/**
- * Verificar si el accidente es grave
- */
-accidentSchema.methods.esGrave = function() {
-  return ['GRAVE', 'MORTAL'].includes(this.circunstancias.gravedad);
-};
 
 /**
  * Métodos estáticos para consultas agregadas
@@ -537,7 +595,7 @@ accidentSchema.statics.getStatisticsByPeriod = function(startDate, endDate) {
         }
       }
     }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -577,7 +635,7 @@ accidentSchema.statics.getAccidentBlackSpots = function(limit = 10, startDate = 
     },
     { $sort: { indiceGravedad: -1, totalAccidentes: -1 } },
     { $limit: limit }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -615,7 +673,7 @@ accidentSchema.statics.getVehicleTypeAnalysis = function(startDate = null, endDa
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -639,7 +697,7 @@ accidentSchema.statics.getTemporalPatterns = function(groupBy = 'hora') {
       }
     },
     { $sort: { _id: 1 } }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -722,7 +780,7 @@ accidentSchema.statics.getDistrictComparisonData = function(filters = {}) {
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -773,7 +831,7 @@ accidentSchema.statics.getStreetSafetyAnalysis = function(filters = {}, limit = 
     },
     { $sort: { indiceRiesgo: -1 } },
     { $limit: limit }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -799,7 +857,7 @@ accidentSchema.statics.getTrendAnalysis = function(filters = {}) {
       }
     },
     { $sort: { '_id.año': 1, '_id.mes': 1 } }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -832,7 +890,7 @@ accidentSchema.statics.getWeatherCorrelation = function(filters = {}) {
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -858,7 +916,7 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
     },
     { $sort: { totalAccidentes: -1 } },
     { $limit: limit }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -877,7 +935,7 @@ accidentSchema.statics.getRiskFactorsAnalysis = function(filters = {}) {
       }
     },
     { $sort: { cantidad: -1 } }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**

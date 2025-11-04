@@ -6,8 +6,6 @@
  *
  */
 
-const AppError = require('./AppError');
-
 /**
  * Construye objeto de filtros para queries de MongoDB
  *

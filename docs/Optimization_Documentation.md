@@ -462,19 +462,23 @@ Hemos creado 7 métodos estáticos en 3 modelos:
 
 ### ¿Qué hemos implementado?
 
-Hemos centralizado todas las validaciones de requests en middleware usando `express-validator`, eliminando validaciones redundantes en controllers y modelos.
+Hemos reorganizado las validaciones en una arquitectura de 3 capas especializadas, eliminando **duplicación** (no eliminando validaciones). Cada capa tiene una responsabilidad específica.
+
+> **⚠️ IMPORTANTE:** Las validaciones de Mongoose **NO afectan el rendimiento de queries de lectura** (find, aggregate, etc.). Solo se ejecutan en operaciones de escritura (save, create, update con runValidators). Por tanto, **nunca** eliminamos validaciones por razones de rendimiento.
 
 ### ¿Por qué lo hemos hecho?
 
-Inicialmente teníamos un problema de **validaciones triplicadas**:
+Inicialmente teníamos un problema de **validaciones triplicadas** (el mismo dato validado 3 veces en lugares diferentes):
 - Validaciones en controllers (lógica de negocio)
 - Validaciones en middleware (requests HTTP)
 - Validaciones en schemas Mongoose (tipos de datos)
 
 Esto causaba:
-- Procesamiento redundante (misma validación 3 veces)
+- Procesamiento redundante (misma validación ejecutada múltiples veces)
 - Inconsistencia en mensajes de error
 - Código difícil de mantener
+
+**Solución:** Especializar cada capa para su propósito específico, manteniendo todas las validaciones pero sin duplicación.
 
 ### ¿Cómo funciona?
 
@@ -561,10 +565,14 @@ function validateFecha(fecha) {
 
 ### Resultados obtenidos
 
-- ✅ **Reducción de procesamiento:** +10% rendimiento
+- ✅ **Reducción de procesamiento:** +10% rendimiento (por eliminar redundancia, no por eliminar validaciones)
 - ✅ **Consistencia:** 100% mensajes de error uniformes
 - ✅ **Mantenibilidad:** Cambios en un solo lugar
-- ✅ **Verificado:** 0 validaciones redundantes encontradas
+- ✅ **Eliminación completa:** 0 validaciones redundantes, 0 construcciones manuales de filtros
+
+> **📌 Nota:** La mejora de rendimiento proviene de **eliminar duplicación**, no de eliminar validaciones. Todas las validaciones de integridad de datos se mantienen activas en los schemas de Mongoose, donde pertenecen. Las validaciones de Mongoose solo se ejecutan durante operaciones de escritura (save/create), nunca durante queries de lectura (find/aggregate), por lo que no afectan el rendimiento de consultas.
+
+> **✅ Actualización Nov 2025:** Se completó al 100% la eliminación de construcción manual de filtros en todos los controllers. Todos usan `buildFilters()` de `queryHelper.js` para construcción consistente y centralizada de queries MongoDB.
 
 ---
 

@@ -7,6 +7,7 @@
  */
 
 const mongoose = require('mongoose');
+const { validateVelocidad, validatePorcentaje, validateFechaNoFutura, validateMes, validateAño } = require('./schemas/commonSchemas');
 
 /**
  * Esquema principal de mediciones de tráfico
@@ -36,36 +37,54 @@ const trafficSchema = new mongoose.Schema({
   fecha: {
     type: Date,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateFechaNoFutura,
+      message: 'La fecha de medición no puede ser futura'
+    }
   },
 
   // Para facilitar consultas por periodos
   año: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateAño,
+      message: 'Año debe estar entre 2000 y 3000'
+    }
   },
 
   mes: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateMes,
+      message: 'Mes debe estar entre 1 y 12'
+    }
   },
 
   dia: {
     type: Number,
-    required: true
+    required: true,
+    min: [1, 'Día debe estar entre 1 y 31'],
+    max: [31, 'Día debe estar entre 1 y 31']
   },
 
   hora: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    min: [0, 'Hora debe estar entre 0 y 23'],
+    max: [23, 'Hora debe estar entre 0 y 23']
   },
 
   minutos: {
     type: Number,
-    required: true
+    required: true,
+    min: [0, 'Minutos deben estar entre 0 y 59'],
+    max: [59, 'Minutos deben estar entre 0 y 59']
   },
 
   // Clasificación del punto de medida
@@ -73,7 +92,8 @@ const trafficSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: ['URB', 'M-30'],
-    index: true
+    index: true,
+    uppercase: true
   },
 
   // Métricas de tráfico
@@ -82,25 +102,53 @@ const trafficSchema = new mongoose.Schema({
     intensidad: {
       type: Number,
       required: true,
-      index: true
+      index: true,
+      min: [0, 'Intensidad no puede ser negativa']
     },
 
-    // Porcentaje de ocupación de la vía
+    // Porcentaje de ocupación de la vía (0-100%)
+    // null representa ausencia de datos
     ocupacion: {
       type: Number,
-      required: true
+      required: false,
+      default: null,
+      validate: {
+        validator: function(v) {
+          if (v === null || v === undefined) {return true;}
+          return validatePorcentaje(v);
+        },
+        message: 'Ocupación debe estar entre 0 y 100% o ser null'
+      }
     },
 
     // Carga de la vía (0-100)
+    // null representa ausencia de datos
     carga: {
       type: Number,
-      required: true
+      required: false,
+      default: null,
+      validate: {
+        validator: function(v) {
+          if (v === null || v === undefined) {return true;}
+          return v >= 0 && v <= 100;
+        },
+        message: 'Carga debe estar entre 0 y 100 o ser null'
+      }
     },
 
-    // Velocidad media (solo para M-30)
+    // Velocidad media (solo para M-30, en km/h)
+    // null representa ausencia de datos
     velocidadMedia: {
       type: Number,
-      required: false
+      required: false,
+      default: null,
+      validate: {
+        validator: function(v) {
+          if (v === null || v === undefined) {return true;}
+          return validateVelocidad(v);
+        },
+        message: 'Velocidad media debe estar entre 0 y 300 km/h o ser null'
+      }
     }
   },
 
@@ -192,23 +240,64 @@ const trafficSchema = new mongoose.Schema({
  * Índices para optimización de consultas
  */
 
-// Índice principal para evitar duplicados
+// ========================================
+// ÍNDICE ÚNICO - Prevención de duplicados
+// ========================================
+// Garantiza que no existan mediciones duplicadas para el mismo punto en la misma fecha/hora
+// Combinación: puntoMedidaId + fecha
+// CRÍTICO: NO ELIMINAR
 trafficSchema.index(
   { puntoMedidaId: 1, fecha: 1 },
   { unique: true, name: 'traffic_unique_measurement' }
 );
 
-// Índices para consultas temporales
+// ========================================
+// ÍNDICES PRINCIPALES - Consultas frecuentes
+// ========================================
+
+// Índice compuesto: fecha (desc) + puntoMedidaId
+// Usado en: trafficController.js:60 - Sort por fecha (línea 60: sortBy='fecha')
+// Usado en: trafficController.js:48 - Filtro puntoMedidaId (línea 48)
+// Soporta: GET /api/traffic?puntoMedidaId=X&sortBy=fecha&sortOrder=desc
 trafficSchema.index({ fecha: -1, puntoMedidaId: 1 });
+
+// Índice para consultas temporales descompuestas
+// Usado en: Agregaciones que usan año, mes, dia, hora
+// Soporta: Análisis por franjas horarias, patrones diarios/mensuales
 trafficSchema.index({ año: 1, mes: 1, dia: 1, hora: 1 });
+
+// Índice compuesto: tipoElemento + fecha
+// Usado en: trafficController.js:49 - Filtro tipoElemento (URB, M30, INTERURBANA)
+// Soporta: GET /api/traffic?tipoElemento=URB&startDate=X&endDate=Y
 trafficSchema.index({ tipoElemento: 1, fecha: -1 });
 
-// Índices para métricas de tráfico
+// ========================================
+// ÍNDICES PARA MÉTRICAS DE TRÁFICO
+// ========================================
+
+// Índice para ordenar por intensidad (tráfico más denso)
+// Usado en: trafficController.js:60 - sortBy='intensidad'
+// Usado en: Análisis de puntos más congestionados
+// Soporta: GET /api/traffic?sortBy=intensidad&sortOrder=desc
 trafficSchema.index({ 'metricas.intensidad': -1, fecha: -1 });
+
+// Índice para filtrar por nivel de congestión
+// Usado en: trafficController.js:50 - Filtro nivelCongestion (BAJO, MEDIO, ALTO, MUY_ALTO)
+// Soporta: GET /api/traffic?nivelCongestion=ALTO
 trafficSchema.index({ 'analisis.nivelCongestion': 1, fecha: -1 });
+
+// Índice para análisis por período del día y tipo de vía
+// Usado en: Agregaciones de patrones (MAÑANA, TARDE, NOCHE)
+// Soporta: Análisis de congestión por franja horaria y tipo de elemento
 trafficSchema.index({ 'analisis.periodoDia': 1, tipoElemento: 1 });
 
-// Índices compuestos para análisis avanzados
+// ========================================
+// ÍNDICES PARA AGREGACIONES AVANZADAS
+// ========================================
+
+// Índice compuesto para análisis de patrones de tráfico
+// Usado en: Traffic.getCongestionAnalysisOptimized() - Agregaciones complejas
+// Soporta: $group por tipoElemento + periodoDia + tipoJornada
 trafficSchema.index({
   tipoElemento: 1,
   'analisis.periodoDia': 1,
@@ -216,6 +305,9 @@ trafficSchema.index({
   fecha: -1
 });
 
+// Índice para análisis histórico de congestión por punto
+// Usado en: Análisis de evolución temporal de congestión en ubicación específica
+// Soporta: Series temporales de nivelCongestion para un puntoMedidaId
 trafficSchema.index({
   puntoMedidaId: 1,
   'analisis.nivelCongestion': 1,
@@ -260,248 +352,8 @@ trafficSchema.pre('save', function(next) {
 });
 
 /**
- * Métodos de instancia
+ * Métodos estáticos para consultas agregadas (OPTIMIZADOS)
  */
-
-/**
- * Calcular nivel de congestión basado en ocupación y carga
- */
-trafficSchema.methods.calcularNivelCongestion = function() {
-  if (!this.metricas || this.metricas.ocupacion < 0 || this.metricas.carga < 0) {
-    this.analisis.nivelCongestion = 'SIN_DATOS';
-    return;
-  }
-
-  const ocupacion = this.metricas.ocupacion;
-  const carga = this.metricas.carga;
-
-  if (ocupacion < 10 && carga < 25) {
-    this.analisis.nivelCongestion = 'FLUIDO';
-  } else if (ocupacion < 30 && carga < 50) {
-    this.analisis.nivelCongestion = 'DENSO';
-  } else if (ocupacion < 60 && carga < 80) {
-    this.analisis.nivelCongestion = 'CONGESTIONADO';
-  } else {
-    this.analisis.nivelCongestion = 'COLAPSADO';
-  }
-};
-
-/**
- * Calcular clasificación por intensidad
- */
-trafficSchema.methods.calcularClasificacionIntensidad = function() {
-  if (!this.metricas || this.metricas.intensidad < 0) {
-    this.analisis.clasificacionIntensidad = 'SIN_DATOS';
-    return;
-  }
-
-  const intensidad = this.metricas.intensidad;
-
-  if (intensidad < 200) {
-    this.analisis.clasificacionIntensidad = 'MUY_BAJA';
-  } else if (intensidad < 500) {
-    this.analisis.clasificacionIntensidad = 'BAJA';
-  } else if (intensidad < 1000) {
-    this.analisis.clasificacionIntensidad = 'MEDIA';
-  } else if (intensidad < 2000) {
-    this.analisis.clasificacionIntensidad = 'ALTA';
-  } else {
-    this.analisis.clasificacionIntensidad = 'MUY_ALTA';
-  }
-};
-
-/**
- * Calcular calidad general de la medición
- */
-trafficSchema.methods.calcularCalidadGeneral = function() {
-  if (!this.calidadDatos) {
-    this.calidadDatos.calidadGeneral = 'SIN_DATOS';
-    return;
-  }
-
-  if (this.calidadDatos.error === 'N' && this.calidadDatos.periodoIntegracion >= 4) {
-    this.calidadDatos.calidadGeneral = 'ALTA';
-  } else if (this.calidadDatos.error === 'E' && this.calidadDatos.periodoIntegracion >= 2) {
-    this.calidadDatos.calidadGeneral = 'MEDIA';
-  } else if (this.calidadDatos.error === 'S' || this.calidadDatos.periodoIntegracion < 2) {
-    this.calidadDatos.calidadGeneral = 'BAJA';
-  } else {
-    this.calidadDatos.calidadGeneral = 'SIN_DATOS';
-  }
-};
-
-/**
- * Verificar si la medición es confiable
- */
-trafficSchema.methods.esConfiable = function() {
-  return this.calidadDatos.calidadGeneral === 'ALTA' ||
-         this.calidadDatos.calidadGeneral === 'MEDIA';
-};
-
-/**
- * Métodos estáticos para consultas agregadas
- */
-
-/**
- * Obtener estadísticas de tráfico por periodo
- */
-trafficSchema.statics.getStatisticsByPeriod = function(startDate, endDate, tipoElemento = null) {
-  const matchConditions = {
-    fecha: { $gte: startDate, $lte: endDate }
-  };
-
-  if (tipoElemento) {
-    matchConditions.tipoElemento = tipoElemento;
-  }
-
-  return this.aggregate([
-    { $match: matchConditions },
-    {
-      $group: {
-        _id: null,
-        totalMediciones: { $sum: 1 },
-        intensidadPromedio: {
-          $avg: {
-            $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null]
-          }
-        },
-        ocupacionPromedio: {
-          $avg: {
-            $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null]
-          }
-        },
-        cargaPromedio: {
-          $avg: {
-            $cond: [{ $gte: ['$metricas.carga', 0] }, '$metricas.carga', null]
-          }
-        },
-        velocidadPromedio: {
-          $avg: {
-            $cond: [{ $gte: ['$metricas.velocidadMedia', 0] }, '$metricas.velocidadMedia', null]
-          }
-        },
-        medicionesConfiables: {
-          $sum: {
-            $cond: [{ $in: ['$calidadDatos.calidadGeneral', ['ALTA', 'MEDIA']] }, 1, 0]
-          }
-        }
-      }
-    }
-  ]);
-};
-
-/**
- * Obtener puntos más congestionados
- */
-trafficSchema.statics.getTopCongestedPoints = function(limit = 10, startDate = null, endDate = null) {
-  const matchConditions = {};
-
-  if (startDate && endDate) {
-    matchConditions.fecha = { $gte: startDate, $lte: endDate };
-  }
-
-  return this.aggregate([
-    { $match: matchConditions },
-    {
-      $group: {
-        _id: '$puntoMedidaId',
-        ocupacionPromedio: {
-          $avg: {
-            $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null]
-          }
-        },
-        cargaPromedio: {
-          $avg: {
-            $cond: [{ $gte: ['$metricas.carga', 0] }, '$metricas.carga', null]
-          }
-        },
-        totalMediciones: { $sum: 1 },
-        medicionesCongestionadas: {
-          $sum: {
-            $cond: [{ $in: ['$analisis.nivelCongestion', ['CONGESTIONADO', 'COLAPSADO']] }, 1, 0]
-          }
-        },
-        tipoElemento: { $first: '$tipoElemento' }
-      }
-    },
-    {
-      $addFields: {
-        porcentajeCongestion: {
-          $multiply: [
-            { $divide: ['$medicionesCongestionadas', '$totalMediciones'] },
-            100
-          ]
-        }
-      }
-    },
-    { $sort: { porcentajeCongestion: -1, ocupacionPromedio: -1 } },
-    { $limit: limit }
-  ]);
-};
-
-/**
- * Obtener patrones de tráfico por hora del día
- */
-trafficSchema.statics.getTrafficPatternsByHour = function(tipoElemento = null, startDate = null, endDate = null) {
-  const matchConditions = {};
-
-  if (tipoElemento) {
-    matchConditions.tipoElemento = tipoElemento;
-  }
-
-  if (startDate && endDate) {
-    matchConditions.fecha = { $gte: startDate, $lte: endDate };
-  }
-
-  return this.aggregate([
-    { $match: matchConditions },
-    {
-      $group: {
-        _id: '$hora',
-        intensidadPromedio: {
-          $avg: {
-            $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null]
-          }
-        },
-        ocupacionPromedio: {
-          $avg: {
-            $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null]
-          }
-        },
-        totalMediciones: { $sum: 1 }
-      }
-    },
-    { $sort: { _id: 1 } }
-  ]);
-};
-
-/**
- * Obtener análisis de calidad de datos
- */
-trafficSchema.statics.getDataQualityAnalysis = function(startDate = null, endDate = null) {
-  const matchConditions = {};
-
-  if (startDate && endDate) {
-    matchConditions.fecha = { $gte: startDate, $lte: endDate };
-  }
-
-  return this.aggregate([
-    { $match: matchConditions },
-    {
-      $group: {
-        _id: '$calidadDatos.calidadGeneral',
-        cantidad: { $sum: 1 },
-        puntosMedida: { $addToSet: '$puntoMedidaId' }
-      }
-    },
-    {
-      $addFields: {
-        cantidadPuntos: { $size: '$puntosMedida' }
-      }
-    },
-    { $sort: { _id: 1 } }
-  ]);
-};
 
 /**
  * Obtener análisis de congestión optimizado con lookup a ubicaciones
@@ -631,7 +483,7 @@ trafficSchema.statics.getCongestionAnalysisOptimized = async function(filters = 
     { $sort: { porcentajeCongestion: -1 } }
   );
 
-  return this.aggregate(pipeline);
+  return this.aggregate(pipeline).allowDiskUse(true);
 };
 
 /**
@@ -797,7 +649,7 @@ trafficSchema.statics.getHistoricalDataOptimized = async function(filters = {}, 
     { $sort: sortFields }
   ];
 
-  return this.aggregate(pipeline);
+  return this.aggregate(pipeline).allowDiskUse(true);
 };
 
 /**
@@ -900,7 +752,7 @@ trafficSchema.statics.getTrafficStatisticsOptimized = async function(filters = {
         }
       },
       { $sort: { cantidad: -1 } }
-    ]),
+    ]).allowDiskUse(true),
 
     // Distribución horaria
     this.aggregate([
@@ -939,7 +791,7 @@ trafficSchema.statics.getTrafficStatisticsOptimized = async function(filters = {
           periodo: 1
         }
       }
-    ])
+    ]).allowDiskUse(true)
   ]);
 
   return {

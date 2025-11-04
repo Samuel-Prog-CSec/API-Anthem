@@ -74,15 +74,6 @@ const connectDB = async (uri) => {
 };
 
 /**
- * Comprobar si la conexión a la base de datos está activa
- *
- * @returns {boolean} True si está conectado, False en caso contrario
- */
-const isConnected = () => {
-  return mongoose.connection.readyState === 1;
-};
-
-/**
  * Obtener estadísticas de la conexión a la base de datos
  *
  * @returns {object} Objeto de estadísticas de conexión
@@ -100,6 +91,5 @@ const getConnectionStats = () => {
 
 module.exports = {
   connectDB,
-  isConnected,
   getConnectionStats
 };

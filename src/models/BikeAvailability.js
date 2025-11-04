@@ -6,6 +6,7 @@
  */
 
 const mongoose = require('mongoose');
+const { validateFechaNoFutura, validateMes, validateAño } = require('./schemas/commonSchemas');
 
 /**
  * Esquema de Disponibilidad de Bicicletas
@@ -17,56 +18,86 @@ const bikeAvailabilitySchema = new mongoose.Schema({
   // Fecha del registro
   dia: {
     type: Date,
-    required: true
+    required: true,
+    validate: {
+      validator: validateFechaNoFutura,
+      message: 'La fecha no puede ser futura'
+    }
   },
 
   // Horas totales que los usuarios han utilizado bicicletas
   horasTotalesUsosBicicletas: {
     type: Number,
-    required: true
+    required: true,
+    min: [0, 'Las horas de uso no pueden ser negativas'],
+    validate: {
+      validator: function(v) {
+        // Validación física: las horas de uso no pueden superar 24h * número de bicicletas
+        // Si no hay bicicletas disponibles (mediaBicicletasDisponibles = 0), no puede haber horas de uso
+        if (this.mediaBicicletasDisponibles === 0) {
+          return v === 0;
+        }
+        // Las horas de uso totales no pueden superar el máximo físico posible (24h por bici)
+        return v <= (24 * this.mediaBicicletasDisponibles);
+      },
+      message: 'Las horas de uso no pueden superar 24 horas por bicicleta disponible (horasTotalesUso <= 24 * mediaBicisDisponibles)'
+    }
   },
 
   // Horas totales que ha habido bicicletas disponibles en anclajes
   horasTotalesDisponibilidadBicicletasEnAnclajes: {
     type: Number,
-    required: true
+    required: true,
+    min: [0, 'Las horas de disponibilidad no pueden ser negativas']
   },
 
   // Sumatorio de horas de uso y disponibilidad
   totalHorasServicioBicicletas: {
     type: Number,
-    required: true
+    required: true,
+    min: [0, 'El total de horas de servicio no puede ser negativo']
   },
 
   // Media de bicicletas disponibles (total horas servicio / 24)
   mediaBicicletasDisponibles: {
     type: Number,
-    required: true
+    required: true,
+    min: [0, 'La media de bicicletas disponibles no puede ser negativa']
   },
 
   // Número de viajes de usuarios con abono anual
   usosAbonadoAnual: {
     type: Number,
     required: true,
-    default: 0
+    default: 0,
+    min: [0, 'Los usos con abono anual no pueden ser negativos']
   },
 
   // Número de viajes de usuarios con abono ocasional
   usosAbonadoOcasional: {
     type: Number,
     required: true,
-    default: 0
+    default: 0,
+    min: [0, 'Los usos con abono ocasional no pueden ser negativos']
   },
 
   // Total de viajes del día
   totalUsos: {
     type: Number,
-    required: true
+    required: true,
+    min: [0, 'El total de usos no puede ser negativo'],
+    validate: {
+      validator: function(value) {
+        return value === (this.usosAbonadoAnual + this.usosAbonadoOcasional);
+      },
+      message: 'El total de usos debe coincidir con la suma de usos por abono anual y ocasional'
+    }
   },
 
   // Campos calculados para análisis
   tasaOcupacion: {
-    type: Number
+    type: Number,
+    max: [100, 'La tasa de ocupación no puede superar el 100%']
   },
 
   promedioUsosPorBicicleta: {
@@ -104,22 +135,49 @@ bikeAvailabilitySchema.pre('save', function(next) {
  * Índices para optimización de consultas
  */
 
-// Índice único en fecha para evitar duplicados
+// ========================================
+// ÍNDICE ÚNICO - Prevención de duplicados
+// ========================================
+// Garantiza que solo exista un registro por día
+// Un día = un resumen completo de disponibilidad de bicicletas
+// CRÍTICO: NO ELIMINAR
 bikeAvailabilitySchema.index({ dia: 1 }, {
   unique: true,
   name: 'idx_bikes_unique_date',
   background: true
 });
 
-// Índice compuesto para series temporales descendentes (más reciente primero)
-// Usado en: listados de datos recientes, dashboards en tiempo real
+// ========================================
+// ÍNDICES PRINCIPALES - Consultas frecuentes
+// ========================================
+
+// Índice para series temporales descendentes
+// Usado en: GET /api/bike-availability?sortOrder=desc
+// Soporta: Listados de datos más recientes primero, dashboards
 bikeAvailabilitySchema.index({ dia: -1 }, {
   name: 'idx_bikes_timeline',
   background: true
 });
 
-// Índice compuesto para análisis de uso: fecha + tasa de ocupación
-// Usado en: análisis de eficiencia, identificación de picos de demanda
+// Índice para ranking por total de usos
+// Usado en: "Días con más uso del servicio"
+// Sort: totalUsos descendente + día descendente
+bikeAvailabilitySchema.index({
+  totalUsos: -1,
+  dia: -1
+}, {
+  name: 'idx_bikes_top_usage_days',
+  background: true
+});
+
+// ========================================
+// ÍNDICES PARA ANÁLISIS DE USO
+// ========================================
+
+// Índice compuesto: día + tasa de ocupación
+// Usado en: Análisis de eficiencia del servicio
+// Soporta: Identificación de picos de demanda, períodos de saturación
+// tasaOcupacion = horasUso / horasDisponibilidad
 bikeAvailabilitySchema.index({
   dia: 1,
   tasaOcupacion: 1
@@ -128,8 +186,9 @@ bikeAvailabilitySchema.index({
   background: true
 });
 
-// Índice compuesto para comparación de tipos de abonado
-// Usado en: análisis de distribución de usuarios, estadísticas por tipo
+// Índice compuesto: día + tipos de abonado
+// Usado en: Comparación entre abonados anuales vs ocasionales
+// Soporta: Análisis de distribución de usuarios, tendencias de suscripción
 bikeAvailabilitySchema.index({
   dia: 1,
   usosAbonadoAnual: 1,
@@ -139,8 +198,14 @@ bikeAvailabilitySchema.index({
   background: true
 });
 
-// Índice compuesto para tendencias de disponibilidad con filtro parcial
-// Usado en: análisis de capacidad del servicio, predicción de demanda
+// ========================================
+// ÍNDICES PARA ANÁLISIS DE DISPONIBILIDAD
+// ========================================
+
+// Índice compuesto: día + media de bicicletas disponibles
+// Usado en: Análisis de capacidad del servicio
+// Soporta: Predicción de demanda, planificación de expansión
+// PARTIAL FILTER: Solo registros con mediaBicicletasDisponibles >= 0 (válidos)
 bikeAvailabilitySchema.index({
   dia: 1,
   mediaBicicletasDisponibles: 1
@@ -152,18 +217,14 @@ bikeAvailabilitySchema.index({
   }
 });
 
-// Índice para búsquedas por total de usos (identificar días populares)
-// Usado en: análisis de picos de uso, planificación de capacidad
-bikeAvailabilitySchema.index({
-  totalUsos: -1,
-  dia: -1
-}, {
-  name: 'idx_bikes_top_usage_days',
-  background: true
-});
+// ========================================
+// ÍNDICES PARA MÉTRICAS DE EFICIENCIA
+// ========================================
 
-// Índice compuesto para análisis de eficiencia del servicio
-// Usado en: métricas de rendimiento, KPIs operacionales
+// Índice compuesto: día + métricas de rendimiento
+// Usado en: KPIs operacionales, dashboards de gestión
+// Métricas: promedioUsosPorBicicleta + tasaOcupación
+// SPARSE: Solo documentos con métricas calculadas (no null)
 bikeAvailabilitySchema.index({
   dia: 1,
   promedioUsosPorBicicleta: 1,
@@ -207,7 +268,7 @@ bikeAvailabilitySchema.statics.getStatsByDateRange = function(startDate, endDate
         totalUsosOcasional: { $sum: '$usosAbonadoOcasional' }
       }
     }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -240,7 +301,7 @@ bikeAvailabilitySchema.statics.getMonthlyTrends = function(year) {
     {
       $sort: { mes: 1 }
     }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -313,7 +374,7 @@ bikeAvailabilitySchema.statics.compareSubscriptionTypes = function(startDate, en
         }
       }
     }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -348,7 +409,7 @@ bikeAvailabilitySchema.statics.getEfficiencyAnalysisOptimized = async function(f
         promedioHorasDisponibilidad: { $round: ['$promedioHorasDisponibilidad', 2] }
       }
     }
-  ]);
+  ]).allowDiskUse(true);
 
   return analysis.length > 0 ? analysis[0] : null;
 };
@@ -419,7 +480,7 @@ bikeAvailabilitySchema.statics.getHistoricalDataOptimized = async function(filte
         registros: 1
       }
     }
-  ]);
+  ]).allowDiskUse(true);
 
   return historicalData;
 };
@@ -534,7 +595,7 @@ bikeAvailabilitySchema.statics.getUsageTrends = function(options) {
     { $sort: sortField }
   ];
 
-  return this.aggregate(pipeline);
+  return this.aggregate(pipeline).allowDiskUse(true);
 };
 
 /**

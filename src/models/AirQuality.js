@@ -7,6 +7,28 @@
  */
 
 const mongoose = require('mongoose');
+const { validateFechaNoFutura } = require('./schemas/commonSchemas');
+
+/**
+ * Magnitudes oficiales permitidas según normativa de calidad del aire
+ * Fuente: Ministerio para la Transición Ecológica (MITECO)
+ */
+const MAGNITUDES_PERMITIDAS = [
+  1, // Dióxido de Azufre (SO2)
+  6, // Monóxido de Carbono (CO)
+  7, // Monóxido de Nitrógeno (NO)
+  8, // Dióxido de Nitrógeno (NO2)
+  9, // Partículas < 2.5 μm (PM2.5)
+  10, // Partículas < 10 μm (PM10)
+  12, // Óxidos de Nitrógeno (NOx)
+  14, // Ozono (O3)
+  20, // Tolueno
+  30, // Benceno
+  35, // Etilbenceno
+  42, // Hidrocarburos totales (hexano)
+  43, // Metano (CH4)
+  44 // Hidrocarburos no metánicos
+];
 
 /**
  * Sub-esquema para mediciones horarias
@@ -15,12 +37,21 @@ const mongoose = require('mongoose');
 const hourlyMeasurementSchema = new mongoose.Schema({
   value: {
     type: Number,
-    required: false
+    required: false,
+    validate: {
+      validator: function(v) {
+        // Permitir null/undefined, pero si existe debe ser >= 0
+        if (v === null || v === undefined) {return true;}
+        return v >= 0 && v <= 10000; // Límite razonable para mediciones (μg/m³ o similar)
+      },
+      message: 'Valor de medición debe estar entre 0 y 10000'
+    }
   },
   validationCode: {
     type: String,
     enum: ['V', 'N'],
-    required: true
+    required: true,
+    uppercase: true
   }
 }, { _id: false });
 
@@ -51,7 +82,13 @@ const airQualitySchema = new mongoose.Schema({
   magnitud: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: function(v) {
+        return MAGNITUDES_PERMITIDAS.includes(v);
+      },
+      message: 'Magnitud debe ser un código válido oficial (SO2, CO, NO2, PM2.5, PM10, O3, etc.)'
+    }
   },
 
   // Identificador único del punto de medición
@@ -59,21 +96,43 @@ const airQualitySchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
-    index: true
+    index: true,
+    uppercase: true
   },
 
   // Fecha de la medición
   fecha: {
     type: Date,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateFechaNoFutura,
+      message: 'La fecha de medición no puede ser futura'
+    }
   },
 
   // Mediciones horarias (24 horas del día)
   medicionesHorarias: {
     type: Map,
     of: hourlyMeasurementSchema,
-    required: true
+    required: true,
+    validate: [
+      {
+        validator: function(v) {
+          // Validar que haya exactamente 24 mediciones horarias (H01-H24)
+          return v.size === 24;
+        },
+        message: 'Debe haber exactamente 24 mediciones horarias (H01-H24)'
+      },
+      {
+        validator: function(v) {
+          // Validar que haya al menos 1 medición válida (validationCode = 'V')
+          const validas = Array.from(v.values()).filter(m => m.validationCode === 'V');
+          return validas.length > 0;
+        },
+        message: 'Debe haber al menos una medición válida (validationCode=V) en el día'
+      }
+    ]
   },
 
   // Metadatos de calidad y procesamiento
@@ -100,18 +159,45 @@ const airQualitySchema = new mongoose.Schema({
 /**
  * Índices compuestos para optimizar consultas comunes
  */
-// Índice único para evitar duplicados
+
+// ========================================
+// ÍNDICE ÚNICO - Prevención de duplicados
+// ========================================
+// Garantiza que no haya mediciones duplicadas para la misma combinación
+// provincia + municipio + estacion + magnitud + fecha
+// CRÍTICO: NO ELIMINAR
 airQualitySchema.index(
   { provincia: 1, municipio: 1, estacion: 1, magnitud: 1, fecha: 1 },
   { unique: true, name: 'unique_measurement' }
 );
 
-// Índices para consultas por ubicación y fecha
+// ========================================
+// ÍNDICES PRINCIPALES - Queries frecuentes
+// ========================================
+
+// Índice para consultas por magnitud ordenadas por fecha (desc)
+// Usado en: airQualityController.js:85 - GET /api/air-quality?magnitud=X
+// Sort: fecha desc (línea 56)
+// Ejemplo: Obtener series temporales de PM2.5, NO2, O3
 airQualitySchema.index({ fecha: -1, magnitud: 1 });
+
+// Índice para consultas por punto de muestreo
+// Usado en: airQualityController.js:85 - GET /api/air-quality?puntoMuestreo=X
+// Filtro: puntoMuestreo exact match (línea 39)
 airQualitySchema.index({ puntoMuestreo: 1, fecha: -1 });
+
+// Índice para consultas geográficas (provincia + municipio)
+// Usado en: airQualityController.js:85 - GET /api/air-quality?provincia=X&municipio=Y
+// Filtros: provincia (línea 33), municipio (línea 34)
 airQualitySchema.index({ provincia: 1, municipio: 1, fecha: -1 });
 
-// Índices adicionales para optimización de agregaciones y estadísticas
+// ========================================
+// ÍNDICES PARA AGREGACIONES Y ESTADÍSTICAS
+// ========================================
+
+// Índice para agregaciones de estadísticas por magnitud
+// Usado en: Métodos estáticos getStatisticsOptimized(), getTrendsOptimized()
+// Soporta: $group por magnitud + provincia, filtro por validMeasurements > 0
 airQualitySchema.index({
   magnitud: 1,
   provincia: 1,
@@ -122,6 +208,8 @@ airQualitySchema.index({
 });
 
 // Índice para búsquedas de rango temporal con filtros geográficos
+// Usado en: airQualityController.js:85 - Consultas con múltiples filtros
+// Soporta: startDate/endDate (línea 30) + filtros geográficos combinados
 airQualitySchema.index({
   fecha: 1,
   provincia: 1,
@@ -132,7 +220,9 @@ airQualitySchema.index({
   name: 'temporal_geographic_idx'
 });
 
-// Índice compuesto para consultas de calidad de datos
+// Índice para consultas de calidad de datos
+// Usado en: airQualityController.js:43 - Filtro includeInvalid=false (por defecto)
+// Filtro: processingMetadata.validMeasurements > 0
 airQualitySchema.index({
   'processingMetadata.validMeasurements': -1,
   fecha: -1,
@@ -141,30 +231,37 @@ airQualitySchema.index({
   name: 'quality_temporal_idx'
 });
 
-// Índice compuesto estacion + fecha (consultas por estación específica)
-// Usado en: GET /api/air-quality?estacion=X&fecha=Y
+// ========================================
+// ÍNDICES SECUNDARIOS - Consultas específicas
+// ========================================
+
+// Índice compuesto estacion + fecha
+// Usado en: GET /api/air-quality?estacion=X&startDate=Y&endDate=Z
+// Filtro: estacion (línea 35)
 airQualitySchema.index({ estacion: 1, fecha: 1 }, {
   name: 'idx_airquality_station_timeline',
   background: true
 });
 
-// Índice compuesto magnitud + fecha (consultas de contaminante específico)
-// Usado en: GET /api/air-quality?magnitud=X (series temporales de PM2.5, NO2, etc.)
+// Índice compuesto magnitud + fecha (orden ascendente para series temporales)
+// Usado en: GET /api/air-quality?magnitud=X (series temporales de contaminantes)
+// Filtro: magnitud (línea 36-37)
 airQualitySchema.index({ magnitud: 1, fecha: 1 }, {
   name: 'idx_airquality_pollutant_trends',
   background: true
 });
 
-// Índice compuesto triple estacion + magnitud + fecha (consultas filtradas específicas)
-// Usado en: estadísticas de contaminante X en estación Y durante período Z
+// Índice compuesto triple estacion + magnitud + fecha
+// Usado en: Consultas específicas filtradas (estación + contaminante + período)
+// Combina filtros: estacion + magnitud + fecha
 airQualitySchema.index({ estacion: 1, magnitud: 1, fecha: 1 }, {
   name: 'idx_airquality_station_pollutant_date',
   background: true
 });
 
-// Índice compuesto magnitud + valor (identificación de picos de contaminación)
-// Usado en: alertas de calidad del aire, búsqueda de valores extremos
-// NOTA: Este índice usa 'medicionesHorarias' como Map, necesitamos índice auxiliar
+// Índice para validación de mediciones por magnitud
+// Usado en: Filtro de calidad (validMeasurements > 0) por tipo de contaminante
+// Filtro: magnitud + processingMetadata.validMeasurements
 airQualitySchema.index({ magnitud: 1, 'processingMetadata.validMeasurements': 1 }, {
   name: 'idx_airquality_pollutant_validation',
   background: true
@@ -177,13 +274,15 @@ airQualitySchema.pre('save', function(next) {
   let validCount = 0;
   let totalMeasurements = 0;
 
-  // Contar mediciones válidas - iterar sobre Object.entries()
-  for (const [key, measurement] of Object.entries(this.medicionesHorarias)) {
-    totalMeasurements++;
-    if (measurement.validationCode === 'V' &&
-        measurement.value !== null &&
-        measurement.value !== undefined) {
-      validCount++;
+  // Contar mediciones válidas - iterar sobre Map correctamente
+  if (this.medicionesHorarias instanceof Map) {
+    for (const [_key, measurement] of this.medicionesHorarias.entries()) {
+      totalMeasurements++;
+      if (measurement.validationCode === 'V' &&
+          measurement.value !== null &&
+          measurement.value !== undefined) {
+        validCount++;
+      }
     }
   }
 
@@ -194,54 +293,6 @@ airQualitySchema.pre('save', function(next) {
 
   next();
 });
-
-/**
- * Método para obtener datos válidos del día
- * @returns {Array} Array de objetos con hora y valor para mediciones válidas
- */
-airQualitySchema.methods.getValidMeasurements = function() {
-  const validData = [];
-
-  for (const [key, measurement] of Object.entries(this.medicionesHorarias)) {
-    if (measurement.validationCode === 'V' &&
-        measurement.value !== null &&
-        measurement.value !== undefined) {
-      const hour = parseInt(key.substring(1)); // Extraer número de hora de "H01", "H02", etc.
-      validData.push({
-        hora: hour,
-        valor: measurement.value
-      });
-    }
-  }
-
-  return validData.sort((a, b) => a.hora - b.hora);
-};
-
-/**
- * Método para calcular estadísticas básicas del día
- * @returns {Object} Objeto con estadísticas (promedio, máximo, mínimo)
- */
-airQualitySchema.methods.getDayStatistics = function() {
-  const validMeasurements = this.getValidMeasurements();
-
-  if (validMeasurements.length === 0) {
-    return {
-      promedio: null,
-      maximo: null,
-      minimo: null,
-      medicionesValidas: 0
-    };
-  }
-
-  const values = validMeasurements.map(m => m.valor);
-
-  return {
-    promedio: values.reduce((sum, val) => sum + val, 0) / values.length,
-    maximo: Math.max(...values),
-    minimo: Math.min(...values),
-    medicionesValidas: validMeasurements.length
-  };
-};
 
 /**
  * Método estático para obtener magnitudes disponibles
@@ -264,34 +315,6 @@ airQualitySchema.statics.getMagnitudes = function() {
     43: 'Hidrocarburos no metánicos (HCNM)',
     44: 'Metano (CH4)'
   };
-};
-
-/**
- * Método estático para buscar por ubicación y rango de fechas
- */
-airQualitySchema.statics.findByLocationAndDateRange = function(
-  provincia,
-  municipio,
-  startDate,
-  endDate,
-  magnitudes = []
-) {
-  const query = {
-    provincia,
-    municipio,
-    fecha: {
-      $gte: startDate,
-      $lte: endDate
-    }
-  };
-
-  if (magnitudes.length > 0) {
-    query.magnitud = { $in: magnitudes };
-  }
-
-  return this.find(query)
-    .sort({ fecha: 1, magnitud: 1 })
-    .lean(); // Para mejor rendimiento en consultas de solo lectura
 };
 
 /**
@@ -415,8 +438,8 @@ airQualitySchema.statics.getStatisticsOptimized = async function(filters = {}, g
 
   // Ejecutar ambas agregaciones en paralelo
   const [estadisticas, resumenArray] = await Promise.all([
-    this.aggregate(pipeline),
-    this.aggregate(resumenPipeline)
+    this.aggregate(pipeline).allowDiskUse(true),
+    this.aggregate(resumenPipeline).allowDiskUse(true)
   ]);
 
   const resumen = resumenArray[0] ? {
@@ -505,7 +528,7 @@ airQualitySchema.statics.getTrendsOptimized = async function(provincia, municipi
     },
     { $sort: { '_id.fecha': 1 } },
     { $limit: 365 }
-  ]);
+  ]).allowDiskUse(true);
 
   // Calcular estadísticas de la tendencia
   const valores = tendenciaDiaria

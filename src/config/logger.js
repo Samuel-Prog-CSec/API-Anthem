@@ -102,21 +102,6 @@ if (isTest) {
 }
 
 /**
- * Crear logger hijo con contexto adicional
- * Útil para asociar logs a una operación específica
- *
- * @param {Object} bindings - Contexto adicional
- * @returns {pino.Logger} Logger hijo
- *
- * @example
- * const userLogger = createChildLogger({ userId: '123', operation: 'checkout' });
- * userLogger.info('Procesando pago');
- */
-const createChildLogger = (bindings = {}) => {
-  return logger.child(bindings);
-};
-
-/**
  * Logger específico para base de datos
  */
 const dbLogger = logger.child({ component: 'database' });
@@ -132,19 +117,9 @@ const authLogger = logger.child({ component: 'auth' });
 const cacheLogger = logger.child({ component: 'cache' });
 
 /**
- * Logger específico para APIs externas
- */
-const externalApiLogger = logger.child({ component: 'external-api' });
-
-/**
  * Logger específico para importación de datos
  */
 const importLogger = logger.child({ component: 'data-import' });
-
-/**
- * Logger específico para tareas programadas
- */
-const schedulerLogger = logger.child({ component: 'scheduler' });
 
 /**
  * Logger específico para CORS
@@ -156,138 +131,10 @@ const corsLogger = logger.child({ component: 'cors' });
  */
 const securityLogger = logger.child({ component: 'security' });
 
-/**
- * Helper para logear tiempos de operación
- *
- * @param {string} operation - Nombre de la operación
- * @param {Function} fn - Función a ejecutar
- * @param {Object} context - Contexto adicional para el log
- * @returns {Promise<any>} Resultado de la función
- *
- * @example
- * const result = await logOperationTime('getAccidents', async () => {
- *   return await Accident.find(filters);
- * });
- */
-const logOperationTime = async (operation, fn, context = {}) => {
-  const startTime = Date.now();
-  const slowOperationThreshold = parseInt(process.env.SLOW_OPERATION_THRESHOLD) || 3000;
-
-  try {
-    const result = await fn();
-    const duration = Date.now() - startTime;
-
-    logger.debug({
-      operation,
-      duration: `${duration}ms`,
-      ...context
-    }, `Operation completed: ${operation}`);
-
-    // Warning si la operación tarda mucho
-    if (duration > slowOperationThreshold) {
-      logger.warn({
-        operation,
-        duration: `${duration}ms`,
-        threshold: `${slowOperationThreshold}ms`,
-        ...context
-      }, `Slow operation detected: ${operation}`);
-    }
-
-    return result;
-  } catch (error) {
-    const duration = Date.now() - startTime;
-
-    logger.error({
-      operation,
-      duration: `${duration}ms`,
-      error: error.message,
-      stack: error.stack,
-      ...context
-    }, `Operation failed: ${operation}`);
-
-    throw error;
-  }
-};
-
-/**
- * Helper para logear queries de MongoDB
- *
- * @param {string} model - Nombre del modelo
- * @param {string} operation - Tipo de operación (find, aggregate, update, etc.)
- * @param {Object} filters - Filtros aplicados
- * @param {Object} options - Opciones adicionales
- */
-const logQuery = (model, operation, filters = {}, options = {}) => {
-  logger.debug({
-    component: 'database',
-    model,
-    operation,
-    filters: JSON.stringify(filters),
-    options: JSON.stringify(options)
-  }, `MongoDB query: ${model}.${operation}`);
-};
-
-/**
- * Helper para logear eventos de caché
- *
- * @param {string} event - Tipo de evento (hit, miss, set, delete)
- * @param {string} key - Key del caché
- * @param {Object} metadata - Metadata adicional
- */
-const logCache = (event, key, metadata = {}) => {
-  cacheLogger.debug({
-    event,
-    key,
-    ...metadata
-  }, `Cache ${event}: ${key}`);
-};
-
-/**
- * Helper para logear llamadas a APIs externas
- *
- * @param {string} api - Nombre de la API
- * @param {string} endpoint - Endpoint llamado
- * @param {Object} metadata - Metadata adicional
- */
-const logExternalApi = (api, endpoint, metadata = {}) => {
-  externalApiLogger.info({
-    api,
-    endpoint,
-    ...metadata
-  }, `External API call: ${api} - ${endpoint}`);
-};
-
-/**
- * Formatear error para logging
- *
- * @param {Error} error - Error a formatear
- * @param {Object} context - Contexto adicional
- * @returns {Object} Error formateado
- */
-const formatError = (error, context = {}) => {
-  return {
-    name: error.name,
-    message: error.message,
-    stack: isDevelopment ? error.stack : undefined,
-    code: error.code,
-    statusCode: error.statusCode,
-    isOperational: error.isOperational,
-    ...context
-  };
-};
-
 module.exports = logger;
-module.exports.createChildLogger = createChildLogger;
 module.exports.dbLogger = dbLogger;
 module.exports.authLogger = authLogger;
 module.exports.cacheLogger = cacheLogger;
-module.exports.externalApiLogger = externalApiLogger;
 module.exports.importLogger = importLogger;
-module.exports.schedulerLogger = schedulerLogger;
 module.exports.corsLogger = corsLogger;
 module.exports.securityLogger = securityLogger;
-module.exports.logOperationTime = logOperationTime;
-module.exports.logQuery = logQuery;
-module.exports.logCache = logCache;
-module.exports.logExternalApi = logExternalApi;
-module.exports.formatError = formatError;

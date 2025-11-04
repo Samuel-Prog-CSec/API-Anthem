@@ -7,6 +7,7 @@
  */
 
 const mongoose = require('mongoose');
+const { validateFechaNoFutura, validateMes, validateAño } = require('./schemas/commonSchemas');
 
 /**
  * Sub-esquema para datos de un proveedor específico
@@ -19,7 +20,8 @@ const proveedorSchema = new mongoose.Schema({
   },
   cantidad: {
     type: Number,
-    required: true
+    required: true,
+    min: [0, 'La cantidad de patinetes no puede ser negativa']
   },
   activo: {
     type: Boolean,
@@ -42,7 +44,11 @@ const scooterAssignmentSchema = new mongoose.Schema({
     type: Date,
     required: true,
     default: Date.now,
-    index: true
+    index: true,
+    validate: {
+      validator: validateFechaNoFutura,
+      message: 'La fecha de asignación no puede ser futura'
+    }
   },
 
   // Información geográfica administrativa
@@ -68,7 +74,13 @@ const scooterAssignmentSchema = new mongoose.Schema({
   // Lista de proveedores y sus asignaciones
   proveedores: {
     type: [proveedorSchema],
-    required: true
+    required: true,
+    validate: {
+      validator: function(v) {
+        return Array.isArray(v) && v.length > 0;
+      },
+      message: 'Debe haber al menos un proveedor'
+    }
   },
 
   // Estadísticas calculadas automáticamente
@@ -76,7 +88,16 @@ const scooterAssignmentSchema = new mongoose.Schema({
     totalPatinetes: {
       type: Number,
       required: true,
-      index: true
+      index: true,
+      min: [0, 'El total de patinetes no puede ser negativo'],
+      validate: {
+        validator: function(value) {
+          // Validar que totalPatinetes coincida con la suma de proveedores
+          const sumaProveedores = this.proveedores.reduce((sum, p) => sum + p.cantidad, 0);
+          return value === sumaProveedores;
+        },
+        message: 'El total de patinetes debe coincidir con la suma de todos los proveedores'
+      }
     },
     totalProveedores: {
       type: Number
@@ -209,7 +230,13 @@ const scooterAssignmentSchema = new mongoose.Schema({
 /**
  * Índices para optimización de consultas
  */
-// Índice único para evitar duplicados
+
+// ========================================
+// ÍNDICE ÚNICO - Prevención de duplicados
+// ========================================
+// Garantiza que no haya asignaciones duplicadas para mismo distrito+barrio+fecha
+// Combinación: distrito.nombre + barrio.nombre + fechaAsignacion
+// CRÍTICO: NO ELIMINAR
 scooterAssignmentSchema.index(
   {
     'distrito.nombre': 1,
@@ -219,47 +246,98 @@ scooterAssignmentSchema.index(
   { unique: true, name: 'unique_scooter_assignment' }
 );
 
-// Índices para consultas frecuentes
+// ========================================
+// ÍNDICES PRINCIPALES - Consultas frecuentes
+// ========================================
+
+// Índice compuesto: fecha (desc) + distrito
+// Usado en: GET /api/scooter-assignments?distrito=X
+// Sort por fecha descendente (datos más recientes primero)
 scooterAssignmentSchema.index({ fechaAsignacion: -1, 'distrito.nombre': 1 });
+
+// Índice para ranking por total de patinetes
+// Usado en: Zonas con mayor disponibilidad de patinetes
+// Soporta: GET /api/scooter-assignments?sortBy=totalPatinetes&sortOrder=desc
 scooterAssignmentSchema.index({ 'estadisticas.totalPatinetes': -1, fechaAsignacion: -1 });
+
+// Índice para filtro por tipo de zona
+// Usado en: GET /api/scooter-assignments?tipoZona=ALTA_DEMANDA
+// Clasificación: ALTA_DEMANDA, MEDIA_DEMANDA, BAJA_DEMANDA, SATURADA
 scooterAssignmentSchema.index({ 'clasificacionArea.tipoZona': 1, fechaAsignacion: -1 });
+
+// Índice para densidad de patinetes
+// Usado en: Análisis de concentración de patinetes por área
+// Soporta: Cálculo de densidad (patinetes por km²)
 scooterAssignmentSchema.index({ 'estadisticas.densidadPatinetes': 1 });
 
-// Índices para análisis de mercado
+// ========================================
+// ÍNDICES PARA ANÁLISIS DE MERCADO
+// ========================================
+
+// Índice para concentración de mercado (C4 - top 4 proveedores)
+// Usado en: Análisis de competencia y monopolio
+// Valores: 0-1 (1 = monopolio total)
 scooterAssignmentSchema.index({ 'analisisDistribucion.concentracionMercado': 1 });
+
+// Índice para Índice de Herfindahl-Hirschman (HHI)
+// Usado en: Medición de concentración del mercado
+// Valores: 0-10000 (>2500 = alta concentración)
 scooterAssignmentSchema.index({ 'analisisDistribucion.indiceHerfindahl': -1 });
 
-// Índices para proveedores
+// ========================================
+// ÍNDICES PARA ANÁLISIS POR PROVEEDOR
+// ========================================
+
+// Índice compuesto: proveedor + fecha
+// Usado en: GET /api/scooter-assignments?proveedor=LIME
+// Soporta: Series temporales por compañía específica
+// NOTA: Array de proveedores, requiere desenrollado en agregaciones
 scooterAssignmentSchema.index({ 'proveedores.nombre': 1, fechaAsignacion: -1 });
+
+// Índice para ranking de proveedores por cantidad
+// Usado en: Identificación de proveedores dominantes
+// Soporta: "Top 5 proveedores por número de patinetes"
 scooterAssignmentSchema.index({ 'proveedores.cantidad': -1 });
 
-// Índice de texto para búsqueda
-scooterAssignmentSchema.index({
-  'distrito.nombre': 'text',
-  'barrio.nombre': 'text',
-  'proveedores.nombre': 'text'
-});
+// ========================================
+// ÍNDICES PARA AGREGACIONES TEMPORALES
+// ========================================
 
-// Índice compuesto fecha + proveedor (análisis temporal por proveedor)
-// Usado en: GET /api/scooter-assignments?proveedor=X&fecha=Y
-// Requiere desenrollado de array proveedores para consultas específicas
+// Índice compuesto: fecha + proveedor (análisis temporal específico)
+// Usado en: ScooterAssignment métodos estáticos - Evolución por proveedor
+// Soporta: "Crecimiento de LIME en últimos 6 meses"
 scooterAssignmentSchema.index({ fechaAsignacion: 1, 'proveedores.nombre': 1 }, {
   name: 'idx_scooters_date_provider_analysis',
   background: true
 });
 
-// Índice compuesto distrito + fecha (consultas de evolución por distrito)
-// Usado en: series temporales de distribución, comparativas distritales
+// Índice compuesto: distrito + fecha (series temporales distritales)
+// Usado en: Evolución temporal de disponibilidad por distrito
+// Soporta: "Variación de patinetes en Centro mes a mes"
 scooterAssignmentSchema.index({ 'distrito.nombre': 1, fechaAsignacion: 1 }, {
   name: 'idx_scooters_district_evolution',
   background: true
 });
 
-// Índice compuesto fecha + totalPatinetes (consultas de disponibilidad)
-// Usado en: análisis de disponibilidad temporal, ranking de zonas por capacidad
+// Índice compuesto: fecha + totalPatinetes (ranking temporal)
+// Usado en: Análisis de disponibilidad en el tiempo
+// Soporta: "Zonas con más patinetes por período"
 scooterAssignmentSchema.index({ fechaAsignacion: 1, 'estadisticas.totalPatinetes': -1 }, {
   name: 'idx_scooters_availability_ranking',
   background: true
+});
+
+// ========================================
+// ÍNDICE DE BÚSQUEDA TEXTUAL
+// ========================================
+
+// Índice de texto completo para búsquedas flexibles
+// Usado en: Búsquedas con $text por distrito, barrio o proveedor
+// Soporta: Autocompletado, búsqueda general
+scooterAssignmentSchema.index({
+  'distrito.nombre': 'text',
+  'barrio.nombre': 'text',
+  'proveedores.nombre': 'text'
 });
 
 /**
@@ -291,189 +369,6 @@ scooterAssignmentSchema.pre('save', function(next) {
 
   next();
 });
-
-/**
- * Método para calcular estadísticas básicas
- */
-scooterAssignmentSchema.methods.calcularEstadisticas = function() {
-  // Calcular totales
-  this.estadisticas.totalPatinetes = this.proveedores.reduce((total, proveedor) => {
-    return total + (proveedor.activo ? proveedor.cantidad : 0);
-  }, 0);
-
-  this.estadisticas.totalProveedores = this.proveedores.length;
-  this.estadisticas.proveedoresActivos = this.proveedores.filter(p => p.activo && p.cantidad > 0).length;
-
-  // Promedio por proveedor
-  if (this.estadisticas.proveedoresActivos > 0) {
-    this.estadisticas.promedioPatinetesPorProveedor =
-      this.estadisticas.totalPatinetes / this.estadisticas.proveedoresActivos;
-  } else {
-    this.estadisticas.promedioPatinetesPorProveedor = 0;
-  }
-
-  // Clasificar densidad
-  if (this.estadisticas.totalPatinetes === 0) {
-    this.estadisticas.densidadPatinetes = 'BAJA';
-  } else if (this.estadisticas.totalPatinetes <= 20) {
-    this.estadisticas.densidadPatinetes = 'BAJA';
-  } else if (this.estadisticas.totalPatinetes <= 50) {
-    this.estadisticas.densidadPatinetes = 'MEDIA';
-  } else if (this.estadisticas.totalPatinetes <= 80) {
-    this.estadisticas.densidadPatinetes = 'ALTA';
-  } else {
-    this.estadisticas.densidadPatinetes = 'MUY_ALTA';
-  }
-};
-
-/**
- * Método para analizar la distribución de mercado
- */
-scooterAssignmentSchema.methods.analizarDistribucion = function() {
-  const proveedoresActivos = this.proveedores
-    .filter(p => p.activo && p.cantidad > 0)
-    .sort((a, b) => b.cantidad - a.cantidad);
-
-  if (proveedoresActivos.length === 0) {
-    return;
-  }
-
-  const total = this.estadisticas.totalPatinetes;
-
-  // Proveedor dominante
-  this.analisisDistribucion.proveedorDominante = {
-    nombre: proveedoresActivos[0].nombre,
-    cantidad: proveedoresActivos[0].cantidad,
-    porcentaje: total > 0 ? (proveedoresActivos[0].cantidad / total) * 100 : 0
-  };
-
-  // Proveedor secundario
-  if (proveedoresActivos.length > 1) {
-    this.analisisDistribucion.proveedorSecundario = {
-      nombre: proveedoresActivos[1].nombre,
-      cantidad: proveedoresActivos[1].cantidad,
-      porcentaje: total > 0 ? (proveedoresActivos[1].cantidad / total) * 100 : 0
-    };
-  }
-
-  // Calcular índice Herfindahl-Hirschman (HHI)
-  let hhi = 0;
-  proveedoresActivos.forEach(proveedor => {
-    const participacion = total > 0 ? proveedor.cantidad / total : 0;
-    hhi += participacion * participacion;
-  });
-  this.analisisDistribucion.indiceHerfindahl = hhi;
-
-  // Clasificar concentración de mercado
-  if (hhi < 0.15) {
-    this.analisisDistribucion.concentracionMercado = 'COMPETITIVA';
-    this.estadisticas.dominanciaProveedores = 'EQUILIBRADA';
-  } else if (hhi < 0.25) {
-    this.analisisDistribucion.concentracionMercado = 'MODERADA';
-    this.estadisticas.dominanciaProveedores = 'OLIGOPOLIO';
-  } else if (hhi < 0.5) {
-    this.analisisDistribucion.concentracionMercado = 'CONCENTRADA';
-    this.estadisticas.dominanciaProveedores = 'DUOPOLIO';
-  } else {
-    this.analisisDistribucion.concentracionMercado = 'ALTA_CONCENTRACION';
-    this.estadisticas.dominanciaProveedores = 'MONOPOLIO';
-  }
-};
-
-/**
- * Método para clasificar el área urbana
- */
-scooterAssignmentSchema.methods.clasificarArea = function() {
-  const distritoNombre = this.distrito.nombre.toLowerCase();
-  const barrioNombre = this.barrio.nombre.toLowerCase();
-  const totalPatinetes = this.estadisticas.totalPatinetes;
-
-  // Clasificar tipo de zona basado en nombres
-  if (distritoNombre.includes('centro') || barrioNombre.includes('centro') ||
-      barrioNombre.includes('sol') || barrioNombre.includes('mayor')) {
-    this.clasificacionArea.tipoZona = 'CENTRO_URBANO';
-    this.clasificacionArea.prioridadServicio = 'CRITICA';
-    this.clasificacionArea.demandaEstimada = 'MUY_ALTA';
-  } else if (barrioNombre.includes('universidad') || barrioNombre.includes('moncloa')) {
-    this.clasificacionArea.tipoZona = 'ZONA_UNIVERSITARIA';
-    this.clasificacionArea.prioridadServicio = 'ALTA';
-    this.clasificacionArea.demandaEstimada = 'ALTA';
-  } else if (barrioNombre.includes('atocha') || barrioNombre.includes('estacion') ||
-             barrioNombre.includes('metro') || barrioNombre.includes('chamartin')) {
-    this.clasificacionArea.tipoZona = 'ZONA_TRANSPORTE';
-    this.clasificacionArea.prioridadServicio = 'ALTA';
-    this.clasificacionArea.demandaEstimada = 'ALTA';
-  } else if (distritoNombre.includes('salamanca') || distritoNombre.includes('chamberi')) {
-    this.clasificacionArea.tipoZona = 'ZONA_COMERCIAL';
-    this.clasificacionArea.prioridadServicio = 'ALTA';
-    this.clasificacionArea.demandaEstimada = 'ALTA';
-  } else {
-    this.clasificacionArea.tipoZona = 'ZONA_RESIDENCIAL';
-    this.clasificacionArea.prioridadServicio = 'MEDIA';
-    this.clasificacionArea.demandaEstimada = 'MEDIA';
-  }
-
-  // Ajustar demanda basada en cantidad actual de patinetes
-  if (totalPatinetes > 60) {
-    this.clasificacionArea.demandaEstimada = 'MUY_ALTA';
-  } else if (totalPatinetes > 40) {
-    this.clasificacionArea.demandaEstimada = 'ALTA';
-  } else if (totalPatinetes > 20) {
-    this.clasificacionArea.demandaEstimada = 'MEDIA';
-  } else {
-    this.clasificacionArea.demandaEstimada = 'BAJA';
-  }
-};
-
-/**
- * Método para validar la consistencia de los datos
- */
-scooterAssignmentSchema.methods.validarDatos = function() {
-  const camposFaltantes = [];
-  let camposValidos = 0;
-  const totalCampos = 4;
-
-  // Verificar campos obligatorios
-  if (!this.distrito.nombre) {
-    camposFaltantes.push('ubicacion');
-  } else {
-    camposValidos++;
-  }
-
-  if (!this.barrio.nombre) {
-    camposFaltantes.push('ubicacion');
-  } else {
-    camposValidos++;
-  }
-
-  if (!this.proveedores || this.proveedores.length === 0) {
-    camposFaltantes.push('proveedores');
-  } else {
-    camposValidos++;
-  }
-
-  // Verificar suma correcta
-  const sumaCalculada = this.proveedores.reduce((sum, p) => sum + (p.activo ? p.cantidad : 0), 0);
-  this.metadatos.validacionDatos.sumaCorrecta = sumaCalculada === this.estadisticas.totalPatinetes;
-
-  if (this.metadatos.validacionDatos.sumaCorrecta) {
-    camposValidos++;
-  } else {
-    camposFaltantes.push('totales');
-  }
-
-  // Verificar proveedores duplicados
-  const nombresProveedores = this.proveedores.map(p => p.nombre.toLowerCase());
-  const nombresUnicos = [...new Set(nombresProveedores)];
-  this.metadatos.validacionDatos.proveedoresDuplicados = nombresProveedores.length !== nombresUnicos.length;
-
-  // Establecer calidad de datos
-  this.metadatos.calidadDatos.camposFaltantes = [...new Set(camposFaltantes)];
-  this.metadatos.calidadDatos.esCompleto = camposFaltantes.length === 0;
-  this.metadatos.calidadDatos.puntuacionCalidad = camposValidos / totalCampos;
-  this.metadatos.validacionDatos.datosConsistentes =
-    this.metadatos.validacionDatos.sumaCorrecta && !this.metadatos.validacionDatos.proveedoresDuplicados;
-};
 
 /**
  * Método para obtener resumen de asignación
@@ -548,7 +443,7 @@ scooterAssignmentSchema.statics.getEstadisticasDistrito = function(fecha = null)
     {
       $sort: { totalPatinetes: -1 }
     }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -598,7 +493,7 @@ scooterAssignmentSchema.statics.getAnalisisMercadoPorProveedor = function(fecha 
     {
       $sort: { totalPatinetes: -1 }
     }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -633,7 +528,7 @@ scooterAssignmentSchema.statics.getZonasMayorConcentracion = function(limite = 2
     {
       $limit: limite
     }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**
@@ -702,7 +597,7 @@ scooterAssignmentSchema.statics.getDashboardDistribucion = function(fecha = null
         ]
       }
     }
-  ]);
+  ]).allowDiskUse(true);
 };
 
 /**

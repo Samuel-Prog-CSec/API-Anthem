@@ -6,7 +6,7 @@
  */
 
 const express = require('express');
-const { body, query, param } = require('express-validator');
+const { query, param } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 
 // Middleware de autenticación y seguridad

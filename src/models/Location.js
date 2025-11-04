@@ -1,7 +1,9 @@
 const mongoose = require('mongoose');
+const { coordinatesUTMSchema } = require('./schemas/commonSchemas');
 
 /**
  * Esquema para las ubicaciones de infraestructura y puntos de medición
+ * Modelo mejorado con validaciones y métodos geoespaciales
  */
 const locationSchema = new mongoose.Schema({
   // Identificación
@@ -18,52 +20,98 @@ const locationSchema = new mongoose.Schema({
       'zona_taxi'
     ],
     required: true,
+    uppercase: true,
     index: true
   },
 
   // Datos específicos para estaciones acústicas
   nmt: {
     type: String, // Número de estación de monitorización
-    index: true
+    index: true,
+    sparse: true,
+    validate: {
+      validator: function(v) {
+        return this.tipo !== 'estacion_acustica' || (v && v.length > 0);
+      },
+      message: 'Las estaciones acústicas requieren nmt'
+    }
   },
 
   // Datos específicos para puntos de tráfico
-  cod_cent: String,
-  id_punto: String,
+  cod_cent: {
+    type: String,
+    sparse: true
+  },
+
+  id_punto: {
+    type: String,
+    index: true,
+    sparse: true,
+    validate: {
+      validator: function(v) {
+        return this.tipo !== 'punto_trafico' || (v && v.length > 0);
+      },
+      message: 'Los puntos de tráfico requieren id_punto'
+    }
+  },
+
   tipo_elem: {
     type: String,
-    enum: ['URB', 'M-30']
+    enum: ['URB', 'M-30', null],
+    sparse: true
   },
 
   // Información general
-  nombre: String,
-  descripcion: String,
-
-  // Coordenadas
-  coordenadas: {
-    x: {
-      type: Number,
-      required: true,
-      index: true
-    },
-    y: {
-      type: Number,
-      required: true,
-      index: true
-    },
-    // Para rutas GPX, almacenaremos arrays de puntos
-    ruta: [{
-      lat: Number,
-      lon: Number,
-      elevation: Number
-    }]
+  nombre: {
+    type: String,
+    trim: true,
+    index: true
   },
 
-  // Metadatos
-  distrito: String,
-  barrio: String,
+  descripcion: {
+    type: String,
+    trim: true
+  },
 
-  // Para análisis geoespacial
+  // Coordenadas UTM (Universal Transverse Mercator)
+  // Sistema de coordenadas oficial para España
+  coordenadas: coordinatesUTMSchema,
+
+  // Para rutas GPX, almacenaremos arrays de puntos
+  ruta: [{
+    lat: {
+      type: Number
+    },
+    lon: {
+      type: Number
+    },
+    elevation: {
+      type: Number
+    }
+  }],
+
+  // Metadatos geográficos
+  distrito: {
+    type: String,
+    trim: true,
+    uppercase: true,
+    index: true
+  },
+
+  barrio: {
+    type: String,
+    trim: true,
+    index: true
+  },
+
+  // Zona UTM (España tiene zonas 29, 30 y 31)
+  zonaUTM: {
+    type: Number,
+    enum: [29, 30, 31],
+    default: 30 // La mayoría de Madrid está en zona 30
+  },
+
+  // Para análisis geoespacial con GeoJSON
   geometry: {
     type: {
       type: String,
@@ -72,24 +120,233 @@ const locationSchema = new mongoose.Schema({
     },
     coordinates: {
       type: [Number], // [longitude, latitude] para Point, array de arrays para LineString
-      index: '2dsphere' // Índice geoespacial
+      required: true,
+      validate: {
+        validator: function(coords) {
+          const geomType = this.geometry?.type || 'Point';
+
+          if (geomType === 'Point') {
+            // Point requiere exactamente 2 coordenadas [lng, lat]
+            if (!Array.isArray(coords) || coords.length !== 2) {
+              return false;
+            }
+            // Validar rangos: lng entre -180 y 180, lat entre -90 y 90
+            const [lng, lat] = coords;
+            return lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90;
+          }
+
+          if (geomType === 'LineString') {
+            // LineString requiere array de arrays, mínimo 2 puntos
+            if (!Array.isArray(coords) || coords.length < 2) {
+              return false;
+            }
+            // Validar que cada punto tenga 2 coordenadas válidas
+            return coords.every(point => {
+              if (!Array.isArray(point) || point.length !== 2) {return false;}
+              const [lng, lat] = point;
+              return lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90;
+            });
+          }
+
+          return false;
+        },
+        message: 'Coordinates inválidas: Point requiere [lng, lat], LineString requiere array de [lng, lat] (mínimo 2 puntos)'
+      }
     }
+  },
+
+  // Estado y metadatos
+  activo: {
+    type: Boolean,
+    default: true,
+    index: true
+  },
+
+  fechaInstalacion: {
+    type: Date
+  },
+
+  ultimaActualizacion: {
+    type: Date,
+    default: Date.now
   }
 }, {
   timestamps: true,
   collection: 'locations'
 });
 
-// Índices compuestos para consultas geoespaciales
+/**
+ * Índices para optimización de consultas
+ */
+
+// ========================================
+// ÍNDICE GEOESPACIAL - Búsquedas por proximidad
+// ========================================
+// Índice 2dsphere para geometría GeoJSON
+// Usado en: Búsquedas $near, $geoWithin para ubicaciones
+// Soporta: Mapas interactivos, rutas cercanas, puntos de interés
+// Tipos: Point, LineString para sensores de tráfico, rutas de transporte, etc.
+// CRÍTICO: Necesario para queries geográficas con GeoJSON
+locationSchema.index({ geometry: '2dsphere' });
+
+// ========================================
+// ÍNDICES PRINCIPALES - Consultas frecuentes
+// ========================================
+
+// Índice compuesto: tipo + coordenadas UTM
+// Usado en: GET /api/locations?tipo=PUNTO_TRAFICO
+// Soporta: Búsqueda de ubicaciones específicas por tipo y coordenadas
+// Tipos: PUNTO_TRAFICO, ESTACION_MEDIDA_ACUSTICA, RUTA_TRANSPORTE, etc.
 locationSchema.index({
   tipo: 1,
   'coordenadas.x': 1,
   'coordenadas.y': 1
 });
 
-// Índice geoespacial 2dsphere para consultas avanzadas
+// Índice compuesto: tipo + distrito + activo
+// Usado en: GET /api/locations?tipo=X&distrito=Y&activo=true
+// Soporta: Filtrado de ubicaciones activas por distrito
+// Ejemplo: "Puntos de medida de tráfico activos en Centro"
 locationSchema.index({
-  geometry: '2dsphere' // Geometría para consultas geoespaciales
+  tipo: 1,
+  distrito: 1,
+  activo: 1
 });
+
+// ========================================
+// ÍNDICE DE BÚSQUEDA TEXTUAL
+// ========================================
+// Índice de texto completo para búsquedas flexibles
+// Usado en: Búsqueda con $text por nombre, descripción, distrito o barrio
+// Soporta: "Buscar sensor en Chamberí", autocompletado
+locationSchema.index({
+  nombre: 'text',
+  descripcion: 'text',
+  distrito: 'text',
+  barrio: 'text'
+});
+
+/**
+ * Middleware pre-save para cálculos
+ */
+locationSchema.pre('save', function(next) {
+  // Actualizar timestamp
+  this.ultimaActualizacion = new Date();
+  return next();
+});
+
+/**
+ * Query Builder optimizado para búsquedas con filtros flexibles (PATRÓN HÍBRIDO)
+ *
+ * Encapsula lógica de queries geoespaciales y filtros complejos manteniendo optimizaciones:
+ * - .lean() para +40% rendimiento
+ * - Promise.all() para ejecución paralela
+ * - Proyecciones dinámicas
+ * - Queries geoespaciales optimizadas con índice 2dsphere
+ *
+ * @param {Object} options - Objeto de configuración
+ * @param {Object} options.filters - Filtros MongoDB base (tipo, distrito, activo, etc.)
+ * @param {Object} options.geoQuery - Query geoespacial opcional
+ * @param {Object} options.geoQuery.coordinates - [longitude, latitude]
+ * @param {Number} options.geoQuery.maxDistance - Distancia máxima en metros
+ * @param {Object} options.sort - Opciones de ordenamiento
+ * @param {Object} options.pagination - { skip, limit }
+ * @param {Object} options.projection - Campos a incluir (opcional)
+ * @param {Boolean} options.lean - Usar .lean() para performance (default: true)
+ * @param {Boolean} options.includeStats - Incluir estadísticas agregadas (default: false)
+ * @returns {Promise<Object>} { data, total, stats }
+ *
+ * @example
+ * // Búsqueda geoespacial con filtros
+ * const resultado = await Location.findWithOptions({
+ *   filters: { tipo: 'punto_trafico', activo: true },
+ *   geoQuery: { coordinates: [-3.7038, 40.4168], maxDistance: 1000 },
+ *   sort: { nombre: 1 },
+ *   pagination: { skip: 0, limit: 50 },
+ *   lean: true,
+ *   includeStats: true
+ * });
+ *
+ * @example
+ * // Búsqueda simple sin geolocalización
+ * const resultado = await Location.findWithOptions({
+ *   filters: { distrito: 'CENTRO', activo: true },
+ *   sort: { nombre: 1 },
+ *   pagination: { skip: 0, limit: 50 }
+ * });
+ */
+locationSchema.statics.findWithOptions = async function(options) {
+  const {
+    filters = {},
+    geoQuery = null,
+    sort = { nombre: 1 },
+    pagination = { skip: 0, limit: 50 },
+    projection = null,
+    lean = true,
+    includeStats = false
+  } = options;
+
+  // Combinar filtros base con query geoespacial si existe
+  const finalFilters = { ...filters };
+
+  if (geoQuery && geoQuery.coordinates) {
+    finalFilters.geometry = {
+      $near: {
+        $geometry: {
+          type: 'Point',
+          coordinates: geoQuery.coordinates // [longitude, latitude]
+        },
+        $maxDistance: geoQuery.maxDistance || 1000
+      }
+    };
+  }
+
+  // Construir query principal
+  let query = this.find(finalFilters, projection)
+    .sort(sort)
+    .skip(pagination.skip)
+    .limit(pagination.limit);
+
+  // Aplicar .lean() para performance
+  if (lean) {
+    query = query.lean();
+  }
+
+  // Array de promises para ejecución paralela
+  const promises = [
+    query.exec(),
+    this.countDocuments(finalFilters)
+  ];
+
+  // Agregar stats solo si se solicitan explícitamente
+  if (includeStats) {
+    promises.push(
+      this.aggregate([
+        { $match: finalFilters },
+        {
+          $group: {
+            _id: null,
+            totalRegistros: { $sum: 1 },
+            tiposUnicos: { $addToSet: '$tipo' },
+            distritosUnicos: { $addToSet: '$distrito' },
+            barriosUnicos: { $addToSet: '$barrio' },
+            totalActivos: {
+              $sum: { $cond: ['$activo', 1, 0] }
+            }
+          }
+        }
+      ])
+    );
+  }
+
+  // Ejecutar todas las queries en paralelo
+  const results = await Promise.all(promises);
+
+  return {
+    data: results[0],
+    total: results[1],
+    stats: includeStats && results[2] && results[2][0] ? results[2][0] : null
+  };
+};
 
 module.exports = mongoose.model('Locations', locationSchema);

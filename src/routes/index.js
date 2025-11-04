@@ -7,7 +7,7 @@
 const express = require('express');
 const router = express.Router();
 const config = require('../config/config');
-const { createResponse, createErrorResponse } = require('../utils/responseHelper');
+const { createResponse } = require('../utils/responseHelper');
 const { getConnectionStats } = require('../config/database');
 
 // Import route modules

@@ -21,7 +21,7 @@ const { validationResult } = require('express-validator');
 const Census = require('../models/Census');
 const { createValidationError, createInternalError } = require('../utils/errorUtils');
 const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
-const { buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildSortOptions, buildPaginationOptions, buildFilters } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION } = require('../constants');
 const logger = require('../config/logger');
@@ -44,10 +44,6 @@ const getCensusData = async (req, res, next) => {
       distrito,
       barrio,
       grupoEdad,
-      minEdad,
-      maxEdad,
-      minPoblacion,
-      maxPoblacion,
       soloProductivos,
       soloTerceraEdad,
       page = 1,
@@ -92,17 +88,12 @@ const getCensusData = async (req, res, next) => {
       }
     }
 
-    if (minEdad || maxEdad) {
-      filters.edad = {};
-      if (minEdad) {filters.edad.$gte = parseInt(minEdad);}
-      if (maxEdad) {filters.edad.$lte = parseInt(maxEdad);}
-    }
-
-    if (minPoblacion || maxPoblacion) {
-      filters['estadisticas.totalPoblacion'] = {};
-      if (minPoblacion) {filters['estadisticas.totalPoblacion'].$gte = parseInt(minPoblacion);}
-      if (maxPoblacion) {filters['estadisticas.totalPoblacion'].$lte = parseInt(maxPoblacion);}
-    }
+    // Usar buildFilters para rangos numéricos
+    const numericFilters = buildFilters(req.query, [
+      { field: 'edad', type: 'numericRange', params: ['minEdad', 'maxEdad'] },
+      { field: 'estadisticas.totalPoblacion', type: 'numericRange', params: ['minPoblacion', 'maxPoblacion'] }
+    ]);
+    Object.assign(filters, numericFilters);
 
     // Filtros booleanos
     if (soloProductivos === 'true') {
@@ -162,46 +153,22 @@ const getCensusData = async (req, res, next) => {
       'barrio.descripcion': 1
     };
 
-    // Ejecutar consulta
-    const [data, totalDocuments] = await Promise.all([
-      Census.find(filters, projection)
-        .sort(sortOptions)
-        .skip(paginationOptions.skip)
-        .limit(paginationOptions.limit)
-        .lean(),
-      Census.countDocuments(filters)
-    ]);
+    // PATRÓN HÍBRIDO: Usar método del modelo que encapsula query compleja
+    // Mantiene todas las optimizaciones (.lean(), Promise.all(), proyección)
+    const { data, total: totalDocuments, stats } = await Census.findWithOptions({
+      filters,
+      sort: sortOptions,
+      pagination: paginationOptions,
+      projection,
+      lean: true,
+      includeStats: true
+    });
 
     // Calcular metadatos de paginación usando helper
     const paginationMeta = createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
 
-    // Obtener resumen estadístico del conjunto filtrado
-    const resumenEstadistico = await Census.aggregate([
-      { $match: filters },
-      {
-        $group: {
-          _id: null,
-          totalRegistros: { $sum: 1 },
-          poblacionTotal: { $sum: '$estadisticas.totalPoblacion' },
-          poblacionEspañola: { $sum: '$estadisticas.totalEspañoles' },
-          poblacionExtranjera: { $sum: '$estadisticas.totalExtranjeros' },
-          poblacionProductiva: {
-            $sum: {
-              $cond: ['$clasificacionEdad.esGrupoProductivo', '$estadisticas.totalPoblacion', 0]
-            }
-          },
-          terceraEdad: {
-            $sum: {
-              $cond: ['$clasificacionEdad.esTerceraEdad', '$estadisticas.totalPoblacion', 0]
-            }
-          },
-          distritosUnicos: { $addToSet: '$distrito.codigo' },
-          barriosUnicos: { $addToSet: '$barrio.codigo' }
-        }
-      }
-    ]);
-
-    const resumen = resumenEstadistico[0] || {
+    // Usar estadísticas del modelo (ya calculadas en paralelo)
+    const resumen = stats || {
       totalRegistros: 0,
       poblacionTotal: 0,
       poblacionEspañola: 0,

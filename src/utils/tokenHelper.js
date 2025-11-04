@@ -123,25 +123,10 @@ const extractToken = (req) => {
   return null;
 };
 
-/**
- * Decodes token without verification (for debugging)
- *
- * @param {string} token - JWT token to decode
- * @returns {object|null} Decoded token or null if invalid
- */
-const decodeToken = (token) => {
-  try {
-    return jwt.decode(token);
-  } catch (error) {
-    return null;
-  }
-};
-
 module.exports = {
   generateAccessToken,
   generateRefreshToken,
   generateTokens,
   verifyToken,
-  extractToken,
-  decodeToken
+  extractToken
 };

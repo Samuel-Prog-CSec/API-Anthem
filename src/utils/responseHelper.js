@@ -16,7 +16,7 @@
  * @param {object} meta - Additional metadata (optional)
  * @returns {object} Standardized success response
  */
-const createResponse = (message, data = null, meta = null) => {
+const createResponse = (data = null, message, meta = null) => {
   const response = {
     success: true,
     message,

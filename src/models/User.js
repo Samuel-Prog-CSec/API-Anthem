@@ -209,9 +209,21 @@ userSchema.statics.findByEmailOrUsername = function(identifier) {
 /**
  * Índices para mejorar el rendimiento de las consultas
  */
+
+// Índice compuesto para búsqueda por email o username
+// Usado en: authController.js:54,141 - findByEmailOrUsername()
+// Usado en: authController.js:299 - POST /api/auth/profile (verificar email único)
+// Usado en: authController.js:309 - POST /api/auth/profile (verificar username único)
 userSchema.index({ email: 1, username: 1 });
+
+// Índice para ordenar usuarios por fecha de creación (descendente)
+// Usado en: Queries administrativas de listado de usuarios
 userSchema.index({ createdAt: -1 });
-userSchema.index({ lastLogin: -1 }); // Índice para consultas por último login
+
+// Índice para consultas por último login (descendente)
+// Usado en: Queries de auditoría y análisis de actividad
+// Usado en: authController.js - actualización de lastLogin en login
+userSchema.index({ lastLogin: -1 });
 
 // Crear y exportar el modelo de usuario
 const User = mongoose.model('Users', userSchema);

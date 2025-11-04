@@ -7,6 +7,12 @@
  */
 
 const mongoose = require('mongoose');
+const {
+  validateNivelRuido,
+  validateFechaNoFutura,
+  validateMes,
+  validateAño
+} = require('./schemas/commonSchemas');
 
 /**
  * Esquema de Contaminación Acústica
@@ -23,23 +29,36 @@ const noiseMonitoringSchema = new mongoose.Schema({
   // Información temporal
   fecha: {
     type: Date,
-    required: true
+    required: true,
+    validate: {
+      validator: validateFechaNoFutura,
+      message: 'La fecha no puede ser futura'
+    }
   },
 
   mes: {
     type: Number,
-    required: true
+    required: true,
+    validate: {
+      validator: validateMes,
+      message: 'El mes debe estar entre 1 y 12'
+    }
   },
 
   año: {
     type: Number,
-    required: true
+    required: true,
+    validate: {
+      validator: validateAño,
+      message: 'El año debe estar entre 2000 y 3000'
+    }
   },
 
   // Identificación de la estación
   nmt: {
     type: Number,
-    required: true
+    required: true,
+    uppercase: true
   },
 
   nombre: {
@@ -51,46 +70,105 @@ const noiseMonitoringSchema = new mongoose.Schema({
   // Niveles de ruido por periodo (en decibelios)
   nivelDiurno: { // Ld: 07:00 - 19:00
     type: Number,
-    required: false
+    required: false,
+    validate: {
+      validator: validateNivelRuido,
+      message: 'El nivel diurno debe estar entre 0 y 150 dB'
+    }
   },
 
   nivelVespertino: { // Le: 19:00 - 23:00
     type: Number,
-    required: false
+    required: false,
+    validate: {
+      validator: validateNivelRuido,
+      message: 'El nivel vespertino debe estar entre 0 y 150 dB'
+    }
   },
 
   nivelNocturno: { // Ln: 23:00 - 07:00
     type: Number,
-    required: false
+    required: false,
+    validate: {
+      validator: validateNivelRuido,
+      message: 'El nivel nocturno debe estar entre 0 y 150 dB'
+    }
   },
 
   // Nivel equivalente continuo de 24 horas
   laeq24: {
     type: Number,
-    required: false
+    required: false,
+    validate: {
+      validator: validateNivelRuido,
+      message: 'El LAeq24 debe estar entre 0 y 150 dB'
+    }
   },
 
   // Percentiles estadísticos (LAS01, LAS10, LAS50, LAS90, LAS99)
   percentiles: {
-    las01: { // Percentil 1 (superado el 1% del tiempo)
-      type: Number,
-      required: false
+    type: {
+      las01: { // Percentil 1 (superado el 1% del tiempo)
+        type: Number,
+        required: false,
+        validate: {
+          validator: validateNivelRuido,
+          message: 'El LAS01 debe estar entre 0 y 150 dB'
+        }
+      },
+      las10: { // Percentil 10 (superado el 10% del tiempo)
+        type: Number,
+        required: false,
+        validate: {
+          validator: validateNivelRuido,
+          message: 'El LAS10 debe estar entre 0 y 150 dB'
+        }
+      },
+      las50: { // Percentil 50 (mediana)
+        type: Number,
+        required: false,
+        validate: {
+          validator: validateNivelRuido,
+          message: 'El LAS50 debe estar entre 0 y 150 dB'
+        }
+      },
+      las90: { // Percentil 90 (superado el 90% del tiempo)
+        type: Number,
+        required: false,
+        validate: {
+          validator: validateNivelRuido,
+          message: 'El LAS90 debe estar entre 0 y 150 dB'
+        }
+      },
+      las99: { // Percentil 99 (ruido de fondo)
+        type: Number,
+        required: false,
+        validate: {
+          validator: validateNivelRuido,
+          message: 'El LAS99 debe estar entre 0 y 150 dB'
+        }
+      }
     },
-    las10: { // Percentil 10 (superado el 10% del tiempo)
-      type: Number,
-      required: false
-    },
-    las50: { // Percentil 50 (mediana)
-      type: Number,
-      required: false
-    },
-    las90: { // Percentil 90 (superado el 90% del tiempo)
-      type: Number,
-      required: false
-    },
-    las99: { // Percentil 99 (ruido de fondo)
-      type: Number,
-      required: false
+    // Validación de coherencia en el orden de percentiles
+    validate: {
+      validator: function(p) {
+        // Validar orden decreciente: las01 >= las10 >= las50 >= las90 >= las99
+        // Solo validar si los valores existen
+        if (p.las01 != null && p.las10 != null && p.las01 < p.las10) {
+          return false;
+        }
+        if (p.las10 != null && p.las50 != null && p.las10 < p.las50) {
+          return false;
+        }
+        if (p.las50 != null && p.las90 != null && p.las50 < p.las90) {
+          return false;
+        }
+        if (p.las90 != null && p.las99 != null && p.las90 < p.las99) {
+          return false;
+        }
+        return true;
+      },
+      message: 'Los percentiles deben estar en orden decreciente: LAS01 >= LAS10 >= LAS50 >= LAS90 >= LAS99'
     }
   },
 
@@ -107,7 +185,14 @@ const noiseMonitoringSchema = new mongoose.Schema({
     qualityScore: {
       type: Number,
       default: 1
-    }
+    },
+    exceedsLegalLimits: {
+      type: Boolean,
+      default: false
+    },
+    warnings: [{
+      type: String
+    }]
   },
 
   // Información de procesamiento
@@ -130,93 +215,141 @@ const noiseMonitoringSchema = new mongoose.Schema({
 /**
  * Índices para optimización de consultas
  */
-// Índice único para evitar duplicados
+
+// ========================================
+// ÍNDICE ÚNICO - Prevención de duplicados
+// ========================================
+// Garantiza que no haya mediciones duplicadas para misma estación + período
+// Combinación: nmt (código estación) + año + mes
+// Cada estación tiene máximo una medición por mes
+// CRÍTICO: NO ELIMINAR
 noiseMonitoringSchema.index(
   { nmt: 1, año: 1, mes: 1 },
   { unique: true, name: 'unique_station_period' }
 );
 
-// Índice de texto para búsqueda por nombre de estación
-noiseMonitoringSchema.index({ nombre: 'text' }, {
-  name: 'idx_noise_text_search',
-  background: true
-});
+// ========================================
+// ÍNDICES PRINCIPALES - Consultas frecuentes
+// ========================================
 
-// Índice compuesto estacion (nmt) + fecha (consultas por estación específica)
-// Usado en: GET /api/noise-monitoring?nmt=X&fecha=Y, series temporales por estación
+// Índice compuesto: estación (nmt) + fecha
+// Usado en: GET /api/noise-monitoring?nmt=X&startDate=Y&endDate=Z
+// Soporta: Series temporales por estación específica
+// Ejemplo: "Evolución del ruido en estación NMT-001"
 noiseMonitoringSchema.index({ nmt: 1, fecha: 1 }, {
   name: 'idx_noise_station_timeline',
   background: true
 });
 
-// Índice compuesto fecha + nivelSonoro (identificación de picos de ruido)
-// Usado en: alertas de contaminación acústica, búsqueda de niveles extremos
-// Usaremos laeq24 como representante del nivel sonoro general
+// Índice compuesto: fecha + nivel LAeq24
+// Usado en: Identificación de picos de contaminación acústica
+// Soporta: Alertas de ruido, búsqueda de niveles extremos
+// LAeq24: Nivel sonoro continuo equivalente ponderado A de 24h
+// SPARSE: Solo documentos con laeq24 válido (no null)
 noiseMonitoringSchema.index({ fecha: 1, laeq24: 1 }, {
   name: 'idx_noise_date_level_alerts',
   background: true,
-  sparse: true // Solo documentos con laeq24 válido
+  sparse: true
 });
 
-// Índice compuesto año + mes + nombre para búsquedas por nombre de estación en periodo
-// Usado en: búsquedas por nombre de ubicación y rango temporal específico
-// Ejemplo: GET /api/noise-monitoring?nombre=CENTRO&año=2051&mes=1
-noiseMonitoringSchema.index({ año: 1, mes: 1, nombre: 1 }, {
-  name: 'idx_noise_period_station_name',
-  background: true
-});
-
-// Índice compuesto para análisis de cumplimiento normativo
-// Usado en: agregaciones para detectar incumplimientos y estadísticas de calidad
-// Ejemplo: Queries que filtran por fecha y niveles de ruido superiores a límites
-noiseMonitoringSchema.index({ fecha: 1, nivelDiurno: 1, nivelNocturno: 1 }, {
-  name: 'idx_noise_compliance_analysis',
-  background: true,
-  sparse: true // Solo documentos con datos válidos
-});
-
-// Índice para consultas recientes por estación con nivel de ruido
-// Usado en: dashboards en tiempo real, alertas de niveles altos recientes
-// Ejemplo: SELECT * FROM noise WHERE fecha >= recent ORDER BY laeq24 DESC
+// Índice para consultas recientes con nivel de ruido
+// Usado en: Dashboards en tiempo real, "Estaciones más ruidosas hoy"
+// Sort: fecha descendente + laeq24 descendente
 noiseMonitoringSchema.index({ fecha: -1, laeq24: -1 }, {
   name: 'idx_noise_recent_levels',
   background: true,
   sparse: true
 });
 
-// Índice compuesto para búsqueda por nombre de estación y rango de fechas
-// Usado en: series temporales específicas de una estación por nombre
-// Ejemplo: GET /api/noise-monitoring?nombre=PLAZA%20MAYOR&startDate=X&endDate=Y
+// ========================================
+// ÍNDICES POR NOMBRE DE ESTACIÓN
+// ========================================
+
+// Índice compuesto: nombre + fecha (desc)
+// Usado en: GET /api/noise-monitoring?nombre=PLAZA+MAYOR
+// Soporta: Búsqueda por nombre de ubicación con series temporales
 noiseMonitoringSchema.index({ nombre: 1, fecha: -1 }, {
   name: 'idx_noise_station_name_timeline',
   background: true
 });
 
+// Índice compuesto: año + mes + nombre
+// Usado en: Búsquedas por nombre en período específico
+// Ejemplo: GET /api/noise-monitoring?nombre=CENTRO&año=2051&mes=1
+noiseMonitoringSchema.index({ año: 1, mes: 1, nombre: 1 }, {
+  name: 'idx_noise_period_station_name',
+  background: true
+});
+
+// ========================================
+// ÍNDICES PARA ANÁLISIS DE CUMPLIMIENTO
+// ========================================
+
+// Índice compuesto para análisis normativo
+// Usado en: Detección de incumplimientos de límites legales
+// Soporta: Agregaciones que filtran por nivelDiurno > 65dB, nivelNocturno > 55dB
+// SPARSE: Solo documentos con niveles válidos
+noiseMonitoringSchema.index({ fecha: 1, nivelDiurno: 1, nivelNocturno: 1 }, {
+  name: 'idx_noise_compliance_analysis',
+  background: true,
+  sparse: true
+});
+
+// ========================================
+// ÍNDICE DE BÚSQUEDA TEXTUAL
+// ========================================
+// Índice de texto completo para búsqueda por nombre de estación
+// Usado en: Búsqueda con $text "Plaza", "Centro", etc.
+// Soporta: Autocompletado, búsqueda flexible
+noiseMonitoringSchema.index({ nombre: 'text' }, {
+  name: 'idx_noise_text_search',
+  background: true
+});
+
 /**
- * Middleware pre-save para procesamiento de calidad de datos
+ * Middleware pre-save para procesamiento de calidad de datos y alertas legales
  */
 noiseMonitoringSchema.pre('save', function(next) {
   const missingFields = [];
   let validFields = 0;
   const totalFields = 5; // nivelDiurno, nivelVespertino, nivelNocturno, laeq24, percentiles
+  const warnings = [];
+
+  // Límites legales normativos (dB)
+  const LIMITE_DIURNO = 65;
+  const LIMITE_VESPERTINO = 65;
+  const LIMITE_NOCTURNO = 55;
 
   // Verificar campos principales
   if (this.nivelDiurno === null || this.nivelDiurno === undefined) {
     missingFields.push('nivelDiurno');
   } else {
     validFields++;
+    // Alertar si excede límite legal (no bloquear)
+    if (this.nivelDiurno > LIMITE_DIURNO) {
+      this.dataQuality.exceedsLegalLimits = true;
+      warnings.push(`Nivel diurno ${this.nivelDiurno} dB excede límite legal (${LIMITE_DIURNO} dB)`);
+    }
   }
 
   if (this.nivelVespertino === null || this.nivelVespertino === undefined) {
     missingFields.push('nivelVespertino');
   } else {
     validFields++;
+    if (this.nivelVespertino > LIMITE_VESPERTINO) {
+      this.dataQuality.exceedsLegalLimits = true;
+      warnings.push(`Nivel vespertino ${this.nivelVespertino} dB excede límite legal (${LIMITE_VESPERTINO} dB)`);
+    }
   }
 
   if (this.nivelNocturno === null || this.nivelNocturno === undefined) {
     missingFields.push('nivelNocturno');
   } else {
     validFields++;
+    if (this.nivelNocturno > LIMITE_NOCTURNO) {
+      this.dataQuality.exceedsLegalLimits = true;
+      warnings.push(`Nivel nocturno ${this.nivelNocturno} dB excede límite legal (${LIMITE_NOCTURNO} dB)`);
+    }
   }
 
   if (this.laeq24 === null || this.laeq24 === undefined) {
@@ -241,115 +374,10 @@ noiseMonitoringSchema.pre('save', function(next) {
   this.dataQuality.missingFields = missingFields;
   this.dataQuality.hasValidData = validFields > 0;
   this.dataQuality.qualityScore = validFields / totalFields;
+  this.dataQuality.warnings = warnings;
 
   next();
 });
-
-/**
- * Método para verificar si los niveles cumplen con normativas
- * @returns {Object} Resultado de evaluación normativa
- */
-noiseMonitoringSchema.methods.evaluateComplianceRules = function() {
-  const compliance = {
-    diurno: { value: this.nivelDiurno, compliant: null, limit: 65 },
-    vespertino: { value: this.nivelVespertino, compliant: null, limit: 65 },
-    nocturno: { value: this.nivelNocturno, compliant: null, limit: 55 },
-    global: { compliant: true }
-  };
-
-  // Evaluar cumplimiento por periodo (límites ejemplo - ajustar según normativa local)
-  if (this.nivelDiurno !== null) {
-    compliance.diurno.compliant = this.nivelDiurno <= compliance.diurno.limit;
-  }
-
-  if (this.nivelVespertino !== null) {
-    compliance.vespertino.compliant = this.nivelVespertino <= compliance.vespertino.limit;
-  }
-
-  if (this.nivelNocturno !== null) {
-    compliance.nocturno.compliant = this.nivelNocturno <= compliance.nocturno.limit;
-  }
-
-  // Evaluar cumplimiento global
-  compliance.global.compliant = [
-    compliance.diurno.compliant,
-    compliance.vespertino.compliant,
-    compliance.nocturno.compliant
-  ].every(c => c === null || c === true);
-
-  return compliance;
-};
-
-/**
- * Método para obtener el nivel más alto del día
- * @returns {Object} Información del nivel máximo
- */
-noiseMonitoringSchema.methods.getMaxDailyLevel = function() {
-  const levels = [
-    { periodo: 'diurno', valor: this.nivelDiurno },
-    { periodo: 'vespertino', valor: this.nivelVespertino },
-    { periodo: 'nocturno', valor: this.nivelNocturno }
-  ].filter(l => l.valor !== null && l.valor !== undefined);
-
-  if (levels.length === 0) {
-    return { periodo: null, valor: null };
-  }
-
-  return levels.reduce((max, current) =>
-    current.valor > max.valor ? current : max
-  );
-};
-
-/**
- * Método estático para obtener estadísticas por estación
- */
-noiseMonitoringSchema.statics.getStationStatistics = function(nmt, startDate, endDate) {
-  return this.aggregate([
-    {
-      $match: {
-        nmt: nmt,
-        fecha: { $gte: startDate, $lte: endDate }
-      }
-    },
-    {
-      $group: {
-        _id: '$nmt',
-        nombre: { $first: '$nombre' },
-        promedioLaeq24: { $avg: '$laeq24' },
-        maximoLaeq24: { $max: '$laeq24' },
-        minimoLaeq24: { $min: '$laeq24' },
-        promedioDiurno: { $avg: '$nivelDiurno' },
-        promedioVespertino: { $avg: '$nivelVespertino' },
-        promedioNocturno: { $avg: '$nivelNocturno' },
-        totalMediciones: { $sum: 1 }
-      }
-    }
-  ]);
-};
-
-/**
- * Método estático para buscar estaciones por zona o nombre
- */
-noiseMonitoringSchema.statics.searchStations = function(searchTerm) {
-  return this.aggregate([
-    {
-      $match: {
-        $text: { $search: searchTerm }
-      }
-    },
-    {
-      $group: {
-        _id: '$nmt',
-        nombre: { $first: '$nombre' },
-        ultimaMedicion: { $max: '$fecha' },
-        totalMediciones: { $sum: 1 }
-      }
-    },
-    {
-      $sort: { ultimaMedicion: -1 }
-    }
-  ]);
-};
 
 /**
  * Constantes de límites normativos de ruido (dB)
@@ -434,7 +462,7 @@ noiseMonitoringSchema.statics.getStatisticsOptimized = async function(filters, g
       },
       { $sort: sortStage },
       { $limit: 200 }
-    ]),
+    ]).allowDiskUse(true),
 
     // Resumen general
     this.aggregate([
@@ -458,7 +486,7 @@ noiseMonitoringSchema.statics.getStatisticsOptimized = async function(filters, g
           }
         }
       }
-    ])
+    ]).allowDiskUse(true)
   ]);
 
   const resumen = resumenGeneral[0] ? {
@@ -508,7 +536,7 @@ noiseMonitoringSchema.statics.getRankingOptimized = function(filters, sortBy = '
     { $limit: limit }
   ];
 
-  return this.aggregate(pipeline);
+  return this.aggregate(pipeline).allowDiskUse(true);
 };
 
 /**
@@ -606,7 +634,7 @@ noiseMonitoringSchema.statics.getStationComparison = function(options) {
     { $sort: { promedioNivel: -1 } }
   ];
 
-  return this.aggregate(pipeline);
+  return this.aggregate(pipeline).allowDiskUse(true);
 };
 
 /**
@@ -705,7 +733,7 @@ noiseMonitoringSchema.statics.getTemporalTrends = function(options) {
     { $sort: sortField }
   ];
 
-  return this.aggregate(pipeline);
+  return this.aggregate(pipeline).allowDiskUse(true);
 };
 
 /**
@@ -792,7 +820,7 @@ noiseMonitoringSchema.statics.getComplianceAnalysisByZone = async function(optio
         promedioGeneralLaeq24: { $round: ['$promedioLaeq24', 2] }
       }
     }
-  ]);
+  ]).allowDiskUse(true);
 
   const resumenGlobal = {
     totalEstaciones: estaciones.length,

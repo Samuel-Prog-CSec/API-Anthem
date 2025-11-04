@@ -24,38 +24,34 @@ const getLocations = async (req, res, next) => {
       page = 1
     } = req.query;
 
-    // Construir filtro base
-    const filter = {};
+    // Construir filtros base
+    const filters = {};
 
     if (tipo) {
       if (Array.isArray(tipo)) {
-        filter.tipo = { $in: tipo };
+        filters.tipo = { $in: tipo };
       } else {
-        filter.tipo = tipo;
+        filters.tipo = tipo;
       }
     }
 
-    if (distrito) {filter.distrito = new RegExp(distrito, 'i');}
-    if (barrio) {filter.barrio = new RegExp(barrio, 'i');}
+    if (distrito) {filters.distrito = new RegExp(distrito, 'i');}
+    if (barrio) {filters.barrio = new RegExp(barrio, 'i');}
 
-    // Filtro por bounding box (para mapas)
+    // Filtro por bounding box (coordenadas UTM)
     if (bbox) {
       const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
-      filter['coordenadas.x'] = { $gte: minX, $lte: maxX };
-      filter['coordenadas.y'] = { $gte: minY, $lte: maxY };
+      filters['coordenadas.x'] = { $gte: minX, $lte: maxX };
+      filters['coordenadas.y'] = { $gte: minY, $lte: maxY };
     }
 
-    // Filtro de proximidad
+    // Configurar query geoespacial si existe cerca_de
+    let geoQuery = null;
     if (cerca_de) {
       const [x, y, radio] = cerca_de.split(',').map(Number);
-      filter.geometry = {
-        $near: {
-          $geometry: {
-            type: 'Point',
-            coordinates: [x, y] // longitude, latitude
-          },
-          $maxDistance: radio
-        }
+      geoQuery = {
+        coordinates: [x, y], // [longitude, latitude]
+        maxDistance: radio
       };
     }
 
@@ -72,13 +68,16 @@ const getLocations = async (req, res, next) => {
       barrio: 1
     };
 
-    const [ubicaciones, total] = await Promise.all([
-      Location.find(filter, projection)
-        .limit(pagination.limitNum)
-        .skip(pagination.skip)
-        .lean(),
-      Location.countDocuments(filter)
-    ]);
+    // PATRÓN HÍBRIDO: Usar método del modelo para query compleja
+    const { data: ubicaciones, total } = await Location.findWithOptions({
+      filters,
+      geoQuery,
+      sort: { nombre: 1 },
+      pagination: { skip: pagination.skip, limit: pagination.limitNum },
+      projection,
+      lean: true,
+      includeStats: false
+    });
 
     const responseData = {
       data: {

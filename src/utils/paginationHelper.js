@@ -6,45 +6,6 @@
  */
 
 /**
- * Parsea y valida parámetros de paginación
- *
- * @param {number|string} page - Número de página solicitada
- * @param {number|string} limit - Número de elementos por página
- * @param {Object} options - Opciones de configuración
- * @param {number} options.defaultPage - Página por defecto (default: 1)
- * @param {number} options.defaultLimit - Límite por defecto (default: 50)
- * @param {number} options.maxLimit - Límite máximo permitido (default: 100)
- * @param {number} options.minLimit - Límite mínimo permitido (default: 1)
- * @returns {Object} Objeto con pageNum, limitNum y skip calculados
- */
-const parsePaginationParams = (page, limit, options = {}) => {
-  const {
-    defaultPage = 1,
-    defaultLimit = 50,
-    maxLimit = 100,
-    minLimit = 1
-  } = options;
-
-  // Parsear y validar página
-  const pageNum = Math.max(defaultPage, parseInt(page) || defaultPage);
-
-  // Parsear y validar límite
-  const limitNum = Math.min(
-    maxLimit,
-    Math.max(minLimit, parseInt(limit) || defaultLimit)
-  );
-
-  // Calcular offset (skip)
-  const skip = (pageNum - 1) * limitNum;
-
-  return {
-    pageNum,
-    limitNum,
-    skip
-  };
-};
-
-/**
  * Crea objeto de metadatos de paginación para respuesta
  *
  * @param {number} currentPage - Página actual
@@ -98,7 +59,6 @@ const parseDateRangeFilter = (startDate, endDate, fieldName = 'fecha') => {
 };
 
 module.exports = {
-  parsePaginationParams,
   createPaginationMeta,
   parseDateRangeFilter
 };

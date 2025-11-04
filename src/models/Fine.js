@@ -7,21 +7,16 @@
  */
 
 const mongoose = require('mongoose');
-
-/**
- * Sub-esquema para coordenadas UTM (Universal Transverse Mercator)
- * Sistema de coordenadas utilizado en España para datos geográficos oficiales
- */
-const coordinatesSchema = new mongoose.Schema({
-  x: {
-    type: Number,
-    required: false
-  },
-  y: {
-    type: Number,
-    required: false
-  }
-}, { _id: false });
+const {
+  coordinatesUTMSchema,
+  validateHoraFormat,
+  validateFechaNoFutura,
+  validateImporte,
+  validateVelocidad,
+  validatePuntosCarnet,
+  validateMes,
+  validateAño
+} = require('./schemas/commonSchemas');
 
 /**
  * Esquema principal de Multas
@@ -44,26 +39,42 @@ const fineSchema = new mongoose.Schema({
   fecha: {
     type: Date,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateFechaNoFutura,
+      message: 'La fecha de la multa no puede ser futura'
+    }
   },
 
   mes: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateMes,
+      message: 'Mes debe estar entre 1 y 12'
+    }
   },
 
   año: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateAño,
+      message: 'Año debe estar entre 2000 y 3000'
+    }
   },
 
   hora: {
     type: String,
     required: true,
     trim: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateHoraFormat,
+      message: 'Hora debe tener formato válido HH:MM o HH.MM'
+    }
   },
 
   // Clasificación de la infracción
@@ -84,7 +95,7 @@ const fineSchema = new mongoose.Schema({
   },
 
   coordenadas: {
-    type: coordinatesSchema,
+    type: coordinatesUTMSchema,
     required: false
   },
 
@@ -92,7 +103,12 @@ const fineSchema = new mongoose.Schema({
   importeBoletín: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    min: [0, 'Importe del boletín no puede ser negativo'],
+    validate: {
+      validator: validateImporte,
+      message: 'Importe del boletín debe ser válido (máximo 2 decimales, no negativo)'
+    }
   },
 
   tieneDescuento: {
@@ -104,14 +120,33 @@ const fineSchema = new mongoose.Schema({
 
   importeFinal: {
     type: Number,
-    required: false
+    required: false,
+    min: [0, 'Importe final no puede ser negativo'],
+    validate: [
+      {
+        validator: validateImporte,
+        message: 'Importe final debe ser válido (máximo 2 decimales, no negativo)'
+      },
+      {
+        validator: function(v) {
+          // Validar coherencia: importeFinal no puede ser mayor que importeBoletín
+          if (v === null || v === undefined) {return true;}
+          return v <= this.importeBoletín;
+        },
+        message: 'Importe final no puede ser mayor que el importe del boletín'
+      }
+    ]
   },
 
   // Penalizaciones
   puntosDetraídos: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validatePuntosCarnet,
+      message: 'Puntos detraídos deben estar entre 0 y 12'
+    }
   },
 
   // Información de la denuncia
@@ -132,15 +167,38 @@ const fineSchema = new mongoose.Schema({
   datosVelocidad: {
     velocidadLimite: {
       type: Number,
-      required: false
+      required: false,
+      min: [0, 'Velocidad límite no puede ser negativa'],
+      validate: {
+        validator: validateVelocidad,
+        message: 'Velocidad límite debe estar entre 0 y 300 km/h'
+      }
     },
     velocidadCirculacion: {
       type: Number,
-      required: false
+      required: false,
+      min: [0, 'Velocidad de circulación no puede ser negativa'],
+      validate: {
+        validator: validateVelocidad,
+        message: 'Velocidad de circulación debe estar entre 0 y 300 km/h'
+      }
     },
     exceso: {
       type: Number,
-      required: false
+      required: false,
+      min: [0, 'Exceso de velocidad no puede ser negativo'],
+      validate: {
+        validator: function(v) {
+          // Validar coherencia con velocidades
+          if (v === null || v === undefined) {return true;}
+          if (!this.datosVelocidad.velocidadLimite || !this.datosVelocidad.velocidadCirculacion) {
+            return true;
+          }
+          const excesoCalculado = this.datosVelocidad.velocidadCirculacion - this.datosVelocidad.velocidadLimite;
+          return Math.abs(v - excesoCalculado) < 1; // Tolerancia de 1 km/h por redondeos
+        },
+        message: 'Exceso de velocidad debe ser coherente con velocidadCirculacion - velocidadLimite'
+      }
     }
   },
 
@@ -205,29 +263,90 @@ const fineSchema = new mongoose.Schema({
 /**
  * Índices para optimización de consultas
  */
-// Índice compuesto para evitar duplicados y optimizar búsquedas
+
+// ========================================
+// ÍNDICE COMPUESTO - Identificación de multas
+// ========================================
+// Índice para búsquedas específicas por combinación de campos
+// Usado en: Búsquedas detalladas de multas en ubicación + fecha/hora + importe
+// NO es único porque pueden haber múltiples multas en mismo lugar/fecha/hora
 fineSchema.index(
   { lugar: 1, fecha: 1, hora: 1, importeBoletín: 1 },
   { unique: false, name: 'fine_identification' }
 );
 
-// Índices para consultas frecuentes
+// ========================================
+// ÍNDICES PRINCIPALES - Consultas frecuentes
+// ========================================
+
+// Índice compuesto: fecha (desc) + calificacion
+// Usado en: GET /api/fines?calificacion=LEVE&startDate=X&endDate=Y
+// Sort por fecha descendente (multas más recientes primero)
 fineSchema.index({ fecha: -1, calificacion: 1 });
+
+// Índice compuesto: año + mes + calificacion
+// Usado en: Agregaciones mensuales por gravedad de multa
+// Soporta: Estadísticas mensuales filtradas por calificacion
 fineSchema.index({ año: 1, mes: 1, calificacion: 1 });
+
+// Índice compuesto: lugar + fecha
+// Usado en: GET /api/fines?lugar=CALLE+X
+// Soporta: Análisis de multas por ubicación específica
 fineSchema.index({ lugar: 1, fecha: -1 });
+
+// Índice compuesto: denunciante + fecha
+// Usado en: Análisis de multas por organismo denunciante (Policía Municipal, Radar, etc.)
+// Soporta: Estadísticas por tipo de denunciante
 fineSchema.index({ denunciante: 1, fecha: -1 });
+
+// Índice para ranking de multas por importe (desc)
+// Usado en: Identificación de multas más costosas
+// Soporta: GET /api/fines?sortBy=importeBoletín&sortOrder=desc
 fineSchema.index({ importeBoletín: -1, fecha: -1 });
+
+// Índice para análisis de pérdida de puntos
+// Usado en: Ranking de multas con más puntos detraídos
+// Soporta: Infracciones más graves por puntos
 fineSchema.index({ puntosDetraídos: -1, fecha: -1 });
 
-// Índices geográficos
-fineSchema.index({ 'coordenadas.x': 1, 'coordenadas.y': 1 });
+// ========================================
+// ÍNDICES GEOGRÁFICOS
+// ========================================
 
-// Índices para filtros del frontend
+// Índice compuesto para coordenadas UTM
+// Usado en: Búsquedas geográficas, mapas de calor de multas
+// Soporta: Análisis espacial de infracciones
+// SPARSE: Coordenadas opcionales, solo indexar documentos con coordenadas
+fineSchema.index({ 'coordenadas.x': 1, 'coordenadas.y': 1 }, {
+  sparse: true
+});
+
+// ========================================
+// ÍNDICES PARA FILTROS ESPECÍFICOS
+// ========================================
+
+// Índice para filtro por tipo de infracción
+// Usado en: GET /api/fines?tipoInfraccion=VELOCIDAD
+// Metadatos calculados: VELOCIDAD, ESTACIONAMIENTO, SEMAFORO, etc.
 fineSchema.index({ 'metadatos.tipoInfraccion': 1, fecha: -1 });
+
+// Índice para filtro por gravedad de infracción
+// Usado en: GET /api/fines?esInfraccionGrave=true
+// Filtro booleano: infracciones graves (MUY GRAVE) vs leves/graves
 fineSchema.index({ 'metadatos.esInfraccionGrave': 1, fecha: -1 });
+
+// Índice para filtro por descuento aplicado
+// Usado en: Análisis de pronto pago, estadísticas de descuentos
+// Soporta: GET /api/fines?tieneDescuento=true
 fineSchema.index({ tieneDescuento: 1, fecha: -1 });
 
-// NUEVO: Índice compuesto para estadísticas y análisis de ubicaciones
+// ========================================
+// ÍNDICES PARA AGREGACIONES
+// ========================================
+
+// Índice compuesto para estadísticas de ubicaciones
+// Usado en: Fine.getStatisticsOptimized() - Agregaciones por lugar
+// Soporta: $group por lugar + calificacion, sort por fecha
 fineSchema.index(
   {
     fecha: -1,
@@ -240,7 +359,9 @@ fineSchema.index(
   }
 );
 
-// NUEVO: Índice compuesto para análisis temporal
+// Índice compuesto para análisis temporal mensual
+// Usado en: Evolución de multas por ubicación y mes
+// Soporta: Series temporales mensuales por lugar
 fineSchema.index(
   {
     año: 1,
@@ -253,7 +374,13 @@ fineSchema.index(
   }
 );
 
-// Índice de texto para búsqueda
+// ========================================
+// ÍNDICE DE BÚSQUEDA TEXTUAL
+// ========================================
+
+// Índice de texto completo para búsquedas flexibles
+// Usado en: Búsquedas con $text por lugar, descripción o denunciante
+// Soporta: Autocompletado, búsqueda general de multas
 fineSchema.index({
   lugar: 'text',
   descripcionInfraccion: 'text',
@@ -296,123 +423,8 @@ fineSchema.pre('save', function(next) {
 });
 
 /**
- * Método para clasificar automáticamente el tipo de infracción
+ * Métodos estáticos para consultas agregadas (OPTIMIZADOS)
  */
-fineSchema.methods.clasificarTipoInfraccion = function() {
-  const descripcion = this.descripcionInfraccion.toLowerCase();
-
-  if (descripcion.includes('velocidad') || descripcion.includes('radar')) {
-    this.metadatos.tipoInfraccion = 'VELOCIDAD';
-  } else if (descripcion.includes('estacionar') || descripcion.includes('aparcar')) {
-    this.metadatos.tipoInfraccion = 'ESTACIONAMIENTO';
-  } else if (descripcion.includes('teléfon') || descripcion.includes('móvil')) {
-    this.metadatos.tipoInfraccion = 'TELEFONO_MOVIL';
-  } else if (descripcion.includes('semáforo') || descripcion.includes('rojo')) {
-    this.metadatos.tipoInfraccion = 'SEMAFORO';
-  } else if (descripcion.includes('alcohol') || descripcion.includes('droga')) {
-    this.metadatos.tipoInfraccion = 'ALCOHOL_DROGAS';
-  } else if (descripcion.includes('documento') || descripcion.includes('permiso')) {
-    this.metadatos.tipoInfraccion = 'DOCUMENTACION';
-  } else {
-    this.metadatos.tipoInfraccion = 'OTRAS';
-  }
-};
-
-/**
- * Método para calcular el impacto económico total
- * @returns {Object} Desglose del impacto económico
- */
-fineSchema.methods.calcularImpactoEconomico = function() {
-  return {
-    importeOriginal: this.importeBoletín,
-    importeFinal: this.importeFinal,
-    descuentoAplicado: this.tieneDescuento ? this.importeBoletín - this.importeFinal : 0,
-    porcentajeDescuento: this.tieneDescuento ? 50 : 0
-  };
-};
-
-/**
- * Método para verificar si es infracción grave
- * @returns {Boolean}
- */
-fineSchema.methods.esGrave = function() {
-  return this.calificacion === 'GRAVE' || this.calificacion === 'MUY GRAVE';
-};
-
-/**
- * Métodos estáticos para consultas agregadas
- */
-
-/**
- * Obtener estadísticas por periodo
- */
-fineSchema.statics.getStatisticsByPeriod = function(startDate, endDate) {
-  return this.aggregate([
-    {
-      $match: {
-        fecha: { $gte: startDate, $lte: endDate }
-      }
-    },
-    {
-      $group: {
-        _id: null,
-        totalMultas: { $sum: 1 },
-        importeTotal: { $sum: '$importeFinal' },
-        puntosDetraidos: { $sum: '$puntosDetraídos' },
-        multasGraves: {
-          $sum: {
-            $cond: [{ $in: ['$calificacion', ['GRAVE', 'MUY GRAVE']] }, 1, 0]
-          }
-        },
-        multasConDescuento: { $sum: { $cond: ['$tieneDescuento', 1, 0] } }
-      }
-    }
-  ]);
-};
-
-/**
- * Obtener ranking de infracciones más comunes
- */
-fineSchema.statics.getTopInfractions = function(limit = 10) {
-  return this.aggregate([
-    {
-      $group: {
-        _id: '$metadatos.tipoInfraccion',
-        cantidad: { $sum: 1 },
-        importePromedio: { $avg: '$importeFinal' },
-        puntosPromedio: { $avg: '$puntosDetraídos' }
-      }
-    },
-    {
-      $sort: { cantidad: -1 }
-    },
-    {
-      $limit: limit
-    }
-  ]);
-};
-
-/**
- * Obtener estadísticas por ubicación
- */
-fineSchema.statics.getLocationStatistics = function() {
-  return this.aggregate([
-    {
-      $group: {
-        _id: '$lugar',
-        totalMultas: { $sum: 1 },
-        importeTotal: { $sum: '$importeFinal' },
-        tiposInfraccion: { $addToSet: '$metadatos.tipoInfraccion' }
-      }
-    },
-    {
-      $sort: { totalMultas: -1 }
-    },
-    {
-      $limit: 50 // Top 50 ubicaciones
-    }
-  ]);
-};
 
 /**
  * Obtener estadísticas optimizadas de multas
@@ -528,7 +540,7 @@ fineSchema.statics.getStatisticsOptimized = async function(options) {
       },
       { $sort: sortStage },
       { $limit: parseInt(limit) }
-    ]),
+    ]).allowDiskUse(true),
 
     // Agregación 2: Resumen general
     this.aggregate([
@@ -542,10 +554,11 @@ fineSchema.statics.getStatisticsOptimized = async function(options) {
           fechaInicio: { $min: '$fecha' },
           fechaFin: { $max: '$fecha' },
           lugaresUnicos: { $addToSet: '$lugar' },
-          tiposInfraccionUnicos: { $addToSet: '$metadatos.denunciante' }
+          tiposInfraccionUnicos: { $addToSet: '$metadatos.tipoInfraccion' },
+          denunciantesUnicos: { $addToSet: '$denunciante' }
         }
       }
-    ])
+    ]).allowDiskUse(true)
   ]);
 
   return {
@@ -553,7 +566,8 @@ fineSchema.statics.getStatisticsOptimized = async function(options) {
     resumen: resumenGeneral[0] ? {
       ...resumenGeneral[0],
       totalLugaresUnicos: resumenGeneral[0].lugaresUnicos.length,
-      totalDenunciantesUnicos: resumenGeneral[0].tiposInfraccionUnicos.length
+      totalTiposInfraccion: resumenGeneral[0].tiposInfraccionUnicos.length,
+      totalDenunciantesUnicos: resumenGeneral[0].denunciantesUnicos.length
     } : null
   };
 };
@@ -611,7 +625,7 @@ fineSchema.statics.getLocationRankingOptimized = async function(options) {
     },
     { $sort: { totalMultas: -1 } },
     { $limit: parseInt(limit) }
-  ]);
+  ]).allowDiskUse(true);
 
   return ranking;
 };
@@ -720,7 +734,7 @@ fineSchema.statics.getTemporalAnalysisOptimized = async function(options) {
       }
     },
     { $sort: sortField }
-  ]);
+  ]).allowDiskUse(true);
 
   // Calcular tendencias si hay suficientes datos
   let tendencia = null;

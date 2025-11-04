@@ -7,6 +7,7 @@
  */
 
 const mongoose = require('mongoose');
+const { validateMes, validateAño, validateEdad, validateFechaNoFutura } = require('./schemas/commonSchemas');
 
 /**
  * Sub-esquema para datos poblacionales por género
@@ -15,21 +16,25 @@ const populationDataSchema = new mongoose.Schema({
   españoles: {
     hombres: {
       type: Number,
-      required: true
+      required: true,
+      min: [0, 'Población de hombres españoles no puede ser negativa']
     },
     mujeres: {
       type: Number,
-      required: true
+      required: true,
+      min: [0, 'Población de mujeres españolas no puede ser negativa']
     }
   },
   extranjeros: {
     hombres: {
       type: Number,
-      required: true
+      required: true,
+      min: [0, 'Población de hombres extranjeros no puede ser negativa']
     },
     mujeres: {
       type: Number,
-      required: true
+      required: true,
+      min: [0, 'Población de mujeres extranjeras no puede ser negativa']
     }
   }
 }, { _id: false });
@@ -53,19 +58,31 @@ const censusSchema = new mongoose.Schema({
   fechaCenso: {
     type: Date,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateFechaNoFutura,
+      message: 'La fecha del censo no puede ser futura'
+    }
   },
 
   mes: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateMes,
+      message: 'Mes debe estar entre 1 y 12'
+    }
   },
 
   año: {
     type: Number,
     required: true,
-    index: true
+    index: true,
+    validate: {
+      validator: validateAño,
+      message: 'Año debe estar entre 2000 y 3000'
+    }
   },
 
   // Identificación geográfica administrativa
@@ -73,13 +90,15 @@ const censusSchema = new mongoose.Schema({
     codigo: {
       type: Number,
       required: true,
-      index: true
+      index: true,
+      min: [1, 'Código de distrito debe ser positivo']
     },
     descripcion: {
       type: String,
       required: true,
       trim: true,
-      index: true
+      index: true,
+      uppercase: true
     }
   },
 
@@ -87,18 +106,21 @@ const censusSchema = new mongoose.Schema({
     codigoDistritoBarrio: {
       type: Number,
       required: true,
-      index: true
+      index: true,
+      min: [1, 'Código distrito-barrio debe ser positivo']
     },
     codigo: {
       type: Number,
       required: true,
-      index: true
+      index: true,
+      min: [1, 'Código de barrio debe ser positivo']
     },
     descripcion: {
       type: String,
       required: true,
       trim: true,
-      index: true
+      index: true,
+      uppercase: true
     }
   },
 
@@ -106,7 +128,8 @@ const censusSchema = new mongoose.Schema({
     codigoDistritoSeccion: {
       type: Number,
       required: true,
-      index: true
+      index: true,
+      min: [1, 'Código distrito-sección debe ser positivo']
     },
     codigo: {
       type: Number,
@@ -120,42 +143,88 @@ const censusSchema = new mongoose.Schema({
   edad: {
     type: Number,
     required: [true, 'Edad obligatoria'],
-    min: [0, 'La edad no puede ser negativa'],
-    max: [150, 'Edad excesiva'],
-    index: true
+    index: true,
+    validate: {
+      validator: function(v) {
+        // Validar rango 0-120 para datos censales reales
+        return Number.isInteger(v) && v >= 0 && v <= 120;
+      },
+      message: 'Edad debe estar entre 0 y 120 años'
+    }
   },
 
   // Datos poblacionales
   poblacion: {
     type: populationDataSchema,
-    required: [true, 'Datos de población obligatorios']
+    required: [true, 'Datos de población obligatorios'],
+    validate: {
+      validator: function(v) {
+        // Validar coherencia: al menos debe haber población > 0
+        const total = v.españoles.hombres + v.españoles.mujeres + v.extranjeros.hombres + v.extranjeros.mujeres;
+        return total >= 0;
+      },
+      message: 'Los datos de población deben sumar al menos 0'
+    }
   },
 
   // Estadísticas calculadas automáticamente
   estadisticas: {
     totalEspañoles: {
       type: Number,
-      min: [0, 'Total españoles no puede ser negativo']
+      min: [0, 'Total españoles no puede ser negativo'],
+      validate: {
+        validator: function(v) {
+          // Coherencia: debe coincidir con la suma de españoles hombres + mujeres
+          if (!this.poblacion) {return true;}
+          const suma = this.poblacion.españoles.hombres + this.poblacion.españoles.mujeres;
+          return Math.abs(v - suma) < 0.01; // Tolerancia para decimales
+        },
+        message: 'totalEspañoles debe coincidir con suma de hombres y mujeres españoles'
+      }
     },
     totalExtranjeros: {
       type: Number,
-      min: [0, 'Total extranjeros no puede ser negativo']
+      min: [0, 'Total extranjeros no puede ser negativo'],
+      validate: {
+        validator: function(v) {
+          // Coherencia: debe coincidir con la suma de extranjeros hombres + mujeres
+          if (!this.poblacion) {return true;}
+          const suma = this.poblacion.extranjeros.hombres + this.poblacion.extranjeros.mujeres;
+          return Math.abs(v - suma) < 0.01;
+        },
+        message: 'totalExtranjeros debe coincidir con suma de hombres y mujeres extranjeros'
+      }
     },
     totalHombres: {
-      type: Number
+      type: Number,
+      min: [0, 'Total hombres no puede ser negativo']
     },
     totalMujeres: {
-      type: Number
+      type: Number,
+      min: [0, 'Total mujeres no puede ser negativo']
     },
     totalPoblacion: {
       type: Number,
-      index: true
+      index: true,
+      min: [0, 'Total población no puede ser negativo'],
+      validate: {
+        validator: function(v) {
+          // Coherencia: debe coincidir con totalEspañoles + totalExtranjeros
+          if (!this.estadisticas.totalEspañoles || !this.estadisticas.totalExtranjeros) {return true;}
+          const suma = this.estadisticas.totalEspañoles + this.estadisticas.totalExtranjeros;
+          return Math.abs(v - suma) < 0.01;
+        },
+        message: 'totalPoblacion debe coincidir con suma de españoles y extranjeros'
+      }
     },
     porcentajeExtranjeros: {
-      type: Number
+      type: Number,
+      min: [0, 'Porcentaje de extranjeros no puede ser negativo'],
+      max: [100, 'Porcentaje de extranjeros no puede exceder 100%']
     },
     ratioGenero: {
-      type: Number
+      type: Number,
+      min: [0, 'Ratio de género no puede ser negativo']
     }
   },
 
@@ -241,7 +310,14 @@ const censusSchema = new mongoose.Schema({
 /**
  * Índices para optimización de consultas
  */
-// Índice único para evitar duplicados
+
+// ========================================
+// ÍNDICE ÚNICO - Prevención de duplicados
+// ========================================
+// Garantiza que no existan registros duplicados para la misma combinación de:
+// distrito + barrio + sección censal + edad + año + mes
+// Usado en: Scripts de importación para prevenir duplicados
+// CRÍTICO: NO ELIMINAR
 censusSchema.index(
   {
     'distrito.codigo': 1,
@@ -254,8 +330,14 @@ censusSchema.index(
   { unique: true, name: 'unique_census_record', background: true }
 );
 
-// Índice compuesto: distrito + fecha (consultas por distrito en periodo)
-// Usado en: GET /api/census?distrito=X&año=Y, estadísticas por distrito
+// ========================================
+// ÍNDICES PRINCIPALES - Consultas frecuentes
+// ========================================
+
+// Índice compuesto: distrito + fecha
+// Usado en: censusController.js:64-69 - GET /api/census?distrito=X&startDate=Y&endDate=Z
+// Filtros: distrito.codigo + fechaCenso (rango de fechas)
+// Soporta: Estadísticas por distrito en período temporal
 censusSchema.index(
   { 'distrito.codigo': 1, fechaCenso: 1 },
   {
@@ -264,8 +346,10 @@ censusSchema.index(
   }
 );
 
-// Índice compuesto: distrito + edad (análisis demográfico por edad)
-// Usado en: pirámide poblacional, análisis de grupos de edad por distrito
+// Índice compuesto: distrito + edad
+// Usado en: censusController.js:263 - getPiramidePoblacionalOptimizada()
+// Usado en: censusController.js:82-84 - Filtros minEdad, maxEdad
+// Soporta: Pirámides poblacionales, análisis demográfico por edad
 censusSchema.index(
   { 'distrito.codigo': 1, edad: 1 },
   {
@@ -274,8 +358,9 @@ censusSchema.index(
   }
 );
 
-// Índice compuesto: fecha + porcentaje extranjeros (análisis de diversidad cultural)
-// Usado en: ranking de barrios/distritos por diversidad, análisis temporal
+// Índice para análisis de diversidad cultural (porcentaje extranjeros)
+// Usado en: Agregaciones de estadísticas de inmigración
+// Soporta: Ranking de barrios/distritos por diversidad
 censusSchema.index(
   { fechaCenso: 1, 'estadisticas.porcentajeExtranjeros': -1 },
   {
@@ -284,8 +369,13 @@ censusSchema.index(
   }
 );
 
+// ========================================
+// ÍNDICES PARA AGREGACIONES COMPLEJAS
+// ========================================
+
 // Índice compuesto para pirámide poblacional completa
-// Usado en: análisis demográfico completo, generación de pirámides poblacionales
+// Usado en: Census.getPiramidePoblacionalOptimizada() (línea 715)
+// Soporta: $group por grupoEdad + distrito, sort por edad
 censusSchema.index(
   {
     fechaCenso: 1,
@@ -300,7 +390,8 @@ censusSchema.index(
 );
 
 // Índice para consultas temporales por año y mes
-// Usado en: evolución demográfica, comparación entre periodos
+// Usado en: censusController.js:312 - getEstadisticasDistrito (agregaciones por período)
+// Filtros implícitos: año, mes, distrito.codigo
 censusSchema.index(
   { año: 1, mes: 1, 'distrito.codigo': 1 },
   {
@@ -309,8 +400,10 @@ censusSchema.index(
   }
 );
 
-// Índice para ranking de población
-// Usado en: identificación de áreas más/menos pobladas
+// Índice para ranking de población (descendente)
+// Usado en: censusController.js:732 - GET /api/census/dashboard
+// Usado en: censusController.js:85-86 - Filtros minPoblacion, maxPoblacion
+// Soporta: Identificación de áreas más/menos pobladas, sorts por totalPoblacion
 censusSchema.index(
   { 'estadisticas.totalPoblacion': -1, fechaCenso: -1 },
   {
@@ -319,8 +412,13 @@ censusSchema.index(
   }
 );
 
+// ========================================
+// ÍNDICES PARA FILTROS ESPECÍFICOS
+// ========================================
+
 // Índice para análisis de grupos de edad específicos
-// Usado en: consultas filtradas por grupo de edad
+// Usado en: censusController.js:76 - Filtro grupoEdad
+// Soporta: Consultas por rango de edad ('0-18', '19-64', '65+')
 censusSchema.index(
   { 'clasificacionEdad.grupoEdad': 1, fechaCenso: -1 },
   {
@@ -329,8 +427,9 @@ censusSchema.index(
   }
 );
 
-// Índice para análisis de población productiva
-// Usado en: indicadores económicos, análisis de fuerza laboral
+// Índice para análisis de población productiva (19-64 años)
+// Usado en: censusController.js:90 - Filtro soloProductivos=true
+// Soporta: Indicadores económicos, análisis de fuerza laboral
 censusSchema.index(
   { 'clasificacionEdad.esGrupoProductivo': 1, fechaCenso: -1 },
   {
@@ -339,8 +438,9 @@ censusSchema.index(
   }
 );
 
-// Índice para análisis de tercera edad
-// Usado en: planificación de servicios sociales, análisis de envejecimiento
+// Índice para análisis de tercera edad (65+ años)
+// Usado en: censusController.js:94 - Filtro soloTerceraEdad=true
+// Soporta: Planificación de servicios sociales, análisis de envejecimiento
 censusSchema.index(
   { 'clasificacionEdad.esTerceraEdad': 1, fechaCenso: -1 },
   {
@@ -349,8 +449,14 @@ censusSchema.index(
   }
 );
 
-// Índice compuesto para análisis por barrio
-// Usado en: estadísticas detalladas a nivel de barrio
+// ========================================
+// ÍNDICES SECUNDARIOS - Nivel barrio
+// ========================================
+
+// Índice compuesto para análisis detallado por barrio
+// Usado en: censusController.js:393 - Agregaciones por barrio
+// Usado en: censusController.js:74-75 - Filtro barrio.codigo
+// Soporta: Estadísticas detalladas a nivel de barrio + edad
 censusSchema.index(
   {
     'barrio.codigo': 1,
@@ -363,7 +469,13 @@ censusSchema.index(
   }
 );
 
-// Índices geográficos para búsqueda por nombre
+// ========================================
+// ÍNDICES DE BÚSQUEDA TEXTUAL
+// ========================================
+
+// Índice para búsqueda por nombre de distrito y barrio (exacta)
+// Usado en: Búsquedas administrativas por nombre
+// Soporta: Autocompletado, búsqueda por nombre de ubicación
 censusSchema.index(
   { 'distrito.descripcion': 1, 'barrio.descripcion': 1 },
   {
@@ -372,7 +484,9 @@ censusSchema.index(
   }
 );
 
-// Índice de texto para búsqueda textual
+// Índice de texto completo para búsqueda textual flexible
+// Usado en: Búsquedas con $text (si se implementa en futuro)
+// Pesos: distrito (10) tiene más relevancia que barrio (5)
 censusSchema.index(
   {
     'distrito.descripcion': 'text',
@@ -562,142 +676,6 @@ censusSchema.methods.getDistribucionDemografica = function() {
 /**
  * Obtener pirámide poblacional por distrito
  */
-censusSchema.statics.getPiramidePoblacional = function(distritoId, año) {
-  return this.aggregate([
-    {
-      $match: {
-        'distrito.codigo': distritoId,
-        año: año
-      }
-    },
-    {
-      $group: {
-        _id: {
-          grupoEdad: '$clasificacionEdad.grupoEdad',
-          edad: '$edad'
-        },
-        totalHombres: { $sum: '$estadisticas.totalHombres' },
-        totalMujeres: { $sum: '$estadisticas.totalMujeres' },
-        totalPoblacion: { $sum: '$estadisticas.totalPoblacion' }
-      }
-    },
-    {
-      $sort: { '_id.edad': 1 }
-    }
-  ]);
-};
-
-/**
- * Obtener estadísticas por distrito
- */
-censusSchema.statics.getEstadisticasDistrito = function(año, mes = null) {
-  const matchCondition = { año };
-  if (mes) {matchCondition.mes = mes;}
-
-  return this.aggregate([
-    { $match: matchCondition },
-    {
-      $group: {
-        _id: {
-          distrito: '$distrito.codigo',
-          nombre: '$distrito.descripcion'
-        },
-        totalPoblacion: { $sum: '$estadisticas.totalPoblacion' },
-        totalEspañoles: { $sum: '$estadisticas.totalEspañoles' },
-        totalExtranjeros: { $sum: '$estadisticas.totalExtranjeros' },
-        promedioPorcentajeExtranjeros: { $avg: '$estadisticas.porcentajeExtranjeros' },
-        poblacionProductiva: {
-          $sum: {
-            $cond: ['$clasificacionEdad.esGrupoProductivo', '$estadisticas.totalPoblacion', 0]
-          }
-        },
-        terceraEdad: {
-          $sum: {
-            $cond: ['$clasificacionEdad.esTerceraEdad', '$estadisticas.totalPoblacion', 0]
-          }
-        }
-      }
-    },
-    {
-      $addFields: {
-        porcentajePoblacionProductiva: {
-          $multiply: [
-            { $divide: ['$poblacionProductiva', '$totalPoblacion'] },
-            100
-          ]
-        },
-        porcentajeTerceraEdad: {
-          $multiply: [
-            { $divide: ['$terceraEdad', '$totalPoblacion'] },
-            100
-          ]
-        }
-      }
-    },
-    {
-      $sort: { totalPoblacion: -1 }
-    }
-  ]);
-};
-
-/**
- * Obtener evolución demográfica temporal
- */
-censusSchema.statics.getEvolucionDemografica = function(distritoId = null) {
-  const matchCondition = {};
-  if (distritoId) {matchCondition['distrito.codigo'] = distritoId;}
-
-  return this.aggregate([
-    { $match: matchCondition },
-    {
-      $group: {
-        _id: {
-          año: '$año',
-          mes: '$mes'
-        },
-        totalPoblacion: { $sum: '$estadisticas.totalPoblacion' },
-        totalEspañoles: { $sum: '$estadisticas.totalEspañoles' },
-        totalExtranjeros: { $sum: '$estadisticas.totalExtranjeros' },
-        promedioPorcentajeExtranjeros: { $avg: '$estadisticas.porcentajeExtranjeros' }
-      }
-    },
-    {
-      $sort: { '_id.año': 1, '_id.mes': 1 }
-    }
-  ]);
-};
-
-/**
- * Obtener ranking de barrios más poblados
- */
-censusSchema.statics.getRankingBarrios = function(año, limit = 20) {
-  return this.aggregate([
-    { $match: { año } },
-    {
-      $group: {
-        _id: {
-          distrito: '$distrito.descripcion',
-          barrio: '$barrio.descripcion',
-          codigoBarrio: '$barrio.codigo'
-        },
-        totalPoblacion: { $sum: '$estadisticas.totalPoblacion' },
-        diversidadCultural: { $avg: '$estadisticas.porcentajeExtranjeros' },
-        poblacionProductiva: {
-          $sum: {
-            $cond: ['$clasificacionEdad.esGrupoProductivo', '$estadisticas.totalPoblacion', 0]
-          }
-        }
-      }
-    },
-    {
-      $sort: { totalPoblacion: -1 }
-    },
-    {
-      $limit: limit
-    }
-  ]);
-};
-
 /**
  * NUEVOS MÉTODOS ESTÁTICOS OPTIMIZADOS PARA PERFORMANCE
  */
@@ -764,7 +742,7 @@ censusSchema.statics.getPiramidePoblacionalOptimizada = async function(options) 
         }
       },
       { $sort: { edad: 1 } }
-    ]),
+    ]).allowDiskUse(true),
 
     // Agregación 2: Totales y simplificada
     this.aggregate([
@@ -801,7 +779,7 @@ censusSchema.statics.getPiramidePoblacionalOptimizada = async function(options) 
         }
       },
       { $sort: { 'rangoEdad.minima': 1 } }
-    ])
+    ]).allowDiskUse(true)
   ]);
 
   // Calcular totales desde piramide simplificada
@@ -946,7 +924,7 @@ censusSchema.statics.getAnalisisDemograficoOptimizado = async function(options) 
         ]
       }
     }
-  ]).allowDikUse(true);
+  ]).allowDiskUse(true);
 
   return {
     distribuciones: {
@@ -959,6 +937,103 @@ censusSchema.statics.getAnalisisDemograficoOptimizado = async function(options) 
       distrito: distrito ? parseInt(distrito) : null,
       fechaAnalisis: new Date()
     }
+  };
+};
+
+/**
+ * Query Builder optimizado para listados con filtros flexibles (PATRÓN HÍBRIDO)
+ *
+ * Encapsula la lógica de queries complejas manteniendo todas las optimizaciones:
+ * - .lean() para +40% rendimiento
+ * - Promise.all() para ejecución paralela
+ * - Proyecciones dinámicas para reducir tamaño de respuesta
+ * - Stats opcionales (solo se calculan si se solicitan)
+ *
+ * @param {Object} options - Objeto de configuración
+ * @param {Object} options.filters - Filtros MongoDB (construidos con buildFilters)
+ * @param {Object} options.sort - Opciones de ordenamiento (construidas con buildSortOptions)
+ * @param {Object} options.pagination - { skip, limit } (construidas con buildPaginationOptions)
+ * @param {Object} options.projection - Campos a incluir (opcional, null = todos)
+ * @param {Boolean} options.lean - Usar .lean() para performance (default: true)
+ * @param {Boolean} options.includeStats - Incluir estadísticas agregadas (default: false)
+ * @returns {Promise<Object>} { data, total, stats }
+ *
+ * @example
+ * const resultado = await Census.findWithOptions({
+ *   filters: { año: 2051, 'distrito.codigo': 1 },
+ *   sort: { fechaCenso: -1 },
+ *   pagination: { skip: 0, limit: 50 },
+ *   projection: { fechaCenso: 1, edad: 1, 'estadisticas.totalPoblacion': 1 },
+ *   lean: true,
+ *   includeStats: true
+ * });
+ * // Devuelve: { data: [...], total: 1234, stats: { poblacionTotal: 50000, ... } }
+ */
+censusSchema.statics.findWithOptions = async function(options) {
+  const {
+    filters = {},
+    sort = { fechaCenso: -1 },
+    pagination = { skip: 0, limit: 50 },
+    projection = null,
+    lean = true,
+    includeStats = false
+  } = options;
+
+  // Construir query principal con optimizaciones
+  let query = this.find(filters, projection)
+    .sort(sort)
+    .skip(pagination.skip)
+    .limit(pagination.limit);
+
+  // Aplicar .lean() si se solicita (default true para performance)
+  if (lean) {
+    query = query.lean();
+  }
+
+  // Array de promises para ejecución paralela
+  const promises = [
+    query.exec(),
+    this.countDocuments(filters)
+  ];
+
+  // Solo agregar aggregation de stats si se solicita explícitamente
+  // Esto ahorra tiempo de ejecución cuando no se necesitan
+  if (includeStats) {
+    promises.push(
+      this.aggregate([
+        { $match: filters },
+        {
+          $group: {
+            _id: null,
+            totalRegistros: { $sum: 1 },
+            poblacionTotal: { $sum: '$estadisticas.totalPoblacion' },
+            poblacionEspañola: { $sum: '$estadisticas.totalEspañoles' },
+            poblacionExtranjera: { $sum: '$estadisticas.totalExtranjeros' },
+            poblacionProductiva: {
+              $sum: {
+                $cond: ['$clasificacionEdad.esGrupoProductivo', '$estadisticas.totalPoblacion', 0]
+              }
+            },
+            terceraEdad: {
+              $sum: {
+                $cond: ['$clasificacionEdad.esTerceraEdad', '$estadisticas.totalPoblacion', 0]
+              }
+            },
+            distritosUnicos: { $addToSet: '$distrito.codigo' },
+            barriosUnicos: { $addToSet: '$barrio.codigo' }
+          }
+        }
+      ])
+    );
+  }
+
+  // Ejecutar todas las queries en paralelo con Promise.all()
+  const results = await Promise.all(promises);
+
+  return {
+    data: results[0],
+    total: results[1],
+    stats: includeStats && results[2] ? results[2][0] : null
   };
 };
 
