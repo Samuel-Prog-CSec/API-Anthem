@@ -4,12 +4,11 @@
  * Handles role-based access control and permission checking.
  * Works in conjunction with authentication middleware.
  *
- * @author API Development Team
- * @version 1.0.0
  */
 
 const { createForbiddenResponse } = require('../utils/responseHelper');
 const { authLogger } = require('../config/logger');
+const { logPermissionCheck, logUnauthorizedAccess } = require('../utils/securityLogger');
 
 /**
  * Role-based authorization middleware factory
@@ -39,6 +38,23 @@ const authorize = (...roles) => {
         method: req.method
       }, 'Authorization failed - insufficient permissions');
 
+      // Log security event
+      logPermissionCheck(
+        req.user._id.toString(),
+        req.path,
+        roles.join('|'),
+        false,
+        req.ip
+      );
+
+      logUnauthorizedAccess(
+        req.user._id.toString(),
+        req.path,
+        req.method,
+        req.ip,
+        `Required role: ${roles.join('|')}, User role: ${req.user.role}`
+      );
+
       return res.status(403).json(
         createForbiddenResponse('Insufficient permissions to access this resource')
       );
@@ -50,6 +66,16 @@ const authorize = (...roles) => {
       requiredRoles: roles,
       path: req.path
     }, 'Authorization granted');
+
+    // Log successful permission check
+    logPermissionCheck(
+      req.user._id.toString(),
+      req.path,
+      roles.join('|'),
+      true,
+      req.ip
+    );
+
     next();
   };
 };

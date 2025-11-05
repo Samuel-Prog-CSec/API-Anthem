@@ -48,6 +48,19 @@ const authLimiter = rateLimit({
   }
 });
 
+// Heavy query rate limiter for resource-intensive endpoints
+const heavyQueryLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // Max 5 heavy queries per minute
+  message: createRateLimitResponse(60),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Heavy query rate limit exceeded');
+    res.status(429).json(createRateLimitResponse(60));
+  }
+});
+
 /**
  * Helmet security middleware configuration
  *
@@ -259,6 +272,7 @@ const securityLogger = (req, res, next) => {
 module.exports = {
   generalLimiter,
   authLimiter,
+  heavyQueryLimiter,
   helmetConfig,
   sanitizeInput,
   xssProtection,

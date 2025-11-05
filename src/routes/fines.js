@@ -18,7 +18,7 @@ const {
 } = require('../controllers/fineController');
 
 const { authenticate } = require('../middleware/auth');
-const { validateRequest } = require('../middleware/security');
+const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 
 // Middleware de caché optimizado
 const { cacheMiddleware } = require('../middleware/cache');
@@ -170,11 +170,14 @@ router.get('/',
 
 /**
  * GET /api/v1/fines/statistics
- * Obtener estadísticas generales de multas
+ * Obtener estadísticas agregadas de multas
  */
 router.get('/statistics',
   // Middleware de autenticación (usuario o admin)
   authenticate,
+  
+  // Heavy query rate limiter
+  heavyQueryLimiter,
 
   // Validaciones
   ...dateValidation,
@@ -241,27 +244,25 @@ router.get('/locations/ranking',
 
 /**
  * GET /api/v1/fines/analysis/temporal
- * Obtener análisis temporal de multas
+ * Análisis temporal de multas con evolución y tendencias
  */
 router.get('/analysis/temporal',
   // Middleware de autenticación
   authenticate,
+  
+  // Heavy query rate limiter
+  heavyQueryLimiter,
 
   // Validaciones
   ...dateValidation,
 
-  query('tipoAnalisis')
+  query('granularity')
     .optional()
-    .isIn(['hourly', 'daily', 'monthly', 'yearly'])
-    .withMessage('Tipo de análisis debe ser hourly, daily, monthly o yearly'),
+    .isIn(['day', 'week', 'month', 'year'])
+    .withMessage('Granularidad debe ser day, week, month o year'),
 
   // Middleware de validación
   validateRequest,
-
-  // Middleware de caché (30 minutos para estadísticas)
-  cacheMiddleware('statistics', (req) =>
-    `fines-temporal-analysis-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.tipoAnalisis || 'monthly'}`
-  ),
 
   // Controlador
   getTemporalAnalysis
@@ -274,6 +275,9 @@ router.get('/analysis/temporal',
 router.get('/dashboard',
   // Middleware de autenticación
   authenticate,
+  
+  // Heavy query rate limiter
+  heavyQueryLimiter,
 
   // Validaciones
   query('periodo')

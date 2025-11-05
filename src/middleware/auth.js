@@ -10,6 +10,7 @@ const User = require('../models/User');
 const { verifyToken, extractToken } = require('../utils/tokenHelper');
 const { createUnauthorizedResponse } = require('../utils/responseHelper');
 const { authLogger } = require('../config/logger');
+const { logTokenValidation } = require('../utils/securityLogger');
 
 /**
  * Authentication middleware
@@ -24,7 +25,16 @@ const { authLogger } = require('../config/logger');
 const authenticate = async (req, res, next) => {
   try {
     // Extract token from request
-    const token = extractToken(req);
+    let token;
+    
+    try {
+      token = extractToken(req);
+    } catch (error) {
+      // Token in query string blocked in production
+      return res.status(401).json(
+        createUnauthorizedResponse(error.message)
+      );
+    }
 
     if (!token) {
       return res.status(401).json(
@@ -36,7 +46,21 @@ const authenticate = async (req, res, next) => {
     let decoded;
     try {
       decoded = await verifyToken(token);
+      
+      // Log successful token validation
+      logTokenValidation(true, null, { 
+        userId: decoded.id,
+        ip: req.ip,
+        userAgent: req.get('user-agent')
+      });
     } catch (error) {
+      // Log failed token validation
+      logTokenValidation(false, error.message, { 
+        tokenPrefix: token.substring(0, 20) + '...',
+        ip: req.ip,
+        userAgent: req.get('user-agent')
+      });
+      
       return res.status(401).json(
         createUnauthorizedResponse(`Token validation failed: ${error.message}`)
       );

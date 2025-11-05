@@ -11,7 +11,7 @@ const { query, body, param } = require('express-validator');
 
 const trafficController = require('../controllers/trafficController');
 const { authenticate } = require('../middleware/auth');
-const { validateRequest } = require('../middleware/security');
+const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const {
   validatePagination,
   validateDateRange,
@@ -102,10 +102,11 @@ router.get('/punto/:id',
  * @route   GET /api/traffic/stats
  * @desc    Obtener estadísticas generales de tráfico
  * @access  Private
- * @rateLimit 100 requests per 15 minutes
+ * @rateLimit 5 requests per minute (heavy query)
  */
 router.get('/stats',
   generalLimit,
+  heavyQueryLimiter, // Heavy query limiter for statistics
   authenticate,
   [
     query('tipoElemento')

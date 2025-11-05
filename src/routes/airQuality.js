@@ -11,7 +11,7 @@ const rateLimit = require('express-rate-limit');
 
 // Middleware de autenticación y seguridad
 const { authenticate } = require('../middleware/auth');
-const { validateRequest } = require('../middleware/security');
+const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 
 // Middleware de caché optimizado
 const { cacheMiddleware, statsCacheMiddleware, compressionMiddleware } = require('../middleware/cache');
@@ -28,7 +28,13 @@ const router = express.Router();
 
 /**
  * Rate limiting específico para endpoints de datos ambientales
- * Permite más consultas que el rate limiting general debido a las necesidades del dashboard
+ * 
+ * ESTRATEGIA:
+ * - dataQueryLimiter: Para consultas normales de datos (30 req/min)
+ * - heavyQueryLimiter: Para estadísticas/análisis pesados (5 req/min) - desde security.js
+ * 
+ * NOTA: El statisticsLimiter local (10 req/5min) se REEMPLAZA por heavyQueryLimiter (5 req/1min)
+ * para mantener consistencia con otros endpoints de estadísticas del proyecto.
  */
 const dataQueryLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minuto
@@ -39,15 +45,6 @@ const dataQueryLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false
-});
-
-const statisticsLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutos
-  max: 10, // 10 peticiones por 5 minutos (estadísticas son más costosas)
-  message: {
-    success: false,
-    message: 'Límite de consultas estadísticas alcanzado, intente nuevamente en 5 minutos'
-  }
 });
 
 /**
@@ -191,7 +188,7 @@ router.get('/',
  * @access  Privado (requiere autenticación)
  */
 router.get('/statistics',
-  statisticsLimiter,
+  heavyQueryLimiter,
   authenticate,
   statisticsValidation,
   validateRequest,
@@ -206,7 +203,7 @@ router.get('/statistics',
  * @access  Privado (requiere autenticación)
  */
 router.get('/trends',
-  statisticsLimiter,
+  heavyQueryLimiter,
   authenticate,
   [
     query('startDate').optional().isISO8601(),

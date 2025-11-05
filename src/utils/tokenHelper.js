@@ -98,6 +98,33 @@ const verifyToken = async (token) => {
 };
 
 /**
+ * Verifies a refresh token
+ *
+ * @param {string} token - Refresh token to verify
+ * @returns {Promise<object>} Decoded token payload
+ * @throws {Error} If token is invalid or expired
+ */
+const verifyRefreshToken = async (token) => {
+  try {
+    return jwt.verify(token, config.jwt.secret, {
+      algorithms: [config.jwt.algorithm],
+      issuer: 'api-rest-auth',
+      audience: 'api-rest-auth-refresh'
+    });
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      throw new Error('Refresh token has expired');
+    } else if (error.name === 'JsonWebTokenError') {
+      throw new Error('Invalid refresh token');
+    } else if (error.name === 'NotBeforeError') {
+      throw new Error('Refresh token not active');
+    } else {
+      throw new Error('Refresh token verification failed');
+    }
+  }
+};
+
+/**
  * Extracts token from Authorization header or cookies
  *
  * @param {object} req - Express request object
@@ -115,12 +142,37 @@ const extractToken = (req) => {
     return req.cookies.token;
   }
 
-  // Check query parameter (not recommended for production)
+  // Check query parameter (ONLY in development - security risk in production)
   if (req.query && req.query.token) {
+    // Block query string tokens in production
+    if (config.server.env === 'production') {
+      throw new Error('Token in query string not allowed in production');
+    }
     return req.query.token;
   }
 
   return null;
+};
+
+/**
+ * Get expiration date from a JWT token
+ *
+ * @param {string} token - JWT token
+ * @returns {Date} Expiration date
+ * @throws {Error} If token is invalid or has no expiration
+ */
+const getTokenExpiration = (token) => {
+  try {
+    const decoded = jwt.decode(token);
+    
+    if (!decoded || !decoded.exp) {
+      throw new Error('Token has no expiration date');
+    }
+    
+    return new Date(decoded.exp * 1000);
+  } catch (error) {
+    throw new Error(`Failed to get token expiration: ${error.message}`);
+  }
 };
 
 module.exports = {
@@ -128,5 +180,7 @@ module.exports = {
   generateRefreshToken,
   generateTokens,
   verifyToken,
-  extractToken
+  verifyRefreshToken,
+  extractToken,
+  getTokenExpiration
 };

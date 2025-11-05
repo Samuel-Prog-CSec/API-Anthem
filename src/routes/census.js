@@ -18,7 +18,7 @@ const {
 } = require('../controllers/censusController');
 
 const { authenticate } = require('../middleware/auth');
-const { validateRequest } = require('../middleware/security');
+const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
 
 const router = express.Router();
@@ -238,6 +238,9 @@ router.get('/districts/statistics',
   // Middleware de autenticación
   authenticate,
 
+  // Heavy query rate limiter
+  heavyQueryLimiter,
+
   // Validaciones
   query('año')
     .optional()
@@ -276,6 +279,9 @@ router.get('/districts/statistics',
 router.get('/analysis/demographic',
   // Middleware de autenticación
   authenticate,
+
+  // Heavy query rate limiter
+  heavyQueryLimiter,
 
   // Validaciones
   query('distrito')
@@ -364,6 +370,9 @@ router.get('/evolution',
 router.get('/dashboard',
   // Middleware de autenticación
   authenticate,
+
+  // Heavy query rate limiter
+  heavyQueryLimiter,
 
   // Validaciones
   query('año')

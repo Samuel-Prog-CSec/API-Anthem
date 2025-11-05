@@ -4,8 +4,6 @@
  * Defines all authentication-related API endpoints including
  * user registration, login, logout, and profile management.
  *
- * @author API Development Team
- * @version 1.0.0
  */
 
 const express = require('express');
@@ -17,7 +15,9 @@ const {
   login,
   logout,
   getProfile,
-  updateProfile
+  updateProfile,
+  refreshAccessToken,
+  changePassword
 } = require('../controllers/authController');
 
 // Middleware
@@ -26,7 +26,8 @@ const { authLimiter } = require('../middleware/security');
 const {
   validateRegistration,
   validateLogin,
-  validateProfileUpdate
+  validateProfileUpdate,
+  validatePasswordChange
 } = require('../middleware/validation');
 
 /**
@@ -79,6 +80,22 @@ router.post('/login',
 router.post('/logout',
   authenticate, // Require authentication
   logout // Controller function
+);
+
+/**
+ * @route   POST /api/v1/auth/refresh
+ * @desc    Refresh access token using refresh token (with token rotation)
+ * @access  Public
+ * @middleware Rate limiting
+ *
+ * Request Body:
+ * - refreshToken (required): Valid refresh token
+ *
+ * Response: New access token and new refresh token
+ */
+router.post('/refresh',
+  authLimiter, // Apply rate limiting
+  refreshAccessToken // Controller function
 );
 
 /**
@@ -142,6 +159,25 @@ router.get('/verify-token',
       )
     );
   }
+);
+
+/**
+ * @route   PUT /api/v1/auth/change-password
+ * @desc    Change user password
+ * @access  Private
+ * @middleware Authentication required, Rate limiting, Input validation
+ *
+ * Request Body:
+ * - currentPassword (required): Current password for verification
+ * - newPassword (required): New password (8+ chars with complexity requirements)
+ *
+ * Response: Success message
+ */
+router.put('/change-password',
+  authenticate, // Require authentication
+  authLimiter, // Apply rate limiting to prevent brute force
+  validatePasswordChange, // Validate input data
+  changePassword // Controller function
 );
 
 module.exports = router;

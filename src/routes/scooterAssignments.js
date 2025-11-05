@@ -20,7 +20,7 @@ const {
 } = require('../controllers/scooterAssignmentController');
 
 const { authenticate } = require('../middleware/auth');
-const { validateRequest } = require('../middleware/security');
+const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
 const {
   validateDateRange,
@@ -208,6 +208,7 @@ router.get('/',
  */
 router.get('/statistics/districts',
   authenticate,
+  heavyQueryLimiter,
   [
     ...dateValidation
   ],
@@ -224,6 +225,7 @@ router.get('/statistics/districts',
  */
 router.get('/market-analysis/providers',
   authenticate,
+  heavyQueryLimiter,
   [
     ...dateValidation
   ],
@@ -261,6 +263,7 @@ router.get('/concentration-zones',
  */
 router.get('/dashboard',
   authenticate,
+  heavyQueryLimiter,
   [
     ...dateValidation
   ],
