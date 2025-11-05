@@ -15,6 +15,32 @@ const { SORT_FIELDS, PAGINATION } = require('../constants');
 const logger = require('../config/logger');
 
 /**
+ * Helper para construir filtro de rango de fechas
+ * @param {string} startDate - Fecha inicio
+ * @param {string} endDate - Fecha fin
+ * @param {string} fieldName - Nombre del campo de fecha
+ * @returns {object|null} - Filtro de fecha o null
+ */
+const parseDateRangeFilter = (startDate, endDate, fieldName = 'fecha') => {
+  if (!startDate && !endDate) {
+    return null;
+  }
+
+  const filter = {};
+  if (startDate || endDate) {
+    filter[fieldName] = {};
+    if (startDate) {
+      filter[fieldName].$gte = new Date(startDate);
+    }
+    if (endDate) {
+      filter[fieldName].$lte = new Date(endDate);
+    }
+  }
+
+  return filter;
+};
+
+/**
  * Obtener datos de calidad de aire con filtros
  * GET /api/v1/air-quality
  */
@@ -86,8 +112,9 @@ const getAirQualityData = async (req, res, next) => {
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
+        .maxTimeMS(10000) // Timeout de 10 segundos
         .lean(),
-      AirQuality.countDocuments(filters)
+      AirQuality.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
     ]);
 
     const responseData = {
@@ -123,7 +150,9 @@ const getAirQualityById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const data = await AirQuality.findById(id).lean();
+    const data = await AirQuality.findById(id)
+      .maxTimeMS(5000) // Timeout de 5 segundos
+      .lean();
 
     if (!data) {
       return next(new AppError('Registro de calidad de aire no encontrado', 404));

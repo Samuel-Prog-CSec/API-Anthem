@@ -70,14 +70,15 @@ const getNoiseMonitoringData = async (req, res, next) => {
       'mediciones.valor': 1
     };
 
-    // Ejecutar consulta
+    // Ejecutar consulta con timeouts
     const [data, totalDocuments] = await Promise.all([
       NoiseMonitoring.find(filters, projection)
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
+        .maxTimeMS(10000) // Timeout de 10 segundos
         .lean(),
-      NoiseMonitoring.countDocuments(filters)
+      NoiseMonitoring.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
     ]);
 
     // Agregar cumplimiento normativo usando método del modelo
@@ -116,7 +117,9 @@ const getNoiseMonitoringById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const data = await NoiseMonitoring.findById(id).lean();
+    const data = await NoiseMonitoring.findById(id)
+      .maxTimeMS(5000) // Timeout de 5 segundos
+      .lean();
 
     if (!data) {
       return next(new AppError('Registro de contaminación acústica no encontrado', 404));
@@ -339,7 +342,9 @@ const searchStations = async (req, res, next) => {
       }
     ];
 
-    const estaciones = await NoiseMonitoring.aggregate(pipeline);
+    const estaciones = await NoiseMonitoring.aggregate(pipeline)
+      .maxTimeMS(10000) // Timeout de 10 segundos para agregación
+      .exec();
 
     const responseData = {
       message: `Encontradas ${estaciones.length} estaciones`,

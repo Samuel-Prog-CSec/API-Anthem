@@ -185,33 +185,6 @@ const statsCacheMiddleware = () => {
 };
 
 /**
- * Middleware de compresión condicional
- * Añade metadatos sobre el tamaño de la respuesta sin comprimir realmente
- * NOTA: La compresión real debería manejarse con express-compression o similar
- */
-const compressionMiddleware = () => {
-  return (req, res, next) => {
-    const originalSend = res.json;
-
-    res.json = function(data) {
-      // Calcular tamaño aproximado de la respuesta
-      const responseSize = JSON.stringify(data).length;
-
-      // Añadir metadata del tamaño de respuesta
-      // NO establecer Content-Encoding sin comprimir realmente
-      if (responseSize > 1024) {
-        res.set('X-Response-Size', responseSize.toString());
-        res.set('X-Uncompressed-Size', responseSize.toString());
-      }
-
-      originalSend.call(this, data);
-    };
-
-    next();
-  };
-};
-
-/**
  * Función para limpiar caché manualmente
  * @param {string} cacheType - Tipo de caché a limpiar (opcional, limpia todos si no se especifica)
  * @param {string} pattern - Patrón para limpiar claves específicas
@@ -266,7 +239,6 @@ const getCacheStats = () => {
 module.exports = {
   cacheMiddleware,
   statsCacheMiddleware,
-  compressionMiddleware,
   clearCache,
   getCacheStats,
   caches // Exportar para uso directo si es necesario

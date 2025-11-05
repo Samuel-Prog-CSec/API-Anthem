@@ -175,7 +175,7 @@ router.get('/',
 router.get('/statistics',
   // Middleware de autenticación (usuario o admin)
   authenticate,
-  
+
   // Heavy query rate limiter
   heavyQueryLimiter,
 
@@ -249,7 +249,7 @@ router.get('/locations/ranking',
 router.get('/analysis/temporal',
   // Middleware de autenticación
   authenticate,
-  
+
   // Heavy query rate limiter
   heavyQueryLimiter,
 
@@ -275,7 +275,7 @@ router.get('/analysis/temporal',
 router.get('/dashboard',
   // Middleware de autenticación
   authenticate,
-  
+
   // Heavy query rate limiter
   heavyQueryLimiter,
 

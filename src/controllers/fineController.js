@@ -113,22 +113,24 @@ const getFines = async (req, res, next) => {
       projection.coordenadas = 1;
     }
 
-    // Ejecutar consulta
+    // Ejecutar consulta con timeouts
     const [data, totalDocuments] = await Promise.all([
       Fine.find(filters, projection)
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
+        .maxTimeMS(10000) // Timeout de 10 segundos
         .lean(),
-      Fine.countDocuments(filters)
+      Fine.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
     ]);
 
     // Calcular metadatos de paginación usando helper
     const paginationMeta = createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
 
-    // Obtener estadísticas rápidas del conjunto filtrado
+    // Obtener estadísticas rápidas del conjunto filtrado con límite
     const estadisticasRapidas = await Fine.aggregate([
       { $match: filters },
+      { $limit: 10000 }, // Límite máximo de documentos para estadísticas
       {
         $group: {
           _id: null,
@@ -189,7 +191,9 @@ const getFineById = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const multa = await Fine.findById(id).lean();
+    const multa = await Fine.findById(id)
+      .maxTimeMS(5000) // Timeout de 5 segundos
+      .lean();
 
     if (!multa) {
       return next(new AppError('Multa no encontrada', 404));
@@ -404,13 +408,14 @@ const getDashboardMetrics = async (req, res, next) => {
         break;
     }
 
-    // Métricas generales del periodo
+    // Métricas generales del periodo con límite
     const [metricsGeneral] = await Fine.aggregate([
       {
         $match: {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
+      { $limit: 50000 }, // Límite máximo de documentos para agregación
       {
         $group: {
           _id: null,
@@ -428,7 +433,9 @@ const getDashboardMetrics = async (req, res, next) => {
           }
         }
       }
-    ]);
+    ])
+      .maxTimeMS(10000) // Timeout de 10 segundos
+      .exec();
 
     // Top 5 tipos de infracciones
     const topInfracciones = await Fine.aggregate([
@@ -437,6 +444,7 @@ const getDashboardMetrics = async (req, res, next) => {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
+      { $limit: 50000 }, // Límite máximo de documentos
       {
         $group: {
           _id: '$metadatos.tipoInfraccion',
@@ -446,7 +454,9 @@ const getDashboardMetrics = async (req, res, next) => {
       },
       { $sort: { cantidad: -1 } },
       { $limit: 5 }
-    ]);
+    ])
+      .maxTimeMS(10000) // Timeout de 10 segundos
+      .exec();
 
     // Evolución diaria del periodo
     const evolucionDiaria = await Fine.aggregate([
@@ -455,6 +465,7 @@ const getDashboardMetrics = async (req, res, next) => {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
+      { $limit: 50000 }, // Límite máximo de documentos
       {
         $group: {
           _id: {
@@ -471,7 +482,9 @@ const getDashboardMetrics = async (req, res, next) => {
         }
       },
       { $sort: { '_id.fecha': 1 } }
-    ]);
+    ])
+      .maxTimeMS(10000) // Timeout de 10 segundos
+      .exec();
 
     const responseData = {
       message: 'Métricas del dashboard obtenidas exitosamente',

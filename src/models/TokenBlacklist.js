@@ -22,26 +22,26 @@ const tokenBlacklistSchema = new mongoose.Schema({
     unique: true,
     index: true
   },
-  
+
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Users',
     required: true,
     index: true
   },
-  
+
   reason: {
     type: String,
     enum: ['rotation', 'logout', 'compromised', 'password_change'],
     default: 'rotation'
   },
-  
+
   revokedAt: {
     type: Date,
     default: Date.now,
     index: true
   },
-  
+
   expiresAt: {
     type: Date,
     required: true,
@@ -106,7 +106,7 @@ tokenBlacklistSchema.statics.isBlacklisted = async function(token) {
   if (!token) {
     throw new Error('Token is required for blacklist check');
   }
-  
+
   const entry = await this.findOne({ token }).lean();
   return !!entry;
 };
@@ -123,7 +123,7 @@ tokenBlacklistSchema.statics.blacklistUserTokens = async function(userId, reason
   // In practice, you'd need to track active refresh tokens
   // This is a placeholder - proper implementation would require storing active tokens
   // For now, we rely on rotation to invalidate old tokens
-  return;
+
 };
 
 const TokenBlacklist = mongoose.model('TokenBlacklist', tokenBlacklistSchema);

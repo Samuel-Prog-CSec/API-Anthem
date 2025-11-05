@@ -22,10 +22,16 @@ const { dbLogger } = logger;
 const connectDB = async (uri) => {
   try {
     const options = {
-      // Configuraciones de optimización de conexión
-      maxPoolSize: 20, // Número máximo de conexiones en el pool
+      // Configuraciones optimizadas de conexión para alto rendimiento
+      maxPoolSize: 50, // Número máximo de conexiones en el pool (aumentado de 20)
+      minPoolSize: 10, // Número mínimo de conexiones mantenidas en el pool
+      maxIdleTimeMS: 30000, // Tiempo máximo de inactividad antes de cerrar conexión (30s)
       serverSelectionTimeoutMS: 5000, // Tiempo máximo para intentar conectar
       socketTimeoutMS: 60000, // Tiempo máximo que una conexión permanece abierta
+
+      // Configuraciones adicionales de performance
+      connectTimeoutMS: 10000, // Timeout de conexión inicial (10s)
+      heartbeatFrequencyMS: 10000, // Frecuencia de heartbeat para detectar fallos (10s)
     };
 
     // Conectar a MongoDB
@@ -34,8 +40,10 @@ const connectDB = async (uri) => {
     dbLogger.info({
       host: conn.connection.host,
       port: conn.connection.port,
-      database: conn.connection.name
-    }, 'MongoDB conectado exitosamente');
+      database: conn.connection.name,
+      poolSize: options.maxPoolSize,
+      minPoolSize: options.minPoolSize
+    }, 'MongoDB conectado exitosamente con pool optimizado');
 
     // Listeners de eventos de conexión para monitoreo
     mongoose.connection.on('error', (err) => {

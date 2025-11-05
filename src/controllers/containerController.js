@@ -59,14 +59,15 @@ exports.getAllContainers = async (req, res, next) => {
       estado: 1
     };
 
-    // Ejecutar consulta con paginación
+    // Ejecutar consulta con paginación y timeouts
     const [data, total] = await Promise.all([
       Container.find(filters, projection)
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
+        .maxTimeMS(10000) // Timeout de 10 segundos
         .lean(),
-      Container.countDocuments(filters)
+      Container.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
     ]);
 
     const responseData = {
@@ -343,6 +344,7 @@ exports.searchByAddress = async (req, res, next) => {
 
     const containers = await Container.find(filter)
       .limit(parseInt(limit))
+      .maxTimeMS(10000) // Timeout de 10 segundos
       .select('-__v')
       .lean();
 

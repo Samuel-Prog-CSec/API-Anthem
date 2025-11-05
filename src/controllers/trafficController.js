@@ -82,19 +82,21 @@ const getAllTrafficData = async (req, res, next) => {
       'analisis.desviacionVelocidad': 1
     };
 
-    // Ejecutar consulta principal
+    // Ejecutar consulta principal con timeout
     const [trafficData, totalCount] = await Promise.all([
       Traffic.find(filters, projection)
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
+        .maxTimeMS(10000) // Timeout de 10 segundos
         .lean(),
-      Traffic.countDocuments(filters)
+      Traffic.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
     ]);
 
-    // Calcular estadísticas básicas para la respuesta
+    // Calcular estadísticas básicas para la respuesta con límite
     const stats = await Traffic.aggregate([
       { $match: filters },
+      { $limit: 10000 }, // Límite máximo de documentos para agregación
       {
         $group: {
           _id: null,
@@ -194,20 +196,24 @@ const getTrafficByPoint = async (req, res, next) => {
       Traffic.find(filters, projection)
         .sort({ fecha: -1 })
         .limit(parseInt(limit))
+        .maxTimeMS(10000) // Timeout de 10 segundos
         .lean(),
       Location.findOne({
         tipo: 'punto_trafico',
         id_punto: id
-      }).lean()
+      })
+      .maxTimeMS(5000) // Timeout de 5 segundos
+      .lean()
     ]);
 
     if (!trafficData || trafficData.length === 0) {
       return next(createNotFoundError('Datos de tráfico para el punto de medida', id));
     }
 
-    // Calcular estadísticas del punto
+    // Calcular estadísticas del punto con límite
     const stats = await Traffic.aggregate([
       { $match: filters },
+      { $limit: 5000 }, // Límite máximo para agregación de un punto específico
       {
         $group: {
           _id: null,

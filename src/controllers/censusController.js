@@ -275,9 +275,10 @@ const getDistrictStatistics = async (req, res, next) => {
     const matchCondition = { año: parseInt(año) };
     if (mes) {matchCondition.mes = parseInt(mes);}
 
-    // Estadísticas por distrito
+    // Estadísticas por distrito con límite
     const estadisticasDistritos = await Census.aggregate([
       { $match: matchCondition },
+      { $limit: 10000 }, // Límite máximo de documentos
       {
         $group: {
           _id: {
@@ -355,10 +356,11 @@ const getDistrictStatistics = async (req, res, next) => {
 
     let estadisticasBarrios = null;
 
-    // Si se solicita información de barrios, obtenerla
+    // Si se solicita información de barrios, obtenerla con límite
     if (incluirBarrios === 'true') {
       estadisticasBarrios = await Census.aggregate([
         { $match: matchCondition },
+        { $limit: 10000 }, // Límite máximo de documentos
         {
           $group: {
             _id: {

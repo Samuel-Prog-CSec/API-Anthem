@@ -15,7 +15,7 @@ const { validateRequest } = require('../middleware/security');
 const { validateDateRange } = require('../middleware/validation');
 
 // Middleware de caché optimizado
-const { cacheMiddleware, statsCacheMiddleware, compressionMiddleware } = require('../middleware/cache');
+const { cacheMiddleware, statsCacheMiddleware } = require('../middleware/cache');
 
 // Controladores
 const {
@@ -203,7 +203,6 @@ router.get('/',
   noiseQueryValidation,
   validateRequest,
   cacheMiddleware('noise'), // Cache por 3 minutos
-  compressionMiddleware(),
   getNoiseMonitoringData
 );
 
@@ -219,7 +218,6 @@ router.get('/statistics',
   noiseStatisticsValidation,
   validateRequest,
   cacheMiddleware('noise'), // Cache por 1 hora
-  compressionMiddleware(),
   getNoiseStatistics
 );
 
@@ -234,7 +232,6 @@ router.get('/ranking',
   rankingValidation,
   validateRequest,
   cacheMiddleware('noise'), // Cache por 1 hora
-  compressionMiddleware(),
   getNoiseRanking
 );
 
@@ -265,7 +262,6 @@ router.get('/stations/compare',
   ],
   validateRequest,
   cacheMiddleware('noise'),
-  compressionMiddleware(),
   compareStations
 );
 
@@ -301,7 +297,6 @@ router.get('/trends/temporal',
   ],
   validateRequest,
   cacheMiddleware('noise'),
-  compressionMiddleware(),
   getTemporalTrends
 );
 
@@ -333,7 +328,6 @@ router.get('/compliance/zone',
   ],
   validateRequest,
   cacheMiddleware('noise'),
-  compressionMiddleware(),
   getComplianceByZone
 );
 

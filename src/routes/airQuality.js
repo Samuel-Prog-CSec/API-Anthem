@@ -14,7 +14,7 @@ const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 
 // Middleware de caché optimizado
-const { cacheMiddleware, statsCacheMiddleware, compressionMiddleware } = require('../middleware/cache');
+const { cacheMiddleware, statsCacheMiddleware } = require('../middleware/cache');
 
 // Controladores
 const {
@@ -28,11 +28,11 @@ const router = express.Router();
 
 /**
  * Rate limiting específico para endpoints de datos ambientales
- * 
+ *
  * ESTRATEGIA:
  * - dataQueryLimiter: Para consultas normales de datos (30 req/min)
  * - heavyQueryLimiter: Para estadísticas/análisis pesados (5 req/min) - desde security.js
- * 
+ *
  * NOTA: El statisticsLimiter local (10 req/5min) se REEMPLAZA por heavyQueryLimiter (5 req/1min)
  * para mantener consistencia con otros endpoints de estadísticas del proyecto.
  */
@@ -178,7 +178,6 @@ router.get('/',
   airQualityQueryValidation,
   validateRequest,
   cacheMiddleware('airQuality'), // Cache por 30 minutos (calidad de aire)
-  compressionMiddleware(),
   getAirQualityData
 );
 
@@ -193,7 +192,6 @@ router.get('/statistics',
   statisticsValidation,
   validateRequest,
   cacheMiddleware('airQuality'), // Cache por 30 minutos
-  compressionMiddleware(),
   getAirQualityStatistics
 );
 
@@ -214,7 +212,6 @@ router.get('/trends',
   ],
   validateRequest,
   cacheMiddleware('airQuality'), // Cache por 30 minutos
-  compressionMiddleware(),
   getAirQualityTrends
 );
 

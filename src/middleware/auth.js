@@ -26,7 +26,7 @@ const authenticate = async (req, res, next) => {
   try {
     // Extract token from request
     let token;
-    
+
     try {
       token = extractToken(req);
     } catch (error) {
@@ -46,21 +46,21 @@ const authenticate = async (req, res, next) => {
     let decoded;
     try {
       decoded = await verifyToken(token);
-      
+
       // Log successful token validation
-      logTokenValidation(true, null, { 
+      logTokenValidation(true, null, {
         userId: decoded.id,
         ip: req.ip,
         userAgent: req.get('user-agent')
       });
     } catch (error) {
       // Log failed token validation
-      logTokenValidation(false, error.message, { 
+      logTokenValidation(false, error.message, {
         tokenPrefix: token.substring(0, 20) + '...',
         ip: req.ip,
         userAgent: req.get('user-agent')
       });
-      
+
       return res.status(401).json(
         createUnauthorizedResponse(`Token validation failed: ${error.message}`)
       );

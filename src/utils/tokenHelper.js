@@ -4,8 +4,6 @@
  * Provides utilities for JWT token generation, validation, and management.
  * Implements security best practices for token handling.
  *
- * @author API Development Team
- * @version 1.0.0
  */
 
 const jwt = require('jsonwebtoken');
@@ -164,11 +162,11 @@ const extractToken = (req) => {
 const getTokenExpiration = (token) => {
   try {
     const decoded = jwt.decode(token);
-    
+
     if (!decoded || !decoded.exp) {
       throw new Error('Token has no expiration date');
     }
-    
+
     return new Date(decoded.exp * 1000);
   } catch (error) {
     throw new Error(`Failed to get token expiration: ${error.message}`);

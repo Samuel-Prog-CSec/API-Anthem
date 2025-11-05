@@ -173,7 +173,7 @@ const login = async (req, res, next) => {
     if (user.isLocked) {
       logLoginAttempt(false, identifier, user._id.toString(), req.ip, req.get('user-agent'), 'account_locked');
       logAccountLockout(user._id.toString(), identifier, user.loginAttempts, user.lockUntil, req.ip);
-      
+
       return res.status(423).json(
         formatErrorResponse(
           createAuthError('Cuenta bloqueada temporalmente por demasiados intentos fallidos')
@@ -271,7 +271,7 @@ const logout = async (req, res, next) => {
       try {
         const decoded = await verifyRefreshToken(refreshToken);
         const tokenExpiration = getTokenExpiration(refreshToken);
-        
+
         await TokenBlacklist.addToken(
           refreshToken,
           decoded.id,
@@ -290,7 +290,7 @@ const logout = async (req, res, next) => {
     res.clearCookie('token'); // Legacy cookie name
 
     req.log.info({ username: req.user.username }, 'Usuario cerró sesión');
-    
+
     // Log security event
     logSessionTermination(req.user._id.toString(), 'logout', req.ip);
 
@@ -430,7 +430,7 @@ const refreshAccessToken = async (req, res, next) => {
   try {
     // Extract refresh token from request
     const { refreshToken } = req.body;
-    
+
     if (!refreshToken) {
       return next(createAuthError('Refresh token requerido'));
     }
@@ -448,9 +448,9 @@ const refreshAccessToken = async (req, res, next) => {
     // Check if token is blacklisted (after verification to avoid timing attacks)
     const isBlacklisted = await TokenBlacklist.isBlacklisted(refreshToken);
     if (isBlacklisted) {
-      authLogger.warn({ 
+      authLogger.warn({
         userId: decoded.id,
-        ip: req.ip 
+        ip: req.ip
       }, 'Intento de reusar refresh token revocado');
       return next(createAuthError('Token inválido o expirado'));
     }
@@ -499,7 +499,7 @@ const refreshAccessToken = async (req, res, next) => {
     });
 
     authLogger.info({ userId: user._id }, 'Refresh token rotado exitosamente');
-    
+
     // Log security event
     logTokenRefresh(user._id.toString(), true, req.ip);
 
@@ -545,7 +545,7 @@ const changePassword = async (req, res, next) => {
 
     // Get user with password field
     const user = await User.findById(userId).select('+password');
-    
+
     if (!user) {
       return next(createNotFoundError('Usuario', userId));
     }
@@ -581,7 +581,7 @@ const changePassword = async (req, res, next) => {
 
     // Log security event
     logPasswordChange(userId.toString(), req.ip, true);
-    
+
     req.log.info({ userId: userId.toString() }, 'Contraseña cambiada exitosamente');
 
     res.status(200).json(

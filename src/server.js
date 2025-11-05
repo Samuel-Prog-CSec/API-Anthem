@@ -9,10 +9,13 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 
 // Import configuration and database
 const config = require('./config/config');
 const { connectDB } = require('./config/database');
+const { validateCorsOrigin } = require('./config/corsValidator');
+
 
 // Import Pino logger
 const logger = require('./config/logger');
@@ -91,121 +94,7 @@ app.use(securityLogger);
  * Configure cross-origin resource sharing with strict security controls
  */
 const corsOptions = {
-  origin: function (origin, callback) {
-    // SEGURIDAD: No permitir peticiones sin origin en producción
-    // Las peticiones sin origin pueden venir de Postman, cURL, aplicaciones móviles nativas,
-    // o solicitudes servidor-a-servidor. En producción, esto debe ser controlado explícitamente
-    if (!origin) {
-      if (config.server.env === 'production') {
-        corsLogger.warn(
-          { context: 'CORS validation' },
-          'Petición sin origin bloqueada en producción - considerar allowlist específica'
-        );
-        return callback(new Error('Not allowed by CORS'));
-      }
-      // Permitir en desarrollo para testing con herramientas
-      corsLogger.debug('Petición sin origin permitida en desarrollo');
-      return callback(null, true);
-    }
-
-    // SEGURIDAD CRÍTICA: Evitar wildcard '*' en producción con credentials
-    if (config.security.corsOrigins.includes('*')) {
-      // RFC 6454: wildcard no es compatible con credentials: true
-      if (config.server.env === 'production') {
-        corsLogger.error(
-          { origin, env: config.server.env },
-          'CORS mal configurado: wildcard (*) no permitido en producción con credentials'
-        );
-        return callback(new Error('CORS misconfiguration'));
-      }
-      corsLogger.warn(
-        { origin, env: config.server.env },
-        'CORS con wildcard (*) detectado en desarrollo - no usar en producción'
-      );
-      return callback(null, true);
-    }
-
-    // Normalizar origin para comparación segura
-    const normalizedOrigin = origin.trim().toLowerCase();
-
-    // SEGURIDAD: Prevenir ataques con origins extremadamente largos
-    if (normalizedOrigin.length > 2048) {
-      corsLogger.warn(
-        { originLength: normalizedOrigin.length },
-        'Origin demasiado largo rechazado - posible ataque DoS'
-      );
-      return callback(new Error('Not allowed by CORS'));
-    }
-
-    // SEGURIDAD: Prevenir bypass con null origin
-    if (normalizedOrigin === 'null') {
-      corsLogger.warn(
-        { originalOrigin: origin },
-        'Origen null bloqueado - posible ataque de CORS bypass'
-      );
-      return callback(new Error('Not allowed by CORS'));
-    } // Validar formato del origin (debe ser URL válida)
-    try {
-      const originUrl = new URL(normalizedOrigin);
-
-      // SEGURIDAD: Rechazar protocolos no seguros en producción
-      if (config.server.env === 'production' && originUrl.protocol === 'http:') {
-        corsLogger.warn(
-          { origin: normalizedOrigin },
-          'Origen HTTP bloqueado en producción - solo HTTPS permitido'
-        );
-        return callback(new Error('Not allowed by CORS'));
-      }
-    } catch (error) {
-      corsLogger.warn(
-        { origin: normalizedOrigin, error: error.message },
-        'Formato de origin inválido'
-      );
-      return callback(new Error('Not allowed by CORS'));
-    }
-
-    // Validar origen contra lista permitida
-    const isAllowed = config.security.corsOrigins.some(allowedOrigin => {
-      const normalizedAllowed = allowedOrigin.trim().toLowerCase();
-
-      // Soporte para patrones de subdominios (ej: *.example.com)
-      if (normalizedAllowed.startsWith('*.')) {
-        const domain = normalizedAllowed.slice(2); // Eliminar '*.'
-
-        try {
-          const originUrl = new URL(normalizedOrigin);
-          const hostname = originUrl.hostname;
-
-          // Verificar que el hostname termina con el dominio permitido
-          // y que no es solo el dominio sin subdominio (evitar *.com matchear con com)
-          const endsWithDomain = hostname.endsWith(`.${domain}`) || hostname === domain;
-          const hasValidSubdomainFormat = hostname.split('.').length >= domain.split('.').length;
-
-          return endsWithDomain && hasValidSubdomainFormat;
-        } catch {
-          return false;
-        }
-      }
-
-      // Coincidencia exacta (insensible a mayúsculas)
-      return normalizedAllowed === normalizedOrigin;
-    });
-
-    if (isAllowed) {
-      corsLogger.debug({ origin: normalizedOrigin }, 'Solicitud CORS permitida desde origin');
-      return callback(null, true);
-    }
-
-    // Log detallado de solicitud bloqueada con información útil para debugging
-    corsLogger.warn(
-      {
-        origin: normalizedOrigin,
-        allowedOrigins: config.security.corsOrigins
-      },
-      'Solicitud CORS bloqueada desde origin no autorizado'
-    );
-    callback(new Error('Not allowed by CORS'));
-  },
+  origin: validateCorsOrigin,
 
   // Permitir envío de cookies y credenciales (JWT en HttpOnly cookies)
   credentials: true,
@@ -245,6 +134,24 @@ const corsOptions = {
 
 // Aplicar CORS globalmente
 app.use(cors(corsOptions));
+
+/**
+ * Compression Middleware
+ * Comprime las respuestas HTTP con gzip/deflate para reducir ancho de banda
+ * Impacto: Reduce respuestas típicas en 60-70% (500KB → 150KB)
+ */
+app.use(compression({
+  level: 6, // Nivel de compresión balanceado (0-9, 6 es óptimo CPU vs tamaño)
+  threshold: 1024, // Solo comprimir respuestas mayores a 1KB
+  filter: (req, res) => {
+    // No comprimir si el cliente lo solicita explícitamente
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    // Usar el filtro por defecto de compression (verifica Content-Type)
+    return compression.filter(req, res);
+  }
+}));
 
 /**
  * Middleware para headers de caché CORS
