@@ -15,6 +15,7 @@ const compression = require('compression');
 const config = require('./config/config');
 const { connectDB } = require('./config/database');
 const { validateCorsOrigin } = require('./config/corsValidator');
+const { warmupCacheAsync } = require('./config/cacheWarming');
 
 
 // Import Pino logger
@@ -32,6 +33,8 @@ const {
   validateRequest,
   securityLogger
 } = require('./middleware/security');
+
+const { performanceMonitor } = require('./middleware/performanceMonitor');
 
 const {
   globalErrorHandler,
@@ -228,6 +231,12 @@ app.use(httpLoggerMiddleware);
 app.use(enrichRequestContext);
 
 /**
+ * Performance Monitoring Middleware
+ * Tracks response times and logs slow requests
+ */
+app.use(performanceMonitor);
+
+/**
  * Health Check Endpoint (before rate limiting)
  * Simple endpoint for load balancer health checks
  */
@@ -280,6 +289,9 @@ const startServer = async () => {
     // Connect to MongoDB
     logger.info('Connecting to MongoDB...');
     await connectDB(config.database.uri);
+
+    // Precalentar caché en background (no bloquea arranque del servidor)
+    warmupCacheAsync();
 
     // Start HTTP server
     const server = app.listen(config.server.port, config.server.host, () => {

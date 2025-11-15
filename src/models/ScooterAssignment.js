@@ -460,7 +460,7 @@ scooterAssignmentSchema.statics.getAnalisisMercadoPorProveedor = function(fecha 
 
   return this.aggregate([
     { $match: matchCondition },
-    { $unwind: '$proveedores' },
+    { $unwind: { path: '$proveedores', preserveNullAndEmptyArrays: true } },
     {
       $match: {
         'proveedores.activo': true,

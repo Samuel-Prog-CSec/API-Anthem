@@ -927,7 +927,8 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
 accidentSchema.statics.getRiskFactorsAnalysis = function(filters = {}) {
   return this.aggregate([
     { $match: filters },
-    { $unwind: '$analisis.factoresRiesgo' },
+    { $limit: 10000 }, // Límite máximo de documentos
+    { $unwind: { path: '$analisis.factoresRiesgo', preserveNullAndEmptyArrays: true } },
     {
       $group: {
         _id: '$analisis.factoresRiesgo',
@@ -935,7 +936,9 @@ accidentSchema.statics.getRiskFactorsAnalysis = function(filters = {}) {
       }
     },
     { $sort: { cantidad: -1 } }
-  ]).allowDiskUse(true);
+  ])
+    .allowDiskUse(true)
+    .maxTimeMS(10000);
 };
 
 /**

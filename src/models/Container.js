@@ -413,6 +413,7 @@ containerSchema.statics.getStatsByBarrio = function(distrito, barrio = null) {
  */
 containerSchema.statics.getGeneralSummary = function() {
   return this.aggregate([
+    { $limit: 50000 }, // Límite máximo de documentos
     {
       $group: {
         _id: '$tipoContenedor',

@@ -56,14 +56,15 @@ exports.getAllBikeAvailability = async (req, res, next) => {
       'detalleAbonados.totalBases': 1
     };
 
-    // Ejecutar consulta con paginación
+    // Ejecutar consulta con paginación y timeouts
     const [data, total] = await Promise.all([
       BikeAvailability.find(filters, projection)
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
+        .maxTimeMS(10000) // Timeout de 10 segundos
         .lean(),
-      BikeAvailability.countDocuments(filters)
+      BikeAvailability.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
     ]);
 
     const responseData = {
@@ -96,6 +97,7 @@ exports.getBikeAvailabilityByDate = async (req, res, next) => {
 
     const data = await BikeAvailability.findOne({ dia: targetDate })
       .select('-__v')
+      .maxTimeMS(5000) // Timeout de 5 segundos
       .lean();
 
     if (!data) {

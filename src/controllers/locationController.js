@@ -113,6 +113,7 @@ const getMeasurementPoints = async (req, res, next) => {
       tipo: tiposValidos[tipo_medicion]
     })
     .select('nombre coordenadas nmt cod_cent geometry')
+    .maxTimeMS(10000) // Timeout de 10 segundos
     .lean();
 
     const responseData = {
@@ -159,6 +160,7 @@ const getTransportRoutes = async (req, res, next) => {
 
     const rutas = await Location.find(filter)
       .select('tipo nombre coordenadas geometry')
+      .maxTimeMS(10000) // Timeout de 10 segundos
       .lean();
 
     const responseData = {
@@ -203,6 +205,7 @@ const getProximityAnalysis = async (req, res, next) => {
           key: 'geometry' // Especificar el campo con índice geoespacial
         }
       },
+      { $limit: 1000 }, // Límite máximo de documentos procesados
       {
         $group: {
           _id: '$tipo',
@@ -225,7 +228,9 @@ const getProximityAnalysis = async (req, res, next) => {
           ubicaciones: { $slice: ['$ubicaciones', 10] } // Limitar a 10 por tipo
         }
       }
-    ]);
+    ])
+      .maxTimeMS(10000) // Timeout de 10 segundos
+      .exec();
 
     const responseData = {
       data: {

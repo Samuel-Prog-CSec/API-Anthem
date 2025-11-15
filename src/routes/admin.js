@@ -14,6 +14,8 @@ const { validateRequest } = require('../middleware/security');
 
 // Utilidades de caché
 const { clearCache, getCacheStats } = require('../middleware/cache');
+const { getPerformanceStats } = require('../middleware/performanceMonitor');
+const { getETagStats } = require('../middleware/etag');
 const { AppError } = require('../utils/errorUtils');
 const logger = require('../config/logger');
 
@@ -30,18 +32,29 @@ router.get('/cache/stats',
     try {
       const stats = getCacheStats();
 
+      // Calcular hit rates globales
+      const globalHitRate = Object.values(stats).reduce((acc, cacheType) => {
+        const total = cacheType.hits + cacheType.misses;
+        if (total > 0) {
+          acc.totalHits += cacheType.hits;
+          acc.totalRequests += total;
+        }
+        return acc;
+      }, { totalHits: 0, totalRequests: 0 });
+
+      const overallHitRate = globalHitRate.totalRequests > 0
+        ? ((globalHitRate.totalHits / globalHitRate.totalRequests) * 100).toFixed(2) + '%'
+        : '0%';
+
       res.status(200).json({
         success: true,
         message: 'Estadísticas de caché obtenidas exitosamente',
         data: {
           timestamp: new Date().toISOString(),
-          cacheStats: stats,
-          performance: {
-            hitRate: {
-              general: calculateHitRate(stats.general.stats),
-              statistics: calculateHitRate(stats.statistics.stats)
-            }
-          }
+          overallHitRate,
+          cachesByType: stats,
+          totalCaches: Object.keys(stats).length,
+          totalKeys: Object.values(stats).reduce((sum, cache) => sum + cache.keys, 0)
         }
       });
     } catch (error) {
@@ -64,6 +77,12 @@ router.get('/cache/stats',
 router.delete('/cache/clear',
   authenticate,
 
+  query('type')
+    .optional()
+    .isString()
+    .trim()
+    .withMessage('Type debe ser una cadena de texto válida'),
+
   query('pattern')
     .optional()
     .isString()
@@ -75,26 +94,30 @@ router.delete('/cache/clear',
 
   (req, res, next) => {
     try {
-      const { pattern } = req.query;
+      const { type, pattern } = req.query;
 
-      const result = clearCache(pattern);
+      const result = clearCache(type || null, pattern || null);
 
       res.status(200).json({
         success: true,
         message: pattern
           ? `Caché limpiado para el patrón: ${pattern}`
-          : 'Todo el caché ha sido limpiado exitosamente',
+          : type
+            ? `Caché tipo ${type} limpiado exitosamente`
+            : 'Todo el caché ha sido limpiado exitosamente',
         data: {
           timestamp: new Date().toISOString(),
+          type: type || 'all',
           pattern: pattern || null,
-          deletedEntries: result.deletedKeys || 0,
+          result,
           action: 'cache_cleared'
         }
       });
 
       logger.info({
-        pattern: pattern || 'ALL',
-        deletedEntries: result.deletedKeys || 'ALL',
+        type: type || 'ALL',
+        pattern: pattern || 'NONE',
+        result,
         userId: req.user?.id
       }, '[ADMIN] Caché limpiado por administrador');
 
@@ -186,6 +209,70 @@ router.get('/system/health',
         userId: req.user?.id
       }, 'Error obteniendo estado de salud');
       next(new AppError('Error interno del servidor al obtener estado de salud', 500));
+    }
+  }
+);
+
+/**
+ * @route   GET /api/v1/admin/performance/stats
+ * @desc    Obtener estadísticas de rendimiento
+ * @access  Privado (solo administradores)
+ */
+router.get('/performance/stats',
+  authenticate,
+  (req, res, next) => {
+    try {
+      const stats = getPerformanceStats();
+
+      res.status(200).json({
+        success: true,
+        message: 'Estadísticas de rendimiento obtenidas exitosamente',
+        data: {
+          timestamp: new Date().toISOString(),
+          performanceStats: stats
+        }
+      });
+
+    } catch (error) {
+      logger.error({
+        error: error.message,
+        stack: error.stack,
+        endpoint: 'GET /api/v1/admin/performance/stats',
+        userId: req.user?.id
+      }, 'Error obteniendo estadísticas de rendimiento');
+      next(new AppError('Error interno del servidor al obtener estadísticas de rendimiento', 500));
+    }
+  }
+);
+
+/**
+ * @route   GET /api/v1/admin/etag/stats
+ * @desc    Obtener estadísticas de ETags
+ * @access  Privado (solo administradores)
+ */
+router.get('/etag/stats',
+  authenticate,
+  (req, res, next) => {
+    try {
+      const stats = getETagStats();
+
+      res.status(200).json({
+        success: true,
+        message: 'Estadísticas de ETags obtenidas exitosamente',
+        data: {
+          timestamp: new Date().toISOString(),
+          etagStats: stats
+        }
+      });
+
+    } catch (error) {
+      logger.error({
+        error: error.message,
+        stack: error.stack,
+        endpoint: 'GET /api/v1/admin/etag/stats',
+        userId: req.user?.id
+      }, 'Error obteniendo estadísticas de ETags');
+      next(new AppError('Error interno del servidor al obtener estadísticas de ETags', 500));
     }
   }
 );

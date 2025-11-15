@@ -131,6 +131,11 @@ const corsLogger = logger.child({ component: 'cors' });
  */
 const securityLogger = logger.child({ component: 'security' });
 
+/**
+ * Logger específico para rendimiento y performance
+ */
+const performanceLogger = logger.child({ component: 'performance' });
+
 module.exports = logger;
 module.exports.dbLogger = dbLogger;
 module.exports.authLogger = authLogger;
@@ -138,3 +143,4 @@ module.exports.cacheLogger = cacheLogger;
 module.exports.importLogger = importLogger;
 module.exports.corsLogger = corsLogger;
 module.exports.securityLogger = securityLogger;
+module.exports.performanceLogger = performanceLogger;

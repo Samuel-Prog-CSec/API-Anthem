@@ -90,10 +90,12 @@ const getAllAccidents = async (req, res, next) => {
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
+        .maxTimeMS(10000) // Timeout de 10 segundos
         .lean(),
-      Accident.countDocuments(filters),
+      Accident.countDocuments(filters).maxTimeMS(5000), // Timeout de 5 segundos para count
       Accident.aggregate([
         { $match: filters },
+        { $limit: 10000 }, // Límite máximo de documentos para estadísticas
         {
           $group: {
             _id: null,
@@ -110,6 +112,8 @@ const getAllAccidents = async (req, res, next) => {
           }
         }
       ])
+        .maxTimeMS(10000) // Timeout de 10 segundos
+        .exec()
     ]);
 
     const responseData = {
@@ -168,6 +172,7 @@ const getAccidentByExpediente = async (req, res, next) => {
     // Buscar todas las personas afectadas en el mismo expediente
     const accidentData = await Accident.find({ numeroExpediente: numero })
       .sort({ 'personaAfectada.tipoPersona': 1 })
+      .maxTimeMS(5000) // Timeout de 5 segundos
       .lean();
 
     if (!accidentData || accidentData.length === 0) {
