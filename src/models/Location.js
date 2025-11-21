@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const { coordinatesUTMSchema } = require('./schemas/commonSchemas');
-
+const { LOCATION_TYPES, GEOMETRY_TYPES, UTM_ZONES, TRAFFIC_ELEMENT_TYPES } = require('../constants');
 /**
  * Esquema para las ubicaciones de infraestructura y puntos de medición
  * Modelo mejorado con validaciones y métodos geoespaciales
@@ -9,16 +9,7 @@ const locationSchema = new mongoose.Schema({
   // Identificación
   tipo: {
     type: String,
-    enum: [
-      'estacion_acustica',
-      'punto_trafico',
-      'ruta_cercanias',
-      'ruta_autobus',
-      'ruta_interurbano',
-      'ruta_metro',
-      'ruta_metro_ligero',
-      'zona_taxi'
-    ],
+    enum: LOCATION_TYPES,
     required: true,
     uppercase: true,
     index: true
@@ -57,7 +48,7 @@ const locationSchema = new mongoose.Schema({
 
   tipo_elem: {
     type: String,
-    enum: ['URB', 'M-30', null],
+    enum: [...Object.values(TRAFFIC_ELEMENT_TYPES), null],
     sparse: true
   },
 
@@ -107,7 +98,7 @@ const locationSchema = new mongoose.Schema({
   // Zona UTM (España tiene zonas 29, 30 y 31)
   zonaUTM: {
     type: Number,
-    enum: [29, 30, 31],
+    enum: UTM_ZONES,
     default: 30 // La mayoría de Madrid está en zona 30
   },
 
@@ -115,7 +106,7 @@ const locationSchema = new mongoose.Schema({
   geometry: {
     type: {
       type: String,
-      enum: ['Point', 'LineString'],
+      enum: GEOMETRY_TYPES,
       default: 'Point'
     },
     coordinates: {

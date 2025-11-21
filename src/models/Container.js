@@ -8,6 +8,7 @@
 
 const mongoose = require('mongoose');
 const { coordinatesUTMSchema } = require('./schemas/commonSchemas');
+const { CONTAINER_TYPES, CONTAINER_LOTES } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -28,7 +29,7 @@ const containerSchema = new mongoose.Schema({
     type: String,
     required: true,
     uppercase: true,
-    enum: ['ORGANICA', 'RESTO', 'ENVASES', 'VIDRIO', 'PAPEL-CARTON']
+    enum: CONTAINER_TYPES
   },
 
   // Modelo del contenedor (código interno)
@@ -55,7 +56,7 @@ const containerSchema = new mongoose.Schema({
   lote: {
     type: Number,
     required: true,
-    enum: [1, 2, 3]
+    enum: CONTAINER_LOTES
   },
 
   // Información geográfica - Distrito
@@ -364,7 +365,7 @@ containerSchema.statics.getStatsByDistrict = function(distrito = null) {
  * @param {string} barrio - Nombre del barrio (opcional)
  * @returns {Promise<Array>} Estadísticas por tipo de contenedor
  */
-containerSchema.statics.getStatsByBarrio = function(distrito, barrio = null) {
+containerSchema.statics.getStatsByNeighborhood = function(distrito, barrio = null) {
   const matchStage = barrio
     ? { $match: { distrito, barrio } }
     : { $match: { distrito } };

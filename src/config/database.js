@@ -45,6 +45,47 @@ const connectDB = async (uri) => {
       minPoolSize: options.minPoolSize
     }, 'MongoDB conectado exitosamente con pool optimizado');
 
+    // Monitoreo periódico de estadísticas del pool de conexiones
+    // Ejecuta cada 60 segundos para detectar saturación o problemas de rendimiento
+    setInterval(() => {
+      const db = mongoose.connection.db;
+      if (db && db.serverConfig) {
+        try {
+          const poolStats = db.serverConfig.s?.pool || {};
+          const stats = {
+            availableConnections: poolStats.availableConnections || 0,
+            totalConnections: poolStats.totalConnections || 0,
+            waitQueueSize: poolStats.waitQueueSize || 0,
+            poolSize: options.maxPoolSize,
+            minPoolSize: options.minPoolSize
+          };
+
+          // Log solo si hay conexiones activas o cola de espera
+          if (stats.totalConnections > 0 || stats.waitQueueSize > 0) {
+            dbLogger.debug(stats, 'Estadísticas del pool de conexiones MongoDB');
+
+            // Alertas de saturación del pool
+            if (stats.waitQueueSize > 5) {
+              dbLogger.warn({
+                ...stats,
+                message: 'Cola de espera de conexiones elevada. Considerar aumentar maxPoolSize.'
+              }, 'Pool de conexiones saturado');
+            }
+
+            if (stats.availableConnections === 0 && stats.totalConnections === options.maxPoolSize) {
+              dbLogger.warn({
+                ...stats,
+                message: 'Pool de conexiones al máximo. Todas las conexiones en uso.'
+              }, 'Pool de conexiones al límite');
+            }
+          }
+        } catch (monitorError) {
+          // Silenciar errores de monitoreo para no afectar la aplicación
+          dbLogger.debug({ error: monitorError.message }, 'Error al obtener estadísticas del pool');
+        }
+      }
+    }, 60000); // Cada 60 segundos
+
     // Listeners de eventos de conexión para monitoreo
     mongoose.connection.on('error', (err) => {
       dbLogger.error({ error: err.message }, 'Error de conexión a MongoDB');
@@ -59,13 +100,11 @@ const connectDB = async (uri) => {
     });
 
     // Manejo de cierre de la conexión al terminar la aplicación
-    // NOTA: Comentado para evitar conflictos con scripts de importación
-    // que manejan su propia lógica de cierre de conexión
-    // process.on('SIGINT', async () => {
-    //   await mongoose.connection.close();
-    //   console.log('Conexión a MongoDB cerrada por terminación de la aplicación');
-    //   process.exit(0);
-    // });
+    process.on('SIGINT', async () => {
+      await mongoose.connection.close();
+      dbLogger.info('Conexión a MongoDB cerrada por terminación de la aplicación');
+      process.exit(0);
+    });
 
   } catch (error) {
     dbLogger.error({

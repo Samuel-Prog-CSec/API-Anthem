@@ -5,6 +5,8 @@
  * Centraliza la lógica de cálculo y validación de parámetros de paginación.
  */
 
+const { PAGINATION } = require('../constants');
+
 /**
  * Crea objeto de metadatos de paginación para respuesta
  *
@@ -58,7 +60,55 @@ const parseDateRangeFilter = (startDate, endDate, fieldName = 'fecha') => {
   };
 };
 
+/**
+ * Construye opciones de paginación con validación robusta de límites
+ * Previene ataques DoS mediante límites excesivos
+ *
+ * @param {Object} query - Query parameters de la request
+ * @returns {Object} Objeto con page, limit, skip validados
+ *
+ * @example
+ * const { page, limit, skip } = buildPaginationOptions(req.query);
+ */
+const buildPaginationOptions = (query = {}) => {
+  // Parsear y validar limit
+  let limit = parseInt(query.limit) || PAGINATION.DEFAULT_LIMIT;
+
+  // Validar límite mínimo
+  if (limit < PAGINATION.MIN_LIMIT) {
+    limit = PAGINATION.DEFAULT_LIMIT;
+  }
+
+  // Validar límite máximo (prevenir DoS)
+  if (limit > PAGINATION.MAX_LIMIT) {
+    limit = PAGINATION.MAX_LIMIT;
+  }
+
+  // Parsear y validar page
+  let page = parseInt(query.page) || PAGINATION.DEFAULT_PAGE;
+
+  // Validar página mínima
+  if (page < PAGINATION.DEFAULT_PAGE) {
+    page = PAGINATION.DEFAULT_PAGE;
+  }
+
+  // Validar página máxima (prevenir ataques)
+  if (page > PAGINATION.MAX_PAGE) {
+    page = PAGINATION.MAX_PAGE;
+  }
+
+  // Calcular skip
+  const skip = (page - 1) * limit;
+
+  return {
+    page,
+    limit,
+    skip
+  };
+};
+
 module.exports = {
   createPaginationMeta,
-  parseDateRangeFilter
+  parseDateRangeFilter,
+  buildPaginationOptions
 };

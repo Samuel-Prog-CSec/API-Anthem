@@ -1,9 +1,9 @@
 /**
- * HTTP Request Logger Middleware
+ * Middleware de Logger de Peticiones HTTP
  *
- * Middleware para logging automático de requests HTTP usando pino-http.
- * Registra automáticamente requests entrantes y respuestas con contexto enriquecido.
- * También maneja logging de errores no capturados durante el procesamiento de requests.
+ * Middleware para logging automático de peticiones HTTP usando pino-http.
+ * Registra automáticamente peticiones entrantes y respuestas con contexto enriquecido.
+ * También maneja logging de errores no capturados durante el procesamiento de peticiones.
  */
 
 const pinoHttp = require('pino-http');
@@ -121,7 +121,7 @@ const httpLoggerMiddleware = pinoHttp({
 const enrichRequestContext = (req, res, next) => {
   // Agregar información adicional al request logger
   if (req.log) {
-    // Crear child logger con contexto de request
+    // Crear child logger con contexto de petición
     req.log = req.log.child({
       requestId: req.id,
       userId: req.user?.id,
@@ -150,9 +150,9 @@ const errorLogger = (err, req, res, next) => {
   });
 
   if (req.log) {
-    req.log.error(formattedError, 'Unhandled error in request');
+    req.log.error(formattedError, 'Error no manejado en petición');
   } else {
-    logger.error(formattedError, 'Unhandled error in request');
+    logger.error(formattedError, 'Error no manejado en petición');
   }
 
   next(err);

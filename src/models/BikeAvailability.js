@@ -6,7 +6,7 @@
  */
 
 const mongoose = require('mongoose');
-const { validateFechaNoFutura, validateMes, validateAño } = require('./schemas/commonSchemas');
+const { validateNotFutureDate } = require('./schemas/commonSchemas');
 
 /**
  * Esquema de Disponibilidad de Bicicletas
@@ -20,7 +20,7 @@ const bikeAvailabilitySchema = new mongoose.Schema({
     type: Date,
     required: true,
     validate: {
-      validator: validateFechaNoFutura,
+      validator: validateNotFutureDate,
       message: 'La fecha no puede ser futura'
     }
   },

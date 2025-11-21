@@ -13,6 +13,8 @@ const rateLimit = require('express-rate-limit');
 const bikeController = require('../controllers/bikeAvailabilityController');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { etagMiddleware } = require('../middleware/etag');
 const logger = require('../config/logger');
 const {
   validatePagination,
@@ -22,6 +24,9 @@ const {
 const { cacheMiddleware } = require('../middleware/cache');
 
 const router = express.Router();
+
+// Aplicar performanceMonitor a todas las rutas de bicicletas
+router.use(performanceMonitor);
 
 /**
  * Limitadores de velocidad
@@ -86,6 +91,7 @@ router.get('/stats',
   generalLimit,
   authenticate,
   validateDateRange,
+  etagMiddleware, // ETags para estadísticas (datos agregados relativamente estables)
   cacheMiddleware('bikes'), // Cache por 5 minutos
   bikeController.getBikeStats
 );

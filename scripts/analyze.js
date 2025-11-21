@@ -153,7 +153,7 @@ async function analyzeAll() {
         path.join(REPORTS_DIR, 'outdated-dependencies.json'),
         JSON.stringify(outdatedData, null, 2)
       );
-    } catch (err) {
+    } catch (_err) {
       console.log('✅ No hay paquetes desactualizados o error al parsear');
       results.dependencies.status = 'passed';
     }
@@ -184,8 +184,8 @@ async function analyzeAll() {
   printFinalSummary(results);
 }
 
-function generateMarkdownReport(results) {
-  const date = new Date(results.timestamp).toLocaleString('es-ES');
+function generateMarkdownReport(analysisResults) {
+  const date = new Date(analysisResults.timestamp).toLocaleString('es-ES');
 
   return `# 📊 Reporte de Análisis del Proyecto
 
@@ -195,12 +195,12 @@ function generateMarkdownReport(results) {
 
 ## 🎨 Calidad de Código (ESLint)
 
-- **Estado:** ${results.eslint.status === 'passed' ? '✅ APROBADO' : '❌ REQUIERE ATENCIÓN'}
-- **Errores:** ${results.eslint.errors}
-- **Warnings:** ${results.eslint.warnings}
-- **Archivos analizados:** ${results.eslint.filesAnalyzed || 'N/A'}
+- **Estado:** ${analysisResults.eslint.status === 'passed' ? '✅ APROBADO' : '❌ REQUIERE ATENCIÓN'}
+- **Errores:** ${analysisResults.eslint.errors}
+- **Warnings:** ${analysisResults.eslint.warnings}
+- **Archivos analizados:** ${analysisResults.eslint.filesAnalyzed || 'N/A'}
 
-${results.eslint.errors === 0
+${analysisResults.eslint.errors === 0
   ? '✅ No se encontraron errores de linting.'
   : '⚠️ Se encontraron errores que deben ser corregidos.'}
 
@@ -208,20 +208,20 @@ ${results.eslint.errors === 0
 
 ## 🔐 Seguridad (npm audit)
 
-- **Estado:** ${results.security.status === 'passed' ? '✅ SEGURO' : '⚠️ VULNERABILIDADES DETECTADAS'}
+- **Estado:** ${analysisResults.security.status === 'passed' ? '✅ SEGURO' : '⚠️ VULNERABILIDADES DETECTADAS'}
 
 ### Vulnerabilidades por severidad:
 
 | Severidad | Cantidad |
 |-----------|----------|
-| 🔴 Críticas | ${results.security.vulnerabilities?.critical || 0} |
-| 🟠 Altas | ${results.security.vulnerabilities?.high || 0} |
-| 🟡 Moderadas | ${results.security.vulnerabilities?.moderate || 0} |
-| 🟢 Bajas | ${results.security.vulnerabilities?.low || 0} |
-| ℹ️ Info | ${results.security.vulnerabilities?.info || 0} |
-| **TOTAL** | **${results.security.vulnerabilities?.total || 0}** |
+| 🔴 Críticas | ${analysisResults.security.vulnerabilities?.critical || 0} |
+| 🟠 Altas | ${analysisResults.security.vulnerabilities?.high || 0} |
+| 🟡 Moderadas | ${analysisResults.security.vulnerabilities?.moderate || 0} |
+| 🟢 Bajas | ${analysisResults.security.vulnerabilities?.low || 0} |
+| ℹ️ Info | ${analysisResults.security.vulnerabilities?.info || 0} |
+| **TOTAL** | **${analysisResults.security.vulnerabilities?.total || 0}** |
 
-${(results.security.vulnerabilities?.critical || 0) + (results.security.vulnerabilities?.high || 0) === 0
+${(analysisResults.security.vulnerabilities?.critical || 0) + (analysisResults.security.vulnerabilities?.high || 0) === 0
   ? '✅ No se detectaron vulnerabilidades críticas o altas.'
   : '⚠️ Se detectaron vulnerabilidades que requieren atención inmediata.'}
 
@@ -229,17 +229,17 @@ ${(results.security.vulnerabilities?.critical || 0) + (results.security.vulnerab
 
 ## 📦 Dependencias
 
-- **Estado:** ${results.dependencies.status === 'passed' ? '✅ ACTUALIZADO' : '⚠️ ACTUALIZACIÓN RECOMENDADA'}
-- **Paquetes desactualizados:** ${results.dependencies.outdated?.length || 0}
+- **Estado:** ${analysisResults.dependencies.status === 'passed' ? '✅ ACTUALIZADO' : '⚠️ ACTUALIZACIÓN RECOMENDADA'}
+- **Paquetes desactualizados:** ${analysisResults.dependencies.outdated?.length || 0}
 
-${results.dependencies.outdated && results.dependencies.outdated.length > 0
+${analysisResults.dependencies.outdated && analysisResults.dependencies.outdated.length > 0
   ? `### Paquetes que necesitan actualización:
 
-${results.dependencies.outdated.map(pkg =>
+${analysisResults.dependencies.outdated.map(pkg =>
   `- **${pkg.package}**: ${pkg.current} → ${pkg.latest}`
 ).join('\n')}
 
-Para actualizar, ejecuta: \`npm update\` o \`npm install ${results.dependencies.outdated[0].package}@latest\`
+Para actualizar, ejecuta: \`npm update\` o \`npm install ${analysisResults.dependencies.outdated[0].package}@latest\`
 `
   : '✅ Todas las dependencias están actualizadas.'}
 
@@ -247,14 +247,14 @@ Para actualizar, ejecuta: \`npm update\` o \`npm install ${results.dependencies.
 
 ## 📋 Acciones Recomendadas
 
-${results.eslint.errors > 0 ? '- 🔧 Corregir errores de ESLint con `npm run lint:fix`\n' : ''}
-${(results.security.vulnerabilities?.critical || 0) + (results.security.vulnerabilities?.high || 0) > 0
+${analysisResults.eslint.errors > 0 ? '- 🔧 Corregir errores de ESLint con `npm run lint:fix`\n' : ''}
+${(analysisResults.security.vulnerabilities?.critical || 0) + (analysisResults.security.vulnerabilities?.high || 0) > 0
   ? '- 🔐 Revisar y corregir vulnerabilidades de seguridad con `npm audit fix`\n'
   : ''}
-${results.dependencies.outdated && results.dependencies.outdated.length > 5
+${analysisResults.dependencies.outdated && analysisResults.dependencies.outdated.length > 5
   ? '- 📦 Actualizar dependencias con `npm update` o `npm run deps:update`\n'
   : ''}
-${results.eslint.errors === 0 && results.security.vulnerabilities?.total === 0 && results.dependencies.outdated?.length === 0
+${analysisResults.eslint.errors === 0 && analysisResults.security.vulnerabilities?.total === 0 && analysisResults.dependencies.outdated?.length === 0
   ? '✅ El proyecto está en buen estado. Continúa con el buen trabajo!\n'
   : ''}
 
@@ -264,37 +264,37 @@ ${results.eslint.errors === 0 && results.security.vulnerabilities?.total === 0 &
 `;
 }
 
-function printFinalSummary(results) {
+function printFinalSummary(summaryResults) {
   console.log('\n\n╔══════════════════════════════════════╗');
   console.log('║     RESUMEN DEL ANÁLISIS             ║');
   console.log('╚══════════════════════════════════════╝\n');
 
   // Calidad de código
-  if (results.eslint.status === 'passed') {
+  if (summaryResults.eslint.status === 'passed') {
     console.log('✅ Calidad de Código: APROBADO');
-  } else if (results.eslint.status === 'failed') {
-    console.log(`❌ Calidad de Código: ${results.eslint.errors} errores, ${results.eslint.warnings} warnings`);
+  } else if (summaryResults.eslint.status === 'failed') {
+    console.log(`❌ Calidad de Código: ${summaryResults.eslint.errors} errores, ${summaryResults.eslint.warnings} warnings`);
   } else {
     console.log('⚠️  Calidad de Código: ERROR EN ANÁLISIS');
   }
 
   // Seguridad
-  if (results.security.status === 'passed') {
+  if (summaryResults.security.status === 'passed') {
     console.log('✅ Seguridad: SIN VULNERABILIDADES CRÍTICAS');
-  } else if (results.security.status === 'failed') {
-    const critical = results.security.vulnerabilities?.critical || 0;
-    const high = results.security.vulnerabilities?.high || 0;
-    const moderate = results.security.vulnerabilities?.moderate || 0;
+  } else if (summaryResults.security.status === 'failed') {
+    const critical = summaryResults.security.vulnerabilities?.critical || 0;
+    const high = summaryResults.security.vulnerabilities?.high || 0;
+    const moderate = summaryResults.security.vulnerabilities?.moderate || 0;
     console.log(`⚠️  Seguridad: ${critical} críticas, ${high} altas, ${moderate} moderadas`);
   } else {
     console.log('⚠️  Seguridad: ERROR EN ANÁLISIS');
   }
 
   // Dependencias
-  if (results.dependencies.status === 'passed') {
+  if (summaryResults.dependencies.status === 'passed') {
     console.log('✅ Dependencias: ACTUALIZADAS');
-  } else if (results.dependencies.status === 'warning') {
-    console.log(`⚠️  Dependencias: ${results.dependencies.outdated?.length || 0} paquetes desactualizados`);
+  } else if (summaryResults.dependencies.status === 'warning') {
+    console.log(`⚠️  Dependencias: ${summaryResults.dependencies.outdated?.length || 0} paquetes desactualizados`);
   }
 
   console.log('\n📁 Reportes guardados en: ./reports/');

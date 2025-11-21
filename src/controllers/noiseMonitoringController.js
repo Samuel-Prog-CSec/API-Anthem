@@ -7,16 +7,16 @@
 
 const { validationResult } = require('express-validator');
 const NoiseMonitoring = require('../models/NoiseMonitoring');
-const { AppError, createValidationError, createInternalError, createNotFoundError } = require('../utils/errorUtils');
+const { createValidationError, createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION } = require('../constants');
+const { PAGINATION, HTTP_STATUS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
  * Obtener datos de contaminación acústica con filtros
- * GET /api/v1/noise-monitoring
+ * GET /api/v1.0/noise-monitoring
  */
 const getNoiseMonitoringData = async (req, res, next) => {
   try {
@@ -84,7 +84,7 @@ const getNoiseMonitoringData = async (req, res, next) => {
     // Agregar cumplimiento normativo usando método del modelo
     const dataWithCompliance = data.map(item => ({
       ...item,
-      cumplimientoNormativo: NoiseMonitoring.calcularCumplimientoNormativo(item)
+      cumplimientoNormativo: NoiseMonitoring.calculateRegulatoryCompliance(item)
     }));
 
     const responseData = {
@@ -96,7 +96,7 @@ const getNoiseMonitoringData = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Datos obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -122,13 +122,13 @@ const getNoiseMonitoringById = async (req, res, next) => {
       .lean();
 
     if (!data) {
-      return next(new AppError('Registro de contaminación acústica no encontrado', 404));
+      return next(createNotFoundError('Registro de contaminación acústica', id));
     }
 
     const { LIMITES_NORMATIVOS } = NoiseMonitoring;
 
     // Calcular análisis de cumplimiento normativo detallado
-    const analisisNormativo = {
+    const regulatoryAnalysis = {
       limites: {
         diurno: { valor: LIMITES_NORMATIVOS.DIURNO, descripcion: 'Límite diurno (07:00-19:00)' },
         vespertino: { valor: LIMITES_NORMATIVOS.VESPERTINO, descripcion: 'Límite vespertino (19:00-23:00)' },
@@ -169,7 +169,7 @@ const getNoiseMonitoringById = async (req, res, next) => {
       message: 'Detalles de contaminación acústica obtenidos exitosamente',
       data: {
         ...data,
-        analisisNormativo,
+        analisisNormativo: regulatoryAnalysis,
         periodoMasProblematico,
         interpretacion: {
           laeq24: data.laeq24 ? `Nivel continuo equivalente de ${data.laeq24.toFixed(1)} dB durante 24h` : null,
@@ -182,7 +182,7 @@ const getNoiseMonitoringById = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Detalles obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Detalles obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -237,7 +237,7 @@ const getNoiseStatistics = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -292,7 +292,7 @@ const getNoiseRanking = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Ranking obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Ranking obtenido exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -314,7 +314,7 @@ const searchStations = async (req, res, next) => {
     const { q: searchTerm, limit = 20 } = req.query;
 
     if (!searchTerm || searchTerm.trim().length < 2) {
-      return next(new AppError('Término de búsqueda debe tener al menos 2 caracteres', 400));
+      return next(createBadRequestError('Término de búsqueda debe tener al menos 2 caracteres'));
     }
 
     const pipeline = [
@@ -356,7 +356,7 @@ const searchStations = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Búsqueda completada exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Búsqueda completada exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -378,13 +378,13 @@ const compareStations = async (req, res, next) => {
     const { stations, startDate, endDate, metric = 'laeq24' } = req.query;
 
     if (!stations) {
-      return next(new AppError('Se requiere el parámetro "stations"', 400));
+      return next(createBadRequestError('Se requiere el parámetro "stations"'));
     }
 
     const stationArray = Array.isArray(stations) ? stations.map(Number) : [Number(stations)];
 
     if (stationArray.length < 2) {
-      return next(new AppError('Se requieren al menos 2 estaciones para comparar', 400));
+      return next(createBadRequestError('Se requieren al menos 2 estaciones para comparar'));
     }
 
     const comparison = await NoiseMonitoring.getStationComparison({
@@ -411,7 +411,7 @@ const compareStations = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Comparación de estaciones obtenida exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Comparación de estaciones obtenida exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -458,7 +458,7 @@ const getTemporalTrends = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Tendencias temporales obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Tendencias temporales obtenidas exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -503,7 +503,7 @@ const getComplianceByZone = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Análisis de cumplimiento normativo obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de cumplimiento normativo obtenido exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -526,3 +526,5 @@ module.exports = {
   getTemporalTrends,
   getComplianceByZone
 };
+
+

@@ -10,7 +10,7 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -112,7 +112,7 @@ const getAllTrafficData = async (req, res, next) => {
           },
           medicionesConfiables: {
             $sum: {
-              $cond: [{ $in: ['$calidadDatos.calidadGeneral', ['ALTA', 'MEDIA']] }, 1, 0]
+              $cond: [{ $in: ['$calidadDatos.calidadGeneral', [DATA_QUALITY_LEVELS.ALTA, DATA_QUALITY_LEVELS.MEDIA]] }, 1, 0]
             }
           }
         }
@@ -125,9 +125,9 @@ const getAllTrafficData = async (req, res, next) => {
       filters: {
         applied: filters,
         available: {
-          tipoElemento: ['URB', 'M-30'],
-          nivelCongestion: ['FLUIDO', 'DENSO', 'CONGESTIONADO', 'COLAPSADO'],
-          calidad: ['ALTA', 'MEDIA', 'BAJA']
+          tipoElemento: Object.values(TRAFFIC_ELEMENT_TYPES),
+          nivelCongestion: Object.values(CONGESTION_LEVELS),
+          calidad: Object.values(DATA_QUALITY_LEVELS)
         }
       },
       stats: stats[0] || {
@@ -144,7 +144,7 @@ const getAllTrafficData = async (req, res, next) => {
       endpoint: 'GET /api/traffic'
     }, 'Datos de tráfico obtenidos exitosamente');
 
-    res.status(200).json(createResponse(responseData, 'Datos de tráfico obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de tráfico obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -245,7 +245,7 @@ const getTrafficByPoint = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Datos de tráfico por punto obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de tráfico por punto obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -283,17 +283,17 @@ const getTrafficStats = async (req, res, next) => {
     if (tipoElemento) {filters.tipoElemento = tipoElemento.toUpperCase();}
 
     // Llamar al método optimizado del modelo (3 agregaciones en paralelo)
-    const estadisticas = await Traffic.getTrafficStatisticsOptimized(filters);
+    const statistics = await Traffic.getTrafficStatisticsOptimized(filters);
 
     const responseData = {
-      data: estadisticas,
+      data: statistics,
       periodo: {
         inicio: filters.fecha?.$gte,
         fin: filters.fecha?.$lte
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Estadísticas de tráfico obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas de tráfico obtenidas exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -322,21 +322,21 @@ const getCongestionAnalysis = async (req, res, next) => {
     }
 
     // Llamar al método optimizado del modelo
-    const analisis = await Traffic.getCongestionAnalysisOptimized(filters, groupBy);
+    const analysis = await Traffic.getCongestionAnalysisOptimized(filters, groupBy);
 
     const responseData = {
       data: {
-        analisis,
+        analisis: analysis,
         agrupacion: groupBy,
         periodo: {
           inicio: filters.fecha?.$gte,
           fin: filters.fecha?.$lte
         },
-        total: analisis.length
+        total: analysis.length
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Análisis de congestión obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de congestión obtenido exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -392,7 +392,7 @@ const getHistoricalData = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Datos históricos obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos históricos obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -412,3 +412,4 @@ module.exports = {
   getCongestionAnalysis,
   getHistoricalData
 };
+

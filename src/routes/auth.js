@@ -1,151 +1,137 @@
 /**
- * Authentication Routes
+ * Rutas de Autenticación
  *
- * Defines all authentication-related API endpoints including
- * user registration, login, logout, and profile management.
+ * Define todos los endpoints de API relacionados con autenticación incluyendo
+ * registro de usuario, login, logout y gestión de perfil.
  *
  */
 
 const express = require('express');
 const router = express.Router();
 
-// Controllers
+// Controladores
 const {
   register,
   login,
   logout,
   getProfile,
-  updateProfile,
   refreshAccessToken,
   changePassword
 } = require('../controllers/authController');
 
 // Middleware
 const { authenticate } = require('../middleware/auth');
-const { authLimiter } = require('../middleware/security');
+const { authLimiter, validateRequest } = require('../middleware/security');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
 const {
   validateRegistration,
   validateLogin,
-  validateProfileUpdate,
   validatePasswordChange
 } = require('../middleware/validation');
 
+// Aplicar performanceMonitor a todas las rutas de autenticación
+router.use(performanceMonitor);
+
 /**
  * @route   POST /api/v1/auth/register
- * @desc    Register a new user
- * @access  Public
- * @middleware Rate limiting, Input validation
+ * @desc    Registrar un nuevo usuario
+ * @access  Público
+ * @middleware Rate limiting, Validación de entrada
  *
- * Request Body:
- * - username (required): Unique username (3-30 chars)
- * - email (required): Valid email address
- * - password (required): Strong password (8+ chars with complexity requirements)
- * - firstName (optional): User's first name
- * - lastName (optional): User's last name
+ * Body de Request:
+ * - username (requerido): Nombre de usuario único (3-30 caracteres)
+ * - email (requerido): Dirección de email válida
+ * - password (requerido): Contraseña fuerte (8+ caracteres con requisitos de complejidad)
+ * - firstName (opcional): Nombre del usuario
+ * - lastName (opcional): Apellido del usuario
  *
- * Response: User object and JWT token
+ * Response: Objeto de usuario y token JWT
  */
 router.post('/register',
-  authLimiter, // Apply strict rate limiting for auth endpoints
-  validateRegistration, // Validate input data
-  register // Controller function
+  authLimiter, // Aplicar rate limiting estricto para endpoints de auth
+  validateRegistration, // Validar datos de entrada
+  validateRequest, // Procesar errores de validación
+  register // Función del controlador
 );
 
 /**
  * @route   POST /api/v1/auth/login
- * @desc    Authenticate user and get token
- * @access  Public
- * @middleware Rate limiting, Input validation
+ * @desc    Autenticar usuario y obtener token
+ * @access  Público
+ * @middleware Rate limiting, Validación de entrada
  *
- * Request Body:
- * - identifier (required): Email or username
- * - password (required): User's password
+ * Body de Request:
+ * - identifier (requerido): Email o nombre de usuario
+ * - password (requerido): Contraseña del usuario
  *
- * Response: User object and JWT token
+ * Response: Objeto de usuario y token JWT
  */
 router.post('/login',
-  authLimiter, // Apply strict rate limiting for auth endpoints
-  validateLogin, // Validate input data
-  login // Controller function
+  authLimiter, // Aplicar rate limiting estricto para endpoints de auth
+  validateLogin, // Validar datos de entrada
+  validateRequest, // Procesar errores de validación
+  login // Función del controlador
 );
 
 /**
  * @route   POST /api/v1/auth/logout
- * @desc    Logout user (clear token cookie)
- * @access  Private
- * @middleware Authentication required
+ * @desc    Cerrar sesión del usuario (limpiar cookie del token)
+ * @access  Privado
+ * @middleware Autenticación requerida
  *
- * Response: Success message
+ * Response: Mensaje de éxito
  */
 router.post('/logout',
-  authenticate, // Require authentication
-  logout // Controller function
+  authenticate, // Requiere autenticación
+  logout // Función del controlador
 );
 
 /**
  * @route   POST /api/v1/auth/refresh
- * @desc    Refresh access token using refresh token (with token rotation)
- * @access  Public
+ * @desc    Renovar access token usando refresh token (con rotación de token)
+ * @access  Público
  * @middleware Rate limiting
  *
- * Request Body:
- * - refreshToken (required): Valid refresh token
+ * Body de Request:
+ * - refreshToken (requerido): Refresh token válido
  *
- * Response: New access token and new refresh token
+ * Response: Nuevo access token y nuevo refresh token
  */
 router.post('/refresh',
-  authLimiter, // Apply rate limiting
-  refreshAccessToken // Controller function
+  authLimiter, // Aplicar rate limiting
+  refreshAccessToken // Función del controlador
 );
 
 /**
  * @route   GET /api/v1/auth/me
- * @desc    Get current authenticated user's profile
- * @access  Private
- * @middleware Authentication required
+ * @desc    Obtener perfil del usuario autenticado actual
+ * @access  Privado
+ * @middleware Autenticación requerida
  *
- * Response: Current user's profile information
+ * Response: Información del perfil del usuario actual
  */
 router.get('/me',
-  authenticate, // Require authentication
-  getProfile // Controller function
-);
-
-/**
- * @route   PUT /api/v1/auth/profile
- * @desc    Update authenticated user's profile
- * @access  Private
- * @middleware Authentication required, Input validation
- *
- * Request Body:
- * - firstName (optional): Updated first name
- * - lastName (optional): Updated last name
- *
- * Response: Updated user profile
- */
-router.put('/profile',
-  authenticate, // Require authentication
-  validateProfileUpdate, // Validate input data
-  updateProfile // Controller function
+  authenticate, // Requiere autenticación
+  getProfile // Función del controlador
 );
 
 /**
  * @route   GET /api/v1/auth/verify-token
- * @desc    Verify if the current token is valid
- * @access  Private
- * @middleware Authentication required
+ * @desc    Verificar si el token actual es válido
+ * @access  Privado
+ * @middleware Autenticación requerida
  *
- * Response: Token validation status and user info
+ * Response: Estado de validación del token e información del usuario
  */
 router.get('/verify-token',
-  authenticate, // Require authentication
+  authenticate, // Requiere autenticación
   (req, res) => {
-    // If we reach here, the token is valid (authenticate middleware passed)
+    // Si llegamos aquí, el token es válido (el middleware authenticate pasó)
     const { createResponse } = require('../utils/responseHelper');
 
     res.status(200).json(
       createResponse(
-        'Token is valid',
+        'Token válido',
         {
           user: {
             id: req.user._id,
@@ -163,21 +149,22 @@ router.get('/verify-token',
 
 /**
  * @route   PUT /api/v1/auth/change-password
- * @desc    Change user password
- * @access  Private
- * @middleware Authentication required, Rate limiting, Input validation
+ * @desc    Cambiar contraseña del usuario
+ * @access  Privado
+ * @middleware Autenticación requerida, Rate limiting, Validación de entrada
  *
- * Request Body:
- * - currentPassword (required): Current password for verification
- * - newPassword (required): New password (8+ chars with complexity requirements)
+ * Body de Request:
+ * - currentPassword (requerido): Contraseña actual para verificación
+ * - newPassword (requerido): Nueva contraseña (8+ caracteres con requisitos de complejidad)
  *
- * Response: Success message
+ * Response: Mensaje de éxito
  */
 router.put('/change-password',
-  authenticate, // Require authentication
-  authLimiter, // Apply rate limiting to prevent brute force
-  validatePasswordChange, // Validate input data
-  changePassword // Controller function
+  authenticate, // Requiere autenticación
+  authLimiter, // Aplicar rate limiting para prevenir fuerza bruta
+  validatePasswordChange, // Validar datos de entrada
+  validateRequest, // Procesar errores de validación
+  changePassword // Función del controlador
 );
 
 module.exports = router;

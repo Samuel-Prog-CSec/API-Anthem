@@ -5,13 +5,12 @@
  * con la disponibilidad de bicicletas eléctricas.
  */
 
-const { validationResult } = require('express-validator');
 const BikeAvailability = require('../models/BikeAvailability');
-const { AppError, createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
-const { parsePaginationParams, createPaginationMeta } = require('../utils/paginationHelper');
+const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
+const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION } = require('../constants');
+const { PAGINATION, HTTP_STATUS } = require('../constants');
 
 /**
  * Obtener todos los registros de disponibilidad con filtros y paginación
@@ -72,7 +71,7 @@ exports.getAllBikeAvailability = async (req, res, next) => {
       pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, total)
     };
 
-    return res.status(200).json(createResponse(responseData, 'Disponibilidad obtenida exitosamente'));
+    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Disponibilidad obtenida exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener disponibilidad de bicicletas', error));
@@ -108,7 +107,7 @@ exports.getBikeAvailabilityByDate = async (req, res, next) => {
       data
     };
 
-    return res.status(200).json(createResponse(responseData, 'Datos obtenidos exitosamente'));
+    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos obtenidos exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener disponibilidad por fecha', error));
@@ -145,7 +144,7 @@ exports.getBikeStats = async (req, res, next) => {
       }
     };
 
-    return res.status(200).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
+    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener estadísticas de bicicletas', error));
@@ -192,7 +191,7 @@ exports.getMonthlyTrends = async (req, res, next) => {
       }
     };
 
-    return res.status(200).json(createResponse(responseData, 'Tendencias mensuales obtenidas exitosamente'));
+    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Tendencias mensuales obtenidas exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener tendencias mensuales', error));
@@ -218,7 +217,7 @@ exports.getTopUsageDays = async (req, res, next) => {
       }
     };
 
-    return res.status(200).json(createResponse(responseData, 'Días de uso obtenidos exitosamente'));
+    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Días de uso obtenidos exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener días de mayor uso', error));
@@ -255,7 +254,7 @@ exports.getSubscriptionComparison = async (req, res, next) => {
       }
     };
 
-    return res.status(200).json(createResponse(responseData, 'Comparación obtenida exitosamente'));
+    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Comparación obtenida exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al comparar tipos de abonado', error));
@@ -294,7 +293,7 @@ exports.getEfficiencyAnalysis = async (req, res, next) => {
       data: analysis
     };
 
-    return res.status(200).json(createResponse(responseData, 'Análisis de eficiencia obtenido exitosamente'));
+    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de eficiencia obtenido exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al analizar eficiencia', error));
@@ -333,7 +332,7 @@ exports.getHistoricalData = async (req, res, next) => {
       }
     };
 
-    return res.status(200).json(createResponse(responseData, 'Datos históricos obtenidos exitosamente'));
+    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos históricos obtenidos exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener datos históricos', error));
@@ -380,7 +379,7 @@ exports.getUsageTrendsAnalysis = async (req, res, next) => {
       }
     };
 
-    return res.status(200).json(createResponse(responseData, 'Tendencias de uso obtenidas exitosamente'));
+    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Tendencias de uso obtenidas exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener tendencias de uso', error));
@@ -422,10 +421,12 @@ exports.getDemandPredictionAnalysis = async (req, res, next) => {
       }
     };
 
-    return res.status(200).json(createResponse(responseData, 'Predicción de demanda obtenida exitosamente'));
+    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Predicción de demanda obtenida exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al predecir demanda', error));
   }
 };
+
+
 

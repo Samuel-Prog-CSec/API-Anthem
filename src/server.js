@@ -1,8 +1,8 @@
 /**
- * Main Server Application
+ * Aplicación Principal del Servidor
  *
- * Entry point for the Professional REST API.
- * Configures Express server with security, middleware, routes, and error handling.
+ * Punto de entrada para la API REST profesional.
+ * Configura el servidor Express con seguridad, middleware, rutas y manejo de errores.
  *
  */
 
@@ -11,19 +11,19 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const compression = require('compression');
 
-// Import configuration and database
+// Importar configuración y base de datos
 const config = require('./config/config');
 const { connectDB } = require('./config/database');
 const { validateCorsOrigin } = require('./config/corsValidator');
 const { warmupCacheAsync } = require('./config/cacheWarming');
 
 
-// Import Pino logger
+// Importar logger Pino
 const logger = require('./config/logger');
 const { corsLogger } = logger;
 const { httpLoggerMiddleware, enrichRequestContext, errorLogger } = require('./middleware/requestLogger');
 
-// Import middleware
+// Importar middleware
 const {
   generalLimiter,
   helmetConfig,
@@ -44,57 +44,57 @@ const {
   timeoutHandler
 } = require('./middleware/errorHandler');
 
-// Import routes
+// Importar rutas
 const routes = require('./routes');
 
 /**
- * Initialize Express application
+ * Inicializar aplicación Express
  */
 const app = express();
 
 /**
- * Global exception handlers
- * Must be set up before any other code
+ * Manejadores de excepciones globales
+ * Deben configurarse antes que cualquier otro código
  */
 handleUnhandledRejection();
 handleUncaughtException();
 
 /**
- * Trust proxy settings
- * Important for rate limiting and IP detection behind reverse proxies
+ * Configuración de trust proxy
+ * Importante para rate limiting y detección de IP detrás de proxies inversos
  */
 app.set('trust proxy', 1);
 
 /**
- * Security Middleware Configuration
- * Applied in order of importance for security
+ * Configuración de Middleware de Seguridad
+ * Aplicado en orden de importancia para seguridad
  */
 
-// Request timeout handling
+// Manejo de timeout de peticiones
 app.use(timeoutHandler(config.api.timeout));
 
-// Security headers and protection
+// Headers de seguridad y protección
 app.use(helmetConfig);
 app.use(customSecurityHeaders);
 
-// Input sanitization (prevent NoSQL injection)
+// Sanitización de entrada (prevenir inyección NoSQL)
 app.use(sanitizeInput);
 
-// XSS Protection (prevent Cross-Site Scripting)
+// Protección XSS (prevenir Cross-Site Scripting)
 app.use(xssProtection);
 
-// Request validation and size limits
+// Validación de peticiones y límites de tamaño
 app.use(validateRequest);
 
-// Rate limiting
+// Limitación de tasa
 app.use(generalLimiter);
 
-// Security logging
+// Logging de seguridad
 app.use(securityLogger);
 
 /**
- * CORS Configuration
- * Configure cross-origin resource sharing with strict security controls
+ * Configuración de CORS
+ * Configurar compartición de recursos entre orígenes con controles de seguridad estrictos
  */
 const corsOptions = {
   origin: validateCorsOrigin,
@@ -139,7 +139,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 /**
- * Compression Middleware
+ * Middleware de Compresión
  * Comprime las respuestas HTTP con gzip/deflate para reducir ancho de banda
  * Impacto: Reduce respuestas típicas en 60-70% (500KB → 150KB)
  */
@@ -176,13 +176,13 @@ app.use((req, res, next) => {
 });
 
 /**
- * Body Parsing Middleware
- * Parse incoming request bodies
+ * Middleware de Parsing de Body
+ * Parsear cuerpos de peticiones entrantes
  */
 app.use(express.json({
-  limit: '10mb', // Limit JSON payload size
+  limit: '10mb', // Limitar tamaño de payload JSON
   verify: (req, res, buf) => {
-    // Store raw body for webhook signature verification if needed
+    // Almacenar body crudo para verificación de firma de webhooks si es necesario
     req.rawBody = buf;
   }
 }));
@@ -193,7 +193,7 @@ app.use(express.urlencoded({
 }));
 
 /**
- * Cookie parsing for JWT tokens in cookies
+ * Parsing de cookies para tokens JWT en cookies
  * Configuración con opciones de seguridad para CORS
  *
  * IMPORTANTE: En producción con CORS y credentials:
@@ -224,21 +224,21 @@ if (config.server.env === 'production') {
 }
 
 /**
- * Logging Middleware
- * HTTP request logging with Pino
+ * Middleware de Logging
+ * Logging de peticiones HTTP con Pino
  */
 app.use(httpLoggerMiddleware);
 app.use(enrichRequestContext);
 
 /**
- * Performance Monitoring Middleware
- * Tracks response times and logs slow requests
+ * Middleware de Monitoreo de Rendimiento
+ * Rastrea tiempos de respuesta y registra peticiones lentas
  */
 app.use(performanceMonitor);
 
 /**
- * Health Check Endpoint (before rate limiting)
- * Simple endpoint for load balancer health checks
+ * Endpoint de Health Check (antes del rate limiting)
+ * Endpoint simple para health checks de balanceadores de carga
  */
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -249,19 +249,19 @@ app.get('/health', (req, res) => {
 });
 
 /**
- * API Routes
- * Mount all API routes under /api/v1
+ * Rutas de la API
+ * Montar todas las rutas de API bajo /api/v1
  */
 app.use(config.api.prefix + '/' + config.api.version, routes);
 
 /**
- * Root endpoint
- * Redirect to API documentation
+ * Endpoint raíz
+ * Redirigir a documentación de la API
  */
 app.get('/', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Welcome to Professional REST API',
+    message: 'Bienvenido a la API REST Profesional',
     version: config.api.version,
     documentation: `${req.protocol}://${req.get('host')}${config.api.prefix}/${config.api.version}/docs`,
     endpoints: {
@@ -273,27 +273,27 @@ app.get('/', (req, res) => {
 });
 
 /**
- * Error Handling Middleware
- * Must be last in the middleware chain
+ * Middleware de Manejo de Errores
+ * Debe ser el último en la cadena de middleware
  */
-app.use(errorLogger); // Log errors with Pino
-app.use(notFoundHandler); // Handle 404 errors
-app.use(globalErrorHandler); // Handle all other errors
+app.use(errorLogger); // Registrar errores con Pino
+app.use(notFoundHandler); // Manejar errores 404
+app.use(globalErrorHandler); // Manejar todos los demás errores
 
 /**
- * Start Server Function
- * Connects to database and starts the HTTP server
+ * Función de Inicio del Servidor
+ * Conecta a la base de datos e inicia el servidor HTTP
  */
 const startServer = async () => {
   try {
-    // Connect to MongoDB
-    logger.info('Connecting to MongoDB...');
+    // Conectar a MongoDB
+    logger.info('Conectando a MongoDB...');
     await connectDB(config.database.uri);
 
     // Precalentar caché en background (no bloquea arranque del servidor)
     warmupCacheAsync();
 
-    // Start HTTP server
+    // Iniciar servidor HTTP
     const server = app.listen(config.server.port, config.server.host, () => {
       logger.info({
         environment: config.server.env,
@@ -303,68 +303,68 @@ const startServer = async () => {
         baseUrl: `http://${config.server.host}:${config.server.port}`,
         apiUrl: `http://${config.server.host}:${config.server.port}${config.api.prefix}/${config.api.version}`,
         healthCheck: `http://${config.server.host}:${config.server.port}/health`
-      }, 'Server started successfully');
+      }, 'Servidor iniciado exitosamente');
 
       logger.info({
         features: [
-          'JWT Authentication',
-          'Password Hashing (bcrypt)',
-          'Rate Limiting',
-          'Input Validation',
-          'NoSQL Injection Prevention',
-          'XSS Protection',
-          'Security Headers (Helmet)',
-          'CORS Protection',
-          'Account Lockout Protection'
+          'Autenticación JWT',
+          'Hashing de Contraseñas (bcrypt)',
+          'Limitación de Tasa',
+          'Validación de Entrada',
+          'Prevención de Inyección NoSQL',
+          'Protección XSS',
+          'Headers de Seguridad (Helmet)',
+          'Protección CORS',
+          'Protección de Bloqueo de Cuenta'
         ]
-      }, 'Security features enabled');
+      }, 'Funcionalidades de seguridad habilitadas');
 
-      logger.info('Ready to accept connections');
+      logger.info('Listo para aceptar conexiones');
     });
 
-    // Graceful shutdown handling
+    // Manejo de apagado graceful
     const gracefulShutdown = (signal) => {
-      logger.info({ signal }, 'Received shutdown signal, starting graceful shutdown');
+      logger.info({ signal }, 'Señal de apagado recibida, iniciando apagado graceful');
 
       server.close((err) => {
         if (err) {
-          logger.error({ error: err.message }, 'Error during server shutdown');
+          logger.error({ error: err.message }, 'Error durante el apagado del servidor');
           process.exit(1);
         }
 
-        logger.info('HTTP server closed');
+        logger.info('Servidor HTTP cerrado');
 
-        // Close database connection
+        // Cerrar conexión a base de datos
         require('mongoose').connection.close().then(() => {
-          logger.info('Database connection closed');
-          logger.info('Graceful shutdown completed');
+          logger.info('Conexión a base de datos cerrada');
+          logger.info('Apagado graceful completado');
           process.exit(0);
         });
       });
 
-      // Force shutdown after 30 seconds
+      // Forzar apagado después de 30 segundos
       setTimeout(() => {
-        logger.fatal('Could not close connections in time, forcefully shutting down');
+        logger.fatal('No se pudieron cerrar las conexiones a tiempo, apagando forzosamente');
         process.exit(1);
       }, 30000);
     };
 
-    // Listen for shutdown signals
+    // Escuchar señales de apagado
     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
     return server;
 
   } catch (error) {
-    logger.fatal({ error: error.message, stack: error.stack }, 'Failed to start server');
+    logger.fatal({ error: error.message, stack: error.stack }, 'Fallo al iniciar el servidor');
     process.exit(1);
   }
 };
 
-// Start the server if this file is run directly
+// Iniciar el servidor si este archivo se ejecuta directamente
 if (require.main === module) {
   startServer();
 }
 
-// Export app for testing purposes
+// Exportar app para propósitos de testing
 module.exports = { app, startServer };

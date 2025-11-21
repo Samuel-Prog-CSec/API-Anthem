@@ -1,7 +1,8 @@
 const Location = require('../models/Location');
 const { validationResult } = require('express-validator');
 const { createValidationError, createInternalError, createBadRequestError } = require('../utils/errorUtils');
-const { parsePaginationParams, createPaginationMeta } = require('../utils/paginationHelper');
+const { createPaginationMeta } = require('../utils/paginationHelper');
+const { buildFilters, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 
 /**
@@ -15,28 +16,18 @@ const getLocations = async (req, res, next) => {
     }
 
     const {
-      tipo,
-      distrito,
-      barrio,
       bbox, // bounding box: "minX,minY,maxX,maxY"
-      cerca_de, // "x,y,radio_metros"
-      limit = 100,
-      page = 1
+      cerca_de // "x,y,radio_metros"
     } = req.query;
 
-    // Construir filtros base
-    const filters = {};
+    // Construir filtros usando buildFilters de queryHelper
+    const filterConfig = [
+      { field: 'tipo', type: 'in', param: 'tipo' },
+      { field: 'distrito', type: 'regex', param: 'distrito' },
+      { field: 'barrio', type: 'regex', param: 'barrio' }
+    ];
 
-    if (tipo) {
-      if (Array.isArray(tipo)) {
-        filters.tipo = { $in: tipo };
-      } else {
-        filters.tipo = tipo;
-      }
-    }
-
-    if (distrito) {filters.distrito = new RegExp(distrito, 'i');}
-    if (barrio) {filters.barrio = new RegExp(barrio, 'i');}
+    const filters = buildFilters(req.query, filterConfig);
 
     // Filtro por bounding box (coordenadas UTM)
     if (bbox) {
@@ -55,8 +46,11 @@ const getLocations = async (req, res, next) => {
       };
     }
 
-    // Procesar parámetros de paginación
-    const pagination = parsePaginationParams(page, limit);
+    // Configurar paginación usando queryHelper
+    const paginationOptions = buildPaginationOptions(req.query, {
+      defaultLimit: 100,
+      maxLimit: 500
+    });
 
     // Proyección optimizada: solo campos esenciales
     const projection = {
@@ -73,7 +67,7 @@ const getLocations = async (req, res, next) => {
       filters,
       geoQuery,
       sort: { nombre: 1 },
-      pagination: { skip: pagination.skip, limit: pagination.limitNum },
+      pagination: { skip: paginationOptions.skip, limit: paginationOptions.limit },
       projection,
       lean: true,
       includeStats: false
@@ -82,7 +76,7 @@ const getLocations = async (req, res, next) => {
     const responseData = {
       data: {
         ubicaciones,
-        pagination: createPaginationMeta(pagination.pageNum, pagination.limitNum, total)
+        pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, total)
       }
     };
 
@@ -253,3 +247,4 @@ module.exports = {
   getTransportRoutes,
   getProximityAnalysis
 };
+

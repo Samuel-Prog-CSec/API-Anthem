@@ -7,6 +7,19 @@
  */
 
 /**
+ * Escapa caracteres especiales de regex para prevenir ataques ReDoS
+ *
+ * @param {string} str - String a escapar
+ * @returns {string} String escapado
+ */
+const escapeRegex = (str) => {
+  if (typeof str !== 'string') {
+    return '';
+  }
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
+
+/**
  * Construye objeto de filtros para queries de MongoDB
  *
  * @param {Object} queryParams - Query parameters de la request
@@ -34,7 +47,9 @@ const buildFilters = (queryParams, filterConfig) => {
       case 'regex': {
         const value = queryParams[param];
         if (value) {
-          filters[field] = new RegExp(value, 'i');
+          // Sanitizar entrada de usuario para prevenir ataques ReDoS
+          const sanitizedValue = escapeRegex(value);
+          filters[field] = new RegExp(sanitizedValue, 'i');
         }
         break;
       }

@@ -12,9 +12,10 @@ const rateLimit = require('express-rate-limit');
 // Middleware de autenticación y seguridad
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
 
 // Middleware de caché optimizado
-const { cacheMiddleware, statsCacheMiddleware } = require('../middleware/cache');
+const { cacheMiddleware } = require('../middleware/cache');
 
 // Controladores
 const {
@@ -25,6 +26,9 @@ const {
 } = require('../controllers/airQualityController');
 
 const router = express.Router();
+
+// Aplicar performanceMonitor a todas las rutas de calidad de aire
+router.use(performanceMonitor);
 
 /**
  * Rate limiting específico para endpoints de datos ambientales

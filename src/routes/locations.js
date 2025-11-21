@@ -8,11 +8,15 @@ const {
 } = require('../controllers/locationController');
 
 // Middleware
-const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { etagMiddleware } = require('../middleware/etag');
 
 const router = express.Router();
+
+// Aplicar performanceMonitor a todas las rutas de ubicaciones
+router.use(performanceMonitor);
 
 /**
  * @route   GET /api/v0.1/ubicaciones
@@ -20,6 +24,7 @@ const router = express.Router();
  * @access  Public
  */
 router.get('/',
+  etagMiddleware, // ETags para datos estáticos de ubicaciones
   cacheMiddleware(),
   [
     query('tipo')

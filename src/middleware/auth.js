@@ -1,8 +1,8 @@
 /**
- * Authentication Middleware
+ * Middleware de Autenticación
  *
- * Handles JWT token validation and user authentication.
- * Protects routes that require user authentication.
+ * Maneja la validación de tokens JWT y autenticación de usuarios.
+ * Protege rutas que requieren autenticación de usuario.
  *
  */
 
@@ -13,24 +13,24 @@ const { authLogger } = require('../config/logger');
 const { logTokenValidation } = require('../utils/securityLogger');
 
 /**
- * Authentication middleware
+ * Middleware de autenticación
  *
- * Verifies JWT token and attaches user information to request object.
- * Protects routes that require authenticated users.
+ * Verifica el token JWT y adjunta la información del usuario al objeto request.
+ * Protege rutas que requieren usuarios autenticados.
  *
- * @param {object} req - Express request object
- * @param {object} res - Express response object
- * @param {function} next - Express next function
+ * @param {object} req - Objeto request de Express
+ * @param {object} res - Objeto response de Express
+ * @param {function} next - Función next de Express
  */
 const authenticate = async (req, res, next) => {
   try {
-    // Extract token from request
+    // Extraer token de la petición
     let token;
 
     try {
       token = extractToken(req);
     } catch (error) {
-      // Token in query string blocked in production
+      // Token en query string bloqueado en producción
       return res.status(401).json(
         createUnauthorizedResponse(error.message)
       );
@@ -38,23 +38,23 @@ const authenticate = async (req, res, next) => {
 
     if (!token) {
       return res.status(401).json(
-        createUnauthorizedResponse('Access token is required')
+        createUnauthorizedResponse('Se requiere un token de acceso')
       );
     }
 
-    // Verify token
+    // Verificar token
     let decoded;
     try {
       decoded = await verifyToken(token);
 
-      // Log successful token validation
+      // Registrar validación exitosa de token
       logTokenValidation(true, null, {
         userId: decoded.id,
         ip: req.ip,
         userAgent: req.get('user-agent')
       });
     } catch (error) {
-      // Log failed token validation
+      // Registrar validación fallida de token
       logTokenValidation(false, error.message, {
         tokenPrefix: token.substring(0, 20) + '...',
         ip: req.ip,
@@ -62,34 +62,34 @@ const authenticate = async (req, res, next) => {
       });
 
       return res.status(401).json(
-        createUnauthorizedResponse(`Token validation failed: ${error.message}`)
+        createUnauthorizedResponse(`Validación de token fallida: ${error.message}`)
       );
     }
 
-    // Get user from token payload
+    // Obtener usuario del payload del token
     const user = await User.findById(decoded.id).select('-password');
 
     if (!user) {
       return res.status(401).json(
-        createUnauthorizedResponse('User not found')
+        createUnauthorizedResponse('Usuario no encontrado')
       );
     }
 
-    // Check if user account is active
+    // Verificar si la cuenta de usuario está activa
     if (!user.isActive) {
       return res.status(403).json(
-        createUnauthorizedResponse('Account is deactivated')
+        createUnauthorizedResponse('La cuenta está desactivada')
       );
     }
 
-    // Check if account is locked
+    // Verificar si la cuenta está bloqueada
     if (user.isLocked) {
       return res.status(423).json(
-        createUnauthorizedResponse('Account is temporarily locked')
+        createUnauthorizedResponse('La cuenta está temporalmente bloqueada')
       );
     }
 
-    // Attach user to request object
+    // Adjuntar usuario al objeto request
     req.user = user;
     req.token = token;
 
@@ -102,9 +102,9 @@ const authenticate = async (req, res, next) => {
       path: req.path,
       method: req.method,
       ip: req.ip
-    }, 'Authentication middleware error');
+    }, 'Error en middleware de autenticación');
     return res.status(500).json(
-      createUnauthorizedResponse('Authentication error')
+      createUnauthorizedResponse('Error de autenticación')
     );
   }
 };

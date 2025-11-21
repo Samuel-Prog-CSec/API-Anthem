@@ -12,7 +12,7 @@ const { AppError, createValidationError, createInternalError } = require('../uti
 const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -128,7 +128,7 @@ const getFines = async (req, res, next) => {
     const paginationMeta = createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
 
     // Obtener estadísticas rápidas del conjunto filtrado con límite
-    const estadisticasRapidas = await Fine.aggregate([
+    const quickStatistics = await Fine.aggregate([
       { $match: filters },
       { $limit: 10000 }, // Límite máximo de documentos para estadísticas
       {
@@ -151,7 +151,7 @@ const getFines = async (req, res, next) => {
       message: 'Multas obtenidas exitosamente',
       data,
       pagination: paginationMeta,
-      estadisticas: estadisticasRapidas[0] || {
+      estadisticas: quickStatistics[0] || {
         totalImporte: 0,
         importePromedio: 0,
         totalPuntos: 0,
@@ -161,16 +161,13 @@ const getFines = async (req, res, next) => {
       filtros: {
         aplicados: Object.keys(filters).length > 0 ? filters : null,
         disponibles: {
-          calificaciones: ['LEVE', 'GRAVE', 'MUY GRAVE'],
-          tiposInfraccion: [
-            'VELOCIDAD', 'ESTACIONAMIENTO', 'TELEFONO_MOVIL',
-            'SEMAFORO', 'ALCOHOL_DROGAS', 'DOCUMENTACION', 'OTRAS'
-          ]
+          calificaciones: Object.values(SEVERITY_LEVELS.FINE),
+          tiposInfraccion: Object.values(INFRACTION_TYPES)
         }
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Multas obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Multas obtenidas exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -212,11 +209,12 @@ const getFineById = async (req, res, next) => {
       data: {
         ...multa,
         impactoEconomico,
-        gravedad: multa.calificacion === 'GRAVE' || multa.calificacion === 'MUY GRAVE' ? 'ALTA' : 'BAJA'
+        gravedad: multa.calificacion === SEVERITY_LEVELS.FINE.GRAVE ||
+                  multa.calificacion === SEVERITY_LEVELS.FINE.MUY_GRAVE ? DATA_QUALITY_LEVELS.ALTA : DATA_QUALITY_LEVELS.BAJA
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Detalles de multa obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Detalles de multa obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -248,7 +246,7 @@ const getFinesStatistics = async (req, res, next) => {
     } = req.query;
 
     // Llamar al método optimizado del modelo
-    const resultado = await Fine.getStatisticsOptimized({
+    const result = await Fine.getStatisticsOptimized({
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
       groupBy,
@@ -258,8 +256,8 @@ const getFinesStatistics = async (req, res, next) => {
     const responseData = {
       message: 'Estadísticas de multas obtenidas exitosamente',
       data: {
-        estadisticas: resultado.estadisticas,
-        resumen: resultado.resumen,
+        estadisticas: result.estadisticas,
+        resumen: result.resumen,
         configuracion: {
           agrupacion: groupBy,
           filtros: startDate || endDate ? { startDate, endDate } : null,
@@ -268,7 +266,7 @@ const getFinesStatistics = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Estadísticas de multas obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas de multas obtenidas exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -317,7 +315,7 @@ const getLocationsRanking = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Ranking de ubicaciones obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Ranking de ubicaciones obtenido exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -343,7 +341,7 @@ const getTemporalAnalysis = async (req, res, next) => {
     } = req.query;
 
     // Llamar al método optimizado del modelo
-    const resultado = await Fine.getTemporalAnalysisOptimized({
+    const result = await Fine.getTemporalAnalysisOptimized({
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
       tipoAnalisis
@@ -352,20 +350,20 @@ const getTemporalAnalysis = async (req, res, next) => {
     const responseData = {
       message: 'Análisis temporal obtenido exitosamente',
       data: {
-        analisis: resultado.analisis,
-        tendencia: resultado.tendencia,
+        analisis: result.analisis,
+        tendencia: result.tendencia,
         configuracion: {
           tipoAnalisis,
           filtros: startDate || endDate ? { startDate, endDate } : null
         },
         metadatos: {
-          totalPeriodos: resultado.analisis.length,
+          totalPeriodos: result.analisis.length,
           fechaConsulta: new Date()
         }
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Análisis temporal obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis temporal obtenido exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -517,7 +515,7 @@ const getDashboardMetrics = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Métricas del dashboard obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Métricas del dashboard obtenidas exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -538,3 +536,4 @@ module.exports = {
   getTemporalAnalysis,
   getDashboardMetrics
 };
+

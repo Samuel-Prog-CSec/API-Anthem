@@ -1,11 +1,9 @@
 /**
- * Security Middleware Collection
+ * Colección de Middleware de Seguridad
  *
- * Comprehensive security middleware for protecting the API against
- * common vulnerabilities and attacks.
+ * Middleware de seguridad integral para proteger la API contra
+ * vulnerabilidades y ataques comunes.
  *
- * @author API Development Team
- * @version 1.0.0
  */
 
 const rateLimit = require('express-rate-limit');
@@ -17,54 +15,54 @@ const { createRateLimitResponse, createErrorResponse } = require('../utils/respo
 const { securityLogger: pinoSecurityLogger } = require('../config/logger');
 
 /**
- * Rate limiting configuration
+ * Configuración de limitación de tasa
  *
- * Prevents abuse by limiting the number of requests from a single IP.
- * Different limits for different types of endpoints.
+ * Previene el abuso limitando el número de peticiones desde una única IP.
+ * Diferentes límites para diferentes tipos de endpoints.
  */
 
-// General API rate limiter
+// Limitador de tasa general de API
 const generalLimiter = rateLimit({
-  windowMs: config.security.rateLimitWindowMs, // Time window in milliseconds
-  max: config.security.rateLimitMaxRequests, // Max requests per window
+  windowMs: config.security.rateLimitWindowMs, // Ventana de tiempo en milisegundos
+  max: config.security.rateLimitMaxRequests, // Máximo de peticiones por ventana
   message: createRateLimitResponse(Math.ceil(config.security.rateLimitWindowMs / 1000)),
-  standardHeaders: true, // Return rate limit info in headers
-  legacyHeaders: false, // Disable legacy headers
+  standardHeaders: true, // Devolver información de límite de tasa en headers
+  legacyHeaders: false, // Deshabilitar headers legacy
   handler: (req, res) => {
-    pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Rate limit exceeded');
+    pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa excedido');
     res.status(429).json(createRateLimitResponse(Math.ceil(config.security.rateLimitWindowMs / 1000)));
   }
 });
 
-// Strict rate limiter for authentication endpoints
+// Limitador de tasa estricto para endpoints de autenticación
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Max 10 attempts per 15 minutes
-  message: createRateLimitResponse(15 * 60), // 15 minutes in seconds
-  skipSuccessfulRequests: true, // Don't count successful requests
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 10, // Máximo 10 intentos por 15 minutos
+  message: createRateLimitResponse(15 * 60), // 15 minutos en segundos
+  skipSuccessfulRequests: true, // No contar peticiones exitosas
   handler: (req, res) => {
-    pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Auth rate limit exceeded');
+    pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa de autenticación excedido');
     res.status(429).json(createRateLimitResponse(15 * 60));
   }
 });
 
-// Heavy query rate limiter for resource-intensive endpoints
+// Limitador de tasa para consultas pesadas para endpoints intensivos en recursos
 const heavyQueryLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 5, // Max 5 heavy queries per minute
+  windowMs: 60 * 1000, // 1 minuto
+  max: 5, // Máximo 5 consultas pesadas por minuto
   message: createRateLimitResponse(60),
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
-    pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Heavy query rate limit exceeded');
+    pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa de consulta pesada excedido');
     res.status(429).json(createRateLimitResponse(60));
   }
 });
 
 /**
- * Helmet security middleware configuration
+ * Configuración de middleware de seguridad Helmet
  *
- * Sets various security headers to protect against common vulnerabilities.
+ * Establece varios headers de seguridad para proteger contra vulnerabilidades comunes.
  */
 const helmetConfig = helmet({
   // Content Security Policy
@@ -82,46 +80,46 @@ const helmetConfig = helmet({
     },
   },
 
-  // Cross-Origin Resource Sharing headers
-  crossOriginEmbedderPolicy: false, // Disable for API compatibility
+  // Headers de Cross-Origin Resource Sharing
+  crossOriginEmbedderPolicy: false, // Deshabilitar para compatibilidad de API
   crossOriginResourcePolicy: { policy: 'cross-origin' },
 
   // Referrer Policy
   referrerPolicy: { policy: 'no-referrer' },
 
-  // HTTP Strict Transport Security (HTTPS only)
+  // HTTP Strict Transport Security (solo HTTPS)
   hsts: {
-    maxAge: 31536000, // 1 year
+    maxAge: 31536000, // 1 año
     includeSubDomains: true,
     preload: true
   }
 });
 
 /**
- * Input sanitization middleware
+ * Middleware de sanitización de entrada
  *
- * Prevents NoSQL injection attacks by sanitizing user input.
+ * Previene ataques de inyección NoSQL sanitizando la entrada del usuario.
  */
 const sanitizeInput = mongoSanitize({
-  replaceWith: '_', // Replace prohibited characters with underscore
+  replaceWith: '_', // Reemplazar caracteres prohibidos con guión bajo
   onSanitize: ({ req, key }) => {
-    pinoSecurityLogger.warn({ key, ip: req.ip }, 'Input sanitized - potential NoSQL injection attempt');
+    pinoSecurityLogger.warn({ key, ip: req.ip }, 'Entrada sanitizada - posible intento de inyección NoSQL');
   }
 });
 
 /**
- * XSS Protection Middleware
+ * Middleware de Protección XSS
  *
- * Sanitizes user input to prevent Cross-Site Scripting attacks.
- * Recursively cleans all string values in req.body, req.query, and req.params.
+ * Sanitiza la entrada del usuario para prevenir ataques de Cross-Site Scripting.
+ * Limpia recursivamente todos los valores de cadena en req.body, req.query y req.params.
  *
  * @middleware
  */
 const xssProtection = (req, res, next) => {
   /**
-   * Recursively sanitize object properties
-   * @param {Object} obj - Object to sanitize
-   * @returns {Object} Sanitized object
+   * Sanitizar recursivamente propiedades de objetos
+   * @param {Object} obj - Objeto a sanitizar
+   * @returns {Object} Objeto sanitizado
    */
   const sanitizeObject = (obj) => {
     if (!obj || typeof obj !== 'object') {
@@ -133,22 +131,22 @@ const xssProtection = (req, res, next) => {
         const value = obj[key];
 
         if (typeof value === 'string') {
-          // Sanitize string values
+          // Sanitizar valores de cadena
           const sanitized = xss(value);
 
-          // Log if XSS attempt detected
+          // Registrar si se detecta intento de XSS
           if (sanitized !== value) {
             pinoSecurityLogger.warn({
               field: key,
               ip: req.ip,
               originalLength: value.length,
               sanitizedLength: sanitized.length
-            }, 'XSS attempt detected and sanitized');
+            }, 'Intento de XSS detectado y sanitizado');
           }
 
           obj[key] = sanitized;
         } else if (typeof value === 'object' && value !== null) {
-          // Recursively sanitize nested objects
+          // Sanitizar recursivamente objetos anidados
           sanitizeObject(value);
         }
       }
@@ -158,42 +156,42 @@ const xssProtection = (req, res, next) => {
   };
 
   try {
-    // Sanitize request body
+    // Sanitizar cuerpo de la petición
     if (req.body) {
       req.body = sanitizeObject(req.body);
     }
 
-    // Sanitize query parameters
+    // Sanitizar parámetros de query
     if (req.query) {
       req.query = sanitizeObject(req.query);
     }
 
-    // Sanitize URL parameters
+    // Sanitizar parámetros de URL
     if (req.params) {
       req.params = sanitizeObject(req.params);
     }
 
     next();
   } catch (error) {
-    pinoSecurityLogger.error({ error: error.message, stack: error.stack }, 'Error in XSS protection middleware');
+    pinoSecurityLogger.error({ error: error.message, stack: error.stack }, 'Error en middleware de protección XSS');
     next(error);
   }
 };
 
 /**
- * Custom security headers middleware
+ * Middleware de headers de seguridad personalizados
  *
- * Adds additional security headers not covered by helmet.
+ * Añade headers de seguridad adicionales no cubiertos por helmet.
  */
 const customSecurityHeaders = (req, res, next) => {
-  // Remove sensitive server information
+  // Eliminar información sensible del servidor
   res.removeHeader('X-Powered-By');
 
-  // Add custom security headers
+  // Añadir headers de seguridad personalizados
   res.setHeader('X-API-Version', config.api.version);
   res.setHeader('X-Request-ID', req.id || 'unknown');
 
-  // Cache control for sensitive data
+  // Control de caché para datos sensibles
   if (req.path.includes('/auth') || req.path.includes('/user')) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
@@ -204,29 +202,44 @@ const customSecurityHeaders = (req, res, next) => {
 };
 
 /**
- * Request validation middleware
+ * Middleware de validación de peticiones
  *
- * Validates request structure and prevents malformed requests.
+ * Valida la estructura de las peticiones y previene peticiones malformadas.
  */
 const validateRequest = (req, res, next) => {
-  // Check for suspiciously large requests
+  // Verificar peticiones sospechosamente grandes
   const maxSize = 1024 * 1024; // 1MB
   const contentLength = req.get('Content-Length');
 
   if (contentLength && parseInt(contentLength) > maxSize) {
-    pinoSecurityLogger.warn({ contentLength, ip: req.ip }, 'Large request detected - potential DoS attempt');
+    pinoSecurityLogger.warn({ contentLength, ip: req.ip }, 'Petición grande detectada - posible intento de DoS');
     return res.status(413).json(
-      createErrorResponse('Request entity too large')
+      createErrorResponse('Entidad de petición demasiado grande')
     );
   }
 
-  // Validate content type for POST/PUT requests
+  // Validar tipo de contenido para peticiones POST/PUT
   if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
     const contentType = req.get('Content-Type');
     if (contentType && !contentType.includes('application/json')) {
       return res.status(415).json(
-        createErrorResponse('Unsupported media type. Expected application/json')
+        createErrorResponse('Tipo de medio no soportado. Se esperaba application/json')
       );
+    }
+  }
+
+  // Prevenir HTTP Parameter Pollution (HPP)
+  // Detectar parámetros duplicados en query string
+  if (req.query) {
+    for (const [key, value] of Object.entries(req.query)) {
+      if (Array.isArray(value)) {
+        pinoSecurityLogger.warn(
+          { key, valueCount: value.length, ip: req.ip },
+          'Parámetro duplicado detectado - posible HTTP Parameter Pollution'
+        );
+        // Tomar solo el primer valor para prevenir HPP
+        req.query[key] = value[0];
+      }
     }
   }
 
@@ -234,12 +247,12 @@ const validateRequest = (req, res, next) => {
 };
 
 /**
- * Request logging for security monitoring
+ * Logging de peticiones para monitoreo de seguridad
  */
 const securityLogger = (req, res, next) => {
   const startTime = Date.now();
 
-  // Log sensitive endpoint access
+  // Registrar accesos a endpoints sensibles
   const sensitiveEndpoints = ['/auth', '/admin', '/password'];
   const isSensitive = sensitiveEndpoints.some(endpoint => req.path.includes(endpoint));
 
@@ -248,10 +261,10 @@ const securityLogger = (req, res, next) => {
       method: req.method,
       path: req.path,
       ip: req.ip
-    }, 'Sensitive endpoint access');
+    }, 'Acceso a endpoint sensible');
   }
 
-  // Log response when request completes
+  // Registrar respuesta cuando la petición se completa
   res.on('finish', () => {
     const duration = Date.now() - startTime;
 
@@ -262,7 +275,7 @@ const securityLogger = (req, res, next) => {
         statusCode: res.statusCode,
         duration: `${duration}ms`,
         ip: req.ip
-      }, 'Failed request');
+      }, 'Petición fallida');
     }
   });
 

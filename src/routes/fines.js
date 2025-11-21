@@ -19,11 +19,16 @@ const {
 
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
+const { SEVERITY_LEVELS, INFRACTION_TYPES } = require('../constants');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
 
 // Middleware de caché optimizado
 const { cacheMiddleware } = require('../middleware/cache');
 
 const router = express.Router();
+
+// Aplicar performanceMonitor a todas las rutas de multas
+router.use(performanceMonitor);
 
 /**
  * Validaciones comunes para filtros de fecha
@@ -86,11 +91,11 @@ router.get('/',
   query('calificacion')
     .optional()
     .custom((value) => {
-      const validValues = ['LEVE', 'GRAVE', 'MUY GRAVE'];
+      const validValues = Object.values(SEVERITY_LEVELS.FINE);
       const values = Array.isArray(value) ? value : [value];
       return values.every(v => validValues.includes(v.toUpperCase()));
     })
-    .withMessage('Calificación debe ser LEVE, GRAVE o MUY GRAVE'),
+    .withMessage(`Calificación debe ser ${Object.values(SEVERITY_LEVELS.FINE).join(', ')}`),
 
   query('lugar')
     .optional()
@@ -101,14 +106,11 @@ router.get('/',
   query('tipoInfraccion')
     .optional()
     .custom((value) => {
-      const validValues = [
-        'VELOCIDAD', 'ESTACIONAMIENTO', 'TELEFONO_MOVIL',
-        'SEMAFORO', 'ALCOHOL_DROGAS', 'DOCUMENTACION', 'OTRAS'
-      ];
+      const validValues = Object.values(INFRACTION_TYPES);
       const values = Array.isArray(value) ? value : [value];
       return values.every(v => validValues.includes(v));
     })
-    .withMessage('Tipo de infracción no válido'),
+    .withMessage(`Tipo de infracción debe ser uno de: ${Object.values(INFRACTION_TYPES).join(', ')}`),
 
   query('denunciante')
     .optional()

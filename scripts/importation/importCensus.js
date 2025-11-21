@@ -274,20 +274,20 @@ async function processBatch(batch, options, stats) {
  * @returns {Promise<Object>} - Estadísticas finales
  */
 async function importCensusData(options = {}) {
-  const config = { ...IMPORT_CONFIG, ...options };
+  const importConfig = { ...IMPORT_CONFIG, ...options };
 
   console.log('👥 Iniciando importación de datos de censo...');
-  console.log(`📁 Directorio: ${config.dataDirectory}`);
+  console.log(`📁 Directorio: ${importConfig.dataDirectory}`);
 
   try {
     // Verificar que existe el directorio
-    const dirStats = await fs.stat(config.dataDirectory);
+    const dirStats = await fs.stat(importConfig.dataDirectory);
     if (!dirStats.isDirectory()) {
-      throw new Error(`No se encontró el directorio: ${config.dataDirectory}`);
+      throw new Error(`No se encontró el directorio: ${importConfig.dataDirectory}`);
     }
 
     // Obtener lista de archivos CSV
-    const files = await fs.readdir(config.dataDirectory);
+    const files = await fs.readdir(importConfig.dataDirectory);
     const csvFiles = files
       .filter(file => file.endsWith('.csv') && file.includes('Censo'))
       .sort();
@@ -314,10 +314,10 @@ async function importCensusData(options = {}) {
 
     // Procesar cada archivo
     for (const file of csvFiles) {
-      const filePath = path.join(config.dataDirectory, file);
+      const filePath = path.join(importConfig.dataDirectory, file);
 
       try {
-        const fileStats = await processCensusFile(filePath, config);
+        const fileStats = await processCensusFile(filePath, importConfig);
         globalStats.fileStats.push(fileStats);
         globalStats.completedFiles++;
         globalStats.totalRows += fileStats.totalRows;

@@ -13,9 +13,10 @@ const rateLimit = require('express-rate-limit');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
 const { validateDateRange } = require('../middleware/validation');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
 
 // Middleware de caché optimizado
-const { cacheMiddleware, statsCacheMiddleware } = require('../middleware/cache');
+const { cacheMiddleware } = require('../middleware/cache');
 
 // Controladores
 const {
@@ -30,6 +31,9 @@ const {
 } = require('../controllers/noiseMonitoringController');
 
 const router = express.Router();
+
+// Aplicar performanceMonitor a todas las rutas de ruido
+router.use(performanceMonitor);
 
 /**
  * Rate limiting específico para endpoints de contaminación acústica

@@ -1,19 +1,18 @@
 /**
- * Token Blacklist Model
+ * Modelo de Lista Negra de Tokens
  *
- * Manages revoked refresh tokens to prevent reuse after rotation.
- * Tokens are automatically removed after expiration using TTL index.
+ * Gestiona refresh tokens revocados para prevenir su reuso después de la rotación.
+ * Los tokens se eliminan automáticamente después de su expiración usando índice TTL.
  *
- * @author API Development Team
- * @version 1.0.0
  */
 
 const mongoose = require('mongoose');
+const { TOKEN_REVOCATION_REASONS } = require('../constants');
 
 /**
- * TokenBlacklist Schema
+ * Esquema de Lista Negra de Tokens
  *
- * Stores invalidated refresh tokens with automatic expiration.
+ * Almacena refresh tokens invalidados con expiración automática.
  */
 const tokenBlacklistSchema = new mongoose.Schema({
   token: {
@@ -32,7 +31,7 @@ const tokenBlacklistSchema = new mongoose.Schema({
 
   reason: {
     type: String,
-    enum: ['rotation', 'logout', 'compromised', 'password_change'],
+    enum: TOKEN_REVOCATION_REASONS,
     default: 'rotation'
   },
 
@@ -53,20 +52,20 @@ const tokenBlacklistSchema = new mongoose.Schema({
 });
 
 /**
- * TTL Index - MongoDB automatically deletes documents after expiresAt
- * This keeps the blacklist clean and performant
+ * Índice TTL - MongoDB elimina automáticamente documentos después de expiresAt
+ * Esto mantiene la lista negra limpia y eficiente
  */
 tokenBlacklistSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 /**
- * Static method to add token to blacklist
+ * Método estático para agregar token a lista negra
  *
- * @param {string} token - Refresh token to blacklist
- * @param {string} userId - User ID who owns the token
- * @param {string} reason - Reason for blacklisting
- * @param {Date} expiresAt - When the token naturally expires
- * @returns {Promise<Document>} Created blacklist entry
- * @throws {Error} If token or expiresAt is missing
+ * @param {string} token - Refresh token a agregar a lista negra
+ * @param {string} userId - ID de usuario propietario del token
+ * @param {string} reason - Razón para agregar a lista negra
+ * @param {Date} expiresAt - Cuando el token expira naturalmente
+ * @returns {Promise<Document>} Entrada de lista negra creada
+ * @throws {Error} Si falta token o expiresAt
  */
 tokenBlacklistSchema.statics.addToken = async function(token, userId, reason = 'rotation', expiresAt) {
   if (!token || !userId || !expiresAt) {
@@ -96,11 +95,11 @@ tokenBlacklistSchema.statics.addToken = async function(token, userId, reason = '
 };
 
 /**
- * Static method to check if token is blacklisted
+ * Método estático para verificar si un token está en lista negra
  *
- * @param {string} token - Token to check
- * @returns {Promise<boolean>} True if token is blacklisted
- * @throws {Error} If token is not provided
+ * @param {string} token - Token a verificar
+ * @returns {Promise<boolean>} True si el token está en lista negra
+ * @throws {Error} Si no se proporciona el token
  */
 tokenBlacklistSchema.statics.isBlacklisted = async function(token) {
   if (!token) {
@@ -109,21 +108,6 @@ tokenBlacklistSchema.statics.isBlacklisted = async function(token) {
 
   const entry = await this.findOne({ token }).lean();
   return !!entry;
-};
-
-/**
- * Static method to blacklist all tokens for a user
- * Useful when password is changed or account is compromised
- *
- * @param {string} userId - User ID
- * @param {string} reason - Reason for blacklisting
- * @returns {Promise<void>}
- */
-tokenBlacklistSchema.statics.blacklistUserTokens = async function(userId, reason = 'password_change') {
-  // In practice, you'd need to track active refresh tokens
-  // This is a placeholder - proper implementation would require storing active tokens
-  // For now, we rely on rotation to invalidate old tokens
-
 };
 
 const TokenBlacklist = mongoose.model('TokenBlacklist', tokenBlacklistSchema);

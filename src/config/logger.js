@@ -1,5 +1,5 @@
 /**
- * Logger Configuration with Pino
+ * Configuración del Logger con Pino
  *
  * Configuración profesional de logging usando Pino.js
  * Soporta diferentes niveles por entorno, rotación de logs y formato estructurado.

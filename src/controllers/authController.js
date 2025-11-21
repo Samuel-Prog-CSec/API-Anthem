@@ -1,8 +1,8 @@
 /**
- * Authentication Controller
+ * Controlador de Autenticación
  *
- * Handles user authentication operations including registration, login,
- * and token management with comprehensive security measures.
+ * Gestiona las operaciones de autenticación de usuarios incluyendo registro, login,
+ * y gestión de tokens con medidas de seguridad completas.
  *
  */
 
@@ -11,6 +11,7 @@ const User = require('../models/User');
 const TokenBlacklist = require('../models/TokenBlacklist');
 const { createResponse } = require('../utils/responseHelper');
 const { validatePassword } = require('../utils/passwordValidator');
+const { HTTP_STATUS } = require('../constants');
 const {
   createValidationError,
   createAuthError,
@@ -38,17 +39,17 @@ const {
 } = require('../utils/securityLogger');
 
 /**
- * User Registration Controller
+ * Controlador de Registro de Usuario
  *
- * Creates a new user account with validation and security checks.
- * Prevents duplicate accounts and ensures data integrity.
+ * Crea una nueva cuenta de usuario con validación y verificaciones de seguridad.
+ * Previene cuentas duplicadas y asegura la integridad de datos.
  *
  * @route POST /api/v1/auth/register
  * @access Public
  */
 const register = async (req, res, next) => {
   try {
-    // Check for validation errors
+    // Verificar errores de validación
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return next(createValidationError('Errores de validación', errors.array()));
@@ -64,13 +65,13 @@ const register = async (req, res, next) => {
       }));
     }
 
-    // Check if user already exists
+    // Verificar si el usuario ya existe
     const existingUser = await User.findByEmailOrUsername(email);
     if (existingUser) {
       return next(createConflictError('Ya existe un usuario con este email o nombre de usuario'));
     }
 
-    // Create new user
+    // Crear nuevo usuario
     const user = new User({
       username,
       email,
@@ -79,10 +80,10 @@ const register = async (req, res, next) => {
 
     await user.save();
 
-    // Generate access and refresh tokens
+    // Generar access token y refresh token
     const tokens = generateTokens(user);
 
-    // Prepare user data for response (excluding sensitive information)
+    // Preparar datos del usuario para respuesta (excluyendo información sensible)
     const userData = {
       id: user._id,
       username: user.username,
@@ -92,29 +93,29 @@ const register = async (req, res, next) => {
       createdAt: user.createdAt
     };
 
-    // Set secure HTTP-only cookies for tokens
+    // Establecer cookies HTTP-only seguras para los tokens
     res.cookie('accessToken', tokens.accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 15 * 60 * 1000 // 15 minutes
+      maxAge: 15 * 60 * 1000 // 15 minutos
     });
 
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 días
     });
 
     req.log.info({ username, email }, 'Nuevo usuario registrado exitosamente');
 
-    // Log security event
+    // Registrar evento de seguridad
     logUserRegistration(user._id.toString(), email, username, req.ip);
 
     res.status(201).json(
       createResponse(
-        'User registered successfully',
+        'Usuario registrado exitosamente',
         {
           user: userData,
           accessToken: tokens.accessToken,
@@ -131,7 +132,7 @@ const register = async (req, res, next) => {
       endpoint: 'POST /api/auth/register'
     }, 'Error en registro de usuario');
 
-    // Handle MongoDB errors
+    // Manejar errores de MongoDB
     if (error.code === 11000 || error.name === 'ValidationError' || error.name === 'CastError') {
       const mongoError = handleMongoError(error);
       return res.status(mongoError.statusCode).json(
@@ -144,17 +145,17 @@ const register = async (req, res, next) => {
 };
 
 /**
- * User Login Controller
+ * Controlador de Login de Usuario
  *
- * Authenticates user credentials and provides access token.
- * Implements account locking and login attempt tracking.
+ * Autentica credenciales de usuario y proporciona token de acceso.
+ * Implementa bloqueo de cuenta y seguimiento de intentos de login.
  *
  * @route POST /api/v1/auth/login
  * @access Public
  */
 const login = async (req, res, next) => {
   try {
-    // Check for validation errors
+    // Verificar errores de validación
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return next(createValidationError('Errores de validación', errors.array()));
@@ -162,14 +163,14 @@ const login = async (req, res, next) => {
 
     const { identifier, password } = req.body;
 
-    // Find user by email or username
+    // Buscar usuario por email o nombre de usuario
     const user = await User.findByEmailOrUsername(identifier);
     if (!user) {
       logLoginAttempt(false, identifier, null, req.ip, req.get('user-agent'), 'user_not_found');
       return next(createAuthError('Credenciales inválidas'));
     }
 
-    // Check if account is locked
+    // Verificar si la cuenta está bloqueada
     if (user.isLocked) {
       logLoginAttempt(false, identifier, user._id.toString(), req.ip, req.get('user-agent'), 'account_locked');
       logAccountLockout(user._id.toString(), identifier, user.loginAttempts, user.lockUntil, req.ip);
@@ -181,13 +182,13 @@ const login = async (req, res, next) => {
       );
     }
 
-    // Check if account is active
+    // Verificar si la cuenta está activa
     if (!user.isActive) {
       logLoginAttempt(false, identifier, user._id.toString(), req.ip, req.get('user-agent'), 'account_inactive');
       return next(createForbiddenError('La cuenta está desactivada'));
     }
 
-    // Validate password
+    // Validar contraseña
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
       await user.handleFailedLogin();
@@ -195,16 +196,16 @@ const login = async (req, res, next) => {
       return next(createAuthError('Credenciales inválidas'));
     }
 
-    // Handle successful login
+    // Manejar login exitoso
     await user.handleSuccessfulLogin();
 
-    // Log successful login
+    // Registrar login exitoso
     logLoginAttempt(true, identifier, user._id.toString(), req.ip, req.get('user-agent'));
 
-    // Generate access and refresh tokens
+    // Generar access token y refresh token
     const tokens = generateTokens(user);
 
-    // Prepare user data for response
+    // Preparar datos del usuario para respuesta
     const userData = {
       id: user._id,
       username: user.username,
@@ -214,26 +215,26 @@ const login = async (req, res, next) => {
       lastLogin: new Date()
     };
 
-    // Set secure HTTP-only cookies for tokens
+    // Establecer cookies HTTP-only seguras para los tokens
     res.cookie('accessToken', tokens.accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 15 * 60 * 1000 // 15 minutes
+      maxAge: 15 * 60 * 1000 // 15 minutos
     });
 
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 días
     });
 
     req.log.info({ username: user.username, email: user.email }, 'Usuario inició sesión exitosamente');
 
-    res.status(200).json(
+    res.status(HTTP_STATUS.OK).json(
       createResponse(
-        'Login successful',
+        'Login exitoso',
         {
           user: userData,
           accessToken: tokens.accessToken,
@@ -254,19 +255,19 @@ const login = async (req, res, next) => {
 };
 
 /**
- * User Logout Controller
+ * Controlador de Logout de Usuario
  *
- * Invalidates the current session by clearing cookies and blacklisting refresh token.
+ * Invalida la sesión actual limpiando cookies y agregando el refresh token a lista negra.
  *
  * @route POST /api/v1/auth/logout
  * @access Private
  */
 const logout = async (req, res, next) => {
   try {
-    // Get refresh token from cookies or body
+    // Obtener refresh token de cookies o body
     const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
 
-    // If refresh token exists, blacklist it
+    // Si existe refresh token, agregarlo a lista negra
     if (refreshToken) {
       try {
         const decoded = await verifyRefreshToken(refreshToken);
@@ -279,23 +280,23 @@ const logout = async (req, res, next) => {
           tokenExpiration
         );
       } catch (error) {
-        // Token might be already expired, continue with logout
+        // El token podría estar ya expirado, continuar con logout
         authLogger.warn({ error: error.message }, 'Refresh token inválido durante logout');
       }
     }
 
-    // Clear authentication cookies
+    // Limpiar cookies de autenticación
     res.clearCookie('accessToken');
     res.clearCookie('refreshToken');
-    res.clearCookie('token'); // Legacy cookie name
+    res.clearCookie('token'); // Nombre de cookie legacy
 
     req.log.info({ username: req.user.username }, 'Usuario cerró sesión');
 
-    // Log security event
+    // Registrar evento de seguridad
     logSessionTermination(req.user._id.toString(), 'logout', req.ip);
 
-    res.status(200).json(
-      createResponse('Logout successful')
+    res.status(HTTP_STATUS.OK).json(
+      createResponse('Logout exitoso')
     );
 
   } catch (error) {
@@ -310,9 +311,9 @@ const logout = async (req, res, next) => {
 };
 
 /**
- * Get Current User Profile Controller
+ * Controlador de Obtención de Perfil de Usuario
  *
- * Retrieves the authenticated user's profile information.
+ * Recupera la información del perfil del usuario autenticado.
  *
  * @route GET /api/v1/auth/me
  * @access Private
@@ -325,9 +326,9 @@ const getProfile = async (req, res, next) => {
       return next(createNotFoundError('Usuario', req.user.id));
     }
 
-    res.status(200).json(
+    res.status(HTTP_STATUS.OK).json(
       createResponse(
-        'Profile retrieved successfully',
+        'Perfil obtenido exitosamente',
         { user }
       )
     );
@@ -344,108 +345,34 @@ const getProfile = async (req, res, next) => {
 };
 
 /**
- * Update User Profile Controller
+ * Controlador de Renovación de Access Token
  *
- * Updates the authenticated user's profile information.
- *
- * @route PUT /api/v1/auth/profile
- * @access Private
- */
-const updateProfile = async (req, res, next) => {
-  try {
-    // Check for validation errors
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Errores de validación', errors.array()));
-    }
-
-    const { username, email } = req.body;
-    const userId = req.user.id;
-
-    // Check if new email is already taken by another user
-    if (email && email !== req.user.email) {
-      const existingUser = await User.findOne({ email, _id: { $ne: userId } }).lean();
-      if (existingUser) {
-        return next(
-          createConflictError('Email ya está en uso', { field: 'email', value: email })
-        );
-      }
-    }
-
-    // Check if new username is already taken by another user
-    if (username && username !== req.user.username) {
-      const existingUser = await User.findOne({ username, _id: { $ne: userId } }).lean();
-      if (existingUser) {
-        return next(
-          createConflictError('Username ya está en uso', { field: 'username', value: username })
-        );
-      }
-    }
-
-    // Update user profile
-    const updateData = {};
-    if (username) {updateData.username = username;}
-    if (email) {updateData.email = email;}
-
-    const user = await User.findByIdAndUpdate(
-      userId,
-      updateData,
-      { new: true, runValidators: true }
-    ).select('-password');
-
-    if (!user) {
-      return next(createNotFoundError('Usuario', userId));
-    }
-
-    req.log.info({ username: user.username, userId }, 'Perfil de usuario actualizado');
-
-    res.status(200).json(
-      createResponse(
-        'Profile updated successfully',
-        { user }
-      )
-    );
-
-  } catch (error) {
-    authLogger.error({
-      error: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      endpoint: 'PUT /api/auth/profile'
-    }, 'Error al actualizar el perfil');
-    return next(createInternalError('Error al actualizar el perfil', error));
-  }
-};
-
-/**
- * Refresh Access Token Controller
- *
- * Generates a new access token using a valid refresh token.
- * Implements refresh token rotation for enhanced security.
+ * Genera un nuevo access token usando un refresh token válido.
+ * Implementa rotación de refresh token para seguridad mejorada.
  *
  * @route POST /api/v1/auth/refresh
- * @access Public (requires valid refresh token)
+ * @access Public (requiere refresh token válido)
  */
 const refreshAccessToken = async (req, res, next) => {
   try {
-    // Extract refresh token from request
+    // Extraer refresh token de la request
     const { refreshToken } = req.body;
 
     if (!refreshToken) {
       return next(createAuthError('Refresh token requerido'));
     }
 
-    // Verify refresh token FIRST (fail fast with same error)
+    // Verificar refresh token PRIMERO (fallar rápido con mismo error)
     let decoded;
     try {
       decoded = await verifyRefreshToken(refreshToken);
     } catch (error) {
-      // Generic error - don't reveal if token is invalid or blacklisted
+      // Error genérico - no revelar si el token es inválido o está en lista negra
       authLogger.warn({ ip: req.ip }, 'Token refresh fallido: token inválido');
       return next(createAuthError('Token inválido o expirado'));
     }
 
-    // Check if token is blacklisted (after verification to avoid timing attacks)
+    // Verificar si el token está en lista negra (después de verificación para evitar ataques de timing)
     const isBlacklisted = await TokenBlacklist.isBlacklisted(refreshToken);
     if (isBlacklisted) {
       authLogger.warn({
@@ -455,23 +382,23 @@ const refreshAccessToken = async (req, res, next) => {
       return next(createAuthError('Token inválido o expirado'));
     }
 
-    // Get user from token
+    // Obtener usuario desde el token
     const user = await User.findById(decoded.id).select('-password');
     if (!user) {
       return next(createNotFoundError('Usuario', decoded.id));
     }
 
-    // Check if user account is active
+    // Verificar si la cuenta del usuario está activa
     if (!user.isActive) {
       return next(createForbiddenError('Cuenta desactivada'));
     }
 
-    // Check if account is locked
+    // Verificar si la cuenta está bloqueada
     if (user.isLocked) {
       return next(createForbiddenError('Cuenta bloqueada temporalmente'));
     }
 
-    // Invalidate old refresh token (rotation)
+    // Invalidar refresh token antiguo (rotación)
     const tokenExpiration = getTokenExpiration(refreshToken);
     await TokenBlacklist.addToken(
       refreshToken,
@@ -480,32 +407,32 @@ const refreshAccessToken = async (req, res, next) => {
       tokenExpiration
     );
 
-    // Generate NEW access token AND NEW refresh token
+    // Generar NUEVO access token Y NUEVO refresh token
     const tokens = generateTokens(user);
 
-    // Set new cookies
+    // Establecer nuevas cookies
     res.cookie('accessToken', tokens.accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 15 * 60 * 1000 // 15 minutes
+      maxAge: 15 * 60 * 1000 // 15 minutos
     });
 
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 días
     });
 
     authLogger.info({ userId: user._id }, 'Refresh token rotado exitosamente');
 
-    // Log security event
+    // Registrar evento de seguridad
     logTokenRefresh(user._id.toString(), true, req.ip);
 
-    res.status(200).json(
+    res.status(HTTP_STATUS.OK).json(
       createResponse(
-        'Token refreshed successfully',
+        'Token renovado exitosamente',
         {
           accessToken: tokens.accessToken,
           refreshToken: tokens.refreshToken
@@ -524,17 +451,17 @@ const refreshAccessToken = async (req, res, next) => {
 };
 
 /**
- * Change Password Controller
+ * Controlador de Cambio de Contraseña
  *
- * Allows authenticated users to change their password.
- * Requires current password verification and invalidates all refresh tokens.
+ * Permite a usuarios autenticados cambiar su contraseña.
+ * Requiere verificación de contraseña actual e invalida todos los refresh tokens.
  *
  * @route PUT /api/v1/auth/change-password
  * @access Private
  */
 const changePassword = async (req, res, next) => {
   try {
-    // Check for validation errors
+    // Verificar errores de validación
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return next(createValidationError('Errores de validación', errors.array()));
@@ -543,21 +470,21 @@ const changePassword = async (req, res, next) => {
     const { currentPassword, newPassword } = req.body;
     const userId = req.user._id;
 
-    // Get user with password field
+    // Obtener usuario con campo de contraseña
     const user = await User.findById(userId).select('+password');
 
     if (!user) {
       return next(createNotFoundError('Usuario', userId));
     }
 
-    // Verify current password
+    // Verificar contraseña actual
     const isPasswordValid = await user.comparePassword(currentPassword);
     if (!isPasswordValid) {
       logPasswordChange(userId.toString(), req.ip, false);
       return next(createAuthError('Contraseña actual incorrecta'));
     }
 
-    // Validate new password strength
+    // Validar fortaleza de la nueva contraseña
     const passwordValidation = validatePassword(newPassword);
     if (!passwordValidation.isValid) {
       return next(createBadRequestError('La nueva contraseña no cumple los requisitos de seguridad', {
@@ -565,27 +492,27 @@ const changePassword = async (req, res, next) => {
       }));
     }
 
-    // Check new password is different from current
+    // Verificar que la nueva contraseña sea diferente de la actual
     const isSamePassword = await user.comparePassword(newPassword);
     if (isSamePassword) {
       return next(createBadRequestError('La nueva contraseña debe ser diferente de la actual'));
     }
 
-    // Update password
+    // Actualizar contraseña
     user.password = newPassword;
     await user.save();
 
-    // TODO: Invalidate all refresh tokens for this user
-    // This would require tracking active refresh tokens per user
-    // For now, tokens will expire naturally
+    // TODO: Invalidar todos los refresh tokens para este usuario
+    // Esto requeriría rastrear refresh tokens activos por usuario
+    // Por ahora, los tokens expirarán naturalmente
 
-    // Log security event
+    // Registrar evento de seguridad
     logPasswordChange(userId.toString(), req.ip, true);
 
     req.log.info({ userId: userId.toString() }, 'Contraseña cambiada exitosamente');
 
-    res.status(200).json(
-      createResponse('Password changed successfully. Please login again with your new password.')
+    res.status(HTTP_STATUS.OK).json(
+      createResponse('Contraseña cambiada exitosamente. Por favor, inicia sesión nuevamente con tu nueva contraseña.')
     );
 
   } catch (error) {
@@ -604,7 +531,7 @@ module.exports = {
   login,
   logout,
   getProfile,
-  updateProfile,
   refreshAccessToken,
   changePassword
 };
+

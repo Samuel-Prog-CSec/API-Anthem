@@ -7,7 +7,20 @@
  */
 
 const mongoose = require('mongoose');
-const { coordinatesUTMSchema, validateHoraFormat, validateFechaNoFutura, validateEdad } = require('./schemas/commonSchemas');
+const { coordinatesUTMSchema, validateTimeFormat, validateNotFutureDate } = require('./schemas/commonSchemas');
+const {
+  ACCIDENT_TYPES,
+  VEHICLE_TYPES,
+  PERSON_TYPES,
+  INJURY_TYPES,
+  WEATHER_CONDITIONS,
+  DAY_PERIODS,
+  WORKDAY_TYPES,
+  RISK_FACTORS,
+  SEVERITY_LEVELS,
+  GENDERS,
+  BINARY_INDICATORS
+} = require('../constants');
 
 /**
  * Sub-esquema para información de la persona afectada
@@ -16,7 +29,7 @@ const personaAfectadaSchema = new mongoose.Schema({
   tipoPersona: {
     type: String,
     required: true,
-    enum: ['CONDUCTOR', 'PEATON', 'TESTIGO', 'VIAJERO', 'PASAJERO'],
+    enum: Object.values(PERSON_TYPES),
     uppercase: true
   },
 
@@ -36,7 +49,7 @@ const personaAfectadaSchema = new mongoose.Schema({
   sexo: {
     type: String,
     required: true,
-    enum: ['HOMBRE', 'MUJER', 'NO_ASIGNADO'],
+    enum: Object.values(GENDERS),
     uppercase: true
   },
 
@@ -56,12 +69,12 @@ const personaAfectadaSchema = new mongoose.Schema({
         const codigosFallecido = ['14', '04', 'FALLECIDO'];
 
         // No permitir códigos de fallecido en lesiones leves
-        if (this.tipoLesion === 'LEVE' && codigosFallecido.includes(v)) {
+        if (this.tipoLesion === INJURY_TYPES.LEVE && codigosFallecido.includes(v)) {
           return false;
         }
 
         // Validar que fallecidos tengan códigos apropiados
-        if (this.tipoLesion === 'FALLECIDO' && !codigosFallecido.includes(v)) {
+        if (this.tipoLesion === INJURY_TYPES.FALLECIDO && !codigosFallecido.includes(v)) {
           return false;
         }
 
@@ -73,23 +86,23 @@ const personaAfectadaSchema = new mongoose.Schema({
 
   tipoLesion: {
     type: String,
-    enum: ['LEVE', 'GRAVE', 'FALLECIDO', 'SIN_ASISTENCIA', 'DESCONOCIDO'],
+    enum: Object.values(INJURY_TYPES),
     uppercase: true,
-    default: 'DESCONOCIDO'
+    default: INJURY_TYPES.DESCONOCIDO
   },
 
   // Análisis de sustancias
   positivaAlcohol: {
     type: String,
-    enum: ['S', 'N', 'NULL'],
-    default: 'NULL',
+    enum: Object.values(BINARY_INDICATORS),
+    default: BINARY_INDICATORS.NULL,
     uppercase: true
   },
 
   positivaDroga: {
     type: String,
-    enum: ['S', 'N', 'NULL'],
-    default: 'NULL',
+    enum: Object.values(BINARY_INDICATORS),
+    default: BINARY_INDICATORS.NULL,
     uppercase: true
   }
 
@@ -127,7 +140,7 @@ const accidentSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateFechaNoFutura,
+      validator: validateNotFutureDate,
       message: 'La fecha del accidente no puede ser futura'
     }
   },
@@ -162,7 +175,7 @@ const accidentSchema = new mongoose.Schema({
     trim: true,
     index: true,
     validate: {
-      validator: validateHoraFormat,
+      validator: validateTimeFormat,
       message: 'Hora debe tener formato válido HH:MM o HH.MM (ej: "14:30" o "08:00")'
     }
   },
@@ -217,20 +230,9 @@ const accidentSchema = new mongoose.Schema({
       type: String,
       required: true,
       trim: true,
-      enum: [
-        'COLISION_DOBLE',
-        'COLISION_MULTIPLE',
-        'ALCANCE',
-        'CHOQUE_OBSTACULO',
-        'CHOQUE_OBSTACULO_FIJO',
-        'ATROPELLO_PERSONA',
-        'VUELCO',
-        'CAIDA',
-        'COLISION_FRONTO_LATERAL',
-        'OTRAS_CAUSAS'
-      ],
+      enum: ACCIDENT_TYPES,
       index: true,
-      default: 'OTRAS_CAUSAS'
+      default: 'OTRO'
     },
 
     // Campo temporal para procesar
@@ -243,27 +245,16 @@ const accidentSchema = new mongoose.Schema({
       type: String,
       required: false,
       trim: true,
-      enum: [
-        'DESPEJADO',
-        'NUBLADO',
-        'LLUVIA_LIGERA',
-        'LLUVIA_INTENSA',
-        'NIEBLA',
-        'VIENTO_FUERTE',
-        'GRANIZO',
-        'NIEVE',
-        'DESCONOCIDO',
-        'NULL'
-      ],
+      enum: Object.values(WEATHER_CONDITIONS),
       uppercase: true,
-      default: 'DESCONOCIDO'
+      default: WEATHER_CONDITIONS.DESCONOCIDO
     },
 
     // Gravedad del accidente (calculada automáticamente)
     gravedad: {
       type: String,
-      enum: ['LEVE', 'GRAVE', 'MORTAL', 'SIN_LESIONES'],
-      default: 'LEVE',
+      enum: Object.values(SEVERITY_LEVELS.ACCIDENT),
+      default: SEVERITY_LEVELS.ACCIDENT.LEVE,
       index: true
     }
   },
@@ -274,21 +265,10 @@ const accidentSchema = new mongoose.Schema({
       type: String,
       required: true,
       trim: true,
-      enum: [
-        'TURISMO',
-        'MOTOCICLETA',
-        'CICLOMOTOR',
-        'BICICLETA',
-        'AUTOBUS',
-        'CAMION',
-        'FURGONETA',
-        'TAXI',
-        'AMBULANCIA',
-        'OTROS'
-      ],
+      enum: VEHICLE_TYPES,
       uppercase: true,
       index: true,
-      default: 'OTROS'
+      default: 'SIN_ESPECIFICAR'
     },
 
     tipoVehiculoOriginal: {
@@ -308,8 +288,8 @@ const accidentSchema = new mongoose.Schema({
     // Periodo del día
     periodoDia: {
       type: String,
-      enum: ['MADRUGADA', 'MAÑANA', 'MEDIODIA', 'TARDE', 'NOCHE'],
-      default: 'MAÑANA',
+      enum: Object.values(DAY_PERIODS),
+      default: DAY_PERIODS.MAÑANA,
       index: true
     },
 
@@ -321,23 +301,15 @@ const accidentSchema = new mongoose.Schema({
 
     tipoJornada: {
       type: String,
-      enum: ['LABORABLE', 'SABADO', 'DOMINGO_FESTIVO'],
-      default: 'LABORABLE',
+      enum: Object.values(WORKDAY_TYPES),
+      default: WORKDAY_TYPES.LABORABLE,
       index: true
     },
 
     // Factores de riesgo
     factoresRiesgo: [{
       type: String,
-      enum: [
-        'ALCOHOL',
-        'DROGAS',
-        'VELOCIDAD_INADECUADA',
-        'CONDICIONES_METEOROLOGICAS',
-        'HORA_MADRUGADA',
-        'VEHICULO_DOS_RUEDAS',
-        'ZONA_ACCIDENTES_FRECUENTES'
-      ]
+      enum: Object.values(RISK_FACTORS)
     }],
 
     // Puntuación de gravedad (0-10)
@@ -545,12 +517,6 @@ accidentSchema.pre('save', function(next) {
   if (this.hora && !this.franjaHoraria) {
     this.franjaHoraria = parseInt(this.hora.split(':')[0]);
   }
-
-  // Calcular gravedad automáticamente
-  this.calcularGravedad();
-
-  // Identificar factores de riesgo
-  this.identificarFactoresRiesgo();
 
   next();
 });

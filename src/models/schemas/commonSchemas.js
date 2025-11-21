@@ -88,24 +88,24 @@ const dateRangeSchema = new mongoose.Schema({
 
 /**
  * Validador personalizado para horas en formato HH:MM o HH.MM
- * @param {String} hora - Hora a validar
+ * @param {String} time - Hora a validar
  * @returns {Boolean} - True si es válida
  */
-function validateHoraFormat(hora) {
-  if (!hora || hora.trim() === '') {return false;}
-  const horaRegex = /^([0-1]?[0-9]|2[0-3])[:.]([0-5][0-9])$/;
-  return horaRegex.test(hora);
+function validateTimeFormat(time) {
+  if (!time || time.trim() === '') {return false;}
+  const timeRegex = /^([0-1]?[0-9]|2[0-3])[:.]([0-5][0-9])$/;
+  return timeRegex.test(time);
 }
 
 /**
  * Validador personalizado para fechas no futuras
- * @param {Date} fecha - Fecha a validar
+ * @param {Date} date - Fecha a validar
  * @returns {Boolean} - True si no es futura
  */
-function validateFechaNoFutura(fecha) {
-  if (!fecha) {return false;}
-  const fechaObj = fecha instanceof Date ? fecha : new Date(fecha);
-  return !isNaN(fechaObj.getTime()) && fechaObj <= new Date();
+function validateNotFutureDate(date) {
+  if (!date) {return false;}
+  const dateObj = date instanceof Date ? date : new Date(date);
+  return !isNaN(dateObj.getTime()) && dateObj <= new Date();
 }
 
 /**
@@ -125,81 +125,81 @@ function validateGeoCoordinate(valor, tipo) {
 
 /**
  * Validador personalizado para porcentajes (0-100)
- * @param {Number} valor - Valor a validar
+ * @param {Number} value - Valor a validar
  * @returns {Boolean} - True si está en rango
  */
-function validatePorcentaje(valor) {
-  return typeof valor === 'number' && valor >= 0 && valor <= 100;
+function validatePercentage(value) {
+  return typeof value === 'number' && value >= 0 && value <= 100;
 }
 
 /**
  * Validador personalizado para importes monetarios
  * Máximo 2 decimales, no negativo
- * @param {Number} importe - Importe a validar
+ * @param {Number} amount - Importe a validar
  * @returns {Boolean} - True si es válido
  */
-function validateImporte(importe) {
-  if (typeof importe !== 'number' || importe < 0) {return false;}
-  const decimales = (importe.toString().split('.')[1] || '').length;
-  return decimales <= 2;
+function validateAmount(amount) {
+  if (typeof amount !== 'number' || amount < 0) {return false;}
+  const decimals = (amount.toString().split('.')[1] || '').length;
+  return decimals <= 2;
 }
 
 /**
  * Validador personalizado para edad (0-120 años)
- * @param {Number} edad - Edad a validar
+ * @param {Number} age - Edad a validar
  * @returns {Boolean} - True si es válida
  */
-function validateEdad(edad) {
-  if (edad === null || edad === undefined) {return true;} // Opcional
-  return Number.isInteger(edad) && edad >= 0 && edad <= 120;
+function validateAge(age) {
+  if (age === null || age === undefined) {return true;} // Opcional
+  return Number.isInteger(age) && age >= 0 && age <= 120;
 }
 
 /**
  * Validador personalizado para mes (1-12)
- * @param {Number} mes - Mes a validar
+ * @param {Number} month - Mes a validar
  * @returns {Boolean} - True si es válido
  */
-function validateMes(mes) {
-  return Number.isInteger(mes) && mes >= 1 && mes <= 12;
+function validateMonth(month) {
+  return Number.isInteger(month) && month >= 1 && month <= 12;
 }
 
 /**
  * Validador personalizado para año (rango 2000-3000)
- * @param {Number} año - Año a validar
+ * @param {Number} year - Año a validar
  * @returns {Boolean} - True si es válido
  */
-function validateAño(año) {
-  return Number.isInteger(año) && año >= 2000 && año <= 3000;
+function validateYear(year) {
+  return Number.isInteger(year) && year >= 2000 && year <= 3000;
 }
 
 /**
  * Validador personalizado para velocidad (0-300 km/h)
- * @param {Number} velocidad - Velocidad a validar
+ * @param {Number} speed - Velocidad a validar
  * @returns {Boolean} - True si es válida
  */
-function validateVelocidad(velocidad) {
-  if (velocidad === null || velocidad === undefined) {return true;} // Opcional
-  return typeof velocidad === 'number' && velocidad >= 0 && velocidad <= 300;
+function validateSpeed(speed) {
+  if (speed === null || speed === undefined) {return true;} // Opcional
+  return typeof speed === 'number' && speed >= 0 && speed <= 300;
 }
 
 /**
  * Validador personalizado para nivel de ruido (0-150 dB)
- * @param {Number} nivel - Nivel de ruido a validar
+ * @param {Number} level - Nivel de ruido a validar
  * @returns {Boolean} - True si es válido
  */
-function validateNivelRuido(nivel) {
-  if (nivel === null || nivel === undefined) {return true;} // Opcional
-  return typeof nivel === 'number' && nivel >= 0 && nivel <= 150;
+function validateNoiseLevel(level) {
+  if (level === null || level === undefined) {return true;} // Opcional
+  return typeof level === 'number' && level >= 0 && level <= 150;
 }
 
 /**
  * Validador personalizado para puntos de carnet (0-12)
- * @param {Number} puntos - Puntos a validar
+ * @param {Number} points - Puntos a validar
  * @returns {Boolean} - True si es válido
  */
-function validatePuntosCarnet(puntos) {
-  if (puntos === null || puntos === undefined) {return true;} // Opcional
-  return Number.isInteger(puntos) && puntos >= 0 && puntos <= 12;
+function validateLicensePoints(points) {
+  if (points === null || points === undefined) {return true;} // Opcional
+  return Number.isInteger(points) && points >= 0 && points <= 12;
 }
 
 // Exportar esquemas y validadores
@@ -209,15 +209,15 @@ module.exports = {
   dateRangeSchema,
 
   // Validadores
-  validateHoraFormat,
-  validateFechaNoFutura,
+  validateTimeFormat,
+  validateNotFutureDate,
   validateGeoCoordinate,
-  validatePorcentaje,
-  validateImporte,
-  validateEdad,
-  validateMes,
-  validateAño,
-  validateVelocidad,
-  validateNivelRuido,
-  validatePuntosCarnet
+  validatePercentage,
+  validateAmount,
+  validateAge,
+  validateMonth,
+  validateYear,
+  validateSpeed,
+  validateNoiseLevel,
+  validateLicensePoints
 };

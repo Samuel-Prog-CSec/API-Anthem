@@ -30,7 +30,7 @@ console.log(`${colors.blue}📋 Ejecutando ESLint...${colors.reset}`);
 try {
   execSync('npm run lint -- --max-warnings 50', { stdio: 'inherit' });
   console.log(`${colors.green}✅ ESLint: Sin errores críticos${colors.reset}\n`);
-} catch (error) {
+} catch (_error) {
   console.log(`${colors.red}❌ ESLint: Errores encontrados${colors.reset}\n`);
   hasErrors = true;
 }
@@ -71,7 +71,7 @@ try {
   } else {
     console.log(`${colors.green}✅ package.json: Configuración válida${colors.reset}\n`);
   }
-} catch (error) {
+} catch (_error) {
   console.log(`${colors.red}❌ package.json: Error al parsear${colors.reset}\n`);
   hasErrors = true;
 }

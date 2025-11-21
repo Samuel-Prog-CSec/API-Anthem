@@ -1237,9 +1237,3 @@ Nuestra implementación de CORS representa un balance cuidadoso entre seguridad,
 - ✅ Configuración segura de cookies (HttpOnly, Secure, SameSite)
 
 Esta configuración nos permite soportar arquitecturas modernas de frontend/backend separados mientras mantenemos los más altos estándares de seguridad. La configuración es flexible para permitir evolución futura del proyecto sin comprometer la seguridad.
-
----
-
-**Documento generado por el equipo de desarrollo del proyecto Anthem**
-**Última actualización:** Octubre 2025
-**Versión de la API:** v0.1

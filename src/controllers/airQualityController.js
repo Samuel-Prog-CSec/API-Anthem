@@ -7,38 +7,12 @@
 
 const { validationResult } = require('express-validator');
 const AirQuality = require('../models/AirQuality');
-const { AppError, createValidationError, createInternalError } = require('../utils/errorUtils');
+const { AppError, createValidationError, createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, VALIDATION_CODES } = require('../constants');
 const logger = require('../config/logger');
-
-/**
- * Helper para construir filtro de rango de fechas
- * @param {string} startDate - Fecha inicio
- * @param {string} endDate - Fecha fin
- * @param {string} fieldName - Nombre del campo de fecha
- * @returns {object|null} - Filtro de fecha o null
- */
-const parseDateRangeFilter = (startDate, endDate, fieldName = 'fecha') => {
-  if (!startDate && !endDate) {
-    return null;
-  }
-
-  const filter = {};
-  if (startDate || endDate) {
-    filter[fieldName] = {};
-    if (startDate) {
-      filter[fieldName].$gte = new Date(startDate);
-    }
-    if (endDate) {
-      filter[fieldName].$lte = new Date(endDate);
-    }
-  }
-
-  return filter;
-};
 
 /**
  * Obtener datos de calidad de aire con filtros
@@ -129,7 +103,7 @@ const getAirQualityData = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Datos de calidad de aire obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de calidad de aire obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -155,7 +129,7 @@ const getAirQualityById = async (req, res, next) => {
       .lean();
 
     if (!data) {
-      return next(new AppError('Registro de calidad de aire no encontrado', 404));
+      return next(createNotFoundError('Registro de calidad de aire', id));
     }
 
     // Convertir mediciones horarias para respuesta
@@ -165,7 +139,7 @@ const getAirQualityById = async (req, res, next) => {
     if (data.medicionesHorarias) {
       for (const [hora, medicion] of Object.entries(data.medicionesHorarias)) {
         const horaNum = parseInt(hora.substring(1));
-        const esValido = medicion.validationCode === 'V';
+        const esValido = medicion.validationCode === VALIDATION_CODES.VALID;
         medicionesArray.push({
           hora: horaNum,
           valor: medicion.value,
@@ -179,7 +153,7 @@ const getAirQualityById = async (req, res, next) => {
     }
 
     // Calcular estadísticas
-    const estadisticas = valores.length > 0 ? {
+    const statistics = valores.length > 0 ? {
       promedio: valores.reduce((sum, val) => sum + val, 0) / valores.length,
       maximo: Math.max(...valores),
       minimo: Math.min(...valores),
@@ -194,12 +168,12 @@ const getAirQualityById = async (req, res, next) => {
       data: {
         ...data,
         medicionesHorarias: medicionesArray,
-        estadisticas,
+        estadisticas: statistics,
         magnitudDescripcion: AirQuality.getMagnitudes()[data.magnitud] || 'Desconocida'
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Detalles de calidad de aire obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Detalles de calidad de aire obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -223,15 +197,17 @@ const getAirQualityStatistics = async (req, res, next) => {
       return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
     }
 
-    const { startDate, endDate, provincia, municipio, magnitud, groupBy = 'day' } = req.query;
+    const { groupBy = 'day' } = req.query;
 
-    // Construir filtros base usando parseDateRangeFilter
-    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
-    const filters = dateFilter || {};
+    // Construir filtros usando buildFilters de queryHelper
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'provincia', type: 'numeric', param: 'provincia' },
+      { field: 'municipio', type: 'numeric', param: 'municipio' },
+      { field: 'magnitud', type: 'numeric', param: 'magnitud' }
+    ];
 
-    if (provincia) {filters.provincia = parseInt(provincia);}
-    if (municipio) {filters.municipio = parseInt(municipio);}
-    if (magnitud) {filters.magnitud = parseInt(magnitud);}
+    const filters = buildFilters(req.query, filterConfig);
 
     // Llamar al método optimizado del modelo
     const result = await AirQuality.getStatisticsOptimized(filters, groupBy);
@@ -244,7 +220,7 @@ const getAirQualityStatistics = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Estadísticas de calidad de aire obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas de calidad de aire obtenidas exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -298,7 +274,7 @@ const getAirQualityTrends = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Tendencias obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Tendencias obtenidas exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -317,3 +293,4 @@ module.exports = {
   getAirQualityStatistics,
   getAirQualityTrends
 };
+

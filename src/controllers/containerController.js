@@ -10,7 +10,7 @@ const { createInternalError, createNotFoundError, createBadRequestError } = requ
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION } = require('../constants');
+const { PAGINATION, HTTP_STATUS } = require('../constants');
 
 /**
  * Obtener todos los contenedores con filtros y paginación
@@ -75,7 +75,7 @@ exports.getAllContainers = async (req, res, next) => {
       pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, total)
     };
 
-    res.status(200).json(createResponse(responseData, 'Contenedores obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Contenedores obtenidos exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener contenedores', error));
@@ -131,7 +131,7 @@ exports.getNearbyContainers = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Contenedores cercanos obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Contenedores cercanos obtenidos exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al buscar contenedores cercanos', error));
@@ -156,7 +156,7 @@ exports.getContainerStats = async (req, res, next) => {
       data: summary[0]
     };
 
-    res.status(200).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener estadísticas de contenedores', error));
@@ -189,7 +189,7 @@ exports.getStatsByDistrict = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Estadísticas por distrito obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas por distrito obtenidas exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener estadísticas por distrito', error));
@@ -211,7 +211,7 @@ exports.getStatsByNeighborhood = async (req, res, next) => {
       return next(createBadRequestError('Se requiere el parámetro distrito'));
     }
 
-    const stats = await Container.getStatsByBarrio(distrito, barrio || null);
+    const stats = await Container.getStatsByNeighborhood(distrito, barrio || null);
 
     if (!stats || stats.length === 0) {
       return next(createNotFoundError('Contenedores', barrio ? `barrio ${barrio} del distrito ${distrito}` : `distrito ${distrito}`));
@@ -226,7 +226,7 @@ exports.getStatsByNeighborhood = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Estadísticas por barrio obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas por barrio obtenidas exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener estadísticas por barrio', error));
@@ -254,7 +254,7 @@ exports.countByType = async (req, res, next) => {
       data: count
     };
 
-    res.status(200).json(createResponse(responseData, 'Conteo por tipo obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Conteo por tipo obtenido exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al contar contenedores por tipo', error));
@@ -278,7 +278,7 @@ exports.getDistricts = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Distritos obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Distritos obtenidos exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener distritos', error));
@@ -309,7 +309,7 @@ exports.getNeighborhoodsByDistrict = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Barrios obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Barrios obtenidos exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener barrios', error));
@@ -357,7 +357,7 @@ exports.searchByAddress = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Búsqueda completada exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Búsqueda completada exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al buscar contenedores por dirección', error));
@@ -384,7 +384,7 @@ exports.getHeatmapData = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Datos de mapa de calor obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de mapa de calor obtenidos exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener datos de mapa de calor', error));
@@ -410,7 +410,7 @@ exports.getCoverageAnalysis = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Análisis de cobertura obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de cobertura obtenido exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al analizar cobertura', error));
@@ -449,9 +449,11 @@ exports.getDensityAnalysis = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Análisis de densidad obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de densidad obtenido exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al analizar densidad', error));
   }
 };
+
+

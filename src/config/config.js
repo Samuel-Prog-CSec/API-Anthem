@@ -15,17 +15,6 @@ require('dotenv').config();
 const validateEnvironment = () => {
   const required = [
     'DATABASE_URI',
-    'USERS_COLLECTION',
-    'AIR_QUALITY_COLLECTION',
-    'CENSUS_COLLECTION',
-    'LOCATIONS_COLLECTION',
-    'FINE_COLLECTION',
-    'NOISE_POLLUTION_COLLECTION',
-    'TRAFFIC_COLLECTION',
-    'ACCIDENT_COLLECTION',
-    'SCOOTER_ASSIGNMENT_COLLECTION',
-    'BIKE_AVAILABILITY_COLLECTION',
-    'CONTAINER_COLLECTION',
     'JWT_SECRET'
   ];
 
@@ -80,7 +69,7 @@ const config = {
 
   // Configuración de la API
   api: {
-    version: 'v0.1',
+    version: 'v1.0',
     prefix: '/api',
     timeout: parseInt(process.env.API_TIMEOUT) || 30000 // 30 segundos
   }

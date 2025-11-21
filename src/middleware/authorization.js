@@ -1,8 +1,8 @@
 /**
- * Authorization Middleware
+ * Middleware de Autorización
  *
- * Handles role-based access control and permission checking.
- * Works in conjunction with authentication middleware.
+ * Maneja el control de acceso basado en roles y verificación de permisos.
+ * Funciona en conjunto con el middleware de autenticación.
  *
  */
 
@@ -11,24 +11,24 @@ const { authLogger } = require('../config/logger');
 const { logPermissionCheck, logUnauthorizedAccess } = require('../utils/securityLogger');
 
 /**
- * Role-based authorization middleware factory
+ * Factory de middleware de autorización basada en roles
  *
- * Creates middleware that checks if authenticated user has required role(s).
- * Must be used after authentication middleware.
+ * Crea middleware que verifica si el usuario autenticado tiene el/los rol(es) requerido(s).
+ * Debe usarse después del middleware de autenticación.
  *
- * @param {...string} roles - Required roles
- * @returns {function} Authorization middleware function
+ * @param {...string} roles - Roles requeridos
+ * @returns {function} Función middleware de autorización
  */
 const authorize = (...roles) => {
   return (req, res, next) => {
-    // Check if user is authenticated
+    // Verificar si el usuario está autenticado
     if (!req.user) {
       return res.status(401).json(
-        createForbiddenResponse('Authentication required for this resource')
+        createForbiddenResponse('Se requiere autenticación para este recurso')
       );
     }
 
-    // Check if user has required role
+    // Verificar si el usuario tiene el rol requerido
     if (!roles.includes(req.user.role)) {
       authLogger.warn({
         username: req.user.username,
@@ -36,9 +36,9 @@ const authorize = (...roles) => {
         requiredRoles: roles,
         path: req.path,
         method: req.method
-      }, 'Authorization failed - insufficient permissions');
+      }, 'Autorización fallida - permisos insuficientes');
 
-      // Log security event
+      // Registrar evento de seguridad
       logPermissionCheck(
         req.user._id.toString(),
         req.path,
@@ -52,11 +52,11 @@ const authorize = (...roles) => {
         req.path,
         req.method,
         req.ip,
-        `Required role: ${roles.join('|')}, User role: ${req.user.role}`
+        `Rol requerido: ${roles.join('|')}, Rol de usuario: ${req.user.role}`
       );
 
       return res.status(403).json(
-        createForbiddenResponse('Insufficient permissions to access this resource')
+        createForbiddenResponse('Permisos insuficientes para acceder a este recurso')
       );
     }
 
@@ -65,9 +65,9 @@ const authorize = (...roles) => {
       userRole: req.user.role,
       requiredRoles: roles,
       path: req.path
-    }, 'Authorization granted');
+    }, 'Autorización concedida');
 
-    // Log successful permission check
+    // Registrar verificación de permisos exitosa
     logPermissionCheck(
       req.user._id.toString(),
       req.path,
@@ -81,12 +81,12 @@ const authorize = (...roles) => {
 };
 
 /**
- * Admin-only authorization middleware
- * Shortcut for admin role authorization
+ * Middleware de autorización solo para administradores
+ * Atajo para autorización de rol admin
  *
- * @param {object} req - Express request object
- * @param {object} res - Express response object
- * @param {function} next - Express next function
+ * @param {object} req - Objeto request de Express
+ * @param {object} res - Objeto response de Express
+ * @param {function} next - Función next de Express
  */
 const adminOnly = (req, res, next) => {
   return authorize('admin')(req, res, next);

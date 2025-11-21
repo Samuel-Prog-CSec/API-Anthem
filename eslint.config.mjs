@@ -45,7 +45,7 @@ export default [
       "no-unneeded-ternary": "warn", // Evitar ternarios innecesarios
 
       // === Async/Await ===
-      "require-await": "warn", // Advertir funciones async sin await
+      "require-await": "off", // Permitir async sin await (muchas funciones retornan Promises)
       "no-async-promise-executor": "error", // No usar async en Promise executor
       "prefer-promise-reject-errors": "error", // Rechazar Promises solo con Error objects
       "no-return-await": "warn", // No usar return await innecesariamente
@@ -59,13 +59,13 @@ export default [
       // === Calidad de código ===
       "no-shadow": ["warn", { "builtinGlobals": false, "hoist": "functions" }],
       "no-use-before-define": ["error", { "functions": false, "classes": true, "variables": true }],
-      "complexity": ["warn", 20], // Advertir sobre complejidad ciclomática alta
+      "complexity": ["warn", 40], // Advertir sobre complejidad ciclomática alta
       "max-depth": ["warn", 4], // Máximo 4 niveles de anidamiento
       "max-lines-per-function": ["warn", { "max": 150, "skipBlankLines": true, "skipComments": true }],
 
       // === Estilo y consistencia ===
       "camelcase": ["warn", { "properties": "never", "ignoreDestructuring": true }],
-      "consistent-return": "warn",
+      "consistent-return": "off", // Permitir return mixtos (patrón estándar en Express middlewares)
       "default-case-last": "error",
       "no-multi-spaces": "warn",
       "no-trailing-spaces": "warn",
@@ -81,23 +81,7 @@ export default [
     rules: {
       "no-console": "off", // Permitir console en scripts
       "max-lines-per-function": ["warn", { "max": 250 }], // Scripts pueden ser más largos
-      "complexity": ["warn", 30], // Mayor complejidad permitida en scripts
-    }
-  },
-
-  // Configuración específica para archivos de test
-  {
-    files: ["tests/**/*.js", "**/*.test.js", "**/*.spec.js"],
-    languageOptions: {
-      globals: {
-        ...globals.jest,
-        ...globals.node,
-      }
-    },
-    rules: {
-      "no-console": "off", // Permitir console en tests
-      "max-lines-per-function": "off", // Tests pueden ser largos
-      "no-unused-expressions": "off", // Tests usan expect().to.be...
+      "complexity": ["warn", 45], // Mayor complejidad permitida en scripts de importación
     }
   },
 
@@ -112,7 +96,9 @@ export default [
       "dist/**",
       "build/**",
       ".clinic/**",
-      "*.min.js"
+      "*.min.js",
+      "docs/**",
+      ".github/**"
     ]
   }
 ];

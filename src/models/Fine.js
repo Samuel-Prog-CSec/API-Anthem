@@ -9,14 +9,15 @@
 const mongoose = require('mongoose');
 const {
   coordinatesUTMSchema,
-  validateHoraFormat,
-  validateFechaNoFutura,
-  validateImporte,
-  validateVelocidad,
-  validatePuntosCarnet,
-  validateMes,
-  validateAño
+  validateTimeFormat,
+  validateNotFutureDate,
+  validateAmount,
+  validateSpeed,
+  validateLicensePoints,
+  validateMonth,
+  validateYear
 } = require('./schemas/commonSchemas');
+const { SEVERITY_LEVELS, INFRACTION_TYPES } = require('../constants');
 
 /**
  * Esquema principal de Multas
@@ -41,7 +42,7 @@ const fineSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateFechaNoFutura,
+      validator: validateNotFutureDate,
       message: 'La fecha de la multa no puede ser futura'
     }
   },
@@ -51,7 +52,7 @@ const fineSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateMes,
+      validator: validateMonth,
       message: 'Mes debe estar entre 1 y 12'
     }
   },
@@ -61,7 +62,7 @@ const fineSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateAño,
+      validator: validateYear,
       message: 'Año debe estar entre 2000 y 3000'
     }
   },
@@ -72,7 +73,7 @@ const fineSchema = new mongoose.Schema({
     trim: true,
     index: true,
     validate: {
-      validator: validateHoraFormat,
+      validator: validateTimeFormat,
       message: 'Hora debe tener formato válido HH:MM o HH.MM'
     }
   },
@@ -81,7 +82,7 @@ const fineSchema = new mongoose.Schema({
   calificacion: {
     type: String,
     required: true,
-    enum: ['LEVE', 'GRAVE', 'MUY GRAVE'],
+    enum: Object.values(SEVERITY_LEVELS.FINE),
     uppercase: true,
     index: true
   },
@@ -106,7 +107,7 @@ const fineSchema = new mongoose.Schema({
     index: true,
     min: [0, 'Importe del boletín no puede ser negativo'],
     validate: {
-      validator: validateImporte,
+      validator: validateAmount,
       message: 'Importe del boletín debe ser válido (máximo 2 decimales, no negativo)'
     }
   },
@@ -124,7 +125,7 @@ const fineSchema = new mongoose.Schema({
     min: [0, 'Importe final no puede ser negativo'],
     validate: [
       {
-        validator: validateImporte,
+        validator: validateAmount,
         message: 'Importe final debe ser válido (máximo 2 decimales, no negativo)'
       },
       {
@@ -144,7 +145,7 @@ const fineSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validatePuntosCarnet,
+      validator: validateLicensePoints,
       message: 'Puntos detraídos deben estar entre 0 y 12'
     }
   },
@@ -170,7 +171,7 @@ const fineSchema = new mongoose.Schema({
       required: false,
       min: [0, 'Velocidad límite no puede ser negativa'],
       validate: {
-        validator: validateVelocidad,
+        validator: validateSpeed,
         message: 'Velocidad límite debe estar entre 0 y 300 km/h'
       }
     },
@@ -179,7 +180,7 @@ const fineSchema = new mongoose.Schema({
       required: false,
       min: [0, 'Velocidad de circulación no puede ser negativa'],
       validate: {
-        validator: validateVelocidad,
+        validator: validateSpeed,
         message: 'Velocidad de circulación debe estar entre 0 y 300 km/h'
       }
     },
@@ -206,21 +207,14 @@ const fineSchema = new mongoose.Schema({
   metadatos: {
     tipoInfraccion: {
       type: String,
-      enum: [
-        'VELOCIDAD',
-        'ESTACIONAMIENTO',
-        'TELEFONO_MOVIL',
-        'SEMAFORO',
-        'ALCOHOL_DROGAS',
-        'DOCUMENTACION',
-        'OTRAS'
-      ],
-      default: 'OTRAS'
+      enum: Object.values(INFRACTION_TYPES),
+      default: INFRACTION_TYPES.OTRAS
     },
     esInfraccionGrave: {
       type: Boolean,
       default: function() {
-        return this.calificacion === 'GRAVE' || this.calificacion === 'MUY GRAVE';
+        return this.calificacion === SEVERITY_LEVELS.FINE.GRAVE ||
+               this.calificacion === SEVERITY_LEVELS.FINE.MUY_GRAVE;
       }
     },
     esInfraccionVelocidad: {
@@ -410,13 +404,10 @@ fineSchema.pre('save', function(next) {
     );
   }
 
-  // Clasificar tipo de infracción automáticamente
-  this.clasificarTipoInfraccion();
-
-  // Validar datos de velocidad
+  // Validar datos de velocidad y clasificar tipo
   if (this.datosVelocidad.velocidadLimite && this.datosVelocidad.velocidadCirculacion) {
     this.metadatos.esInfraccionVelocidad = true;
-    this.metadatos.tipoInfraccion = 'VELOCIDAD';
+    this.metadatos.tipoInfraccion = INFRACTION_TYPES.VELOCIDAD;
   }
 
   next();

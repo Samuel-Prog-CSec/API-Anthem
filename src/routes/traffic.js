@@ -11,7 +11,10 @@ const { query, body, param } = require('express-validator');
 
 const trafficController = require('../controllers/trafficController');
 const { authenticate } = require('../middleware/auth');
+const { adminOnly } = require('../middleware/authorization');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { TRAFFIC_ELEMENT_TYPES } = require('../constants');
 const {
   validatePagination,
   validateDateRange,
@@ -23,6 +26,9 @@ const logger = require('../config/logger');
 
 
 const router = express.Router();
+
+// Aplicar performanceMonitor a todas las rutas de tráfico
+router.use(performanceMonitor);
 
 /**
  * Limitadores de velocidad específicos para diferentes tipos de consultas
@@ -111,8 +117,8 @@ router.get('/stats',
   [
     query('tipoElemento')
       .optional()
-      .isIn(['URB', 'M-30'])
-      .withMessage('Tipo de elemento debe ser URB o M-30'),
+      .isIn(Object.values(TRAFFIC_ELEMENT_TYPES))
+      .withMessage(`Tipo de elemento debe ser ${Object.values(TRAFFIC_ELEMENT_TYPES).join(' o ')}`),
 
     validateRequest
   ],
@@ -232,6 +238,7 @@ router.get('/export',
  */
 router.delete('/cleanup',
   authenticate,
+  adminOnly,
   [
     body('olderThanDays')
       .isInt({ min: 30, max: 3650 })

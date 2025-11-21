@@ -3,9 +3,6 @@
 **Versión:** 1.0.0
 **Base URL:** `http://localhost:3000/api/v1`
 **Autenticación:** JWT Bearer Token
-**Fecha:** Noviembre 2025
-
----
 
 ## Tabla de Contenidos
 

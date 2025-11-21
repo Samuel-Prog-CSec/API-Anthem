@@ -7,7 +7,8 @@
  */
 
 const mongoose = require('mongoose');
-const { validateMes, validateAño, validateEdad, validateFechaNoFutura } = require('./schemas/commonSchemas');
+const { validateMonth, validateYear, validateNotFutureDate } = require('./schemas/commonSchemas');
+const { WORKING_AGE, ELDERLY_AGE, AGE_GROUPS, AGE_RANGES } = require('../constants');
 
 /**
  * Sub-esquema para datos poblacionales por género
@@ -60,7 +61,7 @@ const censusSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateFechaNoFutura,
+      validator: validateNotFutureDate,
       message: 'La fecha del censo no puede ser futura'
     }
   },
@@ -70,7 +71,7 @@ const censusSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateMes,
+      validator: validateMonth,
       message: 'Mes debe estar entre 1 y 12'
     }
   },
@@ -80,7 +81,7 @@ const censusSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateAño,
+      validator: validateYear,
       message: 'Año debe estar entre 2000 y 3000'
     }
   },
@@ -232,15 +233,8 @@ const censusSchema = new mongoose.Schema({
   clasificacionEdad: {
     grupoEdad: {
       type: String,
-      enum: [
-        'INFANTIL', // 0-14 años
-        'JUVENIL', // 15-24 años
-        'ADULTO_JOVEN', // 25-44 años
-        'ADULTO', // 45-64 años
-        'MAYOR', // 65+ años
-        'ANCIANO' // 85+ años
-      ],
-      default: 'ADULTO_JOVEN'
+      enum: Object.values(AGE_GROUPS),
+      default: AGE_GROUPS.ADULTO_JOVEN
     },
     esGrupoProductivo: {
       type: Boolean,
@@ -523,13 +517,13 @@ censusSchema.pre('save', function(next) {
   }
 
   // Clasificar grupo de edad ANTES de calcular otras estadísticas
-  this.clasificarGrupoEdad();
+  this.classifyAgeGroup();
 
   // Calcular estadísticas poblacionales
-  this.calcularEstadisticas();
+  this.calculateStatistics();
 
   // Evaluar calidad de datos
-  this.evaluarCalidadDatos();
+  this.evaluateDataQuality();
 
   next();
 });
@@ -537,7 +531,7 @@ censusSchema.pre('save', function(next) {
 /**
  * Método para calcular estadísticas poblacionales automáticamente
  */
-censusSchema.methods.calcularEstadisticas = function() {
+censusSchema.methods.calculateStatistics = function() {
   const pob = this.poblacion;
 
   // Totales por nacionalidad
@@ -569,34 +563,34 @@ censusSchema.methods.calcularEstadisticas = function() {
 /**
  * Método para clasificar grupo de edad
  */
-censusSchema.methods.clasificarGrupoEdad = function() {
+censusSchema.methods.classifyAgeGroup = function() {
   // Inicializar clasificacionEdad si no existe
   if (!this.clasificacionEdad) {
     this.clasificacionEdad = {};
   }
 
-  if (this.edad <= 14) {
-    this.clasificacionEdad.grupoEdad = 'INFANTIL';
-  } else if (this.edad <= 24) {
-    this.clasificacionEdad.grupoEdad = 'JUVENIL';
-  } else if (this.edad <= 44) {
-    this.clasificacionEdad.grupoEdad = 'ADULTO_JOVEN';
-  } else if (this.edad <= 64) {
-    this.clasificacionEdad.grupoEdad = 'ADULTO';
-  } else if (this.edad <= 84) {
-    this.clasificacionEdad.grupoEdad = 'MAYOR';
+  if (this.edad <= AGE_RANGES.INFANTIL.max) {
+    this.clasificacionEdad.grupoEdad = AGE_GROUPS.INFANTIL;
+  } else if (this.edad <= AGE_RANGES.JUVENIL.max) {
+    this.clasificacionEdad.grupoEdad = AGE_GROUPS.JUVENIL;
+  } else if (this.edad <= AGE_RANGES.ADULTO_JOVEN.max) {
+    this.clasificacionEdad.grupoEdad = AGE_GROUPS.ADULTO_JOVEN;
+  } else if (this.edad <= AGE_RANGES.ADULTO.max) {
+    this.clasificacionEdad.grupoEdad = AGE_GROUPS.ADULTO;
+  } else if (this.edad <= AGE_RANGES.MAYOR.max) {
+    this.clasificacionEdad.grupoEdad = AGE_GROUPS.MAYOR;
   } else {
-    this.clasificacionEdad.grupoEdad = 'ANCIANO';
+    this.clasificacionEdad.grupoEdad = AGE_GROUPS.ANCIANO;
   }
 
-  this.clasificacionEdad.esGrupoProductivo = this.edad >= 16 && this.edad <= 65;
-  this.clasificacionEdad.esTerceraEdad = this.edad >= 65;
+  this.clasificacionEdad.esGrupoProductivo = this.edad >= WORKING_AGE.min && this.edad <= WORKING_AGE.max;
+  this.clasificacionEdad.esTerceraEdad = this.edad >= ELDERLY_AGE.min;
 };
 
 /**
  * Método para evaluar calidad de datos
  */
-censusSchema.methods.evaluarCalidadDatos = function() {
+censusSchema.methods.evaluateDataQuality = function() {
   const camposFaltantes = [];
   let camposValidos = 0;
   const totalCampos = 5;
@@ -635,7 +629,7 @@ censusSchema.methods.evaluarCalidadDatos = function() {
  * Método para obtener distribución demográfica
  * @returns {Object} Distribución por género y nacionalidad
  */
-censusSchema.methods.getDistribucionDemografica = function() {
+censusSchema.methods.getDemographicDistribution = function() {
   const total = this.estadisticas.totalPoblacion;
 
   if (total === 0) {
@@ -690,7 +684,7 @@ censusSchema.methods.getDistribucionDemografica = function() {
  * @param {boolean} options.incluirExtranjeros - Incluir población extranjera
  * @returns {Promise<Object>} Pirámide poblacional detallada y simplificada
  */
-censusSchema.statics.getPiramidePoblacionalOptimizada = async function(options) {
+censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
   const { año = 2051, distrito = null, incluirExtranjeros = true } = options;
 
   const matchFilters = { año: parseInt(año) };
@@ -824,7 +818,7 @@ censusSchema.statics.getPiramidePoblacionalOptimizada = async function(options) 
  * @param {number} options.distrito - Código del distrito (opcional)
  * @returns {Promise<Object>} Análisis demográfico comprehensivo
  */
-censusSchema.statics.getAnalisisDemograficoOptimizado = async function(options) {
+censusSchema.statics.getOptimizedDemographicAnalysis = async function(options) {
   const { año = 2051, mes = null, distrito = null } = options;
 
   const matchFilters = { año: parseInt(año) };

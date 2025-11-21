@@ -1,10 +1,10 @@
 /**
- * Security Event Logger
+ * Logger de Eventos de Seguridad
  *
- * Wrapper functions for logging security events using Pino securityLogger.
- * Provides a consistent interface for security event logging throughout the application.
+ * Funciones wrapper para registrar eventos de seguridad usando Pino securityLogger.
+ * Proporciona una interfaz consistente para logging de eventos de seguridad en toda la aplicación.
  *
- * WHY THIS EXISTS (vs using Pino securityLogger directly):
+ * POR QUÉ EXISTE ESTO (vs usar Pino securityLogger directamente):
  * 1. Estandariza el formato de eventos de seguridad
  * 2. Centraliza los nombres de eventos (LOGIN_ATTEMPT, PASSWORD_CHANGE, etc.)
  * 3. Simplifica el uso desde controladores (no necesitan conocer estructura interna)
@@ -16,14 +16,14 @@
 const { securityLogger } = require('../config/logger');
 
 /**
- * Log login attempt
+ * Registrar intento de inicio de sesión
  *
- * @param {boolean} success - Whether login was successful
- * @param {string} identifier - Email or username used
- * @param {string} userId - User ID (if found)
- * @param {string} ip - Client IP address
- * @param {string} userAgent - User agent string
- * @param {string} reason - Failure reason (if applicable)
+ * @param {boolean} success - Si el inicio de sesión fue exitoso
+ * @param {string} identifier - Email o nombre de usuario usado
+ * @param {string} userId - ID de usuario (si se encontró)
+ * @param {string} ip - Dirección IP del cliente
+ * @param {string} userAgent - Cadena de user agent
+ * @param {string} reason - Razón del fallo (si aplica)
  */
 const logLoginAttempt = (success, identifier, userId, ip, userAgent, reason = null) => {
   const logData = {
@@ -40,18 +40,18 @@ const logLoginAttempt = (success, identifier, userId, ip, userAgent, reason = nu
   }
 
   if (success) {
-    securityLogger.info(logData, 'Login attempt successful');
+    securityLogger.info(logData, 'Intento de inicio de sesión exitoso');
   } else {
-    securityLogger.warn(logData, 'Login attempt failed');
+    securityLogger.warn(logData, 'Intento de inicio de sesión fallido');
   }
 };
 
 /**
- * Log password change
+ * Registrar cambio de contraseña
  *
- * @param {string} userId - User ID
- * @param {string} ip - Client IP address
- * @param {boolean} success - Whether change was successful
+ * @param {string} userId - ID de usuario
+ * @param {string} ip - Dirección IP del cliente
+ * @param {boolean} success - Si el cambio fue exitoso
  */
 const logPasswordChange = (userId, ip, success = true) => {
   const logData = {
@@ -62,20 +62,20 @@ const logPasswordChange = (userId, ip, success = true) => {
   };
 
   if (success) {
-    securityLogger.info(logData, 'Password changed successfully');
+    securityLogger.info(logData, 'Contraseña cambiada exitosamente');
   } else {
-    securityLogger.error(logData, 'Password change failed');
+    securityLogger.error(logData, 'Cambio de contraseña fallido');
   }
 };
 
 /**
- * Log unauthorized access attempt
+ * Registrar intento de acceso no autorizado
  *
- * @param {string} userId - User ID (if authenticated)
- * @param {string} resource - Attempted resource/path
- * @param {string} action - Attempted action
- * @param {string} ip - Client IP address
- * @param {string} reason - Denial reason
+ * @param {string} userId - ID de usuario (si está autenticado)
+ * @param {string} resource - Recurso/ruta intentado
+ * @param {string} action - Acción intentada
+ * @param {string} ip - Dirección IP del cliente
+ * @param {string} reason - Razón de denegación
  */
 const logUnauthorizedAccess = (userId, resource, action, ip, reason) => {
   securityLogger.warn({
@@ -85,15 +85,15 @@ const logUnauthorizedAccess = (userId, resource, action, ip, reason) => {
     action,
     ip,
     reason
-  }, 'Unauthorized access attempt');
+  }, 'Intento de acceso no autorizado');
 };
 
 /**
- * Log token validation event
+ * Registrar evento de validación de token
  *
- * @param {boolean} success - Whether validation succeeded
- * @param {string} reason - Failure reason (if applicable)
- * @param {object} metadata - Additional metadata (userId, ip, userAgent, tokenPrefix)
+ * @param {boolean} success - Si la validación fue exitosa
+ * @param {string} reason - Razón del fallo (si aplica)
+ * @param {object} metadata - Metadatos adicionales (userId, ip, userAgent, tokenPrefix)
  */
 const logTokenValidation = (success, reason, metadata = {}) => {
   const logData = {
@@ -107,20 +107,20 @@ const logTokenValidation = (success, reason, metadata = {}) => {
   }
 
   if (success) {
-    securityLogger.info(logData, 'Token validation successful');
+    securityLogger.info(logData, 'Validación de token exitosa');
   } else {
-    securityLogger.warn(logData, 'Token validation failed');
+    securityLogger.warn(logData, 'Validación de token fallida');
   }
 };
 
 /**
- * Log account lockout
+ * Registrar bloqueo de cuenta
  *
- * @param {string} userId - User ID
- * @param {string} identifier - Email or username
- * @param {number} attempts - Number of failed attempts
- * @param {Date} lockUntil - Lock expiration time
- * @param {string} ip - Client IP address
+ * @param {string} userId - ID de usuario
+ * @param {string} identifier - Email o nombre de usuario
+ * @param {number} attempts - Número de intentos fallidos
+ * @param {Date} lockUntil - Tiempo de expiración del bloqueo
+ * @param {string} ip - Dirección IP del cliente
  */
 const logAccountLockout = (userId, identifier, attempts, lockUntil, ip) => {
   securityLogger.warn({
@@ -130,15 +130,15 @@ const logAccountLockout = (userId, identifier, attempts, lockUntil, ip) => {
     failedAttempts: attempts,
     lockUntil: lockUntil.toISOString(),
     ip
-  }, `Account locked after ${attempts} failed attempts`);
+  }, `Cuenta bloqueada después de ${attempts} intentos fallidos`);
 };
 
 /**
- * Log token refresh
+ * Registrar refresco de token
  *
- * @param {string} userId - User ID
- * @param {boolean} rotated - Whether token was rotated
- * @param {string} ip - Client IP address
+ * @param {string} userId - ID de usuario
+ * @param {boolean} rotated - Si el token fue rotado
+ * @param {string} ip - Dirección IP del cliente
  */
 const logTokenRefresh = (userId, rotated, ip) => {
   securityLogger.info({
@@ -146,16 +146,16 @@ const logTokenRefresh = (userId, rotated, ip) => {
     userId,
     rotated,
     ip
-  }, 'Token refreshed' + (rotated ? ' with rotation' : ''));
+  }, 'Token refrescado' + (rotated ? ' con rotación' : ''));
 };
 
 /**
- * Log user registration
+ * Registrar registro de usuario
  *
- * @param {string} userId - New user ID
- * @param {string} email - User email
- * @param {string} username - Username
- * @param {string} ip - Client IP address
+ * @param {string} userId - ID del nuevo usuario
+ * @param {string} email - Email del usuario
+ * @param {string} username - Nombre de usuario
+ * @param {string} ip - Dirección IP del cliente
  */
 const logUserRegistration = (userId, email, username, ip) => {
   securityLogger.info({
@@ -164,15 +164,15 @@ const logUserRegistration = (userId, email, username, ip) => {
     email,
     username,
     ip
-  }, 'New user registered');
+  }, 'Nuevo usuario registrado');
 };
 
 /**
- * Log session termination
+ * Registrar terminación de sesión
  *
- * @param {string} userId - User ID
- * @param {string} reason - Termination reason (logout, force_logout, timeout)
- * @param {string} ip - Client IP address
+ * @param {string} userId - ID de usuario
+ * @param {string} reason - Razón de terminación (logout, force_logout, timeout)
+ * @param {string} ip - Dirección IP del cliente
  */
 const logSessionTermination = (userId, reason, ip) => {
   securityLogger.info({
@@ -180,17 +180,17 @@ const logSessionTermination = (userId, reason, ip) => {
     userId,
     reason,
     ip
-  }, `Session terminated: ${reason}`);
+  }, `Sesión terminada: ${reason}`);
 };
 
 /**
- * Log permission check
+ * Registrar verificación de permisos
  *
- * @param {string} userId - User ID
- * @param {string} resource - Resource being accessed
- * @param {string} permission - Required permission
- * @param {boolean} granted - Whether permission was granted
- * @param {string} ip - Client IP address
+ * @param {string} userId - ID de usuario
+ * @param {string} resource - Recurso al que se está accediendo
+ * @param {string} permission - Permiso requerido
+ * @param {boolean} granted - Si el permiso fue concedido
+ * @param {string} ip - Dirección IP del cliente
  */
 const logPermissionCheck = (userId, resource, permission, granted, ip) => {
   const logData = {
@@ -203,9 +203,9 @@ const logPermissionCheck = (userId, resource, permission, granted, ip) => {
   };
 
   if (granted) {
-    securityLogger.info(logData, 'Permission granted');
+    securityLogger.info(logData, 'Permiso concedido');
   } else {
-    securityLogger.warn(logData, 'Permission denied');
+    securityLogger.warn(logData, 'Permiso denegado');
   }
 };
 

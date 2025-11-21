@@ -39,6 +39,7 @@
     "CORS",
     "rate-limiting",
     "smart-city",
+    "MongoDB-Atlas",
     "PinoJS"
   ],
   "author": "Samuel Blanchart Pérez",

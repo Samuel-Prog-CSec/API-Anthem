@@ -1,8 +1,8 @@
 /**
- * Token Helper Utilities
+ * Utilidades de Helper de Tokens
  *
- * Provides utilities for JWT token generation, validation, and management.
- * Implements security best practices for token handling.
+ * Proporciona utilidades para generación, validación y gestión de tokens JWT.
+ * Implementa mejores prácticas de seguridad para manejo de tokens.
  *
  */
 
@@ -10,11 +10,11 @@ const jwt = require('jsonwebtoken');
 const config = require('../config/config');
 
 /**
- * Generates a JWT access token
+ * Genera un token de acceso JWT
  *
- * @param {object} payload - Token payload data
- * @param {string} expiresIn - Token expiration time (optional)
- * @returns {string} Generated JWT token
+ * @param {object} payload - Datos del payload del token
+ * @param {string} expiresIn - Tiempo de expiración del token (opcional)
+ * @returns {string} Token JWT generado
  */
 const generateAccessToken = (payload, expiresIn = config.jwt.expiresIn) => {
   return jwt.sign(
@@ -30,17 +30,17 @@ const generateAccessToken = (payload, expiresIn = config.jwt.expiresIn) => {
 };
 
 /**
- * Generates a refresh token (longer expiration)
+ * Genera un token de refresco (expiración más larga)
  *
- * @param {object} payload - Token payload data
- * @returns {string} Generated refresh token
+ * @param {object} payload - Datos del payload del token
+ * @returns {string} Token de refresco generado
  */
 const generateRefreshToken = (payload) => {
   return jwt.sign(
     payload,
     config.jwt.secret,
     {
-      expiresIn: '30d', // Refresh tokens last longer
+      expiresIn: '30d', // Los tokens de refresco duran más
       algorithm: config.jwt.algorithm,
       issuer: 'api-rest-auth',
       audience: 'api-rest-auth-refresh'
@@ -49,10 +49,10 @@ const generateRefreshToken = (payload) => {
 };
 
 /**
- * Generates both access and refresh tokens
+ * Genera tokens de acceso y de refresco
  *
- * @param {object} user - User object
- * @returns {object} Object containing both tokens
+ * @param {object} user - Objeto de usuario
+ * @returns {object} Objeto conteniendo ambos tokens
  */
 const generateTokens = (user) => {
   const payload = {
@@ -69,11 +69,11 @@ const generateTokens = (user) => {
 };
 
 /**
- * Verifies and decodes a JWT token
+ * Verifica y decodifica un token JWT
  *
- * @param {string} token - JWT token to verify
- * @returns {Promise<object>} Decoded token payload
- * @throws {Error} If token is invalid or expired
+ * @param {string} token - Token JWT a verificar
+ * @returns {Promise<object>} Payload del token decodificado
+ * @throws {Error} Si el token es inválido o ha expirado
  */
 const verifyToken = async (token) => {
   try {
@@ -84,23 +84,23 @@ const verifyToken = async (token) => {
     });
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
-      throw new Error('Token has expired');
+      throw new Error('El token ha expirado');
     } else if (error.name === 'JsonWebTokenError') {
-      throw new Error('Invalid token');
+      throw new Error('Token inválido');
     } else if (error.name === 'NotBeforeError') {
-      throw new Error('Token not active');
+      throw new Error('Token no activo');
     } else {
-      throw new Error('Token verification failed');
+      throw new Error('Verificación de token fallida');
     }
   }
 };
 
 /**
- * Verifies a refresh token
+ * Verifica un token de refresco
  *
- * @param {string} token - Refresh token to verify
- * @returns {Promise<object>} Decoded token payload
- * @throws {Error} If token is invalid or expired
+ * @param {string} token - Token de refresco a verificar
+ * @returns {Promise<object>} Payload del token decodificado
+ * @throws {Error} Si el token es inválido o ha expirado
  */
 const verifyRefreshToken = async (token) => {
   try {
@@ -111,40 +111,40 @@ const verifyRefreshToken = async (token) => {
     });
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
-      throw new Error('Refresh token has expired');
+      throw new Error('El token de refresco ha expirado');
     } else if (error.name === 'JsonWebTokenError') {
-      throw new Error('Invalid refresh token');
+      throw new Error('Token de refresco inválido');
     } else if (error.name === 'NotBeforeError') {
-      throw new Error('Refresh token not active');
+      throw new Error('Token de refresco no activo');
     } else {
-      throw new Error('Refresh token verification failed');
+      throw new Error('Verificación de token de refresco fallida');
     }
   }
 };
 
 /**
- * Extracts token from Authorization header or cookies
+ * Extrae el token del header Authorization o cookies
  *
- * @param {object} req - Express request object
- * @returns {string|null} Extracted token or null if not found
+ * @param {object} req - Objeto request de Express
+ * @returns {string|null} Token extraído o null si no se encontró
  */
 const extractToken = (req) => {
-  // Check Authorization header
+  // Verificar header Authorization
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     return authHeader.substring(7);
   }
 
-  // Check cookies
+  // Verificar cookies
   if (req.cookies && req.cookies.token) {
     return req.cookies.token;
   }
 
-  // Check query parameter (ONLY in development - security risk in production)
+  // Verificar parámetro de query (SOLO en desarrollo - riesgo de seguridad en producción)
   if (req.query && req.query.token) {
-    // Block query string tokens in production
+    // Bloquear tokens en query string en producción
     if (config.server.env === 'production') {
-      throw new Error('Token in query string not allowed in production');
+      throw new Error('Token en query string no permitido en producción');
     }
     return req.query.token;
   }
@@ -153,23 +153,23 @@ const extractToken = (req) => {
 };
 
 /**
- * Get expiration date from a JWT token
+ * Obtener fecha de expiración de un token JWT
  *
- * @param {string} token - JWT token
- * @returns {Date} Expiration date
- * @throws {Error} If token is invalid or has no expiration
+ * @param {string} token - Token JWT
+ * @returns {Date} Fecha de expiración
+ * @throws {Error} Si el token es inválido o no tiene expiración
  */
 const getTokenExpiration = (token) => {
   try {
     const decoded = jwt.decode(token);
 
     if (!decoded || !decoded.exp) {
-      throw new Error('Token has no expiration date');
+      throw new Error('El token no tiene fecha de expiración');
     }
 
     return new Date(decoded.exp * 1000);
   } catch (error) {
-    throw new Error(`Failed to get token expiration: ${error.message}`);
+    throw new Error(`Fallo al obtener expiración del token: ${error.message}`);
   }
 };
 

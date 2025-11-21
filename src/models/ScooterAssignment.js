@@ -7,7 +7,16 @@
  */
 
 const mongoose = require('mongoose');
-const { validateFechaNoFutura, validateMes, validateAño } = require('./schemas/commonSchemas');
+const { validateNotFutureDate } = require('./schemas/commonSchemas');
+const {
+  SCOOTER_DENSITY_LEVELS,
+  SCOOTER_PROVIDER_DOMINANCE,
+  SCOOTER_MARKET_CONCENTRATION,
+  SCOOTER_ZONE_TYPES,
+  SCOOTER_PRIORITY_LEVELS,
+  SCOOTER_DEMAND_LEVELS,
+  SCOOTER_REPORT_TYPES
+} = require('../constants');
 
 /**
  * Sub-esquema para datos de un proveedor específico
@@ -46,7 +55,7 @@ const scooterAssignmentSchema = new mongoose.Schema({
     default: Date.now,
     index: true,
     validate: {
-      validator: validateFechaNoFutura,
+      validator: validateNotFutureDate,
       message: 'La fecha de asignación no puede ser futura'
     }
   },
@@ -110,12 +119,12 @@ const scooterAssignmentSchema = new mongoose.Schema({
     },
     densidadPatinetes: {
       type: String,
-      enum: ['BAJA', 'MEDIA', 'ALTA', 'MUY_ALTA'],
+      enum: SCOOTER_DENSITY_LEVELS,
       default: 'MEDIA'
     },
     dominanciaProveedores: {
       type: String,
-      enum: ['EQUILIBRADA', 'MONOPOLIO', 'DUOPOLIO', 'OLIGOPOLIO'],
+      enum: SCOOTER_PROVIDER_DOMINANCE,
       default: 'EQUILIBRADA'
     }
   },
@@ -137,7 +146,7 @@ const scooterAssignmentSchema = new mongoose.Schema({
     },
     concentracionMercado: {
       type: String,
-      enum: ['COMPETITIVA', 'MODERADA', 'CONCENTRADA', 'ALTA_CONCENTRACION'],
+      enum: SCOOTER_MARKET_CONCENTRATION,
       default: 'COMPETITIVA'
     }
   },
@@ -146,26 +155,17 @@ const scooterAssignmentSchema = new mongoose.Schema({
   clasificacionArea: {
     tipoZona: {
       type: String,
-      enum: [
-        'CENTRO_URBANO',
-        'ZONA_COMERCIAL',
-        'ZONA_RESIDENCIAL',
-        'ZONA_UNIVERSITARIA',
-        'ZONA_TURISTICA',
-        'ZONA_EMPRESARIAL',
-        'PERIFERIA',
-        'ZONA_TRANSPORTE'
-      ],
+      enum: SCOOTER_ZONE_TYPES,
       default: 'ZONA_RESIDENCIAL'
     },
     prioridadServicio: {
       type: String,
-      enum: ['BAJA', 'MEDIA', 'ALTA', 'CRITICA'],
+      enum: SCOOTER_PRIORITY_LEVELS,
       default: 'MEDIA'
     },
     demandaEstimada: {
       type: String,
-      enum: ['BAJA', 'MEDIA', 'ALTA', 'MUY_ALTA'],
+      enum: SCOOTER_DEMAND_LEVELS,
       default: 'MEDIA'
     }
   },
@@ -179,7 +179,7 @@ const scooterAssignmentSchema = new mongoose.Schema({
       },
       camposFaltantes: [{
         type: String,
-        enum: ['proveedores', 'ubicacion', 'totales']
+        enum: SCOOTER_REPORT_TYPES
       }],
       puntuacionCalidad: {
         type: Number,
@@ -341,6 +341,159 @@ scooterAssignmentSchema.index({
 });
 
 /**
+ * ========================================
+ * MÉTODOS DE INSTANCIA
+ * ========================================
+ */
+
+/**
+ * Calculate statistics for the assignment
+ * Updates: estadisticas.*
+ */
+scooterAssignmentSchema.methods.calculateStatistics = function() {
+  // Total de proveedores
+  this.estadisticas.totalProveedores = this.proveedores.length;
+
+  // Proveedores activos con cantidad > 0
+  this.estadisticas.proveedoresActivos = this.proveedores.filter(
+    p => p.activo && p.cantidad > 0
+  ).length;
+
+  // Promedio de patinetes por proveedor
+  this.estadisticas.promedioPatinetesPorProveedor =
+    this.estadisticas.proveedoresActivos > 0
+      ? this.estadisticas.totalPatinetes / this.estadisticas.proveedoresActivos
+      : 0;
+
+  // Clasificar densidad basada en total de patinetes
+  if (this.estadisticas.totalPatinetes >= 200) {
+    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[3]; // 'MUY_ALTA'
+  } else if (this.estadisticas.totalPatinetes >= 100) {
+    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[2]; // 'ALTA'
+  } else if (this.estadisticas.totalPatinetes >= 50) {
+    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[1]; // 'MEDIA'
+  } else {
+    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[0]; // 'BAJA'
+  }
+};
+
+/**
+ * Analyze distribution and market concentration
+ * Updates: analisisDistribucion.*
+ */
+scooterAssignmentSchema.methods.analyzeDistribution = function() {
+  const proveedoresActivos = this.proveedores.filter(p => p.activo && p.cantidad > 0);
+
+  if (proveedoresActivos.length === 0) {
+    return;
+  }
+
+  // Ordenar por cantidad descendente
+  const sorted = [...proveedoresActivos].sort((a, b) => b.cantidad - a.cantidad);
+
+  // Proveedor dominante
+  this.analisisDistribucion.proveedorDominante = {
+    nombre: sorted[0].nombre,
+    cantidad: sorted[0].cantidad,
+    porcentaje: (sorted[0].cantidad / this.estadisticas.totalPatinetes) * 100
+  };
+
+  // Proveedor secundario (si existe)
+  if (sorted.length > 1) {
+    this.analisisDistribucion.proveedorSecundario = {
+      nombre: sorted[1].nombre,
+      cantidad: sorted[1].cantidad,
+      porcentaje: (sorted[1].cantidad / this.estadisticas.totalPatinetes) * 100
+    };
+  }
+
+  // Índice Herfindahl-Hirschman (HHI)
+  const hhi = proveedoresActivos.reduce((sum, p) => {
+    const share = (p.cantidad / this.estadisticas.totalPatinetes) * 100;
+    return sum + (share * share);
+  }, 0);
+
+  this.analisisDistribucion.indiceHerfindahl = Math.round(hhi);
+
+  // Clasificar concentración del mercado
+  if (hhi >= 5000) {
+    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION[3]; // 'ALTA_CONCENTRACION'
+    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE[1]; // 'MONOPOLIO'
+  } else if (hhi >= 2500) {
+    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION[2]; // 'CONCENTRADA'
+    this.estadisticas.dominanciaProveedores = proveedoresActivos.length === 2 ? SCOOTER_PROVIDER_DOMINANCE[2] : SCOOTER_PROVIDER_DOMINANCE[3]; // 'DUOPOLIO' : 'OLIGOPOLIO'
+  } else if (hhi >= 1500) {
+    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION[1]; // 'MODERADA'
+    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE[3]; // 'OLIGOPOLIO'
+  } else {
+    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION[0]; // 'COMPETITIVA'
+    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE[0]; // 'EQUILIBRADA'
+  }
+};
+
+/**
+ * Classify area type based on location and density
+ * Updates: clasificacionArea.*
+ */
+scooterAssignmentSchema.methods.classifyArea = function() {
+  const distrito = this.distrito.nombre.toUpperCase();
+  const barrio = this.barrio.nombre.toUpperCase();
+  const totalPatinetes = this.estadisticas.totalPatinetes;
+
+  // Clasificar tipo de zona (basado en distritos conocidos de Madrid)
+  if (distrito.includes('CENTRO') || barrio.includes('SOL')) {
+    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES[0]; // 'CENTRO_URBANO'
+    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS[3]; // 'CRITICA'
+  } else if (barrio.includes('UNIVERSIDAD') || barrio.includes('CAMPUS')) {
+    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES[3]; // 'ZONA_UNIVERSITARIA'
+    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS[2]; // 'ALTA'
+  } else if (barrio.includes('ATOCHA') || barrio.includes('CHAMARTIN')) {
+    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES[7]; // 'ZONA_TRANSPORTE'
+    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS[2]; // 'ALTA'
+  } else if (distrito.includes('RETIRO') || distrito.includes('SALAMANCA')) {
+    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES[1]; // 'ZONA_COMERCIAL'
+    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS[2]; // 'ALTA'
+  } else {
+    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES[2]; // 'ZONA_RESIDENCIAL'
+    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS[1]; // 'MEDIA'
+  }
+
+  // Estimar demanda basada en densidad
+  if (totalPatinetes >= 150) {
+    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[3]; // 'MUY_ALTA'
+  } else if (totalPatinetes >= 100) {
+    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[2]; // 'ALTA'
+  } else if (totalPatinetes >= 50) {
+    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[1]; // 'MEDIA'
+  } else {
+    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[0]; // 'BAJA'
+  }
+};
+
+/**
+ * Validate data consistency
+ * Updates: metadatos.validacionDatos.*
+ */
+scooterAssignmentSchema.methods.validateData = function() {
+  // Verificar suma correcta
+  const sumaProveedores = this.proveedores.reduce((sum, p) => sum + p.cantidad, 0);
+  this.metadatos.validacionDatos.sumaCorrecta =
+    sumaProveedores === this.estadisticas.totalPatinetes;
+
+  // Verificar proveedores duplicados
+  const nombresProveedores = this.proveedores.map(p => p.nombre);
+  const nombresUnicos = new Set(nombresProveedores);
+  this.metadatos.validacionDatos.proveedoresDuplicados =
+    nombresProveedores.length !== nombresUnicos.size;
+
+  // Verificar consistencia general
+  this.metadatos.validacionDatos.datosConsistentes =
+    this.metadatos.validacionDatos.sumaCorrecta &&
+    !this.metadatos.validacionDatos.proveedoresDuplicados &&
+    this.proveedores.every(p => p.cantidad >= 0);
+};
+
+/**
  * Middleware pre-save para cálculos automáticos
  */
 scooterAssignmentSchema.pre('save', function(next) {
@@ -359,10 +512,10 @@ scooterAssignmentSchema.pre('save', function(next) {
   }
 
   // Calcular estadísticas antes de guardar
-  this.calcularEstadisticas();
-  this.analizarDistribucion();
-  this.clasificarArea();
-  this.validarDatos();
+  this.calculateStatistics();
+  this.analyzeDistribution();
+  this.classifyArea();
+  this.validateData();
 
   // Actualizar timestamp
   this.procesamiento.ultimaActualizacion = new Date();
@@ -373,7 +526,7 @@ scooterAssignmentSchema.pre('save', function(next) {
 /**
  * Método para obtener resumen de asignación
  */
-scooterAssignmentSchema.methods.getResumenAsignacion = function() {
+scooterAssignmentSchema.methods.getAssignmentSummary = function() {
   return {
     ubicacion: {
       distrito: this.distrito.nombre,
@@ -411,7 +564,7 @@ scooterAssignmentSchema.methods.getResumenAsignacion = function() {
 /**
  * Obtener estadísticas por distrito
  */
-scooterAssignmentSchema.statics.getEstadisticasDistrito = function(fecha = null) {
+scooterAssignmentSchema.statics.getDistrictStatistics = function(fecha = null) {
   const matchCondition = {};
   if (fecha) {
     matchCondition.fechaAsignacion = {
@@ -449,7 +602,7 @@ scooterAssignmentSchema.statics.getEstadisticasDistrito = function(fecha = null)
 /**
  * Obtener análisis de mercado por proveedor
  */
-scooterAssignmentSchema.statics.getAnalisisMercadoPorProveedor = function(fecha = null) {
+scooterAssignmentSchema.statics.getProviderMarketAnalysis = function(fecha = null) {
   const matchCondition = {};
   if (fecha) {
     matchCondition.fechaAsignacion = {
@@ -499,7 +652,7 @@ scooterAssignmentSchema.statics.getAnalisisMercadoPorProveedor = function(fecha 
 /**
  * Obtener zonas de mayor concentración
  */
-scooterAssignmentSchema.statics.getZonasMayorConcentracion = function(limite = 20, fecha = null) {
+scooterAssignmentSchema.statics.getHighestConcentrationZones = function(limite = 20, fecha = null) {
   const matchCondition = {};
   if (fecha) {
     matchCondition.fechaAsignacion = {
@@ -534,7 +687,7 @@ scooterAssignmentSchema.statics.getZonasMayorConcentracion = function(limite = 2
 /**
  * Obtener dashboard de distribución
  */
-scooterAssignmentSchema.statics.getDashboardDistribucion = function(fecha = null) {
+scooterAssignmentSchema.statics.getDistributionDashboard = function(fecha = null) {
   const matchCondition = {};
   if (fecha) {
     matchCondition.fechaAsignacion = {
@@ -878,18 +1031,18 @@ scooterAssignmentSchema.statics.getTemporalComparisonData = async function(fecha
   ]);
 
   // Procesar datos para estructura amigable al frontend
-  const datosProcessados = {};
+  const processedData = {};
   comparativa.forEach(item => {
     const fecha = item._id.fecha;
     const ubicacion = typeof item._id.ubicacion === 'object' ?
       `${item._id.ubicacion.distrito} - ${item._id.ubicacion.barrio}` :
       item._id.ubicacion;
 
-    if (!datosProcessados[ubicacion]) {
-      datosProcessados[ubicacion] = [];
+    if (!processedData[ubicacion]) {
+      processedData[ubicacion] = [];
     }
 
-    datosProcessados[ubicacion].push({
+    processedData[ubicacion].push({
       fecha,
       totalPatinetes: item.totalPatinetes,
       totalProveedores: Math.round(item.totalProveedores),
@@ -898,8 +1051,8 @@ scooterAssignmentSchema.statics.getTemporalComparisonData = async function(fecha
   });
 
   return {
-    comparativa: datosProcessados,
-    totalUbicaciones: Object.keys(datosProcessados).length
+    comparativa: processedData,
+    totalUbicaciones: Object.keys(processedData).length
   };
 };
 

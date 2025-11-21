@@ -9,6 +9,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const config = require('../config/config');
 const { generateAccessToken } = require('../utils/tokenHelper');
+const { USER_SECURITY, USER_ROLES } = require('../constants');
 
 /**
  * Esquema de Usuario
@@ -46,7 +47,7 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Contraseña obligatoria'],
     minlength: [6, 'La contraseña debe tener al menos 6 caracteres'],
-    // NOTA: La validación de fortaleza de contraseña debe hacerse en el controlador
+    // La validación de fortaleza de contraseña se debe hacer en el controlador
     // ANTES de guardar, no aquí, porque el pre-save hook hashea la contraseña
     // y la validación fallaría con el hash
     select: false // NO se devuelve por defecto en consultas
@@ -60,8 +61,8 @@ const userSchema = new mongoose.Schema({
 
   role: {
     type: String,
-    enum: ['user', 'admin'],
-    default: 'user'
+    enum: Object.values(USER_ROLES),
+    default: USER_ROLES.USER
   },
 
   // Campos de tracking de actividad
@@ -78,17 +79,6 @@ const userSchema = new mongoose.Schema({
   lockUntil: { // Timestamp hasta cuando la cuenta está bloqueada
     type: Date,
     default: null
-  },
-
-  // Campos para recuperación de contraseña
-  resetPasswordToken: {
-    type: String,
-    select: false
-  },
-
-  resetPasswordExpire: { // Fecha de expiración del token de reseteo
-    type: Date,
-    select: false
   }
 
 }, {
@@ -125,6 +115,26 @@ userSchema.pre('save', async function(next) {
 });
 
 /**
+ * Middleware pre-update para auto-actualización de timestamps
+ * Se ejecuta en operaciones findOneAndUpdate, updateOne, updateMany
+ */
+userSchema.pre('findOneAndUpdate', function(next) {
+  // Auto-actualizar el campo updatedAt en updates
+  this.set({ updatedAt: new Date() });
+  next();
+});
+
+userSchema.pre('updateOne', function(next) {
+  this.set({ updatedAt: new Date() });
+  next();
+});
+
+userSchema.pre('updateMany', function(next) {
+  this.set({ updatedAt: new Date() });
+  next();
+});
+
+/**
  * Compara una contraseña candidata con la contraseña hasheada almacenada
  *
  * @param {string} candidatePassword - Contraseña a verificar
@@ -132,7 +142,7 @@ userSchema.pre('save', async function(next) {
  */
 userSchema.methods.comparePassword = async function(candidatePassword) {
   if (!candidatePassword) {return false;}
-  return await bcrypt.compare(candidatePassword, this.password);
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
 /**
@@ -166,9 +176,9 @@ userSchema.methods.handleFailedLogin = async function() {
 
   const updates = { $inc: { loginAttempts: 1 } };
 
-  // Bloquear la cuenta si se alcanzan 5 intentos fallidos y no está ya bloqueada
-  if (this.loginAttempts + 1 >= 5 && !this.isLocked) {
-    updates.$set = { lockUntil: Date.now() + 2 * 60 * 60 * 1000 }; // 2 horas
+  // Bloquear la cuenta si se alcanzan los intentos fallidos máximos y no está ya bloqueada
+  if (this.loginAttempts + 1 >= USER_SECURITY.MAX_LOGIN_ATTEMPTS && !this.isLocked) {
+    updates.$set = { lockUntil: Date.now() + USER_SECURITY.LOCK_TIME_MS };
   }
 
   return this.updateOne(updates);
@@ -210,20 +220,41 @@ userSchema.statics.findByEmailOrUsername = function(identifier) {
  * Índices para mejorar el rendimiento de las consultas
  */
 
-// Índice compuesto para búsqueda por email o username
+// ========================================
+// ÍNDICE COMPUESTO: email + username (consolidado)
+// ========================================
+// MEJORA: Reemplaza índices individuales por uno compuesto más eficiente
+// Soporta: Búsquedas por email, username, o ambos
 // Usado en: authController.js:54,141 - findByEmailOrUsername()
-// Usado en: authController.js:299 - POST /api/auth/profile (verificar email único)
-// Usado en: authController.js:309 - POST /api/auth/profile (verificar username único)
-userSchema.index({ email: 1, username: 1 });
+// Usado en: authController.js:299,309 - Verificaciones de unicidad
+// ✅ Leftmost prefix permite queries solo con email
+// ✅ Unique constraint ya garantizado a nivel de campo
+userSchema.index({ email: 1, username: 1 }, {
+  name: 'idx_user_credentials',
+  background: true
+});
+
+// ========================================
+// ÍNDICES TEMPORALES
+// ========================================
 
 // Índice para ordenar usuarios por fecha de creación (descendente)
 // Usado en: Queries administrativas de listado de usuarios
-userSchema.index({ createdAt: -1 });
+// Soporta: GET /api/admin/users?sortBy=createdAt&sortOrder=desc
+userSchema.index({ createdAt: -1 }, {
+  name: 'idx_user_created_timeline',
+  background: true
+});
 
 // Índice para consultas por último login (descendente)
 // Usado en: Queries de auditoría y análisis de actividad
 // Usado en: authController.js - actualización de lastLogin en login
-userSchema.index({ lastLogin: -1 });
+// Soporta: Identificación de usuarios inactivos, análisis de engagement
+userSchema.index({ lastLogin: -1 }, {
+  name: 'idx_user_last_login',
+  background: true,
+  sparse: true // ✅ SPARSE: lastLogin puede ser null para usuarios que nunca han iniciado sesión
+});
 
 // Crear y exportar el modelo de usuario
 const User = mongoose.model('Users', userSchema);

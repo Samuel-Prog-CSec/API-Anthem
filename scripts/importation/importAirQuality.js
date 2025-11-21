@@ -330,26 +330,27 @@ async function processBatch(batch, options, stats) {
 
         } catch (bulkError) {
           // Manejar errores específicos de bulkWrite
-          if (bulkError.writeErrors) {
-            let duplicates = 0;
-            let otherErrors = 0;
-
-            bulkError.writeErrors.forEach(error => {
-              if (error.code === 11000) { // Duplicate key
-                duplicates++;
-              } else {
-                otherErrors++;
-                console.warn(`   ⚠️  Error inserción: ${error.errmsg}`);
-              }
-            });
-
-            stats.skippedRecords += duplicates;
-            stats.duplicateErrors += duplicates;
-            stats.errorRows += otherErrors;
-            stats.insertedRecords += (batch.length - duplicates - otherErrors);
-          } else {
+          if (!bulkError.writeErrors) {
             throw bulkError; // Re-lanzar si no es error de escritura manejable
           }
+
+          // Contar duplicados y otros errores
+          let duplicates = 0;
+          let otherErrors = 0;
+
+          bulkError.writeErrors.forEach(error => {
+            if (error.code === 11000) { // Duplicate key
+              duplicates++;
+            } else {
+              otherErrors++;
+              console.warn(`   ⚠️  Error inserción: ${error.errmsg}`);
+            }
+          });
+
+          stats.skippedRecords += duplicates;
+          stats.duplicateErrors += duplicates;
+          stats.errorRows += otherErrors;
+          stats.insertedRecords += (batch.length - duplicates - otherErrors);
         }
       } else {
         // Usar upsert para sobrescribir existentes
@@ -400,21 +401,21 @@ async function processBatch(batch, options, stats) {
  * @returns {Promise<Object>} - Estadísticas finales
  */
 async function importAirQualityData(options = {}) {
-  const config = { ...IMPORT_CONFIG, ...options };
+  const importConfig = { ...IMPORT_CONFIG, ...options };
 
   console.log('🌬️  Iniciando importación de datos de calidad del aire...');
-  console.log(`📁 Directorio: ${config.dataDirectory}`);
-  console.log(`🔄 Procesamiento paralelo: ${config.maxParallel} archivos simultáneos`);
+  console.log(`📁 Directorio: ${importConfig.dataDirectory}`);
+  console.log(`🔄 Procesamiento paralelo: ${importConfig.maxParallel} archivos simultáneos`);
 
   try {
     // Verificar que existe el directorio
-    const dirStats = await fs.stat(config.dataDirectory);
+    const dirStats = await fs.stat(importConfig.dataDirectory);
     if (!dirStats.isDirectory()) {
-      throw new Error(`No se encontró el directorio: ${config.dataDirectory}`);
+      throw new Error(`No se encontró el directorio: ${importConfig.dataDirectory}`);
     }
 
     // Obtener lista de archivos CSV
-    const files = await fs.readdir(config.dataDirectory);
+    const files = await fs.readdir(importConfig.dataDirectory);
     const csvFiles = files
       .filter(file => file.endsWith('.csv') && file.includes('Aire'))
       .sort();
@@ -444,9 +445,9 @@ async function importAirQualityData(options = {}) {
     };
 
     // Procesar archivos en paralelo
-    const maxParallel = config.maxParallel;
+    const maxParallel = importConfig.maxParallel;
     const processFile = async (file, index, total) => {
-      const filePath = path.join(config.dataDirectory, file);
+      const filePath = path.join(importConfig.dataDirectory, file);
       console.log(`\n🔄 [${index + 1}/${total}] INICIANDO: ${file}`);
 
       try {

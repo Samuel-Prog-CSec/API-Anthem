@@ -22,13 +22,17 @@ const {
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
 const {
   validateDateRange,
-  validateDistritoQuery,
-  validateBarrioQuery
+  validateDistrictQuery,
+  validateNeighborhoodQuery
 } = require('../middleware/validation');
 
 const router = express.Router();
+
+// Aplicar performanceMonitor a todas las rutas de patinetes
+router.use(performanceMonitor);
 
 /**
  * Validaciones comunes para filtros de fecha
@@ -83,8 +87,8 @@ const sortValidation = [
  * Validaciones para filtros geográficos - usando validadores consolidados
  */
 const geographicValidation = [
-  ...validateDistritoQuery,
-  ...validateBarrioQuery
+  ...validateDistrictQuery,
+  ...validateNeighborhoodQuery
 ];
 
 /**
@@ -314,7 +318,7 @@ router.get('/optimization-analysis',
 router.get('/temporal-comparison',
   authenticate,
   validateDateRange(365), // 1 año
-  validateDistritoQuery,
+  validateDistrictQuery,
   [
     query('agrupacion')
       .optional()

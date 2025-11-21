@@ -11,7 +11,7 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES } = require('../constants');
 const logger = require('../config/logger');
 
 
@@ -100,14 +100,14 @@ const getAllAccidents = async (req, res, next) => {
           $group: {
             _id: null,
             accidentesGraves: {
-              $sum: { $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0] }
+              $sum: { $cond: [{ $in: ['$circunstancias.gravedad', [SEVERITY_LEVELS.ACCIDENT.GRAVE, SEVERITY_LEVELS.ACCIDENT.MORTAL]] }, 1, 0] }
             },
             accidentesMortales: {
-              $sum: { $cond: [{ $eq: ['$circunstancias.gravedad', 'MORTAL'] }, 1, 0] }
+              $sum: { $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0] }
             },
             puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' },
             accidentesConAlcohol: {
-              $sum: { $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', 'S'] }, 1, 0] }
+              $sum: { $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0] }
             }
           }
         }
@@ -122,10 +122,10 @@ const getAllAccidents = async (req, res, next) => {
       filters: {
         applied: filters,
         available: {
-          gravedad: ['LEVE', 'GRAVE', 'MORTAL', 'SIN_LESIONES'],
-          tipoAccidente: ['COLISION_DOBLE', 'COLISION_MULTIPLE', 'ALCANCE', 'CHOQUE_OBSTACULO', 'ATROPELLO_PERSONA', 'VUELCO'],
-          tipoVehiculo: ['TURISMO', 'MOTOCICLETA', 'BICICLETA', 'AUTOBUS', 'CAMION'],
-          tipoLesion: ['LEVE', 'GRAVE', 'FALLECIDO', 'SIN_ASISTENCIA']
+          gravedad: Object.values(SEVERITY_LEVELS.ACCIDENT),
+          tipoAccidente: ACCIDENT_TYPES,
+          tipoVehiculo: VEHICLE_TYPES,
+          tipoLesion: Object.values(INJURY_TYPES)
         }
       },
       stats: stats[0] || {
@@ -143,7 +143,7 @@ const getAllAccidents = async (req, res, next) => {
       endpoint: 'GET /api/accidents'
     }, 'Datos de accidentes obtenidos exitosamente');
 
-    res.status(200).json(createResponse(responseData, 'Datos de accidentes obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de accidentes obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -160,12 +160,12 @@ const getAllAccidents = async (req, res, next) => {
  * Obtener un accidente específico por número de expediente
  * GET /api/accidents/expediente/:numero
  */
-const getAccidentByExpediente = async (req, res, next) => {
+const getAccidentByFileNumber = async (req, res, next) => {
   try {
     const { numero } = req.params;
 
     logger.debug({
-      expediente: numero,
+      fileNumber: numero,
       endpoint: 'GET /api/accidents/expediente/:numero'
     }, 'Obteniendo accidente por expediente');
 
@@ -190,16 +190,16 @@ const getAccidentByExpediente = async (req, res, next) => {
       positivaDroga: acc.personaAfectada.positivaDroga
     }));
 
-    const resumen = personasAfectadas.reduce((acc, persona) => {
-      if (persona.tipoPersona === 'CONDUCTOR') { acc.conductores++; }
-      if (persona.tipoPersona === 'PEATON') { acc.peatones++; }
-      if (['GRAVE', 'FALLECIDO'].includes(persona.tipoLesion)) { acc.personasGraves++; }
-      if (persona.positivaAlcohol === 'S') { acc.conAlcohol++; }
+    const summary = personasAfectadas.reduce((acc, persona) => {
+      if (persona.tipoPersona === PERSON_TYPES.CONDUCTOR) { acc.conductores++; }
+      if (persona.tipoPersona === PERSON_TYPES.PEATON) { acc.peatones++; }
+      if ([INJURY_TYPES.GRAVE, INJURY_TYPES.FALLECIDO].includes(persona.tipoLesion)) { acc.personasGraves++; }
+      if (persona.positivaAlcohol === BINARY_INDICATORS.YES) { acc.conAlcohol++; }
       return acc;
     }, { totalPersonas: accidentData.length, conductores: 0, peatones: 0, personasGraves: 0, conAlcohol: 0 });
 
     const accidentInfo = {
-      expediente: accidente.numeroExpediente,
+      fileNumber: accidente.numeroExpediente,
       fecha: accidente.fecha,
       hora: accidente.hora,
       ubicacion: accidente.ubicacion,
@@ -207,16 +207,16 @@ const getAccidentByExpediente = async (req, res, next) => {
       vehiculo: accidente.vehiculo,
       analisis: accidente.analisis,
       personasAfectadas,
-      resumen
+      resumen: summary
     };
 
-    return res.status(200).json(createResponse({ data: accidentInfo }, 'Accidente obtenido exitosamente'));
+    return res.status(HTTP_STATUS.OK).json(createResponse({ data: accidentInfo }, 'Accidente obtenido exitosamente'));
 
   } catch (error) {
     logger.error({
       error: error.message,
       stack: error.stack,
-      expediente: req.params.numero,
+      fileNumber: req.params.numero,
       endpoint: 'GET /api/accidents/expediente/:numero'
     }, 'Error al obtener accidente por expediente');
     return next(createInternalError('Error al obtener el accidente', error));
@@ -291,7 +291,7 @@ const getAccidentStats = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Estadísticas completas obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas completas obtenidas exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -334,7 +334,7 @@ const getAccidentHeatmap = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Mapa de calor generado exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Mapa de calor generado exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -384,7 +384,7 @@ const getSafetyAnalysis = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Puntos negros analizados exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Puntos negros analizados exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -434,7 +434,7 @@ const getDistrictComparison = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Comparativa de distritos obtenida exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Comparativa de distritos obtenida exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -449,9 +449,10 @@ const getDistrictComparison = async (req, res, next) => {
 
 module.exports = {
   getAllAccidents,
-  getAccidentByExpediente,
+  getAccidentByFileNumber,
   getAccidentStats,
   getAccidentHeatmap,
   getSafetyAnalysis,
   getDistrictComparison
 };
+

@@ -8,11 +8,12 @@
 
 const mongoose = require('mongoose');
 const {
-  validateNivelRuido,
-  validateFechaNoFutura,
-  validateMes,
-  validateAño
+  validateNoiseLevel,
+  validateNotFutureDate,
+  validateMonth,
+  validateYear
 } = require('./schemas/commonSchemas');
+const { NOISE_LIMITS, NOISE_METRIC_FIELDS } = require('../constants');
 
 /**
  * Esquema de Contaminación Acústica
@@ -31,7 +32,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     type: Date,
     required: true,
     validate: {
-      validator: validateFechaNoFutura,
+      validator: validateNotFutureDate,
       message: 'La fecha no puede ser futura'
     }
   },
@@ -40,7 +41,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     type: Number,
     required: true,
     validate: {
-      validator: validateMes,
+      validator: validateMonth,
       message: 'El mes debe estar entre 1 y 12'
     }
   },
@@ -49,7 +50,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     type: Number,
     required: true,
     validate: {
-      validator: validateAño,
+      validator: validateYear,
       message: 'El año debe estar entre 2000 y 3000'
     }
   },
@@ -72,7 +73,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     type: Number,
     required: false,
     validate: {
-      validator: validateNivelRuido,
+      validator: validateNoiseLevel,
       message: 'El nivel diurno debe estar entre 0 y 150 dB'
     }
   },
@@ -81,7 +82,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     type: Number,
     required: false,
     validate: {
-      validator: validateNivelRuido,
+      validator: validateNoiseLevel,
       message: 'El nivel vespertino debe estar entre 0 y 150 dB'
     }
   },
@@ -90,7 +91,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     type: Number,
     required: false,
     validate: {
-      validator: validateNivelRuido,
+      validator: validateNoiseLevel,
       message: 'El nivel nocturno debe estar entre 0 y 150 dB'
     }
   },
@@ -100,7 +101,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     type: Number,
     required: false,
     validate: {
-      validator: validateNivelRuido,
+      validator: validateNoiseLevel,
       message: 'El LAeq24 debe estar entre 0 y 150 dB'
     }
   },
@@ -112,7 +113,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
         type: Number,
         required: false,
         validate: {
-          validator: validateNivelRuido,
+          validator: validateNoiseLevel,
           message: 'El LAS01 debe estar entre 0 y 150 dB'
         }
       },
@@ -120,7 +121,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
         type: Number,
         required: false,
         validate: {
-          validator: validateNivelRuido,
+          validator: validateNoiseLevel,
           message: 'El LAS10 debe estar entre 0 y 150 dB'
         }
       },
@@ -128,7 +129,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
         type: Number,
         required: false,
         validate: {
-          validator: validateNivelRuido,
+          validator: validateNoiseLevel,
           message: 'El LAS50 debe estar entre 0 y 150 dB'
         }
       },
@@ -136,7 +137,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
         type: Number,
         required: false,
         validate: {
-          validator: validateNivelRuido,
+          validator: validateNoiseLevel,
           message: 'El LAS90 debe estar entre 0 y 150 dB'
         }
       },
@@ -144,7 +145,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
         type: Number,
         required: false,
         validate: {
-          validator: validateNivelRuido,
+          validator: validateNoiseLevel,
           message: 'El LAS99 debe estar entre 0 y 150 dB'
         }
       }
@@ -180,7 +181,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     },
     missingFields: [{
       type: String,
-      enum: ['nivelDiurno', 'nivelVespertino', 'nivelNocturno', 'laeq24', 'percentiles']
+      enum: NOISE_METRIC_FIELDS
     }],
     qualityScore: {
       type: Number,
@@ -391,11 +392,7 @@ noiseMonitoringSchema.pre('save', function(next) {
 /**
  * Constantes de límites normativos de ruido (dB)
  */
-noiseMonitoringSchema.statics.LIMITES_NORMATIVOS = {
-  DIURNO: 65,
-  VESPERTINO: 65,
-  NOCTURNO: 55
-};
+noiseMonitoringSchema.statics.LIMITES_NORMATIVOS = NOISE_LIMITS;
 
 /**
  * Obtener estadísticas agregadas con cumplimiento normativo
@@ -553,7 +550,7 @@ noiseMonitoringSchema.statics.getRankingOptimized = function(filters, sortBy = '
  * @param {Object} niveles - Objeto con nivelDiurno, nivelVespertino, nivelNocturno
  * @returns {Object} Objeto con cumplimiento por período
  */
-noiseMonitoringSchema.statics.calcularCumplimientoNormativo = function(niveles) {
+noiseMonitoringSchema.statics.calculateRegulatoryCompliance = function(niveles) {
   const { DIURNO, VESPERTINO, NOCTURNO } = this.LIMITES_NORMATIVOS;
 
   return {

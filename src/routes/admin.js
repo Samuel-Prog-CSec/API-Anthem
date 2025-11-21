@@ -8,9 +8,11 @@
 const express = require('express');
 const { query } = require('express-validator');
 
-// Middleware de autenticación
+// Middleware de autenticación y autorización
 const { authenticate } = require('../middleware/auth');
+const { adminOnly } = require('../middleware/authorization');
 const { validateRequest } = require('../middleware/security');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
 
 // Utilidades de caché
 const { clearCache, getCacheStats } = require('../middleware/cache');
@@ -21,6 +23,9 @@ const logger = require('../config/logger');
 
 const router = express.Router();
 
+// Aplicar performanceMonitor a todas las rutas de admin
+router.use(performanceMonitor);
+
 /**
  * @route   GET /api/v1/admin/cache/stats
  * @desc    Obtener estadísticas del caché
@@ -28,6 +33,7 @@ const router = express.Router();
  */
 router.get('/cache/stats',
   authenticate,
+  adminOnly,
   (req, res, next) => {
     try {
       const stats = getCacheStats();
@@ -76,6 +82,7 @@ router.get('/cache/stats',
  */
 router.delete('/cache/clear',
   authenticate,
+  adminOnly,
 
   query('type')
     .optional()
@@ -140,6 +147,7 @@ router.delete('/cache/clear',
  */
 router.get('/system/health',
   authenticate,
+  adminOnly,
   async (req, res, next) => {
     try {
       const mongoose = require('mongoose');
@@ -220,6 +228,7 @@ router.get('/system/health',
  */
 router.get('/performance/stats',
   authenticate,
+  adminOnly,
   (req, res, next) => {
     try {
       const stats = getPerformanceStats();
@@ -252,6 +261,7 @@ router.get('/performance/stats',
  */
 router.get('/etag/stats',
   authenticate,
+  adminOnly,
   (req, res, next) => {
     try {
       const stats = getETagStats();

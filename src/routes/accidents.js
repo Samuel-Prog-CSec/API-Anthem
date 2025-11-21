@@ -8,23 +8,32 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { query, body } = require('express-validator');
+const {
+  SEVERITY_LEVELS
+} = require('../constants');
 
 const accidentController = require('../controllers/accidentController');
 const { authenticate } = require('../middleware/auth');
+const { adminOnly } = require('../middleware/authorization');
 const { validateRequest } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { createForbiddenResponse } = require('../utils/responseHelper');
 const logger = require('../config/logger');
 const {
   validateDateRange,
-  validateDistritoQuery,
+  validateDistrictQuery,
   validateExportFormat,
   validatePagination,
   validateAccidentFilters,
-  validateExpediente
+  validateFileNumber
 } = require('../middleware/validation');
 
 
 const router = express.Router();
+
+// Aplicar performanceMonitor a todas las rutas de accidentes
+router.use(performanceMonitor);
 
 /**
  * Limitadores de velocidad específicos
@@ -100,8 +109,8 @@ router.get('/',
 router.get('/expediente/:numero',
   generalLimit,
   authenticate,
-  validateExpediente,
-  accidentController.getAccidentByExpediente
+  validateFileNumber,
+  accidentController.getAccidentByFileNumber
 );
 
 /**
@@ -113,7 +122,7 @@ router.get('/expediente/:numero',
 router.get('/stats',
   generalLimit,
   authenticate,
-  validateDistritoQuery,
+  validateDistrictQuery,
   validateDateRange(730), // 2 años
   cacheMiddleware('statistics', (req) => `accidents:stats:${JSON.stringify(req.query)}`),
   accidentController.getAccidentStats
@@ -131,8 +140,8 @@ router.get('/heatmap',
   [
     query('gravedad')
       .optional()
-      .isIn(['LEVE', 'GRAVE', 'MORTAL', 'SIN_LESIONES'])
-      .withMessage('Gravedad debe ser LEVE, GRAVE, MORTAL o SIN_LESIONES'),
+      .isIn(Object.values(SEVERITY_LEVELS.ACCIDENT))
+      .withMessage(`Gravedad debe ser uno de: ${Object.values(SEVERITY_LEVELS.ACCIDENT).join(', ')}`),
 
     query('limite')
       .optional()
@@ -155,7 +164,7 @@ router.get('/heatmap',
 router.get('/safety-analysis',
   heavyAnalysisLimit,
   authenticate,
-  validateDistritoQuery,
+  validateDistrictQuery,
   validateDateRange(730), // 2 años
   cacheMiddleware('statistics', (req) => `accidents:safety:${JSON.stringify(req.query)}`),
   accidentController.getSafetyAnalysis
@@ -217,10 +226,7 @@ router.get('/export',
 
       // Por seguridad, siempre anonimizar para no-admins
       if (req.user.role !== 'admin' && req.query.includePersonalData === 'true') {
-        return res.status(403).json({
-          success: false,
-          message: 'No tiene permisos para exportar datos personales'
-        });
+        return res.status(403).json(createForbiddenResponse('No tiene permisos para exportar datos personales'));
       }
 
       // TODO: Implementar lógica de exportación con anonimización
@@ -242,6 +248,7 @@ router.get('/export',
  */
 router.post('/bulk-update',
   authenticate,
+  adminOnly,
   [
     body('operation')
       .isIn(['reclassify', 'update_coordinates', 'fix_data'])
@@ -287,6 +294,7 @@ router.post('/bulk-update',
  */
 router.delete('/cleanup',
   authenticate,
+  adminOnly,
   [
     body('operation')
       .isIn(['remove_old', 'remove_duplicates', 'remove_invalid'])

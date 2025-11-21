@@ -9,22 +9,28 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { query, param } = require('express-validator');
+const {
+  CONTAINER_TYPES
+} = require('../constants');
 
 const containerController = require('../controllers/containerController');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { etagMiddleware } = require('../middleware/etag');
 const logger = require('../config/logger');
 const {
   validatePagination,
-  validateDistritoQuery,
-  validateBarrioQuery,
   validateContainerType,
   validateContainerFilters,
   validateCoordinates
 } = require('../middleware/validation');
 
 const router = express.Router();
+
+// Aplicar performanceMonitor a todas las rutas de contenedores
+router.use(performanceMonitor);
 
 /**
  * Limitadores de velocidad
@@ -58,7 +64,9 @@ router.get('/',
   validatePagination,
   validateContainerType,
   validateContainerFilters,
-  cacheMiddleware('containers'), // Cache por 24 horas (datos est�ticos)`n  containerController.getAllContainers
+  etagMiddleware, // ETags para datos estáticos de contenedores
+  cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
+  containerController.getAllContainers
 );
 
 /**
@@ -258,8 +266,8 @@ router.get('/analysis/density',
       .withMessage('Distrito no puede estar vacío'),
     query('tipoContenedor')
       .optional()
-      .isIn(['ORGANICA', 'RESTO', 'ENVASES', 'VIDRIO', 'PAPEL-CARTON'])
-      .withMessage('Tipo de contenedor inválido'),
+      .isIn(CONTAINER_TYPES)
+      .withMessage(`Tipo de contenedor inválido. Valores permitidos: ${CONTAINER_TYPES.join(', ')}`),
     query('includeBarrios')
       .optional()
       .isBoolean()

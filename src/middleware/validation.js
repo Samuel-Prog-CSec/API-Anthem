@@ -1,34 +1,32 @@
 /**
- * Input Validation Middleware
+ * Middleware de Validación de Entrada
  *
- * Provides validation rules and middleware for API endpoints using express-validator.
- * Ensures data integrity and prevents malicious input.
+ * Proporciona reglas de validación y middleware para endpoints de la API usando express-validator.
+ * Asegura la integridad de los datos y previene entrada maliciosa.
  *
- * @author API Development Team
- * @version 1.0.0
  */
 
 const { body, param, query, validationResult } = require('express-validator');
 
 /**
- * User registration validation rules
+ * Reglas de validación de registro de usuario
  *
- * Validates user registration input including username, email, password,
- * and optional profile information.
+ * Valida la entrada de registro de usuario incluyendo nombre de usuario, email, contraseña
+ * e información opcional de perfil.
  */
 const validateRegistration = [
   body('username')
     .trim()
     .isLength({ min: 3, max: 30 })
-    .withMessage('Username must be between 3 and 30 characters')
+    .withMessage('El nombre de usuario debe tener entre 3 y 30 caracteres')
     .matches(/^[a-zA-Z0-9_-]+$/)
-    .withMessage('Username can only contain letters, numbers, hyphens, and underscores')
+    .withMessage('El nombre de usuario solo puede contener letras, números, guiones y guiones bajos')
     .escape()
     .custom(async (value) => {
-      // Additional username validation can be added here
+      // Validación adicional de nombre de usuario
       const forbiddenUsernames = ['admin', 'root', 'api', 'system', 'null', 'undefined'];
       if (forbiddenUsernames.includes(value.toLowerCase())) {
-        throw new Error('This username is not allowed');
+        throw new Error('Este nombre de usuario no está permitido');
       }
       return true;
     }),
@@ -36,229 +34,129 @@ const validateRegistration = [
   body('email')
     .trim()
     .isEmail()
-    .withMessage('Please provide a valid email address')
+    .withMessage('Por favor proporciona una dirección de email válida')
     .normalizeEmail()
     .escape()
-    .isLength({ max: 255 })
-    .withMessage('Email address is too long'),
+    .isLength({ max: 155 })
+    .withMessage('La dirección de email es demasiado larga'),
 
   body('password')
-    .isLength({ min: 8, max: 128 })
-    .withMessage('Password must be between 8 and 128 characters')
+    .isLength({ min: 8, max: 64 })
+    .withMessage('La contraseña debe tener entre 8 y 64 caracteres')
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/)
-    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
-
-  body('firstName')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('First name cannot exceed 50 characters')
-    .matches(/^[a-zA-ZÀ-ÿ\s-']+$/)
-    .withMessage('First name can only contain letters, spaces, hyphens, and apostrophes')
-    .escape(),
-
-  body('lastName')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('Last name cannot exceed 50 characters')
-    .matches(/^[a-zA-ZÀ-ÿ\s-']+$/)
-    .withMessage('Last name can only contain letters, spaces, hyphens, and apostrophes')
-    .escape()
+    .withMessage('La contraseña debe contener al menos una letra mayúscula, una minúscula, un número y un carácter especial'),
 ];
 
 /**
- * User login validation rules
+ * Reglas de validación de inicio de sesión de usuario
  *
- * Validates login credentials (email/username and password).
+ * Valida las credenciales de inicio de sesión (email/nombre de usuario y contraseña).
  */
 const validateLogin = [
   body('identifier')
     .trim()
     .notEmpty()
-    .withMessage('Email or username is required')
-    .isLength({ min: 3, max: 255 })
-    .withMessage('Identifier must be between 3 and 255 characters')
+    .withMessage('Se requiere email o nombre de usuario')
+    .isLength({ min: 3, max: 30 })
+    .withMessage('El identificador debe tener entre 3 y 30 caracteres')
     .escape(),
 
   body('password')
     .notEmpty()
-    .withMessage('Password is required')
-    .isLength({ min: 1, max: 128 })
-    .withMessage('Password cannot exceed 128 characters')
+    .withMessage('Se requiere contraseña')
+    .isLength({ min: 1, max: 64 })
+    .withMessage('La contraseña no puede exceder 64 caracteres')
 ];
 
 /**
- * Profile update validation rules
+ * Reglas de validación de cambio de contraseña
  *
- * Validates user profile update data.
- */
-const validateProfileUpdate = [
-  body('firstName')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('First name cannot exceed 50 characters')
-    .matches(/^[a-zA-ZÀ-ÿ\s-']+$/)
-    .withMessage('First name can only contain letters, spaces, hyphens, and apostrophes')
-    .escape(),
-
-  body('lastName')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('Last name cannot exceed 50 characters')
-    .matches(/^[a-zA-ZÀ-ÿ\s-']+$/)
-    .withMessage('Last name can only contain letters, spaces, hyphens, and apostrophes')
-    .escape()
-];
-
-/**
- * Password change validation rules
- *
- * Validates password change requests.
+ * Valida las solicitudes de cambio de contraseña.
  */
 const validatePasswordChange = [
   body('currentPassword')
     .notEmpty()
-    .withMessage('Current password is required'),
+    .withMessage('Se requiere la contraseña actual'),
 
   body('newPassword')
-    .isLength({ min: 8, max: 128 })
-    .withMessage('New password must be between 8 and 128 characters')
+    .isLength({ min: 8, max: 64 })
+    .withMessage('La nueva contraseña debe tener entre 8 y 64 caracteres')
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-    .withMessage('New password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
+    .withMessage('La nueva contraseña debe contener al menos una letra mayúscula, una minúscula, un número y un carácter especial'),
 
   body('confirmPassword')
     .custom((value, { req }) => {
       if (value !== req.body.newPassword) {
-        throw new Error('Password confirmation does not match new password');
+        throw new Error('La confirmación de contraseña no coincide con la nueva contraseña');
       }
       return true;
     })
 ];
 
 /**
- * Password reset request validation rules
+ * Validación de MongoDB ObjectId
  *
- * Validates password reset request (email only).
- */
-const validatePasswordResetRequest = [
-  body('email')
-    .trim()
-    .isEmail()
-    .withMessage('Please provide a valid email address')
-    .normalizeEmail()
-];
-
-/**
- * Password reset validation rules
- *
- * Validates password reset with token.
- */
-const validatePasswordReset = [
-  body('token')
-    .notEmpty()
-    .withMessage('Reset token is required')
-    .isLength({ min: 10, max: 255 })
-    .withMessage('Invalid reset token format'),
-
-  body('newPassword')
-    .isLength({ min: 8, max: 128 })
-    .withMessage('Password must be between 8 and 128 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'),
-
-  body('confirmPassword')
-    .custom((value, { req }) => {
-      if (value !== req.body.newPassword) {
-        throw new Error('Password confirmation does not match new password');
-      }
-      return true;
-    })
-];
-
-/**
- * MongoDB ObjectId validation
- *
- * Validates MongoDB ObjectId parameters.
+ * Valida parámetros de MongoDB ObjectId.
  */
 const validateObjectId = (paramName = 'id') => [
   param(paramName)
     .isMongoId()
-    .withMessage(`Invalid ${paramName} format`)
+    .withMessage(`Formato de ${paramName} inválido`)
 ];
 
 /**
- * Pagination validation rules
+ * Reglas de validación de paginación
  *
- * Validates pagination query parameters.
+ * Valida los parámetros de query de paginación.
  */
 const validatePagination = [
   query('page')
     .optional()
     .isInt({ min: 1, max: 1000 })
-    .withMessage('Page must be a positive integer between 1 and 1000')
+    .withMessage('La página debe ser un entero positivo entre 1 y 1000')
     .toInt(),
 
   query('limit')
     .optional()
     .isInt({ min: 1, max: 100 })
-    .withMessage('Limit must be a positive integer between 1 and 100')
+    .withMessage('El límite debe ser un entero positivo entre 1 y 100')
     .toInt(),
 
   query('sort')
     .optional()
     .isIn(['asc', 'desc', '1', '-1'])
-    .withMessage('Sort must be either asc, desc, 1, or -1'),
+    .withMessage('El orden debe ser asc, desc, 1 o -1'),
 
   query('sortBy')
     .optional()
     .matches(/^[a-zA-Z][a-zA-Z0-9_]*$/)
-    .withMessage('SortBy must be a valid field name')
+    .withMessage('SortBy debe ser un nombre de campo válido')
 ];
 
 /**
- * Search validation rules
+ * Reglas de validación de búsqueda
  *
- * Validates search query parameters.
+ * Valida los parámetros de query de búsqueda.
  */
 const validateSearch = [
   query('q')
     .optional()
     .trim()
     .isLength({ min: 1, max: 100 })
-    .withMessage('Search query must be between 1 and 100 characters')
-    .escape(), // Escape HTML entities for security
+    .withMessage('La consulta de búsqueda debe tener entre 1 y 100 caracteres')
+    .escape(), // Escapar entidades HTML para seguridad
 
   query('fields')
     .optional()
     .matches(/^[a-zA-Z,_]+$/)
-    .withMessage('Fields must be comma-separated field names')
+    .withMessage('Fields debe ser nombres de campos separados por comas')
 ];
 
 /**
- * Custom validation for file uploads (if needed in future)
+ * Middleware de validación de peticiones
  *
- * Validates file upload requests.
- */
-const validateFileUpload = [
-  body('fileType')
-    .optional()
-    .isIn(['image/jpeg', 'image/png', 'image/gif', 'application/pdf'])
-    .withMessage('Invalid file type'),
-
-  body('maxSize')
-    .optional()
-    .isInt({ min: 1, max: 5242880 }) // 5MB max
-    .withMessage('File size must be between 1 byte and 5MB')
-];
-
-/**
- * Request validation middleware
- *
- * Processes validation results from express-validator and returns
- * properly formatted error responses if validation fails.
+ * Procesa los resultados de validación de express-validator y devuelve
+ * respuestas de error formateadas correctamente si la validación falla.
  */
 const validateRequest = (req, res, next) => {
   const errors = validationResult(req);
@@ -281,10 +179,10 @@ const validateRequest = (req, res, next) => {
 };
 
 /**
- * Date range validation for queries
+ * Validación de rango de fechas para consultas
  *
- * Validates start and end dates with configurable max range
- * Used across multiple controllers (accidents, traffic, air quality, etc.)
+ * Valida fechas de inicio y fin con rango máximo configurable
+ * Usado en múltiples controladores (accidentes, tráfico, calidad del aire, etc.)
  */
 const validateDateRange = (maxRangeDays = 365) => [
   query('startDate')
@@ -329,10 +227,10 @@ const validateDateRange = (maxRangeDays = 365) => [
 ];
 
 /**
- * Common query parameters validation
- * For distrito, barrio, and location-based queries
+ * Validación de parámetros de consulta comunes
+ * Para consultas basadas en distrito, barrio y ubicación
  */
-const validateDistritoQuery = [
+const validateDistrictQuery = [
   query('distrito')
     .optional()
     .trim()
@@ -341,7 +239,7 @@ const validateDistritoQuery = [
     .escape()
 ];
 
-const validateBarrioQuery = [
+const validateNeighborhoodQuery = [
   query('barrio')
     .optional()
     .trim()
@@ -351,8 +249,8 @@ const validateBarrioQuery = [
 ];
 
 /**
- * Export format validation
- * Used by endpoints that support data export
+ * Validación de formato de exportación
+ * Usado por endpoints que soportan exportación de datos
  */
 const validateExportFormat = [
   query('format')
@@ -362,14 +260,14 @@ const validateExportFormat = [
 ];
 
 /**
- * Temporal aggregation validation
- * For time-series data grouping
+ * Validación de agregación temporal
+ * Para agrupación de datos de series temporales
  */
 const validateTemporalAggregation = [
   query('groupBy')
     .optional()
-    .isIn(['hourly', 'daily', 'weekly', 'monthly', 'yearly'])
-    .withMessage('groupBy debe ser: hourly, daily, weekly, monthly, o yearly'),
+    .isIn(['daily', 'weekly', 'monthly', 'yearly'])
+    .withMessage('groupBy debe ser: daily, weekly, monthly, o yearly'),
 
   query('aggregation')
     .optional()
@@ -381,7 +279,7 @@ const validateTemporalAggregation = [
  * Validaciones específicas de Accidentes
  */
 const validateAccidentFilters = [
-  ...validateDistritoQuery,
+  ...validateDistrictQuery,
 
   query('tipoAccidente')
     .optional()
@@ -437,7 +335,7 @@ const validateAccidentFilters = [
 /**
  * Validación de número de expediente de accidente
  */
-const validateExpediente = [
+const validateFileNumber = [
   param('numero')
     .matches(/^\d{4}S\d{6}$/)
     .withMessage('Formato de expediente inválido. Debe ser AAAASnnnnnn'),
@@ -494,8 +392,8 @@ const validateContainerType = [
 ];
 
 const validateContainerFilters = [
-  ...validateDistritoQuery,
-  ...validateBarrioQuery,
+  ...validateDistrictQuery,
+  ...validateNeighborhoodQuery,
 
   query('lote')
     .optional()
@@ -556,24 +454,20 @@ const validateBikeFilters = [
 module.exports = {
   validateRegistration,
   validateLogin,
-  validateProfileUpdate,
   validatePasswordChange,
-  validatePasswordResetRequest,
-  validatePasswordReset,
   validateObjectId,
   validatePagination,
   validateSearch,
-  validateFileUpload,
   validateRequest,
   // Validaciones consolidadas generales
   validateDateRange,
-  validateDistritoQuery,
-  validateBarrioQuery,
+  validateDistrictQuery,
+  validateNeighborhoodQuery,
   validateExportFormat,
   validateTemporalAggregation,
   // Validaciones específicas de dominio
   validateAccidentFilters,
-  validateExpediente,
+  validateFileNumber,
   validateTrafficFilters,
   validateContainerType,
   validateContainerFilters,

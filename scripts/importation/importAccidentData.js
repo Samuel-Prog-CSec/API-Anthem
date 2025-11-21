@@ -29,30 +29,71 @@ let totalErrors = 0;
 
 // Mapas de normalización
 const TIPO_ACCIDENTE_MAP = {
-  'colisión doble': 'COLISION_DOBLE',
-  'colisión múltiple': 'COLISION_MULTIPLE',
-  'colisión fronto-lateral': 'COLISION_FRONTO_LATERAL',
   'alcance': 'ALCANCE',
-  'choque contra obstáculo': 'CHOQUE_OBSTACULO',
-  'choque contra obstáculo fijo': 'CHOQUE_OBSTACULO_FIJO',
+  'atropello a animal': 'ATROPELLO_ANIMAL',
   'atropello a persona': 'ATROPELLO_PERSONA',
-  'vuelco': 'VUELCO',
   'caída': 'CAIDA',
-  'otras causas': 'OTRAS_CAUSAS'
+  'choque contra obstáculo fijo': 'CHOQUE_OBSTACULO_FIJO',
+  'colisión frontal': 'COLISION_FRONTAL',
+  'colisión fronto-lateral': 'COLISION_FRONTO_LATERAL',
+  'colisión lateral': 'COLISION_LATERAL',
+  'colisión múltiple': 'COLISION_MULTIPLE',
+  'despeñamiento': 'DESPENAMIENTO',
+  'otro': 'OTRO',
+  'solo salida de la vía': 'SOLO_SALIDA_VIA',
+  'vuelco': 'VUELCO'
 };
 
 const TIPO_VEHICULO_MAP = {
-  'turismo': 'TURISMO',
-  'motocicleta': 'MOTOCICLETA',
-  'ciclomotor': 'CICLOMOTOR',
-  'bicicleta': 'BICICLETA',
+  'ambulancia samur': 'AMBULANCIA',
   'autobús': 'AUTOBUS',
   'autobus': 'AUTOBUS',
-  'camión': 'CAMION',
-  'camion': 'CAMION',
+  'autobús articulado': 'AUTOBUS_ARTICULADO',
+  'autobus articulado': 'AUTOBUS_ARTICULADO',
+  'autobús articulado emt': 'AUTOBUS_ARTICULADO_EMT',
+  'autobus articulado emt': 'AUTOBUS_ARTICULADO_EMT',
+  'autobus emt': 'AUTOBUS_EMT',
+  'autocaravana': 'AUTOCARAVANA',
+  'bicicleta': 'BICICLETA',
+  'bicicleta epac (pedaleo asistido)': 'BICICLETA_EPAC',
+  'camión de bomberos': 'CAMION_BOMBEROS',
+  'camion de bomberos': 'CAMION_BOMBEROS',
+  'camión rígido': 'CAMION_RIGIDO',
+  'camion rígido': 'CAMION_RIGIDO',
+  'camion rigido': 'CAMION_RIGIDO',
+  'ciclo': 'CICLO',
+  'ciclomotor': 'CICLOMOTOR',
+  'ciclomotor de dos ruedas l1e-b': 'CICLOMOTOR_DOS_RUEDAS_L1EB',
+  'ciclomotor de tres ruedas': 'CICLOMOTOR_TRES_RUEDAS',
+  'cuadriciclo ligero': 'CUADRICICLO_LIGERO',
+  'cuadriciclo no ligero': 'CUADRICICLO_NO_LIGERO',
   'furgoneta': 'FURGONETA',
+  'maquinaria agrícola': 'MAQUINARIA_AGRICOLA',
+  'maquinaria agricola': 'MAQUINARIA_AGRICOLA',
+  'maquinaria de obras': 'MAQUINARIA_OBRAS',
+  'motocicleta hasta 125cc': 'MOTOCICLETA_HASTA_125CC',
+  'motocicleta > 125cc': 'MOTOCICLETA_MAS_125CC',
+  'moto de tres ruedas hasta 125cc': 'MOTO_TRES_RUEDAS_HASTA_125CC',
+  'moto de tres ruedas > 125cc': 'MOTO_TRES_RUEDAS_MAS_125CC',
+  'otros vehículos con motor': 'OTROS_CON_MOTOR',
+  'otros vehiculos con motor': 'OTROS_CON_MOTOR',
+  'otros vehículos sin motor': 'OTROS_SIN_MOTOR',
+  'otros vehiculos sin motor': 'OTROS_SIN_MOTOR',
+  'patinete': 'PATINETE',
+  'remolque': 'REMOLQUE',
+  'semiremolque': 'SEMIREMOLQUE',
+  'sin especificar': 'SIN_ESPECIFICAR',
   'taxi': 'TAXI',
-  'ambulancia': 'AMBULANCIA'
+  'todo terreno': 'TODO_TERRENO',
+  'tractocamión': 'TRACTOCAMION',
+  'tractocamion': 'TRACTOCAMION',
+  'tren/metro': 'TREN_METRO',
+  'turismo': 'TURISMO',
+  'vehículo articulado': 'VEHICULO_ARTICULADO',
+  'vehiculo articulado': 'VEHICULO_ARTICULADO',
+  'vmu eléctrico': 'VMU_ELECTRICO',
+  'vmu electrico': 'VMU_ELECTRICO',
+  'null': 'SIN_ESPECIFICAR'
 };
 
 const TIPO_PERSONA_MAP = {
@@ -93,9 +134,9 @@ async function connectDatabase() {
 }
 
 /**
- * Limpiar datos existentes si se solicita
+ * Limpiar datos existentes si se solicita (función de utilidad, no usada actualmente)
  */
-async function cleanExistingData() {
+async function _cleanExistingData() {
   console.log('🧹 Limpiando datos existentes...');
   const result = await Accident.deleteMany({});
   console.log(`  ✓ Eliminados ${result.deletedCount} registros existentes`);
@@ -105,20 +146,22 @@ async function cleanExistingData() {
  * Normalizar tipo de accidente
  */
 function normalizeAccidentType(tipo) {
-  if (!tipo || tipo.trim() === '') {return 'OTRAS_CAUSAS';}
+  if (!tipo || tipo.trim() === '') {return 'OTRO';}
 
   const normalized = tipo.toLowerCase().trim();
-  return TIPO_ACCIDENTE_MAP[normalized] || 'OTRAS_CAUSAS';
+  return TIPO_ACCIDENTE_MAP[normalized] || 'OTRO';
 }
 
 /**
  * Normalizar tipo de vehículo
  */
 function normalizeVehicleType(tipo) {
-  if (!tipo || tipo.trim() === '') {return 'OTROS';}
+  if (!tipo || tipo.trim() === '' || tipo.toLowerCase() === 'null') {
+    return 'SIN_ESPECIFICAR';
+  }
 
   const normalized = tipo.toLowerCase().trim();
-  return TIPO_VEHICULO_MAP[normalized] || 'OTROS';
+  return TIPO_VEHICULO_MAP[normalized] || 'SIN_ESPECIFICAR';
 }
 
 /**
@@ -266,7 +309,7 @@ function validateAndTransformRow(row, rowIndex) {
     const tipoPersona = normalizePersonType(row['10']?.toString().trim());
     const rangoEdad = row['11']?.toString().trim() || 'Desconocido';
     const sexoRaw = row['12']?.toString().trim().toUpperCase();
-    const sexo = (sexoRaw === 'MUJER') ? 'MUJER' : (sexoRaw === 'HOMBRE') ? 'HOMBRE' : 'NO_ASIGNADO';
+    const sexo = (sexoRaw === 'MUJER') ? 'MUJER' : (sexoRaw === 'HOMBRE') ? 'HOMBRE' : 'DESCONOCIDO';
 
     // Datos de lesividad
     const codigoLesividad = row['13']?.toString().trim();
@@ -484,7 +527,7 @@ async function checkDataFile() {
   try {
     await fs.access(DATA_FILE);
     return true;
-  } catch (error) {
+  } catch (_error) {
     throw new Error(`Archivo de datos no encontrado: ${DATA_FILE}`);
   }
 }
@@ -492,7 +535,7 @@ async function checkDataFile() {
 /**
  * Mostrar resumen final
  */
-function showSummary(startTime, result) {
+function showSummary(startTime, _result) {
   const endTime = Date.now();
   const duration = ((endTime - startTime) / 1000).toFixed(2);
 

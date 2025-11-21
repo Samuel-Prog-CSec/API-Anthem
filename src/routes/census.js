@@ -20,8 +20,12 @@ const {
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
 
 const router = express.Router();
+
+// Aplicar performanceMonitor a todas las rutas de censo
+router.use(performanceMonitor);
 
 /**
  * Validaciones comunes para filtros de fecha

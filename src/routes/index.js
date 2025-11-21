@@ -25,13 +25,13 @@ const bikeAvailabilityRoutes = require('./bikeAvailability');
 const containerRoutes = require('./containers');
 
 /**
- * @route   GET /api/v1
+ * @route   GET /api/v1.0
  * @desc    API welcome and status endpoint
  * @access  Public
  *
  * Provides basic API information, version, and health status.
  */
-router.get('/', (req, res) => {
+router.get('/api/v1.0', (req, res) => {
   const uptime = process.uptime();
   const uptimeHours = Math.floor(uptime / 3600);
   const uptimeMinutes = Math.floor((uptime % 3600) / 60);
@@ -39,13 +39,12 @@ router.get('/', (req, res) => {
 
   res.status(200).json(
     createResponse(
-      'API is running successfully',
+      'La API REST de la Smart City Anthem está operativa',
       {
         api: {
-          name: 'Professional REST API',
+          name: 'API REST Anthem Smart City',
           version: config.api.version,
-          environment: config.server.env,
-          documentation: `${req.protocol}://${req.get('host')}/api/v1/docs`,
+          environment: config.server.env
         },
         server: {
           uptime: `${uptimeHours}h ${uptimeMinutes}m ${uptimeSeconds}s`,
@@ -53,19 +52,19 @@ router.get('/', (req, res) => {
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
         endpoints: {
-          authentication: '/api/v1/auth',
-          airQuality: '/api/v1/air-quality',
-          noiseMonitoring: '/api/v1/noise-monitoring',
-          fines: '/api/v1/fines',
-          census: '/api/v1/census',
-          locations: '/api/v1/locations',
-          traffic: '/api/v1/traffic',
-          accidents: '/api/v1/accidents',
-          scooterAssignments: '/api/v1/scooter-assignments',
-          bikeAvailability: '/api/v1/bikes',
-          containers: '/api/v1/containers',
-          admin: '/api/v1/admin',
-          health: '/api/v1/health',
+          authentication: '/api/v1.0/auth',
+          airQuality: '/api/v1.0/air-quality',
+          noiseMonitoring: '/api/v1.0/noise-monitoring',
+          fines: '/api/v1.0/fines',
+          census: '/api/v1.0/census',
+          locations: '/api/v1.0/locations',
+          traffic: '/api/v1.0/traffic',
+          accidents: '/api/v1.0/accidents',
+          scooterAssignments: '/api/v1.0/scooter-assignments',
+          bikeAvailability: '/api/v1.0/bikes',
+          containers: '/api/v1.0/containers',
+          admin: '/api/v1.0/admin',
+          health: '/api/v1.0/health',
         }
       }
     )
@@ -73,7 +72,7 @@ router.get('/', (req, res) => {
 });
 
 /**
- * @route   GET /api/v1/health
+ * @route   GET /api/v1.0/health
  * @desc    Detailed health check endpoint
  * @access  Public
  *
@@ -125,155 +124,14 @@ router.get('/health', (req, res) => {
 
   res.status(statusCode).json(
     createResponse(
-      `API health status: ${healthData.status}`,
+      `Estado de la API: ${healthData.status}`,
       healthData
     )
   );
 });
 
 /**
- * @route   GET /api/v1/docs
- * @desc    API documentation endpoint
- * @access  Public
- *
- * Provides basic API documentation and endpoint information.
- */
-router.get('/docs', (req, res) => {
-  const documentation = {
-    title: 'Professional REST API Documentation',
-    version: config.api.version,
-    description: 'A secure and scalable REST API built with Node.js, Express, and MongoDB',
-
-    baseUrl: `${req.protocol}://${req.get('host')}/api/v1`,
-
-    authentication: {
-      type: 'JWT Bearer Token',
-      description: 'Include token in Authorization header as "Bearer {token}" or use HTTP-only cookies',
-      endpoints: {
-        register: 'POST /auth/register',
-        login: 'POST /auth/login',
-        logout: 'POST /auth/logout',
-        profile: 'GET /auth/me'
-      }
-    },
-
-    rateLimits: {
-      general: `${config.security.rateLimitMaxRequests} requests per ${config.security.rateLimitWindowMs / 1000 / 60} minutes`,
-      authentication: '10 requests per 15 minutes',
-      passwordReset: '3 requests per hour'
-    },
-
-    security: {
-      features: [
-        'JWT Authentication',
-        'Password hashing with bcrypt',
-        'Rate limiting',
-        'Input validation and sanitization',
-        'NoSQL injection prevention',
-        'Security headers (Helmet.js)',
-        'CORS configuration',
-        'Account lockout protection'
-      ]
-    },
-
-    endpoints: [
-      {
-        path: '/auth/register',
-        method: 'POST',
-        description: 'Register a new user account',
-        authentication: 'Not required',
-        rateLimit: 'Strict'
-      },
-      {
-        path: '/auth/login',
-        method: 'POST',
-        description: 'Authenticate user and receive JWT token',
-        authentication: 'Not required',
-        rateLimit: 'Strict'
-      },
-      {
-        path: '/auth/logout',
-        method: 'POST',
-        description: 'Logout and invalidate current session',
-        authentication: 'Required',
-        rateLimit: 'General'
-      },
-      {
-        path: '/auth/me',
-        method: 'GET',
-        description: 'Get current user profile information',
-        authentication: 'Required',
-        rateLimit: 'General'
-      },
-      {
-        path: '/auth/profile',
-        method: 'PUT',
-        description: 'Update current user profile',
-        authentication: 'Required',
-        rateLimit: 'General'
-      },
-      {
-        path: '/air-quality',
-        method: 'GET',
-        description: 'Get air quality data with filters and pagination',
-        authentication: 'Required',
-        rateLimit: 'Data queries'
-      },
-      {
-        path: '/air-quality/statistics',
-        method: 'GET',
-        description: 'Get aggregated air quality statistics',
-        authentication: 'Required',
-        rateLimit: 'Statistics'
-      },
-      {
-        path: '/air-quality/trends',
-        method: 'GET',
-        description: 'Get air quality trends over time',
-        authentication: 'Required',
-        rateLimit: 'Statistics'
-      },
-      {
-        path: '/noise-monitoring',
-        method: 'GET',
-        description: 'Get noise monitoring data with filters',
-        authentication: 'Required',
-        rateLimit: 'Data queries'
-      },
-      {
-        path: '/noise-monitoring/statistics',
-        method: 'GET',
-        description: 'Get noise monitoring statistics and compliance analysis',
-        authentication: 'Required',
-        rateLimit: 'Statistics'
-      },
-      {
-        path: '/noise-monitoring/ranking',
-        method: 'GET',
-        description: 'Get noise level ranking by stations',
-        authentication: 'Required',
-        rateLimit: 'Statistics'
-      },
-      {
-        path: '/noise-monitoring/stations/search',
-        method: 'GET',
-        description: 'Search monitoring stations by name',
-        authentication: 'Required',
-        rateLimit: 'Search'
-      }
-    ]
-  };
-
-  res.status(200).json(
-    createResponse(
-      'API documentation retrieved successfully',
-      documentation
-    )
-  );
-});
-
-/**
- * @route   GET /api/v1/cors-test
+ * @route   GET /api/v1.0/cors-test
  * @desc    CORS diagnostic endpoint
  * @access  Public
  *

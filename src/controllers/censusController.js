@@ -3,18 +3,6 @@
  *
  * Maneja las operaciones CRUD y consultas para datos demográficos del censo.
  * Incluye análisis poblacional, distribución geográfica, pirámides poblacionales
- * y métric    res.status(200).json(createResponse(responseData, 'Datos de censo obtenidos exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/v1/census'
-    }, 'Error obteniendo datos de censo');
-    next(createInternalError('Error al obtener datos del censo', error));
-  }
-};gráficas avanzadas para el dashboard del frontend.
  */
 
 const { validationResult } = require('express-validator');
@@ -23,7 +11,7 @@ const { createValidationError, createInternalError } = require('../utils/errorUt
 const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
 const { buildSortOptions, buildPaginationOptions, buildFilters } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -168,7 +156,7 @@ const getCensusData = async (req, res, next) => {
     const paginationMeta = createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
 
     // Usar estadísticas del modelo (ya calculadas en paralelo)
-    const resumen = stats || {
+    const summary = stats || {
       totalRegistros: 0,
       poblacionTotal: 0,
       poblacionEspañola: 0,
@@ -184,25 +172,25 @@ const getCensusData = async (req, res, next) => {
       data,
       pagination: paginationMeta,
       resumen: {
-        ...resumen,
-        totalDistritos: resumen.distritosUnicos.length,
-        totalBarrios: resumen.barriosUnicos.length,
-        porcentajeExtranjeros: resumen.poblacionTotal > 0 ?
-          (resumen.poblacionExtranjera / resumen.poblacionTotal * 100).toFixed(2) : 0,
-        porcentajePoblacionProductiva: resumen.poblacionTotal > 0 ?
-          (resumen.poblacionProductiva / resumen.poblacionTotal * 100).toFixed(2) : 0,
-        porcentajeTerceraEdad: resumen.poblacionTotal > 0 ?
-          (resumen.terceraEdad / resumen.poblacionTotal * 100).toFixed(2) : 0
+        ...summary,
+        totalDistritos: summary.distritosUnicos.length,
+        totalBarrios: summary.barriosUnicos.length,
+        porcentajeExtranjeros: summary.poblacionTotal > 0 ?
+          (summary.poblacionExtranjera / summary.poblacionTotal * 100).toFixed(2) : 0,
+        porcentajePoblacionProductiva: summary.poblacionTotal > 0 ?
+          (summary.poblacionProductiva / summary.poblacionTotal * 100).toFixed(2) : 0,
+        porcentajeTerceraEdad: summary.poblacionTotal > 0 ?
+          (summary.terceraEdad / summary.poblacionTotal * 100).toFixed(2) : 0
       },
       filtros: {
         aplicados: Object.keys(filters).length > 0 ? filters : null,
         disponibles: {
-          gruposEdad: ['INFANTIL', 'JUVENIL', 'ADULTO_JOVEN', 'ADULTO', 'MAYOR', 'ANCIANO']
+          gruposEdad: Object.values(AGE_GROUPS)
         }
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Datos de censo obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de censo obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -227,7 +215,7 @@ const getPopulationPyramid = async (req, res, next) => {
     } = req.query;
 
     // Llamar al método optimizado del modelo
-    const resultado = await Census.getPiramidePoblacionalOptimizada({
+    const result = await Census.getOptimizedPopulationPyramid({
       año: parseInt(año),
       distrito: distrito ? parseInt(distrito) : null,
       incluirExtranjeros: incluirExtranjeros === 'true'
@@ -236,9 +224,9 @@ const getPopulationPyramid = async (req, res, next) => {
     const responseData = {
       message: 'Pirámide poblacional obtenida exitosamente',
       data: {
-        piramideDetallada: resultado.piramideDetallada,
-        piramideSimplificada: resultado.piramideSimplificada,
-        totales: resultado.totales
+        piramideDetallada: result.piramideDetallada,
+        piramideSimplificada: result.piramideSimplificada,
+        totales: result.totales
       },
       configuracion: {
         distrito: distrito ? parseInt(distrito) : 'TODOS',
@@ -247,7 +235,7 @@ const getPopulationPyramid = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Pirámide poblacional obtenida exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Pirámide poblacional obtenida exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -276,7 +264,7 @@ const getDistrictStatistics = async (req, res, next) => {
     if (mes) {matchCondition.mes = parseInt(mes);}
 
     // Estadísticas por distrito con límite
-    const estadisticasDistritos = await Census.aggregate([
+    const districtStatistics = await Census.aggregate([
       { $match: matchCondition },
       { $limit: 10000 }, // Límite máximo de documentos
       {
@@ -354,11 +342,11 @@ const getDistrictStatistics = async (req, res, next) => {
       { $sort: { 'poblacion.total': -1 } }
     ]);
 
-    let estadisticasBarrios = null;
+    let neighborhoodStatistics = null;
 
     // Si se solicita información de barrios, obtenerla con límite
     if (incluirBarrios === 'true') {
-      estadisticasBarrios = await Census.aggregate([
+      neighborhoodStatistics = await Census.aggregate([
         { $match: matchCondition },
         { $limit: 10000 }, // Límite máximo de documentos
         {
@@ -396,11 +384,11 @@ const getDistrictStatistics = async (req, res, next) => {
 
     // Ranking de distritos por diferentes métricas
     const rankings = {
-      masHabitados: estadisticasDistritos.slice(0, 10),
-      masDiversos: [...estadisticasDistritos]
+      masHabitados: districtStatistics.slice(0, 10),
+      masDiversos: [...districtStatistics]
         .sort((a, b) => b.porcentajes.extranjeros - a.porcentajes.extranjeros)
         .slice(0, 10),
-      masProductivos: [...estadisticasDistritos]
+      masProductivos: [...districtStatistics]
         .sort((a, b) => b.porcentajes.poblacionProductiva - a.porcentajes.poblacionProductiva)
         .slice(0, 10)
     };
@@ -408,14 +396,14 @@ const getDistrictStatistics = async (req, res, next) => {
     const responseData = {
       message: 'Estadísticas de distritos obtenidas exitosamente',
       data: {
-        estadisticasDistritos,
-        estadisticasBarrios,
+        estadisticasDistritos: districtStatistics,
+        estadisticasBarrios: neighborhoodStatistics,
         rankings,
         resumen: {
-          totalDistritos: estadisticasDistritos.length,
-          poblacionTotal: estadisticasDistritos.reduce((acc, d) => acc + d.poblacion.total, 0),
-          promedioHabitantesPorDistrito: estadisticasDistritos.length > 0 ?
-            Math.round(estadisticasDistritos.reduce((acc, d) => acc + d.poblacion.total, 0) / estadisticasDistritos.length) : 0
+          totalDistritos: districtStatistics.length,
+          poblacionTotal: districtStatistics.reduce((acc, d) => acc + d.poblacion.total, 0),
+          promedioHabitantesPorDistrito: districtStatistics.length > 0 ?
+            Math.round(districtStatistics.reduce((acc, d) => acc + d.poblacion.total, 0) / districtStatistics.length) : 0
         }
       },
       configuracion: {
@@ -425,7 +413,7 @@ const getDistrictStatistics = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Estadísticas de distritos obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas de distritos obtenidas exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -455,7 +443,7 @@ const getDemographicAnalysis = async (req, res, next) => {
     } = req.query;
 
     // Llamar al método optimizado del modelo
-    const resultado = await Census.getAnalisisDemograficoOptimizado({
+    const result = await Census.getOptimizedDemographicAnalysis({
       año: parseInt(año),
       mes: mes ? parseInt(mes) : null,
       distrito: distrito ? parseInt(distrito) : null
@@ -464,8 +452,8 @@ const getDemographicAnalysis = async (req, res, next) => {
     const responseData = {
       message: 'Análisis demográfico obtenido exitosamente',
       data: {
-        distribuciones: resultado.distribuciones,
-        indicadores: resultado.indicadores,
+        distribuciones: result.distribuciones,
+        indicadores: result.indicadores,
         interpretacion: {
           tasaDependencia: 'Relación entre población dependiente (menores + tercera edad) y población productiva',
           porcentajePoblacionProductiva: 'Porcentaje de población en edad laboral (16-65 años)',
@@ -474,10 +462,10 @@ const getDemographicAnalysis = async (req, res, next) => {
           ratioGenero: 'Relación hombres/mujeres (valor 1 = equilibrado)'
         }
       },
-      metadatos: resultado.metadatos
+      metadatos: result.metadatos
     };
 
-    res.status(200).json(createResponse(responseData, 'Análisis demográfico obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis demográfico obtenido exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -618,7 +606,7 @@ const getDemographicEvolution = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Evolución demográfica obtenida exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Evolución demográfica obtenida exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -772,7 +760,7 @@ const getDemographicDashboard = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Dashboard demográfico obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Dashboard demográfico obtenido exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -793,3 +781,4 @@ module.exports = {
   getDemographicEvolution,
   getDemographicDashboard
 };
+

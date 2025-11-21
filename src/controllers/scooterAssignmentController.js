@@ -8,11 +8,11 @@
 
 const { validationResult } = require('express-validator');
 const ScooterAssignment = require('../models/ScooterAssignment');
-const { AppError, createValidationError, createInternalError } = require('../utils/errorUtils');
-const { parsePaginationParams, createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
+const { createValidationError, createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
+const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS } = require('../constants');
 
 /**
  * Obtener datos de asignación de patinetes con filtros
@@ -89,7 +89,7 @@ const getScooterAssignments = async (req, res, next) => {
     };
 
     // Obtener datos con método optimizado del modelo
-    const resultado = await ScooterAssignment.getAssignmentsWithFilters(
+    const result = await ScooterAssignment.getAssignmentsWithFilters(
       filters,
       sortOptions,
       { skip: pagination.skip, limit: pagination.limitNum },
@@ -97,7 +97,7 @@ const getScooterAssignments = async (req, res, next) => {
     );
 
     // Calcular estadísticas de la consulta
-    const estadisticasConsulta = await ScooterAssignment.aggregate([
+    const queryStatistics = await ScooterAssignment.aggregate([
       { $match: filters },
       {
         $group: {
@@ -124,9 +124,9 @@ const getScooterAssignments = async (req, res, next) => {
     const responseData = {
       message: 'Datos de asignación de patinetes obtenidos correctamente',
       data: {
-        assignments: resultado.asignaciones,
-        pagination: createPaginationMeta(pagination.pageNum, pagination.limitNum, resultado.total),
-        estadisticas: estadisticasConsulta[0] || {
+        assignments: result.asignaciones,
+        pagination: createPaginationMeta(pagination.pageNum, pagination.limitNum, result.total),
+        estadisticas: queryStatistics[0] || {
           totalPatinetes: 0,
           promedioPatinetes: 0,
           maxPatinetes: 0,
@@ -141,7 +141,7 @@ const getScooterAssignments = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Asignaciones obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Asignaciones obtenidas exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener datos de asignación de patinetes', error));
@@ -161,18 +161,18 @@ const getDistrictStatistics = async (req, res, next) => {
 
     const { fecha } = req.query;
 
-    const estadisticas = await ScooterAssignment.getEstadisticasDistrito(fecha);
+    const statistics = await ScooterAssignment.getDistrictStatistics(fecha);
 
     const responseData = {
       message: 'Estadísticas por distrito obtenidas correctamente',
       data: {
-        estadisticas,
+        estadisticas: statistics,
         fecha: fecha || 'Todas las fechas',
-        totalDistritos: estadisticas.length
+        totalDistritos: statistics.length
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Estadísticas por distrito obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas por distrito obtenidas exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener estadísticas por distrito', error));
@@ -192,12 +192,12 @@ const getProviderMarketAnalysis = async (req, res, next) => {
 
     const { fecha } = req.query;
 
-    const analisisMercado = await ScooterAssignment.getAnalisisMercadoPorProveedor(fecha);
+    const marketAnalysis = await ScooterAssignment.getProviderMarketAnalysis(fecha);
 
     // Calcular participación de mercado
-    const totalPatinetes = analisisMercado.reduce((sum, proveedor) => sum + proveedor.totalPatinetes, 0);
+    const totalPatinetes = marketAnalysis.reduce((sum, proveedor) => sum + proveedor.totalPatinetes, 0);
 
-    const analisisConParticipacion = analisisMercado.map(proveedor => ({
+    const analysisWithMarketShare = marketAnalysis.map(proveedor => ({
       ...proveedor,
       participacionMercado: totalPatinetes > 0 ? (proveedor.totalPatinetes / totalPatinetes) * 100 : 0,
       cobertura: proveedor.totalDistritos
@@ -206,16 +206,16 @@ const getProviderMarketAnalysis = async (req, res, next) => {
     const responseData = {
       message: 'Análisis de mercado por proveedor obtenido correctamente',
       data: {
-        analisis: analisisConParticipacion,
+        analisis: analysisWithMarketShare,
         resumen: {
           totalPatinetes,
-          totalProveedores: analisisMercado.length,
+          totalProveedores: marketAnalysis.length,
           fecha: fecha || 'Todas las fechas'
         }
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Análisis de mercado obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de mercado obtenido exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener análisis de mercado por proveedor', error));
@@ -235,7 +235,7 @@ const getConcentrationZones = async (req, res, next) => {
 
     const { limite = 20, fecha } = req.query;
 
-    const zonas = await ScooterAssignment.getZonasMayorConcentracion(parseInt(limite), fecha);
+    const zonas = await ScooterAssignment.getHighestConcentrationZones(parseInt(limite), fecha);
 
     const responseData = {
       message: 'Zonas de mayor concentración obtenidas correctamente',
@@ -248,7 +248,7 @@ const getConcentrationZones = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Zonas de concentración obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Zonas de concentración obtenidas exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener zonas de concentración', error));
@@ -269,16 +269,16 @@ const getDistributionDashboard = async (req, res, next) => {
     const { fecha } = req.query;
 
     // Obtener dashboard principal
-    const [dashboardData] = await ScooterAssignment.getDashboardDistribucion(fecha);
+    const [dashboardData] = await ScooterAssignment.getDistributionDashboard(fecha);
 
     // Obtener datos adicionales para métricas
     const [topZonas, analisisProveedores] = await Promise.all([
-      ScooterAssignment.getZonasMayorConcentracion(10, fecha),
-      ScooterAssignment.getAnalisisMercadoPorProveedor(fecha)
+      ScooterAssignment.getHighestConcentrationZones(10, fecha),
+      ScooterAssignment.getProviderMarketAnalysis(fecha)
     ]);
 
     // Procesar datos del dashboard
-    const resumenGeneral = dashboardData.resumenGeneral[0] || {
+    const generalSummary = dashboardData.resumenGeneral[0] || {
       totalPatinetes: 0,
       totalAreas: 0,
       promedioPatinetesPorArea: 0,
@@ -297,9 +297,9 @@ const getDistributionDashboard = async (req, res, next) => {
       message: 'Dashboard de distribución obtenido correctamente',
       data: {
         resumenGeneral: {
-          ...resumenGeneral,
-          porcentajeAltaDensidad: resumenGeneral.totalAreas > 0 ?
-            (resumenGeneral.areasAltaDensidad / resumenGeneral.totalAreas) * 100 : 0
+          ...generalSummary,
+          porcentajeAltaDensidad: generalSummary.totalAreas > 0 ?
+            (generalSummary.areasAltaDensidad / generalSummary.totalAreas) * 100 : 0
         },
         distribuciones: {
           porTipoZona: distribucionTipoZona,
@@ -323,7 +323,7 @@ const getDistributionDashboard = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Dashboard obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Dashboard obtenido exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener dashboard de distribución', error));
@@ -345,21 +345,21 @@ const getAreaDetails = async (req, res, next) => {
     const { fecha } = req.query;
 
     // Obtener datos optimizados del modelo
-    const resultado = await ScooterAssignment.getAreaDetailsOptimized(distrito, barrio, fecha);
+    const result = await ScooterAssignment.getAreaDetailsOptimized(distrito, barrio, fecha);
 
-    if (!resultado) {
-      return next(new AppError('Área no encontrada', 404));
+    if (!result) {
+      return next(createNotFoundError('Área', `${distrito}/${barrio}`));
     }
 
     const responseData = {
       message: 'Detalles del área obtenidos correctamente',
       data: {
         area: {
-          ...resultado.area,
-          resumen: new ScooterAssignment(resultado.area).getResumenAsignacion()
+          ...result.area,
+          resumen: new ScooterAssignment(result.area).getAssignmentSummary()
         },
-        historial: resultado.historial,
-        areasSimilares: resultado.areasSimilares,
+        historial: result.historial,
+        areasSimilares: result.areasSimilares,
         parametros: {
           distrito,
           barrio,
@@ -368,7 +368,7 @@ const getAreaDetails = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Detalles del área obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Detalles del área obtenidos exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener detalles del área', error));
@@ -404,7 +404,7 @@ const getOptimizationAnalysis = async (req, res, next) => {
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Análisis de optimización obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de optimización obtenido exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener análisis de optimización', error));
@@ -426,11 +426,11 @@ const getTemporalComparison = async (req, res, next) => {
 
     // Validar que ambas fechas estén presentes
     if (!fechaInicio || !fechaFin) {
-      return next(new AppError('Fechas de inicio y fin son obligatorias', 400));
+      return next(createBadRequestError('Fechas de inicio y fin son obligatorias'));
     }
 
     // Obtener datos con método optimizado del modelo
-    const resultado = await ScooterAssignment.getTemporalComparisonData(
+    const result = await ScooterAssignment.getTemporalComparisonData(
       fechaInicio,
       fechaFin,
       distrito,
@@ -440,18 +440,18 @@ const getTemporalComparison = async (req, res, next) => {
     const responseData = {
       message: 'Comparativa temporal obtenida correctamente',
       data: {
-        comparativa: resultado.comparativa,
+        comparativa: result.comparativa,
         parametros: {
           fechaInicio,
           fechaFin,
           distrito: distrito || 'Todos',
           agrupacion,
-          totalUbicaciones: resultado.totalUbicaciones
+          totalUbicaciones: result.totalUbicaciones
         }
       }
     };
 
-    res.status(200).json(createResponse(responseData, 'Comparativa temporal obtenida exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Comparativa temporal obtenida exitosamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener comparativa temporal', error));
@@ -468,4 +468,6 @@ module.exports = {
   getOptimizationAnalysis,
   getTemporalComparison
 };
+
+
 
