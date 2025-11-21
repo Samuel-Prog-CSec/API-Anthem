@@ -8,10 +8,10 @@
 const { validationResult } = require('express-validator');
 const Census = require('../models/Census');
 const { createValidationError, createInternalError } = require('../utils/errorUtils');
-const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
+const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildSortOptions, buildPaginationOptions, buildFilters } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS, AGGREGATION_LIMITS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -27,8 +27,6 @@ const getCensusData = async (req, res, next) => {
     }
 
     const {
-      startDate,
-      endDate,
       distrito,
       barrio,
       grupoEdad,
@@ -41,16 +39,13 @@ const getCensusData = async (req, res, next) => {
       includeEstadisticas = true
     } = req.query;
 
-    // Construir filtros
-    const filters = {};
-
-    // Filtros de fecha usando helper
-    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fechaCenso');
-    if (dateFilter) {
-      Object.assign(filters, dateFilter);
-    }
+    // Construir filtros base usando queryHelper
+    const baseFilters = buildFilters(req.query, [
+      { field: 'fechaCenso', type: 'dateRange', params: ['startDate', 'endDate'] }
+    ]);
 
     // Filtros geográficos
+    const filters = { ...baseFilters };
     if (distrito) {
       if (Array.isArray(distrito)) {
         filters['distrito.codigo'] = { $in: distrito.map(d => parseInt(d)) };
@@ -266,7 +261,7 @@ const getDistrictStatistics = async (req, res, next) => {
     // Estadísticas por distrito con límite
     const districtStatistics = await Census.aggregate([
       { $match: matchCondition },
-      { $limit: 10000 }, // Límite máximo de documentos
+      { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos
       {
         $group: {
           _id: {
@@ -348,7 +343,7 @@ const getDistrictStatistics = async (req, res, next) => {
     if (incluirBarrios === 'true') {
       neighborhoodStatistics = await Census.aggregate([
         { $match: matchCondition },
-        { $limit: 10000 }, // Límite máximo de documentos
+        { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos
         {
           $group: {
             _id: {
@@ -378,7 +373,7 @@ const getDistrictStatistics = async (req, res, next) => {
           }
         },
         { $sort: { poblacionTotal: -1 } },
-        { $limit: 50 } // Top 50 barrios
+        { $limit: AGGREGATION_LIMITS.TOP_RESULTS } // Top 50 barrios
       ]);
     }
 
@@ -699,7 +694,7 @@ const getDemographicDashboard = async (req, res, next) => {
         }
       },
       { $sort: { poblacionTotal: -1 } },
-      { $limit: 5 }
+      { $limit: AGGREGATION_LIMITS.PREVIEW }
     ]);
 
     // Distribución por grupos de edad

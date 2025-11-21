@@ -311,6 +311,7 @@ const buildPaginationOptions = (queryParams, options = {}) => {
 };
 
 module.exports = {
+  escapeRegex,
   buildFilters,
   buildSortOptions,
   validateDateRange,

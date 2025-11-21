@@ -18,6 +18,7 @@ const { adminOnly } = require('../middleware/authorization');
 const { validateRequest } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { etagMiddleware } = require('../middleware/etag');
 const { createForbiddenResponse } = require('../utils/responseHelper');
 const logger = require('../config/logger');
 const {
@@ -124,6 +125,7 @@ router.get('/stats',
   authenticate,
   validateDistrictQuery,
   validateDateRange(730), // 2 años
+  etagMiddleware, // ETags para estadísticas agregadas (datos estables)
   cacheMiddleware('statistics', (req) => `accidents:stats:${JSON.stringify(req.query)}`),
   accidentController.getAccidentStats
 );

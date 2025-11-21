@@ -14,6 +14,7 @@ const { authenticate } = require('../middleware/auth');
 const { adminOnly } = require('../middleware/authorization');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { etagMiddleware } = require('../middleware/etag');
 const { TRAFFIC_ELEMENT_TYPES } = require('../constants');
 const {
   validatePagination,
@@ -123,6 +124,8 @@ router.get('/stats',
     validateRequest
   ],
   validateDateRange(365), // 1 año
+  // ETags para estadísticas agregadas (datos relativamente estables)
+  etagMiddleware,
   // Caché de 5 minutos para estadísticas de tráfico (datos volátiles)
   cacheMiddleware('traffic', (req) =>
     `traffic-stats-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.tipoElemento || 'all'}`

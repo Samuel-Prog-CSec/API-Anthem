@@ -8,7 +8,7 @@
 
 const mongoose = require('mongoose');
 const { validateNotFutureDate } = require('./schemas/commonSchemas');
-const { MAGNITUDES_PERMITIDAS, AIR_QUALITY_MAGNITUDES, VALIDATION_CODES } = require('../constants');
+const { MAGNITUDES_PERMITIDAS, AIR_QUALITY_MAGNITUDES, VALIDATION_CODES, AGGREGATION_LIMITS } = require('../constants');
 
 /**
  * Sub-esquema para mediciones horarias
@@ -368,7 +368,7 @@ airQualitySchema.statics.getStatisticsOptimized = async function(filters = {}, g
     },
     { $match: { promedioGeneral: { $ne: null } } },
     { $sort: sortStage },
-    { $limit: 1000 }
+    { $limit: AGGREGATION_LIMITS.SMALL }
   ];
 
   // Pipeline para resumen general
@@ -389,8 +389,8 @@ airQualitySchema.statics.getStatisticsOptimized = async function(filters = {}, g
 
   // Ejecutar ambas agregaciones en paralelo
   const [estadisticas, resumenArray] = await Promise.all([
-    this.aggregate(pipeline).allowDiskUse(true),
-    this.aggregate(resumenPipeline).allowDiskUse(true)
+    this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000),
+    this.aggregate(resumenPipeline).allowDiskUse(true).maxTimeMS(10000)
   ]);
 
   const resumen = resumenArray[0] ? {
@@ -479,7 +479,7 @@ airQualitySchema.statics.getTrendsOptimized = async function(provincia, municipi
     },
     { $sort: { '_id.fecha': 1 } },
     { $limit: 365 }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 
   // Calcular estadísticas de la tendencia
   const valores = tendenciaDiaria

@@ -41,14 +41,14 @@ const SEVERITY_LEVELS = {
  */
 const SORT_FIELDS = {
   ACCIDENT: ['fecha', 'gravedad', 'distrito', 'tipoAccidente', 'numeroExpediente'],
-  AIR_QUALITY: ['fecha', 'estacion', 'magnitud', 'valor', 'tecnica'],
-  BIKE_AVAILABILITY: ['fecha', 'estacion', 'bicicletasDisponibles', 'anclajesDisponibles'],
+  AIR_QUALITY: ['fecha', 'estacion', 'magnitud', 'provincia', 'municipio'],
+  BIKE_AVAILABILITY: ['dia', 'fecha', 'totalUsos', 'mediaBicicletasDisponibles', 'horasTotalesUsos', 'horasTotalesDisponibilidad'],
   BIKE_CAPACITY: ['fecha', 'estacion', 'aforoEntradas', 'aforoSalidas'],
   CENSUS: ['fechaCenso', 'totalPoblacion', 'porcentajeExtranjeros', 'edad', 'distrito', 'barrio'],
-  CONTAINER: ['tipoContenedor', 'distrito', 'barrio', 'direccion'],
+  CONTAINER: ['tipoContenedor', 'distrito', 'barrio', 'direccion', 'lote'],
   FINE: ['fecha', 'importeFinal', 'puntosDetraídos', 'lugar', 'calificacion'],
   LOCATION: ['nombre', 'distrito', 'barrio', 'tipo'],
-  NOISE_MONITORING: ['fecha', 'estacion', 'nivelSonoro', 'periodo'],
+  NOISE_MONITORING: ['fecha', 'nmt', 'nombre', 'laeq24', 'nivelDiurno', 'nivelVespertino', 'nivelNocturno'],
   PARKING_OCCUPANCY: ['fecha', 'distrito', 'plazasTotales', 'plazasOcupadas'],
   SCOOTER_ASSIGNMENT: ['fecha', 'distrito', 'proveedor', 'numeroPatinetes', 'disponibles', 'enUso'],
   TRAFFIC: ['fecha', 'puntoMedidaId', 'intensidad', 'ocupacion', 'carga']
@@ -64,6 +64,37 @@ const PAGINATION = {
   MIN_LIMIT: 1,
   MAX_LIMIT: 100,
   MAX_PAGE: 1000
+};
+
+/**
+ * Límites para agregaciones de MongoDB
+ * Usados en pipelines de agregación para prevenir problemas de memoria
+ */
+const AGGREGATION_LIMITS = {
+  SMALL: 1000,        // Para aggregations pequeñas (proximidad, detalles)
+  MEDIUM: 5000,       // Para aggregations medianas (estadísticas de punto único)
+  LARGE: 10000,       // Para aggregations grandes (estadísticas generales)
+  XLARGE: 50000,      // Para aggregations muy grandes (análisis masivos)
+  TOP_RESULTS: 50,    // Límite para rankings/tops
+  PREVIEW: 5          // Límite para vistas previas
+};
+
+/**
+ * Límites especiales de paginación por entidad
+ * Algunos endpoints necesitan límites diferentes por naturaleza de datos
+ */
+const SPECIAL_PAGINATION_LIMITS = {
+  LOCATIONS: {
+    DEFAULT: 100,     // Más puntos geográficos por defecto
+    MAX: 500          // Límite alto para mapas
+  },
+  CONTAINERS: {
+    DEFAULT: 100,     // Muchos contenedores en la ciudad
+    SEARCH_MAX: 200   // Límite para búsquedas de contenedores
+  },
+  BIKES: {
+    DEFAULT: 100      // Muchas estaciones de bicicletas
+  }
 };
 
 /**
@@ -443,6 +474,24 @@ const AGE_GROUPS = {
 };
 
 /**
+ * Niveles de densidad poblacional
+ * Usado en metadatos de Census
+ */
+const POPULATION_DENSITY_LEVELS = ['BAJA', 'MEDIA', 'ALTA', 'MUY_ALTA'];
+
+/**
+ * Niveles de diversidad cultural
+ * Usado en metadatos de Census
+ */
+const CULTURAL_DIVERSITY_LEVELS = ['BAJA', 'MEDIA', 'ALTA'];
+
+/**
+ * Tipos de campos en metadatos
+ * Usado en Census para tracking de campos faltantes
+ */
+const CENSUS_FIELD_TYPES = ['poblacion', 'ubicacion', 'edad'];
+
+/**
  * Rangos de edad por grupo
  * Para uso en clasificaciones y validaciones
  */
@@ -531,6 +580,8 @@ module.exports = {
 
   // Paginación
   PAGINATION,
+  AGGREGATION_LIMITS,
+  SPECIAL_PAGINATION_LIMITS,
 
   // Accidentes
   ACCIDENT_TYPES,
@@ -595,6 +646,9 @@ module.exports = {
   WORKING_AGE,
   ELDERLY_AGE,
   GENDERS,
+  POPULATION_DENSITY_LEVELS,
+  CULTURAL_DIVERSITY_LEVELS,
+  CENSUS_FIELD_TYPES,
 
   // Indicadores y códigos
   BINARY_INDICATORS,

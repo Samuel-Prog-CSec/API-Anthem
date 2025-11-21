@@ -43,11 +43,20 @@ const getNoiseMonitoringData = async (req, res, next) => {
     }
 
     // Configurar ordenamiento usando queryHelper
+    const sortMapping = {
+      fecha: 'fecha',
+      nmt: 'nmt',
+      nombre: 'nombre',
+      laeq24: 'laeq24',
+      año: 'año',
+      mes: 'mes'
+    };
     const sortOptions = buildSortOptions(
-      req.query.sortBy || 'fecha',
-      req.query.sortOrder || 'desc',
+      req.query,
+      sortMapping,
       ['fecha', 'nmt', 'nombre', 'laeq24', 'año', 'mes'],
-      'fecha'
+      'fecha',
+      'desc'
     );
 
     // Configurar paginación usando queryHelper
@@ -88,7 +97,6 @@ const getNoiseMonitoringData = async (req, res, next) => {
     }));
 
     const responseData = {
-      message: 'Datos de contaminación acústica obtenidos exitosamente',
       data: dataWithCompliance,
       pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments),
       filters: {
@@ -96,7 +104,7 @@ const getNoiseMonitoringData = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de contaminación acústica obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -166,7 +174,6 @@ const getNoiseMonitoringById = async (req, res, next) => {
       : null;
 
     const responseData = {
-      message: 'Detalles de contaminación acústica obtenidos exitosamente',
       data: {
         ...data,
         analisisNormativo: regulatoryAnalysis,
@@ -182,7 +189,7 @@ const getNoiseMonitoringById = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Detalles obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Detalles de contaminación acústica obtenidos exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -220,7 +227,6 @@ const getNoiseStatistics = async (req, res, next) => {
     const { estadisticas, resumen } = await NoiseMonitoring.getStatisticsOptimized(matchStage, groupBy);
 
     const responseData = {
-      message: 'Estadísticas de contaminación acústica obtenidas exitosamente',
       data: {
         estadisticas,
         resumen,
@@ -237,7 +243,7 @@ const getNoiseStatistics = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas de contaminación acústica obtenidas exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -272,7 +278,6 @@ const getNoiseRanking = async (req, res, next) => {
     const ranking = await NoiseMonitoring.getRankingOptimized(matchStage, orderBy, parseInt(limit));
 
     const responseData = {
-      message: 'Ranking de contaminación acústica obtenido exitosamente',
       data: {
         ranking,
         configuracion: {
@@ -292,7 +297,7 @@ const getNoiseRanking = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Ranking obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Ranking de contaminación acústica obtenido exitosamente'));
 
   } catch (error) {
     logger.error({
@@ -347,7 +352,6 @@ const searchStations = async (req, res, next) => {
       .exec();
 
     const responseData = {
-      message: `Encontradas ${estaciones.length} estaciones`,
       data: estaciones,
       busqueda: {
         termino: searchTerm,
@@ -356,7 +360,7 @@ const searchStations = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Búsqueda completada exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, `Encontradas ${estaciones.length} estaciones`));
 
   } catch (error) {
     logger.error({
@@ -399,7 +403,6 @@ const compareStations = async (req, res, next) => {
     }
 
     const responseData = {
-      message: `Comparación de ${comparison.length} estaciones`,
       data: {
         metrica: metric,
         periodo: {
@@ -411,7 +414,7 @@ const compareStations = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Comparación de estaciones obtenida exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, `Comparación de ${comparison.length} estaciones obtenida exitosamente`));
 
   } catch (error) {
     logger.error({

@@ -14,6 +14,7 @@ const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
 const { validateDateRange } = require('../middleware/validation');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { etagMiddleware } = require('../middleware/etag');
 
 // Middleware de caché optimizado
 const { cacheMiddleware } = require('../middleware/cache');
@@ -93,10 +94,10 @@ const noiseQueryValidation = [
 
   query('nombre')
     .optional()
-    .isLength({ min: 2, max: 100 })
-    .withMessage('nombre debe tener entre 2 y 100 caracteres')
     .trim()
-    .escape(),
+    .escape() // Sanitización XSS ANTES de validación de longitud
+    .isLength({ min: 2, max: 100 })
+    .withMessage('nombre debe tener entre 2 y 100 caracteres'),
 
   query('page')
     .optional()
@@ -171,10 +172,10 @@ const searchValidation = [
   query('q')
     .notEmpty()
     .withMessage('Parámetro de búsqueda "q" es requerido')
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Búsqueda debe tener entre 2 y 100 caracteres')
     .trim()
-    .escape(),
+    .escape() // Sanitización XSS ANTES de validación de longitud
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Búsqueda debe tener entre 2 y 100 caracteres'),
 
   query('limit')
     .optional()
@@ -221,6 +222,7 @@ router.get('/statistics',
   validateDateRange(1825), // 5 años
   noiseStatisticsValidation,
   validateRequest,
+  etagMiddleware, // ETags para estadísticas agregadas (datos estables)
   cacheMiddleware('noise'), // Cache por 1 hora
   getNoiseStatistics
 );
@@ -235,6 +237,7 @@ router.get('/ranking',
   authenticate,
   rankingValidation,
   validateRequest,
+  etagMiddleware, // ETags para ranking (datos agregados estables)
   cacheMiddleware('noise'), // Cache por 1 hora
   getNoiseRanking
 );

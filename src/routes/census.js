@@ -21,6 +21,7 @@ const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { etagMiddleware } = require('../middleware/etag');
 
 const router = express.Router();
 
@@ -224,6 +225,9 @@ router.get('/pyramid',
 
   // Middleware de validación
   validateRequest,
+
+  // ETags para pirámide poblacional (datos muy estables)
+  etagMiddleware,
 
   // Middleware de caché (1 hora para datos demográficos)
   cacheMiddleware('demographic', (req) =>

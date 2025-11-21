@@ -10,7 +10,7 @@ const { validationResult } = require('express-validator');
 const ScooterAssignment = require('../models/ScooterAssignment');
 const { createValidationError, createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, escapeRegex, validateDateRange } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS } = require('../constants');
 
@@ -32,25 +32,25 @@ const getScooterAssignments = async (req, res, next) => {
     } = req.query;
 
     // Usar queryHelper para construir filtros
-    const filterConfig = {
-      fecha: { field: 'fechaAsignacion', type: 'dateRange', singleDayFromFecha: true },
-      distrito: { field: 'distrito.nombre', type: 'regex' },
-      barrio: { field: 'barrio.nombre', type: 'regex' },
-      tipoZona: { field: 'clasificacionArea.tipoZona', type: 'exact', transform: v => v.toUpperCase() },
-      densidad: { field: 'estadisticas.densidadPatinetes', type: 'exact', transform: v => v.toUpperCase() },
-      demanda: { field: 'clasificacionArea.demandaEstimada', type: 'exact', transform: v => v.toUpperCase() },
-      concentracion: { field: 'analisisDistribucion.concentracionMercado', type: 'exact', transform: v => v.toUpperCase() },
-      minPatinetes: { field: 'estadisticas.totalPatinetes', type: 'numericRange', rangeType: 'min' },
-      maxPatinetes: { field: 'estadisticas.totalPatinetes', type: 'numericRange', rangeType: 'max' }
-    };
+    const filterConfig = [
+      { field: 'fechaAsignacion', type: 'dateRange', params: ['fecha'] },
+      { field: 'distrito.nombre', type: 'regex', param: 'distrito' },
+      { field: 'barrio.nombre', type: 'regex', param: 'barrio' },
+      { field: 'clasificacionArea.tipoZona', type: 'exact', param: 'tipoZona', transform: v => v.toUpperCase() },
+      { field: 'estadisticas.densidadPatinetes', type: 'exact', param: 'densidad', transform: v => v.toUpperCase() },
+      { field: 'clasificacionArea.demandaEstimada', type: 'exact', param: 'demanda', transform: v => v.toUpperCase() },
+      { field: 'analisisDistribucion.concentracionMercado', type: 'exact', param: 'concentracion', transform: v => v.toUpperCase() },
+      { field: 'estadisticas.totalPatinetes', type: 'numericRange', params: ['minPatinetes', 'maxPatinetes'] }
+    ];
 
     const filters = buildFilters(req.query, filterConfig);
 
-    // Filtro especial por proveedor (array anidado)
+    // Filtro especial por proveedor (array anidado) con escapeRegex para prevenir ReDoS
     if (proveedor) {
+      const escapedProveedor = escapeRegex(proveedor);
       filters.proveedores = {
         $elemMatch: {
-          nombre: new RegExp(proveedor, 'i'),
+          nombre: new RegExp(escapedProveedor, 'i'),
           activo: soloProveedoresActivos === 'true',
           cantidad: { $gt: 0 }
         }
@@ -66,11 +66,11 @@ const getScooterAssignments = async (req, res, next) => {
     };
 
     const sortOptions = buildSortOptions(
-      req.query.sortBy,
-      req.query.sortOrder,
+      req.query,
+      sortMapping,
       SORT_FIELDS.SCOOTER_ASSIGNMENT,
       'totalPatinetes',
-      sortMapping
+      'desc'
     );
 
     const pagination = buildPaginationOptions(req.query, {
@@ -122,7 +122,6 @@ const getScooterAssignments = async (req, res, next) => {
 
     // Respuesta
     const responseData = {
-      message: 'Datos de asignación de patinetes obtenidos correctamente',
       data: {
         assignments: result.asignaciones,
         pagination: createPaginationMeta(pagination.pageNum, pagination.limitNum, result.total),
@@ -141,7 +140,7 @@ const getScooterAssignments = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Asignaciones obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de asignación de patinetes obtenidos correctamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener datos de asignación de patinetes', error));
@@ -164,7 +163,6 @@ const getDistrictStatistics = async (req, res, next) => {
     const statistics = await ScooterAssignment.getDistrictStatistics(fecha);
 
     const responseData = {
-      message: 'Estadísticas por distrito obtenidas correctamente',
       data: {
         estadisticas: statistics,
         fecha: fecha || 'Todas las fechas',
@@ -172,7 +170,7 @@ const getDistrictStatistics = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas por distrito obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas por distrito obtenidas correctamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener estadísticas por distrito', error));
@@ -204,7 +202,6 @@ const getProviderMarketAnalysis = async (req, res, next) => {
     }));
 
     const responseData = {
-      message: 'Análisis de mercado por proveedor obtenido correctamente',
       data: {
         analisis: analysisWithMarketShare,
         resumen: {
@@ -215,7 +212,7 @@ const getProviderMarketAnalysis = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de mercado obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de mercado por proveedor obtenido correctamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener análisis de mercado por proveedor', error));
@@ -238,7 +235,6 @@ const getConcentrationZones = async (req, res, next) => {
     const zonas = await ScooterAssignment.getHighestConcentrationZones(parseInt(limite), fecha);
 
     const responseData = {
-      message: 'Zonas de mayor concentración obtenidas correctamente',
       data: {
         zonas,
         parametros: {
@@ -248,7 +244,7 @@ const getConcentrationZones = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Zonas de concentración obtenidas exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Zonas de mayor concentración obtenidas correctamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener zonas de concentración', error));
@@ -294,7 +290,6 @@ const getDistributionDashboard = async (req, res, next) => {
     const proveedorLider = analisisProveedores[0] || null;
 
     const responseData = {
-      message: 'Dashboard de distribución obtenido correctamente',
       data: {
         resumenGeneral: {
           ...generalSummary,
@@ -323,7 +318,7 @@ const getDistributionDashboard = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Dashboard obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Dashboard de distribución obtenido correctamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener dashboard de distribución', error));
@@ -352,7 +347,6 @@ const getAreaDetails = async (req, res, next) => {
     }
 
     const responseData = {
-      message: 'Detalles del área obtenidos correctamente',
       data: {
         area: {
           ...result.area,
@@ -368,7 +362,7 @@ const getAreaDetails = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Detalles del área obtenidos exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Detalles del área obtenidos correctamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener detalles del área', error));
@@ -392,7 +386,6 @@ const getOptimizationAnalysis = async (req, res, next) => {
     const { analisisDesbalance, recomendaciones } = await ScooterAssignment.getOptimizationAnalysisData(fecha);
 
     const responseData = {
-      message: 'Análisis de optimización obtenido correctamente',
       data: {
         analisisDesbalance,
         recomendaciones,
@@ -404,7 +397,7 @@ const getOptimizationAnalysis = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de optimización obtenido exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de optimización obtenido correctamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener análisis de optimización', error));
@@ -429,6 +422,12 @@ const getTemporalComparison = async (req, res, next) => {
       return next(createBadRequestError('Fechas de inicio y fin son obligatorias'));
     }
 
+    // Validar rango de fechas usando queryHelper
+    const dateValidation = validateDateRange(fechaInicio, fechaFin, 365);
+    if (!dateValidation.isValid) {
+      return next(createBadRequestError(dateValidation.error));
+    }
+
     // Obtener datos con método optimizado del modelo
     const result = await ScooterAssignment.getTemporalComparisonData(
       fechaInicio,
@@ -438,7 +437,6 @@ const getTemporalComparison = async (req, res, next) => {
     );
 
     const responseData = {
-      message: 'Comparativa temporal obtenida correctamente',
       data: {
         comparativa: result.comparativa,
         parametros: {
@@ -451,7 +449,7 @@ const getTemporalComparison = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Comparativa temporal obtenida exitosamente'));
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Comparativa temporal obtenida correctamente'));
 
   } catch (error) {
     next(createInternalError('Error al obtener comparativa temporal', error));

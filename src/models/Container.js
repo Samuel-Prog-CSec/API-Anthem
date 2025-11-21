@@ -8,7 +8,7 @@
 
 const mongoose = require('mongoose');
 const { coordinatesUTMSchema } = require('./schemas/commonSchemas');
-const { CONTAINER_TYPES, CONTAINER_LOTES } = require('../constants');
+const { CONTAINER_TYPES, CONTAINER_LOTES, AGGREGATION_LIMITS, GEOMETRY_TYPES } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -103,7 +103,7 @@ const containerSchema = new mongoose.Schema({
   location: {
     type: {
       type: String,
-      enum: ['Point'],
+      enum: GEOMETRY_TYPES,
       default: 'Point'
     },
     coordinates: {
@@ -355,7 +355,7 @@ containerSchema.statics.getStatsByDistrict = function(distrito = null) {
     {
       $sort: { distrito: 1 }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -404,7 +404,7 @@ containerSchema.statics.getStatsByNeighborhood = function(distrito, barrio = nul
     {
       $sort: { barrio: 1 }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -414,7 +414,7 @@ containerSchema.statics.getStatsByNeighborhood = function(distrito, barrio = nul
  */
 containerSchema.statics.getGeneralSummary = function() {
   return this.aggregate([
-    { $limit: 50000 }, // Límite máximo de documentos
+    { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos
     {
       $group: {
         _id: '$tipoContenedor',
@@ -436,7 +436,7 @@ containerSchema.statics.getGeneralSummary = function() {
         totalUbicaciones: { $sum: '$totalUbicaciones' }
       }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**

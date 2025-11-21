@@ -8,7 +8,15 @@
 
 const mongoose = require('mongoose');
 const { validateMonth, validateYear, validateNotFutureDate } = require('./schemas/commonSchemas');
-const { WORKING_AGE, ELDERLY_AGE, AGE_GROUPS, AGE_RANGES } = require('../constants');
+const {
+  WORKING_AGE,
+  ELDERLY_AGE,
+  AGE_GROUPS,
+  AGE_RANGES,
+  POPULATION_DENSITY_LEVELS,
+  CULTURAL_DIVERSITY_LEVELS,
+  CENSUS_FIELD_TYPES
+} = require('../constants');
 
 /**
  * Sub-esquema para datos poblacionales por género
@@ -250,12 +258,12 @@ const censusSchema = new mongoose.Schema({
   metadatos: {
     densidadPoblacional: {
       type: String,
-      enum: ['BAJA', 'MEDIA', 'ALTA', 'MUY_ALTA'],
+      enum: POPULATION_DENSITY_LEVELS,
       default: 'MEDIA'
     },
     diversidadCultural: {
       type: String,
-      enum: ['BAJA', 'MEDIA', 'ALTA'],
+      enum: CULTURAL_DIVERSITY_LEVELS,
       default: function() {
         if (this.estadisticas.porcentajeExtranjeros > 25) {return 'ALTA';}
         if (this.estadisticas.porcentajeExtranjeros > 10) {return 'MEDIA';}
@@ -269,7 +277,7 @@ const censusSchema = new mongoose.Schema({
       },
       camposFaltantes: [{
         type: String,
-        enum: ['poblacion', 'ubicacion', 'edad']
+        enum: CENSUS_FIELD_TYPES
       }],
       puntuacionCalidad: {
         type: Number,
@@ -736,7 +744,7 @@ censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
         }
       },
       { $sort: { edad: 1 } }
-    ]).allowDiskUse(true),
+    ]).allowDiskUse(true).maxTimeMS(10000),
 
     // Agregación 2: Totales y simplificada
     this.aggregate([
@@ -773,7 +781,7 @@ censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
         }
       },
       { $sort: { 'rangoEdad.minima': 1 } }
-    ]).allowDiskUse(true)
+    ]).allowDiskUse(true).maxTimeMS(10000)
   ]);
 
   // Calcular totales desde piramide simplificada
@@ -918,7 +926,7 @@ censusSchema.statics.getOptimizedDemographicAnalysis = async function(options) {
         ]
       }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 
   return {
     distribuciones: {
@@ -977,7 +985,8 @@ censusSchema.statics.findWithOptions = async function(options) {
   let query = this.find(filters, projection)
     .sort(sort)
     .skip(pagination.skip)
-    .limit(pagination.limit);
+    .limit(pagination.limit)
+    .maxTimeMS(10000);
 
   // Aplicar .lean() si se solicita (default true para performance)
   if (lean) {
@@ -1017,7 +1026,7 @@ censusSchema.statics.findWithOptions = async function(options) {
             barriosUnicos: { $addToSet: '$barrio.codigo' }
           }
         }
-      ])
+      ]).allowDiskUse(true).maxTimeMS(10000)
     );
   }
 

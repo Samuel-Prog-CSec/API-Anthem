@@ -10,7 +10,7 @@ const { createInternalError, createNotFoundError, createBadRequestError } = requ
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS } = require('../constants');
 
 /**
  * Obtener todos los registros de disponibilidad con filtros y paginación
@@ -28,16 +28,23 @@ exports.getAllBikeAvailability = async (req, res, next) => {
     const filters = buildFilters(req.query, filterConfig);
 
     // Configurar ordenamiento usando queryHelper
+    const sortMapping = {
+      dia: 'dia',
+      totalUsos: 'estadisticas.utilizacionTotal',
+      mediaBicicletasDisponibles: 'estadisticas.totalBicicletasDisponibles',
+      tasaOcupacion: 'estadisticas.tasaOcupacion'
+    };
     const sortOptions = buildSortOptions(
-      req.query.sortBy || 'dia',
-      req.query.sortOrder || 'desc',
+      req.query,
+      sortMapping,
       ['dia', 'totalUsos', 'mediaBicicletasDisponibles', 'tasaOcupacion'],
-      'dia'
+      'dia',
+      'desc'
     );
 
     // Configurar paginación usando queryHelper
     const paginationOptions = buildPaginationOptions(req.query, {
-      defaultLimit: 100,
+      defaultLimit: SPECIAL_PAGINATION_LIMITS.BIKES.DEFAULT,
       maxLimit: PAGINATION.MAX_LIMIT
     });
 
@@ -269,18 +276,11 @@ exports.getSubscriptionComparison = async (req, res, next) => {
  */
 exports.getEfficiencyAnalysis = async (req, res, next) => {
   try {
-    const { startDate, endDate } = req.query;
-
-    const filters = {};
-    if (startDate || endDate) {
-      filters.dia = {};
-      if (startDate) {
-        filters.dia.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        filters.dia.$lte = new Date(endDate);
-      }
-    }
+    // Construir filtros usando queryHelper
+    const filterConfig = [
+      { field: 'dia', type: 'dateRange', params: ['startDate', 'endDate'] }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
 
     // Llamar al método optimizado del modelo
     const analysis = await BikeAvailability.getEfficiencyAnalysisOptimized(filters);
@@ -308,18 +308,13 @@ exports.getEfficiencyAnalysis = async (req, res, next) => {
  */
 exports.getHistoricalData = async (req, res, next) => {
   try {
-    const { startDate, endDate, aggregation = 'day' } = req.query;
+    const { aggregation = 'day' } = req.query;
 
-    const filters = {};
-    if (startDate || endDate) {
-      filters.dia = {};
-      if (startDate) {
-        filters.dia.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        filters.dia.$lte = new Date(endDate);
-      }
-    }
+    // Construir filtros usando queryHelper
+    const filterConfig = [
+      { field: 'dia', type: 'dateRange', params: ['startDate', 'endDate'] }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
 
     // Llamar al método optimizado del modelo
     const historicalData = await BikeAvailability.getHistoricalDataOptimized(filters, aggregation);

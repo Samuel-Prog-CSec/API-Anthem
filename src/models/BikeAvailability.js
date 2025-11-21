@@ -268,7 +268,7 @@ bikeAvailabilitySchema.statics.getStatsByDateRange = function(startDate, endDate
         totalUsosOcasional: { $sum: '$usosAbonadoOcasional' }
       }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -301,7 +301,7 @@ bikeAvailabilitySchema.statics.getMonthlyTrends = function(year) {
     {
       $sort: { mes: 1 }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -315,12 +315,16 @@ bikeAvailabilitySchema.statics.getTopUsageDays = async function(limit = 10) {
     this.find()
       .sort({ totalUsos: -1 })
       .limit(limit)
-      .select('dia totalUsos mediaBicicletasDisponibles tasaOcupacion'),
+      .select('dia totalUsos mediaBicicletasDisponibles tasaOcupacion')
+      .lean()
+      .maxTimeMS(10000),
 
     this.find()
       .sort({ totalUsos: 1 })
       .limit(limit)
       .select('dia totalUsos mediaBicicletasDisponibles tasaOcupacion')
+      .lean()
+      .maxTimeMS(10000)
   ]);
 
   return { topDays, bottomDays };
@@ -374,7 +378,7 @@ bikeAvailabilitySchema.statics.compareSubscriptionTypes = function(startDate, en
         }
       }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -409,7 +413,7 @@ bikeAvailabilitySchema.statics.getEfficiencyAnalysisOptimized = async function(f
         promedioHorasDisponibilidad: { $round: ['$promedioHorasDisponibilidad', 2] }
       }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 
   return analysis.length > 0 ? analysis[0] : null;
 };
@@ -480,7 +484,7 @@ bikeAvailabilitySchema.statics.getHistoricalDataOptimized = async function(filte
         registros: 1
       }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 
   return historicalData;
 };
@@ -595,7 +599,7 @@ bikeAvailabilitySchema.statics.getUsageTrends = function(options) {
     { $sort: sortField }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -668,7 +672,7 @@ bikeAvailabilitySchema.statics.getDemandPrediction = async function(options = {}
       }
     },
     { $sort: { probabilidadAltaDemanda: -1 } }
-  ]);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 
   const globalStats = await this.aggregate([
     ...(Object.keys(matchStage).length > 0 ? [{ $match: matchStage }] : []),
@@ -692,7 +696,7 @@ bikeAvailabilitySchema.statics.getDemandPrediction = async function(options = {}
         promedioTasaOcupacion: { $round: ['$promedioTasaOcupacion', 2] }
       }
     }
-  ]);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 
   return {
     patrones: patternAnalysis,

@@ -7,6 +7,17 @@
  */
 
 const { body, param, query, validationResult } = require('express-validator');
+const {
+  SEVERITY_LEVELS,
+  ACCIDENT_TYPES,
+  VEHICLE_TYPES,
+  INJURY_TYPES,
+  CONTAINER_TYPES,
+  CONGESTION_LEVELS,
+  DATA_QUALITY_LEVELS,
+  TRAFFIC_ELEMENT_TYPES,
+  SORT_FIELDS
+} = require('../constants');
 
 /**
  * Reglas de validación de registro de usuario
@@ -283,31 +294,31 @@ const validateAccidentFilters = [
 
   query('tipoAccidente')
     .optional()
-    .isIn([
-      'COLISION_DOBLE', 'COLISION_MULTIPLE', 'ALCANCE',
-      'CHOQUE_OBSTACULO', 'CHOQUE_OBSTACULO_FIJO',
-      'ATROPELLO_PERSONA', 'VUELCO', 'CAIDA',
-      'COLISION_FRONTO_LATERAL', 'OTRAS_CAUSAS'
-    ])
-    .withMessage('Tipo de accidente no válido'),
+    .trim()
+    .isIn(ACCIDENT_TYPES)
+    .withMessage('Tipo de accidente no válido')
+    .escape(), // Sanitización XSS
 
   query('gravedad')
     .optional()
-    .isIn(['LEVE', 'GRAVE', 'MORTAL', 'SIN_LESIONES'])
-    .withMessage('Gravedad debe ser LEVE, GRAVE, MORTAL o SIN_LESIONES'),
+    .trim()
+    .isIn(Object.values(SEVERITY_LEVELS.ACCIDENT))
+    .withMessage('Gravedad debe ser LEVE, GRAVE, MORTAL o SIN_LESIONES')
+    .escape(), // Sanitización XSS
 
   query('tipoVehiculo')
     .optional()
-    .isIn([
-      'TURISMO', 'MOTOCICLETA', 'CICLOMOTOR', 'BICICLETA',
-      'AUTOBUS', 'CAMION', 'FURGONETA', 'TAXI', 'AMBULANCIA', 'OTROS'
-    ])
-    .withMessage('Tipo de vehículo no válido'),
+    .trim()
+    .isIn(VEHICLE_TYPES)
+    .withMessage('Tipo de vehículo no válido')
+    .escape(), // Sanitización XSS
 
   query('tipoLesion')
     .optional()
-    .isIn(['LEVE', 'GRAVE', 'FALLECIDO', 'SIN_ASISTENCIA', 'DESCONOCIDO'])
-    .withMessage('Tipo de lesión no válido'),
+    .trim()
+    .isIn(Object.values(INJURY_TYPES))
+    .withMessage('Tipo de lesión no válido')
+    .escape(), // Sanitización XSS
 
   query('conAlcohol')
     .optional()
@@ -321,7 +332,7 @@ const validateAccidentFilters = [
 
   query('sortBy')
     .optional()
-    .isIn(['fecha', 'gravedad', 'distrito', 'tipoAccidente', 'puntuacionGravedad'])
+    .isIn([...SORT_FIELDS.ACCIDENT, 'puntuacionGravedad'])
     .withMessage('Campo de ordenamiento no válido'),
 
   query('sortOrder')
@@ -349,17 +360,17 @@ const validateFileNumber = [
 const validateTrafficFilters = [
   query('tipoElemento')
     .optional()
-    .isIn(['URB', 'M-30', 'urb', 'm-30'])
+    .isIn([...Object.values(TRAFFIC_ELEMENT_TYPES), 'urb', 'm-30']) // Incluir variantes en minúsculas
     .withMessage('Tipo de elemento debe ser URB o M-30'),
 
   query('nivelCongestion')
     .optional()
-    .isIn(['FLUIDO', 'DENSO', 'CONGESTIONADO', 'COLAPSADO'])
+    .isIn(Object.values(CONGESTION_LEVELS).filter(v => v !== 'SIN_DATOS'))
     .withMessage('Nivel de congestión no válido'),
 
   query('calidad')
     .optional()
-    .isIn(['ALTA', 'MEDIA', 'BAJA'])
+    .isIn(Object.values(DATA_QUALITY_LEVELS).filter(v => v !== 'SIN_DATOS'))
     .withMessage('Calidad debe ser ALTA, MEDIA o BAJA'),
 
   query('puntoMedidaId')
@@ -369,7 +380,7 @@ const validateTrafficFilters = [
 
   query('sortBy')
     .optional()
-    .isIn(['fecha', 'intensidad', 'ocupacion', 'carga', 'puntoMedidaId'])
+    .isIn(SORT_FIELDS.TRAFFIC)
     .withMessage('Campo de ordenamiento no válido'),
 
   query('sortOrder')
@@ -386,7 +397,7 @@ const validateTrafficFilters = [
 const validateContainerType = [
   query('tipoContenedor')
     .optional()
-    .isIn(['ORGANICA', 'RESTO', 'ENVASES', 'VIDRIO', 'PAPEL-CARTON'])
+    .isIn(CONTAINER_TYPES)
     .withMessage('Tipo de contenedor no válido'),
   validateRequest
 ];
@@ -402,7 +413,7 @@ const validateContainerFilters = [
 
   query('sortBy')
     .optional()
-    .isIn(['distrito', 'barrio', 'tipoContenedor', 'cantidad', 'lote'])
+    .isIn([...SORT_FIELDS.CONTAINER, 'cantidad'])
     .withMessage('Campo de ordenamiento no válido'),
 
   query('sortOrder')
@@ -440,7 +451,7 @@ const validateCoordinates = [
 const validateBikeFilters = [
   query('sortBy')
     .optional()
-    .isIn(['dia', 'totalUsos', 'mediaBicicletasDisponibles', 'tasaOcupacion'])
+    .isIn([...SORT_FIELDS.BIKE_AVAILABILITY, 'tasaOcupacion'])
     .withMessage('Campo de ordenamiento no válido'),
 
   query('sortOrder')

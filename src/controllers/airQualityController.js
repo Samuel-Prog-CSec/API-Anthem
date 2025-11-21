@@ -51,11 +51,19 @@ const getAirQualityData = async (req, res, next) => {
     }
 
     // Configurar ordenamiento y paginación usando queryHelper
+    const sortMapping = {
+      fecha: 'fecha',
+      año: 'año',
+      mes: 'mes',
+      estacion: 'estacion',
+      magnitud: 'magnitud'
+    };
     const sortOptions = buildSortOptions(
-      req.query.sortBy || 'fecha',
-      req.query.sortOrder || 'desc',
+      req.query,
+      sortMapping,
       SORT_FIELDS.AIR_QUALITY,
-      'fecha'
+      'fecha',
+      'desc'
     );
 
     const paginationOptions = buildPaginationOptions(req.query, {
@@ -92,7 +100,6 @@ const getAirQualityData = async (req, res, next) => {
     ]);
 
     const responseData = {
-      message: 'Datos de calidad de aire obtenidos exitosamente',
       data,
       pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments),
       filters: {
@@ -164,13 +171,10 @@ const getAirQualityById = async (req, res, next) => {
     } : null;
 
     const responseData = {
-      message: 'Detalles de calidad de aire obtenidos exitosamente',
-      data: {
-        ...data,
-        medicionesHorarias: medicionesArray,
-        estadisticas: statistics,
-        magnitudDescripcion: AirQuality.getMagnitudes()[data.magnitud] || 'Desconocida'
-      }
+      ...data,
+      medicionesHorarias: medicionesArray,
+      estadisticas: statistics,
+      magnitudDescripcion: AirQuality.getMagnitudes()[data.magnitud] || 'Desconocida'
     };
 
     res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Detalles de calidad de aire obtenidos exitosamente'));

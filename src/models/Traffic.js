@@ -624,7 +624,7 @@ trafficSchema.statics.getCongestionAnalysisOptimized = async function(filters = 
     { $sort: { porcentajeCongestion: -1 } }
   );
 
-  return this.aggregate(pipeline).allowDiskUse(true);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -790,7 +790,7 @@ trafficSchema.statics.getHistoricalDataOptimized = async function(filters = {}, 
     { $sort: sortFields }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -893,7 +893,7 @@ trafficSchema.statics.getTrafficStatisticsOptimized = async function(filters = {
         }
       },
       { $sort: { cantidad: -1 } }
-    ]).allowDiskUse(true),
+    ]).allowDiskUse(true).maxTimeMS(10000),
 
     // Distribución horaria
     this.aggregate([
@@ -932,7 +932,7 @@ trafficSchema.statics.getTrafficStatisticsOptimized = async function(filters = {
           periodo: 1
         }
       }
-    ]).allowDiskUse(true)
+    ]).allowDiskUse(true).maxTimeMS(10000)
   ]);
 
   return {

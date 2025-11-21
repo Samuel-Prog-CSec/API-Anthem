@@ -119,6 +119,7 @@ const airQualityQueryValidation = [
 
   query('includeInvalid')
     .optional()
+    .toBoolean() // Convertir string a boolean
     .isBoolean()
     .withMessage('includeInvalid debe ser true o false')
 ];

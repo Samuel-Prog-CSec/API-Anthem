@@ -7,10 +7,10 @@
 const Traffic = require('../models/Traffic');
 const Location = require('../models/Location');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
-const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
+const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES, AGGREGATION_LIMITS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -96,7 +96,7 @@ const getAllTrafficData = async (req, res, next) => {
     // Calcular estadísticas básicas para la respuesta con límite
     const stats = await Traffic.aggregate([
       { $match: filters },
-      { $limit: 10000 }, // Límite máximo de documentos para agregación
+      { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos para agregación
       {
         $group: {
           _id: null,
@@ -164,22 +164,20 @@ const getAllTrafficData = async (req, res, next) => {
 const getTrafficByPoint = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { startDate, endDate, limit = 100 } = req.query;
+    const { limit = 100 } = req.query;
 
     logger.debug({
       puntoId: id,
-      startDate,
-      endDate,
+      query: req.query,
       endpoint: 'GET /api/traffic/punto/:id'
     }, 'Obteniendo datos de tráfico por punto');
 
-    const filters = { puntoMedidaId: id };
-
-    // Usar helper para filtro de fechas
-    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
-    if (dateFilter) {
-      Object.assign(filters, dateFilter);
-    }
+    // Construir filtros usando queryHelper
+    const filterConfig = [
+      { field: 'puntoMedidaId', type: 'exact', param: 'puntoMedidaId' },
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
+    ];
+    const filters = buildFilters({ ...req.query, puntoMedidaId: id }, filterConfig);
 
     // Proyección optimizada para datos de punto específico
     const projection = {
@@ -213,7 +211,7 @@ const getTrafficByPoint = async (req, res, next) => {
     // Calcular estadísticas del punto con límite
     const stats = await Traffic.aggregate([
       { $match: filters },
-      { $limit: 5000 }, // Límite máximo para agregación de un punto específico
+      { $limit: AGGREGATION_LIMITS.MEDIUM }, // Límite máximo para agregación de un punto específico
       {
         $group: {
           _id: null,
@@ -264,23 +262,19 @@ const getTrafficByPoint = async (req, res, next) => {
  */
 const getTrafficStats = async (req, res, next) => {
   try {
-    const { startDate, endDate, tipoElemento } = req.query;
+    const { tipoElemento } = req.query;
 
     logger.debug({
-      startDate,
-      endDate,
-      tipoElemento,
+      query: req.query,
       endpoint: 'GET /api/traffic/stats'
     }, 'Obteniendo estadísticas de tráfico');
 
-    // Construir filtros
-    const filters = {};
-    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
-    if (dateFilter) {
-      Object.assign(filters, dateFilter);
-    }
-
-    if (tipoElemento) {filters.tipoElemento = tipoElemento.toUpperCase();}
+    // Construir filtros usando queryHelper
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: v => v.toUpperCase() }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
 
     // Llamar al método optimizado del modelo (3 agregaciones en paralelo)
     const statistics = await Traffic.getTrafficStatisticsOptimized(filters);
@@ -312,14 +306,13 @@ const getTrafficStats = async (req, res, next) => {
  */
 const getCongestionAnalysis = async (req, res, next) => {
   try {
-    const { startDate, endDate, groupBy = 'distrito' } = req.query;
+    const { groupBy = 'distrito' } = req.query;
 
-    // Construir filtros usando helper
-    const filters = {};
-    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
-    if (dateFilter) {
-      Object.assign(filters, dateFilter);
-    }
+    // Construir filtros usando queryHelper
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
 
     // Llamar al método optimizado del modelo
     const analysis = await Traffic.getCongestionAnalysisOptimized(filters, groupBy);
@@ -356,23 +349,18 @@ const getCongestionAnalysis = async (req, res, next) => {
 const getHistoricalData = async (req, res, next) => {
   try {
     const {
-      startDate,
-      endDate,
       aggregation = 'hour', // hour, day, week, month
       puntoMedidaId,
       tipoElemento
     } = req.query;
 
-    const filters = {};
-
-    // Usar helper para filtro de fechas
-    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
-    if (dateFilter) {
-      Object.assign(filters, dateFilter);
-    }
-
-    if (puntoMedidaId) {filters.puntoMedidaId = puntoMedidaId;}
-    if (tipoElemento) {filters.tipoElemento = tipoElemento.toUpperCase();}
+    // Construir filtros usando queryHelper
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'puntoMedidaId', type: 'exact', param: 'puntoMedidaId' },
+      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: v => v.toUpperCase() }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
 
     // Llamar al método optimizado del modelo
     const historicalData = await Traffic.getHistoricalDataOptimized(filters, aggregation);

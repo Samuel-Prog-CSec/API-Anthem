@@ -4,6 +4,7 @@ const { createValidationError, createInternalError, createBadRequestError } = re
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
+const { SPECIAL_PAGINATION_LIMITS, AGGREGATION_LIMITS } = require('../constants');
 
 /**
  * Obtener todas las ubicaciones con filtros
@@ -48,8 +49,8 @@ const getLocations = async (req, res, next) => {
 
     // Configurar paginación usando queryHelper
     const paginationOptions = buildPaginationOptions(req.query, {
-      defaultLimit: 100,
-      maxLimit: 500
+      defaultLimit: SPECIAL_PAGINATION_LIMITS.LOCATIONS.DEFAULT,
+      maxLimit: SPECIAL_PAGINATION_LIMITS.LOCATIONS.MAX
     });
 
     // Proyección optimizada: solo campos esenciales
@@ -199,7 +200,7 @@ const getProximityAnalysis = async (req, res, next) => {
           key: 'geometry' // Especificar el campo con índice geoespacial
         }
       },
-      { $limit: 1000 }, // Límite máximo de documentos procesados
+      { $limit: AGGREGATION_LIMITS.SMALL }, // Límite máximo de documentos procesados
       {
         $group: {
           _id: '$tipo',

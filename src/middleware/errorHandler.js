@@ -78,9 +78,9 @@ const handleUnhandledRejection = () => {
     logger.fatal({
       reason: reason,
       promise: promise
-    }, '❌ Unhandled Rejection detectado');
+    }, 'Unhandled Rejection detectado');
 
-    logger.fatal('⚠️ Proceso terminado debido a Unhandled Rejection');
+    logger.fatal('Proceso terminado debido a Unhandled Rejection');
     process.exit(1);
   });
 };
@@ -93,9 +93,9 @@ const handleUncaughtException = () => {
     logger.fatal({
       error: error.message,
       stack: error.stack
-    }, '❌ Uncaught Exception detectado');
+    }, 'Uncaught Exception detectado');
 
-    logger.fatal('⚠️ Proceso terminado debido a Uncaught Exception');
+    logger.fatal('Proceso terminado debido a Uncaught Exception');
     process.exit(1);
   });
 };

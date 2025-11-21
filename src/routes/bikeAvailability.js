@@ -111,6 +111,7 @@ router.get('/trends/monthly',
       .withMessage('Año debe ser un número entre 2050 y 2052'),
     validateRequest
   ],
+  etagMiddleware, // ETags para tendencias mensuales (datos agregados estables)
   cacheMiddleware('bikes'), // Cache por 5 minutos
   bikeController.getMonthlyTrends
 );

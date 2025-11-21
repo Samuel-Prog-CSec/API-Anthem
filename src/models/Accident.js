@@ -19,7 +19,8 @@ const {
   RISK_FACTORS,
   SEVERITY_LEVELS,
   GENDERS,
-  BINARY_INDICATORS
+  BINARY_INDICATORS,
+  AGGREGATION_LIMITS
 } = require('../constants');
 
 /**
@@ -561,7 +562,7 @@ accidentSchema.statics.getStatisticsByPeriod = function(startDate, endDate) {
         }
       }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -601,7 +602,7 @@ accidentSchema.statics.getAccidentBlackSpots = function(limit = 10, startDate = 
     },
     { $sort: { indiceGravedad: -1, totalAccidentes: -1 } },
     { $limit: limit }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -639,7 +640,7 @@ accidentSchema.statics.getVehicleTypeAnalysis = function(startDate = null, endDa
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -663,7 +664,7 @@ accidentSchema.statics.getTemporalPatterns = function(groupBy = 'hora') {
       }
     },
     { $sort: { _id: 1 } }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -746,7 +747,7 @@ accidentSchema.statics.getDistrictComparisonData = function(filters = {}) {
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -797,7 +798,7 @@ accidentSchema.statics.getStreetSafetyAnalysis = function(filters = {}, limit = 
     },
     { $sort: { indiceRiesgo: -1 } },
     { $limit: limit }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -823,7 +824,7 @@ accidentSchema.statics.getTrendAnalysis = function(filters = {}) {
       }
     },
     { $sort: { '_id.año': 1, '_id.mes': 1 } }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -856,7 +857,7 @@ accidentSchema.statics.getWeatherCorrelation = function(filters = {}) {
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -882,7 +883,7 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
     },
     { $sort: { totalAccidentes: -1 } },
     { $limit: limit }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -893,7 +894,7 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
 accidentSchema.statics.getRiskFactorsAnalysis = function(filters = {}) {
   return this.aggregate([
     { $match: filters },
-    { $limit: 10000 }, // Límite máximo de documentos
+    { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos
     { $unwind: { path: '$analisis.factoresRiesgo', preserveNullAndEmptyArrays: true } },
     {
       $group: {

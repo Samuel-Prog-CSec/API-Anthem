@@ -9,6 +9,13 @@ const express = require('express');
 const { query, param } = require('express-validator');
 
 const {
+  SCOOTER_ZONE_TYPES,
+  SCOOTER_DENSITY_LEVELS,
+  SCOOTER_DEMAND_LEVELS,
+  SCOOTER_MARKET_CONCENTRATION
+} = require('../constants');
+
+const {
   getScooterAssignments,
   getDistrictStatistics,
   getProviderMarketAnalysis,
@@ -97,20 +104,19 @@ const geographicValidation = [
 const categoryValidation = [
   query('tipoZona')
     .optional()
-    .isIn(['CENTRO_URBANO', 'ZONA_COMERCIAL', 'ZONA_RESIDENCIAL', 'ZONA_UNIVERSITARIA',
-           'ZONA_TURISTICA', 'ZONA_EMPRESARIAL', 'PERIFERIA', 'ZONA_TRANSPORTE'])
+    .isIn(SCOOTER_ZONE_TYPES)
     .withMessage('Tipo de zona no válido'),
   query('densidad')
     .optional()
-    .isIn(['BAJA', 'MEDIA', 'ALTA', 'MUY_ALTA'])
+    .isIn(SCOOTER_DENSITY_LEVELS)
     .withMessage('Densidad no válida'),
   query('demanda')
     .optional()
-    .isIn(['BAJA', 'MEDIA', 'ALTA', 'MUY_ALTA'])
+    .isIn(SCOOTER_DEMAND_LEVELS)
     .withMessage('Demanda no válida'),
   query('concentracion')
     .optional()
-    .isIn(['COMPETITIVA', 'MODERADA', 'CONCENTRADA', 'ALTA_CONCENTRACION'])
+    .isIn(SCOOTER_MARKET_CONCENTRATION)
     .withMessage('Concentración no válida')
 ];
 
@@ -142,10 +148,12 @@ const numericValidation = [
 const providerValidation = [
   query('proveedor')
     .optional()
+    .trim()
     .isLength({ min: 2, max: 30 })
     .withMessage('Proveedor debe tener entre 2 y 30 caracteres')
-    .matches(/^[a-zA-Z0-9s-]+$/)
-    .withMessage('Proveedor solo puede contener letras, números, espacios y guiones'),
+    .matches(/^[a-zA-Z0-9\s-]+$/)
+    .withMessage('Proveedor solo puede contener letras, números, espacios y guiones')
+    .escape(), // Sanitización XSS
   query('soloProveedoresActivos')
     .optional()
     .isBoolean()

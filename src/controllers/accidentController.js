@@ -8,10 +8,10 @@
 
 const Accident = require('../models/Accident');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
-const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
+const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, AGGREGATION_LIMITS } = require('../constants');
 const logger = require('../config/logger');
 
 
@@ -27,14 +27,14 @@ const getAllAccidents = async (req, res, next) => {
     }, 'Obteniendo datos de accidentes con filtros');
 
     // Configuración de filtros usando queryHelper
-    const filterConfig = {
-      'ubicacion.nombreDistrito': { type: 'regex', source: 'distrito' },
-      'circunstancias.tipoAccidente': { type: 'exact', source: 'tipoAccidente', transform: v => v.toUpperCase() },
-      'circunstancias.gravedad': { type: 'exact', source: 'gravedad', transform: v => v.toUpperCase() },
-      'vehiculo.tipo': { type: 'exact', source: 'tipoVehiculo', transform: v => v.toUpperCase() },
-      'personaAfectada.tipoLesion': { type: 'exact', source: 'tipoLesion', transform: v => v.toUpperCase() },
-      fecha: { type: 'dateRange', startDate: 'startDate', endDate: 'endDate' }
-    };
+    const filterConfig = [
+      { field: 'ubicacion.nombreDistrito', type: 'regex', param: 'distrito' },
+      { field: 'circunstancias.tipoAccidente', type: 'exact', param: 'tipoAccidente', transform: v => v.toUpperCase() },
+      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: v => v.toUpperCase() },
+      { field: 'vehiculo.tipo', type: 'exact', param: 'tipoVehiculo', transform: v => v.toUpperCase() },
+      { field: 'personaAfectada.tipoLesion', type: 'exact', param: 'tipoLesion', transform: v => v.toUpperCase() },
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
+    ];
 
     const filters = buildFilters(req.query, filterConfig);
 
@@ -48,17 +48,15 @@ const getAllAccidents = async (req, res, next) => {
     // Configurar ordenamiento y paginación usando queryHelper
     const sortOptions = buildSortOptions(
       req.query,
-      { fecha: 'fecha', gravedad: 'analisis.puntuacionGravedad', distrito: 'ubicacion.nombreDistrito' },
+      { fecha: 'fecha', gravedad: 'analisis.puntuacionGravedad', distrito: 'ubicacion.nombreDistrito', tipoAccidente: 'circunstancias.tipoAccidente', puntuacionGravedad: 'analisis.puntuacionGravedad' },
       Object.keys(SORT_FIELDS.ACCIDENT),
       'fecha',
       'desc'
     );
 
     const paginationOptions = buildPaginationOptions(
-      req.query.page,
-      req.query.limit,
-      PAGINATION.DEFAULT_LIMIT,
-      PAGINATION.MAX_LIMIT
+      req.query,
+      { defaultLimit: PAGINATION.DEFAULT_LIMIT, maxLimit: PAGINATION.MAX_LIMIT }
     );
 
     // Proyección optimizada: solo campos necesarios para listado
@@ -95,7 +93,7 @@ const getAllAccidents = async (req, res, next) => {
       Accident.countDocuments(filters).maxTimeMS(5000), // Timeout de 5 segundos para count
       Accident.aggregate([
         { $match: filters },
-        { $limit: 10000 }, // Límite máximo de documentos para estadísticas
+        { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos para estadísticas
         {
           $group: {
             _id: null,
@@ -229,20 +227,19 @@ const getAccidentByFileNumber = async (req, res, next) => {
  */
 const getAccidentStats = async (req, res, next) => {
   try {
-    const { startDate, endDate, distrito } = req.query;
+    const { distrito } = req.query;
 
     logger.debug({
-      startDate,
-      endDate,
-      distrito,
+      query: req.query,
       endpoint: 'GET /api/accidents/stats'
     }, 'Obteniendo estadísticas de accidentalidad');
 
-    // Construir filtros usando parseDateRangeFilter
-    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
-    const filters = dateFilter || {};
-
-    if (distrito) {filters['ubicacion.nombreDistrito'] = new RegExp(distrito, 'i');}
+    // Construir filtros usando queryHelper
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'ubicacion.nombreDistrito', type: 'regex', param: 'distrito' }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
 
     // Estadísticas generales
     const generalStats = await Accident.getStatisticsByPeriod(
@@ -310,13 +307,14 @@ const getAccidentStats = async (req, res, next) => {
  */
 const getAccidentHeatmap = async (req, res, next) => {
   try {
-    const { startDate, endDate, gravedad, limite = 500 } = req.query;
+    const { limite = 500 } = req.query;
 
-    // Construir filtros usando parseDateRangeFilter
-    const dateFilter = parseDateRangeFilter(startDate, endDate, 'fecha');
-    const filters = dateFilter || {};
-
-    if (gravedad) {filters['circunstancias.gravedad'] = gravedad.toUpperCase();}
+    // Construir filtros usando queryHelper
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: v => v.toUpperCase() }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
 
     // Obtener datos del heatmap desde el modelo
     const heatmapResult = await Accident.getHeatmapDataOptimized(filters, limite);
@@ -355,11 +353,11 @@ const getSafetyAnalysis = async (req, res, next) => {
   try {
     const { distrito } = req.query;
 
-    // Construir filtros
-    const filterConfig = {
-      'ubicacion.nombreDistrito': { type: 'regex', source: 'distrito' },
-      fecha: { type: 'dateRange', startDate: 'startDate', endDate: 'endDate' }
-    };
+    // Construir filtros usando queryHelper
+    const filterConfig = [
+      { field: 'ubicacion.nombreDistrito', type: 'regex', param: 'distrito' },
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
+    ];
     const filters = buildFilters(req.query, filterConfig);
 
     // Ejecutar todos los análisis en paralelo
@@ -404,9 +402,9 @@ const getSafetyAnalysis = async (req, res, next) => {
 const getDistrictComparison = async (req, res, next) => {
   try {
     // Construir filtros usando queryHelper
-    const filterConfig = {
-      fecha: { type: 'dateRange', startDate: 'startDate', endDate: 'endDate' }
-    };
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
+    ];
     const filters = buildFilters(req.query, filterConfig);
 
     // Obtener comparativa de distritos desde el modelo

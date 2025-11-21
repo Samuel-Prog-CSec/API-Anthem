@@ -9,6 +9,7 @@ const router = express.Router();
 const config = require('../config/config');
 const { createResponse } = require('../utils/responseHelper');
 const { getConnectionStats } = require('../config/database');
+const { performanceMonitor } = require('../middleware/performanceMonitor');
 
 // Import route modules
 const authRoutes = require('./auth');
@@ -23,6 +24,9 @@ const accidentRoutes = require('./accidents');
 const scooterAssignmentRoutes = require('./scooterAssignments');
 const bikeAvailabilityRoutes = require('./bikeAvailability');
 const containerRoutes = require('./containers');
+
+// Aplicar performanceMonitor GLOBALMENTE a todas las rutas de la API
+router.use(performanceMonitor);
 
 /**
  * @route   GET /api/v1.0

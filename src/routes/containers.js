@@ -10,7 +10,8 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { query, param } = require('express-validator');
 const {
-  CONTAINER_TYPES
+  CONTAINER_TYPES,
+  PAGINATION
 } = require('../constants');
 
 const containerController = require('../controllers/containerController');
@@ -209,7 +210,7 @@ router.get('/search',
 
     query('limit')
       .optional()
-      .isInt({ min: 1, max: 200 })
+      .isInt({ min: PAGINATION.MIN_LIMIT, max: 200 })
       .withMessage('Límite debe ser entre 1 y 200'),
 
     validateRequest

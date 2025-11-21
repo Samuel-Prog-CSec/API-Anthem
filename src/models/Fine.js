@@ -531,7 +531,7 @@ fineSchema.statics.getStatisticsOptimized = async function(options) {
       },
       { $sort: sortStage },
       { $limit: parseInt(limit) }
-    ]).allowDiskUse(true),
+    ]).allowDiskUse(true).maxTimeMS(10000),
 
     // Agregación 2: Resumen general
     this.aggregate([
@@ -549,7 +549,7 @@ fineSchema.statics.getStatisticsOptimized = async function(options) {
           denunciantesUnicos: { $addToSet: '$denunciante' }
         }
       }
-    ]).allowDiskUse(true)
+    ]).allowDiskUse(true).maxTimeMS(10000)
   ]);
 
   return {
@@ -616,7 +616,7 @@ fineSchema.statics.getLocationRankingOptimized = async function(options) {
     },
     { $sort: { totalMultas: -1 } },
     { $limit: parseInt(limit) }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 
   return ranking;
 };
@@ -725,7 +725,7 @@ fineSchema.statics.getTemporalAnalysisOptimized = async function(options) {
       }
     },
     { $sort: sortField }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 
   // Calcular tendencias si hay suficientes datos
   let tendencia = null;

@@ -9,10 +9,10 @@
 const { validationResult } = require('express-validator');
 const Fine = require('../models/Fine');
 const { AppError, createValidationError, createInternalError } = require('../utils/errorUtils');
-const { createPaginationMeta, parseDateRangeFilter } = require('../utils/paginationHelper');
+const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, AGGREGATION_LIMITS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -29,16 +29,6 @@ const getFines = async (req, res, next) => {
 
     // Extraer parámetros de consulta
     const {
-      startDate,
-      endDate,
-      calificacion,
-      lugar,
-      tipoInfraccion,
-      denunciante,
-      minImporte,
-      maxImporte,
-      minPuntos,
-      maxPuntos,
       conDescuento,
       esGrave,
       page = 1,
@@ -55,8 +45,8 @@ const getFines = async (req, res, next) => {
       { field: 'lugar', type: 'regex', param: 'lugar' },
       { field: 'metadatos.tipoInfraccion', type: 'in', param: 'tipoInfraccion' },
       { field: 'denunciante', type: 'regex', param: 'denunciante' },
-      { field: 'importeFinal', type: 'range', params: ['minImporte', 'maxImporte'], transform: parseFloat },
-      { field: 'puntosDetraídos', type: 'range', params: ['minPuntos', 'maxPuntos'], transform: parseInt }
+      { field: 'importeFinal', type: 'numericRange', params: ['minImporte', 'maxImporte'] },
+      { field: 'puntosDetraídos', type: 'numericRange', params: ['minPuntos', 'maxPuntos'] }
     ];
 
     const filters = buildFilters(req.query, filterConfig);
@@ -130,7 +120,7 @@ const getFines = async (req, res, next) => {
     // Obtener estadísticas rápidas del conjunto filtrado con límite
     const quickStatistics = await Fine.aggregate([
       { $match: filters },
-      { $limit: 10000 }, // Límite máximo de documentos para estadísticas
+      { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos para estadísticas
       {
         $group: {
           _id: null,
@@ -148,7 +138,6 @@ const getFines = async (req, res, next) => {
     ]);
 
     const responseData = {
-      message: 'Multas obtenidas exitosamente',
       data,
       pagination: paginationMeta,
       estadisticas: quickStatistics[0] || {
@@ -205,13 +194,10 @@ const getFineById = async (req, res, next) => {
     };
 
     const responseData = {
-      message: 'Detalles de multa obtenidos exitosamente',
-      data: {
-        ...multa,
-        impactoEconomico,
-        gravedad: multa.calificacion === SEVERITY_LEVELS.FINE.GRAVE ||
-                  multa.calificacion === SEVERITY_LEVELS.FINE.MUY_GRAVE ? DATA_QUALITY_LEVELS.ALTA : DATA_QUALITY_LEVELS.BAJA
-      }
+      ...multa,
+      impactoEconomico,
+      gravedad: multa.calificacion === SEVERITY_LEVELS.FINE.GRAVE ||
+                multa.calificacion === SEVERITY_LEVELS.FINE.MUY_GRAVE ? DATA_QUALITY_LEVELS.ALTA : DATA_QUALITY_LEVELS.BAJA
     };
 
     res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Detalles de multa obtenidos exitosamente'));
@@ -254,15 +240,12 @@ const getFinesStatistics = async (req, res, next) => {
     });
 
     const responseData = {
-      message: 'Estadísticas de multas obtenidas exitosamente',
-      data: {
-        estadisticas: result.estadisticas,
-        resumen: result.resumen,
-        configuracion: {
-          agrupacion: groupBy,
-          filtros: startDate || endDate ? { startDate, endDate } : null,
-          limite: parseInt(limit)
-        }
+      estadisticas: result.estadisticas,
+      resumen: result.resumen,
+      configuracion: {
+        agrupacion: groupBy,
+        filtros: startDate || endDate ? { startDate, endDate } : null,
+        limite: parseInt(limit)
       }
     };
 
@@ -301,17 +284,14 @@ const getLocationsRanking = async (req, res, next) => {
     });
 
     const responseData = {
-      message: 'Ranking de ubicaciones obtenido exitosamente',
-      data: {
-        ranking,
-        configuracion: {
-          filtros: startDate || endDate || tipoInfraccion ? { startDate, endDate, tipoInfraccion } : null,
-          limite: parseInt(limit)
-        },
-        metadatos: {
-          totalUbicaciones: ranking.length,
-          fechaConsulta: new Date()
-        }
+      ranking,
+      configuracion: {
+        filtros: startDate || endDate || tipoInfraccion ? { startDate, endDate, tipoInfraccion } : null,
+        limite: parseInt(limit)
+      },
+      metadatos: {
+        totalUbicaciones: ranking.length,
+        fechaConsulta: new Date()
       }
     };
 
@@ -348,18 +328,15 @@ const getTemporalAnalysis = async (req, res, next) => {
     });
 
     const responseData = {
-      message: 'Análisis temporal obtenido exitosamente',
-      data: {
-        analisis: result.analisis,
-        tendencia: result.tendencia,
-        configuracion: {
-          tipoAnalisis,
-          filtros: startDate || endDate ? { startDate, endDate } : null
-        },
-        metadatos: {
-          totalPeriodos: result.analisis.length,
-          fechaConsulta: new Date()
-        }
+      analisis: result.analisis,
+      tendencia: result.tendencia,
+      configuracion: {
+        tipoAnalisis,
+        filtros: startDate || endDate ? { startDate, endDate } : null
+      },
+      metadatos: {
+        totalPeriodos: result.analisis.length,
+        fechaConsulta: new Date()
       }
     };
 
@@ -413,7 +390,7 @@ const getDashboardMetrics = async (req, res, next) => {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
-      { $limit: 50000 }, // Límite máximo de documentos para agregación
+      { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos para agregación
       {
         $group: {
           _id: null,
@@ -442,7 +419,7 @@ const getDashboardMetrics = async (req, res, next) => {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
-      { $limit: 50000 }, // Límite máximo de documentos
+      { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos
       {
         $group: {
           _id: '$metadatos.tipoInfraccion',
@@ -451,7 +428,7 @@ const getDashboardMetrics = async (req, res, next) => {
         }
       },
       { $sort: { cantidad: -1 } },
-      { $limit: 5 }
+      { $limit: AGGREGATION_LIMITS.PREVIEW }
     ])
       .maxTimeMS(10000) // Timeout de 10 segundos
       .exec();
@@ -463,7 +440,7 @@ const getDashboardMetrics = async (req, res, next) => {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
-      { $limit: 50000 }, // Límite máximo de documentos
+      { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos
       {
         $group: {
           _id: {
@@ -485,33 +462,30 @@ const getDashboardMetrics = async (req, res, next) => {
       .exec();
 
     const responseData = {
-      message: 'Métricas del dashboard obtenidas exitosamente',
-      data: {
-        periodo: {
-          descripcion: periodo,
-          fechaInicio,
-          fechaFin: ahora
+      periodo: {
+        descripcion: periodo,
+        fechaInicio,
+        fechaFin: ahora
+      },
+      metricas: {
+        general: metricsGeneral || {
+          totalMultas: 0,
+          importeTotal: 0,
+          puntosTotal: 0,
+          multasGraves: 0,
+          multasConDescuento: 0,
+          multasVelocidad: 0
         },
-        metricas: {
-          general: metricsGeneral || {
-            totalMultas: 0,
-            importeTotal: 0,
-            puntosTotal: 0,
-            multasGraves: 0,
-            multasConDescuento: 0,
-            multasVelocidad: 0
-          },
-          topInfracciones,
-          evolucionDiaria
-        },
-        resumen: {
-          porcentajeGraves: metricsGeneral ?
-            (metricsGeneral.multasGraves / metricsGeneral.totalMultas * 100).toFixed(2) : 0,
-          importePromedioPorMulta: metricsGeneral ?
-            (metricsGeneral.importeTotal / metricsGeneral.totalMultas).toFixed(2) : 0,
-          puntosPromedioPorMulta: metricsGeneral ?
-            (metricsGeneral.puntosTotal / metricsGeneral.totalMultas).toFixed(2) : 0
-        }
+        topInfracciones,
+        evolucionDiaria
+      },
+      resumen: {
+        porcentajeGraves: metricsGeneral ?
+          (metricsGeneral.multasGraves / metricsGeneral.totalMultas * 100).toFixed(2) : 0,
+        importePromedioPorMulta: metricsGeneral ?
+          (metricsGeneral.importeTotal / metricsGeneral.totalMultas).toFixed(2) : 0,
+        puntosPromedioPorMulta: metricsGeneral ?
+          (metricsGeneral.puntosTotal / metricsGeneral.totalMultas).toFixed(2) : 0
       }
     };
 

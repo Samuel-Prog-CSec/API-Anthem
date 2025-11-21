@@ -21,6 +21,7 @@ const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { SEVERITY_LEVELS, INFRACTION_TYPES } = require('../constants');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { etagMiddleware } = require('../middleware/etag');
 
 // Middleware de caché optimizado
 const { cacheMiddleware } = require('../middleware/cache');
@@ -101,7 +102,8 @@ router.get('/',
     .optional()
     .trim()
     .isLength({ min: 2 })
-    .withMessage('Lugar debe tener al menos 2 caracteres'),
+    .withMessage('Lugar debe tener al menos 2 caracteres')
+    .escape(), // Sanitización XSS
 
   query('tipoInfraccion')
     .optional()
@@ -116,7 +118,8 @@ router.get('/',
     .optional()
     .trim()
     .isLength({ min: 2 })
-    .withMessage('Denunciante debe tener al menos 2 caracteres'),
+    .withMessage('Denunciante debe tener al menos 2 caracteres')
+    .escape(), // Sanitización XSS
 
   query('minImporte')
     .optional()
@@ -197,6 +200,9 @@ router.get('/statistics',
 
   // Middleware de validación
   validateRequest,
+
+  // ETags para estadísticas agregadas (datos relativamente estables)
+  etagMiddleware,
 
   // Middleware de caché (30 minutos para estadísticas)
   cacheMiddleware('statistics', (req) =>

@@ -15,7 +15,8 @@ const {
   SCOOTER_ZONE_TYPES,
   SCOOTER_PRIORITY_LEVELS,
   SCOOTER_DEMAND_LEVELS,
-  SCOOTER_REPORT_TYPES
+  SCOOTER_REPORT_TYPES,
+  AGGREGATION_LIMITS
 } = require('../constants');
 
 /**
@@ -596,7 +597,7 @@ scooterAssignmentSchema.statics.getDistrictStatistics = function(fecha = null) {
     {
       $sort: { totalPatinetes: -1 }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -646,7 +647,7 @@ scooterAssignmentSchema.statics.getProviderMarketAnalysis = function(fecha = nul
     {
       $sort: { totalPatinetes: -1 }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -681,7 +682,7 @@ scooterAssignmentSchema.statics.getHighestConcentrationZones = function(limite =
     {
       $limit: limite
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -750,7 +751,7 @@ scooterAssignmentSchema.statics.getDistributionDashboard = function(fecha = null
         ]
       }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -858,7 +859,7 @@ scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = n
       },
       { $match: { necesitaAtencion: true } },
       { $sort: { patinetes: -1 } },
-      { $limit: 10 }
+      { $limit: AGGREGATION_LIMITS.PREVIEW }
     ])
   ]).then(([analisisDesbalance, recomendaciones]) => ({
     analisisDesbalance,

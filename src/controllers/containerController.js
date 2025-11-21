@@ -8,9 +8,9 @@
 const Container = require('../models/Container');
 const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, escapeRegex } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS } = require('../constants');
 
 /**
  * Obtener todos los contenedores con filtros y paginación
@@ -31,16 +31,23 @@ exports.getAllContainers = async (req, res, next) => {
     const filters = buildFilters(req.query, filterConfig);
 
     // Configurar ordenamiento usando queryHelper
+    const sortMapping = {
+      distrito: 'distrito',
+      barrio: 'barrio',
+      tipoContenedor: 'tipoContenedor',
+      lote: 'lote'
+    };
     const sortOptions = buildSortOptions(
-      req.query.sortBy || 'distrito',
-      req.query.sortOrder || 'asc',
+      req.query,
+      sortMapping,
       ['distrito', 'barrio', 'tipoContenedor', 'lote'],
-      'distrito'
+      'distrito',
+      'asc'
     );
 
     // Configurar paginación usando queryHelper
     const paginationOptions = buildPaginationOptions(req.query, {
-      defaultLimit: 100,
+      defaultLimit: SPECIAL_PAGINATION_LIMITS.CONTAINERS.DEFAULT,
       maxLimit: PAGINATION.MAX_LIMIT
     });
 
@@ -330,19 +337,20 @@ exports.searchByAddress = async (req, res, next) => {
       return next(createBadRequestError('Se requiere el parámetro de búsqueda q'));
     }
 
-    // Construir consulta de búsqueda
-    const filter = {
-      $or: [
-        { 'direccion.nombre': new RegExp(q, 'i') },
-        { 'direccion.completa': new RegExp(q, 'i') }
-      ]
-    };
+    // Construir consulta de búsqueda usando helper para consistencia
+    const filterConfig = [
+      { field: 'tipoContenedor', type: 'exact', param: 'tipoContenedor', transform: v => v.toUpperCase() }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
 
-    if (tipoContenedor) {
-      filter.tipoContenedor = tipoContenedor.toUpperCase();
-    }
+    // Añadir filtro de búsqueda por texto con escapeRegex para prevenir ReDoS
+    const escapedQuery = escapeRegex(q);
+    filters.$or = [
+      { 'direccion.nombre': new RegExp(escapedQuery, 'i') },
+      { 'direccion.completa': new RegExp(escapedQuery, 'i') }
+    ];
 
-    const containers = await Container.find(filter)
+    const containers = await Container.find(filters)
       .limit(parseInt(limit))
       .maxTimeMS(10000) // Timeout de 10 segundos
       .select('-__v')

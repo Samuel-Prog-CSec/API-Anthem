@@ -13,7 +13,7 @@ const {
   validateMonth,
   validateYear
 } = require('./schemas/commonSchemas');
-const { NOISE_LIMITS, NOISE_METRIC_FIELDS } = require('../constants');
+const { NOISE_LIMITS, NOISE_METRIC_FIELDS, AGGREGATION_LIMITS } = require('../constants');
 
 /**
  * Esquema de Contaminación Acústica
@@ -467,8 +467,8 @@ noiseMonitoringSchema.statics.getStatisticsOptimized = async function(filters, g
         }
       },
       { $sort: sortStage },
-      { $limit: 200 }
-    ]).allowDiskUse(true),
+      { $limit: AGGREGATION_LIMITS.SMALL }
+    ]).allowDiskUse(true).maxTimeMS(10000),
 
     // Resumen general
     this.aggregate([
@@ -492,7 +492,7 @@ noiseMonitoringSchema.statics.getStatisticsOptimized = async function(filters, g
           }
         }
       }
-    ]).allowDiskUse(true)
+    ]).allowDiskUse(true).maxTimeMS(10000)
   ]);
 
   const resumen = resumenGeneral[0] ? {
@@ -542,7 +542,7 @@ noiseMonitoringSchema.statics.getRankingOptimized = function(filters, sortBy = '
     { $limit: limit }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -640,7 +640,7 @@ noiseMonitoringSchema.statics.getStationComparison = function(options) {
     { $sort: { promedioNivel: -1 } }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -739,7 +739,7 @@ noiseMonitoringSchema.statics.getTemporalTrends = function(options) {
     { $sort: sortField }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
 };
 
 /**
@@ -826,7 +826,7 @@ noiseMonitoringSchema.statics.getComplianceAnalysisByZone = async function(optio
         promedioGeneralLaeq24: { $round: ['$promedioLaeq24', 2] }
       }
     }
-  ]).allowDiskUse(true);
+  ]).allowDiskUse(true).maxTimeMS(10000);
 
   const resumenGlobal = {
     totalEstaciones: estaciones.length,
