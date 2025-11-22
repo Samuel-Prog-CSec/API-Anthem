@@ -9,6 +9,9 @@ const express = require('express');
 const { query, param } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 
+// Constantes
+const { RATE_LIMITS, ROUTE_SPECIFIC_LIMITS, DATE_RANGE_LIMITS } = require('../constants');
+
 // Middleware de autenticación y seguridad
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
@@ -40,8 +43,8 @@ router.use(performanceMonitor);
  * Rate limiting específico para endpoints de contaminación acústica
  */
 const noiseDataLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minuto
-  max: 25, // 25 peticiones por minuto por IP
+  windowMs: RATE_LIMITS.WINDOWS.ONE_MINUTE,
+  max: RATE_LIMITS.NOISE_MONITORING.LIST_MAX,
   message: {
     success: false,
     message: 'Demasiadas consultas de datos acústicos, intente nuevamente en 1 minuto'
@@ -51,8 +54,8 @@ const noiseDataLimiter = rateLimit({
 });
 
 const noiseStatisticsLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutos
-  max: 10, // 10 peticiones por 5 minutos
+  windowMs: RATE_LIMITS.WINDOWS.FIVE_MINUTES,
+  max: RATE_LIMITS.NOISE_MONITORING.STATS_MAX,
   message: {
     success: false,
     message: 'Límite de consultas estadísticas acústicas alcanzado, intente nuevamente en 5 minutos'
@@ -60,8 +63,8 @@ const noiseStatisticsLimiter = rateLimit({
 });
 
 const searchLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minuto
-  max: 15, // 15 búsquedas por minuto
+  windowMs: RATE_LIMITS.WINDOWS.ONE_MINUTE,
+  max: RATE_LIMITS.NOISE_MONITORING.SEARCH_MAX,
   message: {
     success: false,
     message: 'Demasiadas búsquedas, intente nuevamente en 1 minuto'
@@ -74,13 +77,13 @@ const searchLimiter = rateLimit({
 const noiseQueryValidation = [
   query('año')
     .optional()
-    .isInt({ min: 1900, max: 2100 })
-    .withMessage('año debe ser un número válido entre 1900 y 2100'),
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MAX })
+    .withMessage(`año debe ser un número válido entre ${ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MAX}`),
 
   query('mes')
     .optional()
-    .isInt({ min: 1, max: 12 })
-    .withMessage('mes debe ser un número entre 1 y 12'),
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MAX })
+    .withMessage(`mes debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MAX}`),
 
   query('nmt')
     .optional()
@@ -96,8 +99,8 @@ const noiseQueryValidation = [
     .optional()
     .trim()
     .escape() // Sanitización XSS ANTES de validación de longitud
-    .isLength({ min: 2, max: 100 })
-    .withMessage('nombre debe tener entre 2 y 100 caracteres'),
+    .isLength({ min: ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX })
+    .withMessage(`nombre debe tener entre ${ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX} caracteres`),
 
   query('page')
     .optional()
@@ -106,8 +109,8 @@ const noiseQueryValidation = [
 
   query('limit')
     .optional()
-    .isInt({ min: 1, max: 100 })
-    .withMessage('limit debe ser un número entre 1 y 100'),
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX })
+    .withMessage(`limit debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX}`),
 
   query('sortBy')
     .optional()
@@ -161,8 +164,8 @@ const rankingValidation = [
 
   query('limit')
     .optional()
-    .isInt({ min: 5, max: 50 })
-    .withMessage('limit debe ser un número entre 5 y 50')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.NOISE.TOP_N_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.TOP_N_MAX })
+    .withMessage(`limit debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.NOISE.TOP_N_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.TOP_N_MAX}`)
 ];
 
 /**
@@ -174,13 +177,13 @@ const searchValidation = [
     .withMessage('Parámetro de búsqueda "q" es requerido')
     .trim()
     .escape() // Sanitización XSS ANTES de validación de longitud
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Búsqueda debe tener entre 2 y 100 caracteres'),
+    .isLength({ min: ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX })
+    .withMessage(`Búsqueda debe tener entre ${ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX} caracteres`),
 
   query('limit')
     .optional()
-    .isInt({ min: 1, max: 50 })
-    .withMessage('limit debe ser un número entre 1 y 50')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MAX })
+    .withMessage(`limit debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MAX}`)
 ];
 
 /**
@@ -204,7 +207,7 @@ const idValidation = [
 router.get('/',
   noiseDataLimiter,
   authenticate,
-  validateDateRange(1825), // 5 años
+  validateDateRange(DATE_RANGE_LIMITS.NOISE_MAX_DAYS),
   noiseQueryValidation,
   validateRequest,
   cacheMiddleware('noise'), // Cache por 3 minutos
@@ -219,7 +222,7 @@ router.get('/',
 router.get('/statistics',
   noiseStatisticsLimiter,
   authenticate,
-  validateDateRange(1825), // 5 años
+  validateDateRange(DATE_RANGE_LIMITS.NOISE_MAX_DAYS),
   noiseStatisticsValidation,
   validateRequest,
   etagMiddleware, // ETags para estadísticas agregadas (datos estables)
@@ -326,8 +329,8 @@ router.get('/compliance/zone',
       .withMessage('endDate debe ser una fecha válida'),
     query('threshold')
       .optional()
-      .isInt({ min: 40, max: 100 })
-      .withMessage('threshold debe ser un número entre 40 y 100'),
+      .isInt({ min: ROUTE_SPECIFIC_LIMITS.NOISE.DB_THRESHOLD_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.DB_THRESHOLD_MAX })
+      .withMessage(`threshold debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.NOISE.DB_THRESHOLD_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.DB_THRESHOLD_MAX}`),
     query('zoneType')
       .optional()
       .isIn(['residential', 'commercial', 'industrial', 'mixed'])

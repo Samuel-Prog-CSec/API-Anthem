@@ -325,10 +325,8 @@ noiseMonitoringSchema.pre('save', function(next) {
   const totalFields = 5; // nivelDiurno, nivelVespertino, nivelNocturno, laeq24, percentiles
   const warnings = [];
 
-  // Límites legales normativos (dB)
-  const LIMITE_DIURNO = 65;
-  const LIMITE_VESPERTINO = 65;
-  const LIMITE_NOCTURNO = 55;
+  // Límites legales normativos (dB) - desde constantes centralizadas
+  const { DIURNO, VESPERTINO, NOCTURNO } = NOISE_LIMITS;
 
   // Verificar campos principales
   if (this.nivelDiurno === null || this.nivelDiurno === undefined) {
@@ -336,9 +334,9 @@ noiseMonitoringSchema.pre('save', function(next) {
   } else {
     validFields++;
     // Alertar si excede límite legal (no bloquear)
-    if (this.nivelDiurno > LIMITE_DIURNO) {
+    if (this.nivelDiurno > DIURNO) {
       this.dataQuality.exceedsLegalLimits = true;
-      warnings.push(`Nivel diurno ${this.nivelDiurno} dB excede límite legal (${LIMITE_DIURNO} dB)`);
+      warnings.push(`Nivel diurno ${this.nivelDiurno} dB excede límite legal (${DIURNO} dB)`);
     }
   }
 
@@ -346,9 +344,9 @@ noiseMonitoringSchema.pre('save', function(next) {
     missingFields.push('nivelVespertino');
   } else {
     validFields++;
-    if (this.nivelVespertino > LIMITE_VESPERTINO) {
+    if (this.nivelVespertino > VESPERTINO) {
       this.dataQuality.exceedsLegalLimits = true;
-      warnings.push(`Nivel vespertino ${this.nivelVespertino} dB excede límite legal (${LIMITE_VESPERTINO} dB)`);
+      warnings.push(`Nivel vespertino ${this.nivelVespertino} dB excede límite legal (${VESPERTINO} dB)`);
     }
   }
 
@@ -356,9 +354,9 @@ noiseMonitoringSchema.pre('save', function(next) {
     missingFields.push('nivelNocturno');
   } else {
     validFields++;
-    if (this.nivelNocturno > LIMITE_NOCTURNO) {
+    if (this.nivelNocturno > NOCTURNO) {
       this.dataQuality.exceedsLegalLimits = true;
-      warnings.push(`Nivel nocturno ${this.nivelNocturno} dB excede límite legal (${LIMITE_NOCTURNO} dB)`);
+      warnings.push(`Nivel nocturno ${this.nivelNocturno} dB excede límite legal (${NOCTURNO} dB)`);
     }
   }
 

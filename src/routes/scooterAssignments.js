@@ -12,7 +12,9 @@ const {
   SCOOTER_ZONE_TYPES,
   SCOOTER_DENSITY_LEVELS,
   SCOOTER_DEMAND_LEVELS,
-  SCOOTER_MARKET_CONCENTRATION
+  SCOOTER_MARKET_CONCENTRATION,
+  ROUTE_SPECIFIC_LIMITS,
+  DATE_RANGE_LIMITS
 } = require('../constants');
 
 const {
@@ -66,13 +68,13 @@ const dateValidation = [
 const paginationValidation = [
   query('page')
     .optional()
-    .isInt({ min: 1, max: 1000 })
-    .withMessage('Página debe ser un número entre 1 y 1000')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.SCOOTER.PAGE_MIN, max: ROUTE_SPECIFIC_LIMITS.SCOOTER.PAGE_MAX })
+    .withMessage(`Página debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PAGE_MIN} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PAGE_MAX}`)
     .toInt(),
   query('limit')
     .optional()
-    .isInt({ min: 1, max: 100 })
-    .withMessage('Límite debe ser un número entre 1 y 100')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.SCOOTER.LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.SCOOTER.LIMIT_MAX })
+    .withMessage(`Límite debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.LIMIT_MAX}`)
     .toInt()
 ];
 
@@ -126,13 +128,13 @@ const categoryValidation = [
 const numericValidation = [
   query('minPatinetes')
     .optional()
-    .isInt({ min: 0, max: 1000 })
-    .withMessage('Mínimo de patinetes debe ser un número entre 0 y 1000')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.SCOOTER.PATINETES_MIN, max: ROUTE_SPECIFIC_LIMITS.SCOOTER.PATINETES_MAX })
+    .withMessage(`Mínimo de patinetes debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PATINETES_MIN} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PATINETES_MAX}`)
     .toInt(),
   query('maxPatinetes')
     .optional()
-    .isInt({ min: 0, max: 1000 })
-    .withMessage('Máximo de patinetes debe ser un número entre 0 y 1000')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.SCOOTER.PATINETES_MIN, max: ROUTE_SPECIFIC_LIMITS.SCOOTER.PATINETES_MAX })
+    .withMessage(`Máximo de patinetes debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PATINETES_MIN} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PATINETES_MAX}`)
     .toInt()
     .custom((value, { req }) => {
       if (req.query.minPatinetes && value < parseInt(req.query.minPatinetes)) {
@@ -149,8 +151,8 @@ const providerValidation = [
   query('proveedor')
     .optional()
     .trim()
-    .isLength({ min: 2, max: 30 })
-    .withMessage('Proveedor debe tener entre 2 y 30 caracteres')
+    .isLength({ min: ROUTE_SPECIFIC_LIMITS.SCOOTER.PROVIDER_MIN_LENGTH, max: ROUTE_SPECIFIC_LIMITS.SCOOTER.PROVIDER_MAX_LENGTH })
+    .withMessage(`Proveedor debe tener entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PROVIDER_MIN_LENGTH} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PROVIDER_MAX_LENGTH} caracteres`)
     .matches(/^[a-zA-Z0-9\s-]+$/)
     .withMessage('Proveedor solo puede contener letras, números, espacios y guiones')
     .escape(), // Sanitización XSS
@@ -168,15 +170,15 @@ const paramValidation = [
   param('distrito')
     .notEmpty()
     .withMessage('Distrito es obligatorio')
-    .isLength({ min: 2, max: 50 })
-    .withMessage('Distrito debe tener entre 2 y 50 caracteres')
+    .isLength({ min: ROUTE_SPECIFIC_LIMITS.SCOOTER.DISTRICT_MIN_LENGTH, max: ROUTE_SPECIFIC_LIMITS.SCOOTER.DISTRICT_MAX_LENGTH })
+    .withMessage(`Distrito debe tener entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.DISTRICT_MIN_LENGTH} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.DISTRICT_MAX_LENGTH} caracteres`)
     .matches(/^[a-zA-ZáéíóúüñÁÉÍÓÚÜÑs-]+$/)
     .withMessage('Distrito solo puede contener letras, espacios y guiones'),
   param('barrio')
     .notEmpty()
     .withMessage('Barrio es obligatorio')
-    .isLength({ min: 2, max: 50 })
-    .withMessage('Barrio debe tener entre 2 y 50 caracteres')
+    .isLength({ min: ROUTE_SPECIFIC_LIMITS.SCOOTER.NEIGHBORHOOD_MIN_LENGTH, max: ROUTE_SPECIFIC_LIMITS.SCOOTER.NEIGHBORHOOD_MAX_LENGTH })
+    .withMessage(`Barrio debe tener entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.NEIGHBORHOOD_MIN_LENGTH} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.NEIGHBORHOOD_MAX_LENGTH} caracteres`)
     .matches(/^[a-zA-ZáéíóúüñÁÉÍÓÚÜÑs-]+$/)
     .withMessage('Barrio solo puede contener letras, espacios y guiones')
 ];
@@ -258,8 +260,8 @@ router.get('/concentration-zones',
     ...dateValidation,
     query('limite')
       .optional()
-      .isInt({ min: 1, max: 50 })
-      .withMessage('Límite debe ser un número entre 1 y 50')
+      .isInt({ min: ROUTE_SPECIFIC_LIMITS.SCOOTER.TOP_N_MIN, max: ROUTE_SPECIFIC_LIMITS.SCOOTER.TOP_N_MAX })
+      .withMessage(`Límite debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.TOP_N_MIN} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.TOP_N_MAX}`)
       .toInt()
   ],
   validateRequest,
@@ -325,7 +327,7 @@ router.get('/optimization-analysis',
  */
 router.get('/temporal-comparison',
   authenticate,
-  validateDateRange(365), // 1 año
+  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
   validateDistrictQuery,
   [
     query('agrupacion')

@@ -16,7 +16,13 @@ const {
   CONGESTION_LEVELS,
   DATA_QUALITY_LEVELS,
   TRAFFIC_ELEMENT_TYPES,
-  SORT_FIELDS
+  SORT_FIELDS,
+  USER_VALIDATION,
+  PAGINATION,
+  SEARCH_LIMITS,
+  GEO_LIMITS,
+  DATE_RANGE_LIMITS,
+  ROUTE_SPECIFIC_LIMITS
 } = require('../constants');
 
 /**
@@ -28,15 +34,14 @@ const {
 const validateRegistration = [
   body('username')
     .trim()
-    .isLength({ min: 3, max: 30 })
-    .withMessage('El nombre de usuario debe tener entre 3 y 30 caracteres')
-    .matches(/^[a-zA-Z0-9_-]+$/)
+    .isLength({ min: USER_VALIDATION.MIN_USERNAME_LENGTH, max: USER_VALIDATION.MAX_USERNAME_LENGTH })
+    .withMessage(`El nombre de usuario debe tener entre ${USER_VALIDATION.MIN_USERNAME_LENGTH} y ${USER_VALIDATION.MAX_USERNAME_LENGTH} caracteres`)
+    .matches(USER_VALIDATION.USERNAME_PATTERN)
     .withMessage('El nombre de usuario solo puede contener letras, números, guiones y guiones bajos')
     .escape()
     .custom(async (value) => {
       // Validación adicional de nombre de usuario
-      const forbiddenUsernames = ['admin', 'root', 'api', 'system', 'null', 'undefined'];
-      if (forbiddenUsernames.includes(value.toLowerCase())) {
+      if (USER_VALIDATION.FORBIDDEN_USERNAMES.includes(value.toLowerCase())) {
         throw new Error('Este nombre de usuario no está permitido');
       }
       return true;
@@ -48,13 +53,13 @@ const validateRegistration = [
     .withMessage('Por favor proporciona una dirección de email válida')
     .normalizeEmail()
     .escape()
-    .isLength({ max: 155 })
+    .isLength({ max: USER_VALIDATION.MAX_EMAIL_LENGTH })
     .withMessage('La dirección de email es demasiado larga'),
 
   body('password')
-    .isLength({ min: 8, max: 64 })
-    .withMessage('La contraseña debe tener entre 8 y 64 caracteres')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/)
+    .isLength({ min: USER_VALIDATION.MIN_PASSWORD_LENGTH, max: USER_VALIDATION.MAX_PASSWORD_LENGTH })
+    .withMessage(`La contraseña debe tener entre ${USER_VALIDATION.MIN_PASSWORD_LENGTH} y ${USER_VALIDATION.MAX_PASSWORD_LENGTH} caracteres`)
+    .matches(USER_VALIDATION.PASSWORD_PATTERN)
     .withMessage('La contraseña debe contener al menos una letra mayúscula, una minúscula, un número y un carácter especial'),
 ];
 
@@ -68,15 +73,15 @@ const validateLogin = [
     .trim()
     .notEmpty()
     .withMessage('Se requiere email o nombre de usuario')
-    .isLength({ min: 3, max: 30 })
-    .withMessage('El identificador debe tener entre 3 y 30 caracteres')
+    .isLength({ min: USER_VALIDATION.MIN_IDENTIFIER_LENGTH, max: USER_VALIDATION.MAX_IDENTIFIER_LENGTH })
+    .withMessage(`El identificador debe tener entre ${USER_VALIDATION.MIN_IDENTIFIER_LENGTH} y ${USER_VALIDATION.MAX_IDENTIFIER_LENGTH} caracteres`)
     .escape(),
 
   body('password')
     .notEmpty()
     .withMessage('Se requiere contraseña')
-    .isLength({ min: 1, max: 64 })
-    .withMessage('La contraseña no puede exceder 64 caracteres')
+    .isLength({ min: 1, max: USER_VALIDATION.MAX_PASSWORD_LENGTH })
+    .withMessage(`La contraseña no puede exceder ${USER_VALIDATION.MAX_PASSWORD_LENGTH} caracteres`)
 ];
 
 /**
@@ -90,9 +95,9 @@ const validatePasswordChange = [
     .withMessage('Se requiere la contraseña actual'),
 
   body('newPassword')
-    .isLength({ min: 8, max: 64 })
-    .withMessage('La nueva contraseña debe tener entre 8 y 64 caracteres')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+    .isLength({ min: USER_VALIDATION.MIN_PASSWORD_LENGTH, max: USER_VALIDATION.MAX_PASSWORD_LENGTH })
+    .withMessage(`La nueva contraseña debe tener entre ${USER_VALIDATION.MIN_PASSWORD_LENGTH} y ${USER_VALIDATION.MAX_PASSWORD_LENGTH} caracteres`)
+    .matches(USER_VALIDATION.PASSWORD_PATTERN)
     .withMessage('La nueva contraseña debe contener al menos una letra mayúscula, una minúscula, un número y un carácter especial'),
 
   body('confirmPassword')
@@ -123,14 +128,14 @@ const validateObjectId = (paramName = 'id') => [
 const validatePagination = [
   query('page')
     .optional()
-    .isInt({ min: 1, max: 1000 })
-    .withMessage('La página debe ser un entero positivo entre 1 y 1000')
+    .isInt({ min: 1, max: PAGINATION.MAX_PAGE })
+    .withMessage(`La página debe ser un entero positivo entre 1 y ${PAGINATION.MAX_PAGE}`)
     .toInt(),
 
   query('limit')
     .optional()
-    .isInt({ min: 1, max: 100 })
-    .withMessage('El límite debe ser un entero positivo entre 1 y 100')
+    .isInt({ min: PAGINATION.MIN_LIMIT, max: PAGINATION.MAX_LIMIT })
+    .withMessage(`El límite debe ser un entero positivo entre ${PAGINATION.MIN_LIMIT} y ${PAGINATION.MAX_LIMIT}`)
     .toInt(),
 
   query('sort')
@@ -140,7 +145,7 @@ const validatePagination = [
 
   query('sortBy')
     .optional()
-    .matches(/^[a-zA-Z][a-zA-Z0-9_]*$/)
+    .matches(SEARCH_LIMITS.SORTBY_PATTERN)
     .withMessage('SortBy debe ser un nombre de campo válido')
 ];
 
@@ -153,13 +158,13 @@ const validateSearch = [
   query('q')
     .optional()
     .trim()
-    .isLength({ min: 1, max: 100 })
-    .withMessage('La consulta de búsqueda debe tener entre 1 y 100 caracteres')
+    .isLength({ min: SEARCH_LIMITS.QUERY_MIN_LENGTH, max: SEARCH_LIMITS.QUERY_MAX_LENGTH })
+    .withMessage(`La consulta de búsqueda debe tener entre ${SEARCH_LIMITS.QUERY_MIN_LENGTH} y ${SEARCH_LIMITS.QUERY_MAX_LENGTH} caracteres`)
     .escape(), // Escapar entidades HTML para seguridad
 
   query('fields')
     .optional()
-    .matches(/^[a-zA-Z,_]+$/)
+    .matches(SEARCH_LIMITS.FIELDS_PATTERN)
     .withMessage('Fields debe ser nombres de campos separados por comas')
 ];
 
@@ -195,7 +200,7 @@ const validateRequest = (req, res, next) => {
  * Valida fechas de inicio y fin con rango máximo configurable
  * Usado en múltiples controladores (accidentes, tráfico, calidad del aire, etc.)
  */
-const validateDateRange = (maxRangeDays = 365) => [
+const validateDateRange = (maxRangeDays = DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS) => [
   query('startDate')
     .optional()
     .isISO8601()
@@ -211,7 +216,7 @@ const validateDateRange = (maxRangeDays = 365) => [
           throw new Error('Fecha de inicio debe ser anterior a fecha de fin');
         }
 
-        const maxRange = maxRangeDays * 24 * 60 * 60 * 1000;
+        const maxRange = maxRangeDays * DATE_RANGE_LIMITS.MAX_MILLISECONDS_CALCULATION;
         if (end - start > maxRange) {
           throw new Error(`El rango de fechas no puede exceder ${maxRangeDays} días`);
         }
@@ -245,8 +250,8 @@ const validateDistrictQuery = [
   query('distrito')
     .optional()
     .trim()
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Distrito debe tener entre 2 y 100 caracteres')
+    .isLength({ min: SEARCH_LIMITS.DISTRITO_MIN_LENGTH, max: SEARCH_LIMITS.DISTRITO_MAX_LENGTH })
+    .withMessage(`Distrito debe tener entre ${SEARCH_LIMITS.DISTRITO_MIN_LENGTH} y ${SEARCH_LIMITS.DISTRITO_MAX_LENGTH} caracteres`)
     .escape()
 ];
 
@@ -254,8 +259,8 @@ const validateNeighborhoodQuery = [
   query('barrio')
     .optional()
     .trim()
-    .isLength({ min: 2, max: 100 })
-    .withMessage('Barrio debe tener entre 2 y 100 caracteres')
+    .isLength({ min: SEARCH_LIMITS.BARRIO_MIN_LENGTH, max: SEARCH_LIMITS.BARRIO_MAX_LENGTH })
+    .withMessage(`Barrio debe tener entre ${SEARCH_LIMITS.BARRIO_MIN_LENGTH} y ${SEARCH_LIMITS.BARRIO_MAX_LENGTH} caracteres`)
     .escape()
 ];
 
@@ -408,8 +413,8 @@ const validateContainerFilters = [
 
   query('lote')
     .optional()
-    .isInt({ min: 1, max: 3 })
-    .withMessage('Lote debe ser 1, 2 o 3'),
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CONTAINERS.LOTE_MIN, max: ROUTE_SPECIFIC_LIMITS.CONTAINERS.LOTE_MAX })
+    .withMessage(`Lote debe ser ${ROUTE_SPECIFIC_LIMITS.CONTAINERS.LOTE_MIN}, ${ROUTE_SPECIFIC_LIMITS.CONTAINERS.LOTE_MIN + 1} o ${ROUTE_SPECIFIC_LIMITS.CONTAINERS.LOTE_MAX}`),
 
   query('sortBy')
     .optional()
@@ -428,19 +433,19 @@ const validateCoordinates = [
   query('longitude')
     .notEmpty()
     .withMessage('Longitud es obligatoria')
-    .isFloat({ min: -180, max: 180 })
-    .withMessage('Longitud debe estar entre -180 y 180'),
+    .isFloat({ min: GEO_LIMITS.LONGITUDE_MIN, max: GEO_LIMITS.LONGITUDE_MAX })
+    .withMessage(`Longitud debe estar entre ${GEO_LIMITS.LONGITUDE_MIN} y ${GEO_LIMITS.LONGITUDE_MAX}`),
 
   query('latitude')
     .notEmpty()
     .withMessage('Latitud es obligatoria')
-    .isFloat({ min: -90, max: 90 })
-    .withMessage('Latitud debe estar entre -90 y 90'),
+    .isFloat({ min: GEO_LIMITS.LATITUDE_MIN, max: GEO_LIMITS.LATITUDE_MAX })
+    .withMessage(`Latitud debe estar entre ${GEO_LIMITS.LATITUDE_MIN} y ${GEO_LIMITS.LATITUDE_MAX}`),
 
   query('maxDistance')
     .optional()
-    .isInt({ min: 50, max: 5000 })
-    .withMessage('Distancia debe estar entre 50 y 5000 metros'),
+    .isInt({ min: GEO_LIMITS.MIN_DISTANCE_METERS, max: GEO_LIMITS.MAX_DISTANCE_METERS })
+    .withMessage(`Distancia debe estar entre ${GEO_LIMITS.MIN_DISTANCE_METERS} y ${GEO_LIMITS.MAX_DISTANCE_METERS} metros`),
 
   validateRequest
 ];

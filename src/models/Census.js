@@ -15,6 +15,7 @@ const {
   AGE_RANGES,
   POPULATION_DENSITY_LEVELS,
   CULTURAL_DIVERSITY_LEVELS,
+  CULTURAL_DIVERSITY_THRESHOLDS,
   CENSUS_FIELD_TYPES
 } = require('../constants');
 
@@ -265,8 +266,8 @@ const censusSchema = new mongoose.Schema({
       type: String,
       enum: CULTURAL_DIVERSITY_LEVELS,
       default: function() {
-        if (this.estadisticas.porcentajeExtranjeros > 25) {return 'ALTA';}
-        if (this.estadisticas.porcentajeExtranjeros > 10) {return 'MEDIA';}
+        if (this.estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.HIGH) {return 'ALTA';}
+        if (this.estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.MEDIUM) {return 'MEDIA';}
         return 'BAJA';
       }
     },

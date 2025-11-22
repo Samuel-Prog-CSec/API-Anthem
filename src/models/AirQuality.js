@@ -8,7 +8,7 @@
 
 const mongoose = require('mongoose');
 const { validateNotFutureDate } = require('./schemas/commonSchemas');
-const { MAGNITUDES_PERMITIDAS, AIR_QUALITY_MAGNITUDES, VALIDATION_CODES, AGGREGATION_LIMITS } = require('../constants');
+const { MAGNITUDES_PERMITIDAS, AIR_QUALITY_MAGNITUDES, VALIDATION_CODES, AGGREGATION_LIMITS, TIME_CONSTANTS } = require('../constants');
 
 /**
  * Sub-esquema para mediciones horarias
@@ -478,7 +478,7 @@ airQualitySchema.statics.getTrendsOptimized = async function(provincia, municipi
       }
     },
     { $sort: { '_id.fecha': 1 } },
-    { $limit: 365 }
+    { $limit: TIME_CONSTANTS.DAYS_PER_YEAR }
   ]).allowDiskUse(true).maxTimeMS(10000);
 
   // Calcular estadísticas de la tendencia

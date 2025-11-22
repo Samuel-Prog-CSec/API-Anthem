@@ -7,6 +7,7 @@
 
 const mongoose = require('mongoose');
 const { validateNotFutureDate } = require('./schemas/commonSchemas');
+const { TIME_CONSTANTS, BIKE_USAGE_THRESHOLDS } = require('../constants');
 
 /**
  * Esquema de Disponibilidad de Bicicletas
@@ -38,9 +39,9 @@ const bikeAvailabilitySchema = new mongoose.Schema({
           return v === 0;
         }
         // Las horas de uso totales no pueden superar el máximo físico posible (24h por bici)
-        return v <= (24 * this.mediaBicicletasDisponibles);
+        return v <= (TIME_CONSTANTS.HOURS_PER_DAY * this.mediaBicicletasDisponibles);
       },
-      message: 'Las horas de uso no pueden superar 24 horas por bicicleta disponible (horasTotalesUso <= 24 * mediaBicisDisponibles)'
+      message: `Las horas de uso no pueden superar ${TIME_CONSTANTS.HOURS_PER_DAY} horas por bicicleta disponible (horasTotalesUso <= ${TIME_CONSTANTS.HOURS_PER_DAY} * mediaBicisDisponibles)`
     }
   },
 
@@ -624,7 +625,7 @@ bikeAvailabilitySchema.statics.getUsageTrends = function(options) {
  * });
  */
 bikeAvailabilitySchema.statics.getDemandPrediction = async function(options = {}) {
-  const { startDate, endDate, threshold = 80 } = options;
+  const { startDate, endDate, threshold = BIKE_USAGE_THRESHOLDS.HIGH_DEMAND_OCCUPANCY } = options;
 
   const matchStage = {};
   if (startDate && endDate) {

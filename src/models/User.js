@@ -24,8 +24,8 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Nombre de usuario obligatorio'],
     unique: true, // Índice único
     trim: true, // Elimina espacios en blanco al inicio y final
-    minlength: [3, 'El nombre de usuario debe tener al menos 3 caracteres'],
-    maxlength: [30, 'El nombre de usuario no puede exceder 30 caracteres'],
+    minlength: [USER_SECURITY.MIN_USERNAME_LENGTH, `El nombre de usuario debe tener al menos ${USER_SECURITY.MIN_USERNAME_LENGTH} caracteres`],
+    maxlength: [USER_SECURITY.MAX_USERNAME_LENGTH, `El nombre de usuario no puede exceder ${USER_SECURITY.MAX_USERNAME_LENGTH} caracteres`],
     match: [/^[a-zA-Z0-9_-]+$/, 'El nombre de usuario solo puede contener letras, números, guiones y guiones bajos'],
     index: true // Índice para búsquedas rápidas
   },
@@ -46,7 +46,7 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: [true, 'Contraseña obligatoria'],
-    minlength: [6, 'La contraseña debe tener al menos 6 caracteres'],
+    minlength: [USER_SECURITY.MIN_PASSWORD_LENGTH, `La contraseña debe tener al menos ${USER_SECURITY.MIN_PASSWORD_LENGTH} caracteres`],
     // La validación de fortaleza de contraseña se debe hacer en el controlador
     // ANTES de guardar, no aquí, porque el pre-save hook hashea la contraseña
     // y la validación fallaría con el hash

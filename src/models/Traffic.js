@@ -2,24 +2,9 @@
  * Modelo de Tráfico
  *
  * Esquema de Mongoose para almacenar y gestionar datos de intensidad del tráfico
- * provenientes de los sensores distribuidos por la ciudad. Inc    // Calidad general de datos del periodo
-    calidadGeneral: {
-      type: String,
-      enum: [...Object.values(DATA_QUALITY_LEVELS), 'SIN_DATOS'],
-      default: 'SIN_DATOS'
-    }
-  },
-
-  // Análisis automático de condiciones de tráfico
-  analisis: {
-    // Nivel de congestión basado en ocupación y carga
-    nivelCongestion: {
-      type: String,
-      enum: [...Object.values(CONGESTION_LEVELS), 'SIN_DATOS'],
-      default: 'SIN_DATOS',
-      index: true
-    },sobre
- * flujo vehicular, ocupación de vías, velocidades y estado de sensores.
+ * provenientes de los sensores distribuidos por la ciudad.
+ * Incluye validaciones, índices optimizados para consultas frecuentes,
+ * y métodos para análisis de congestión y calidad de datos.
  */
 
 const mongoose = require('mongoose');
@@ -202,7 +187,7 @@ const trafficSchema = new mongoose.Schema({
     // Calidad general de la medición
     calidadGeneral: {
       type: String,
-      enum: [...Object.values(DATA_QUALITY_LEVELS), 'SIN_DATOS'],
+      enum: Object.values(DATA_QUALITY_LEVELS),
       default: 'SIN_DATOS'
     }
   },
@@ -212,7 +197,7 @@ const trafficSchema = new mongoose.Schema({
     // Nivel de congestión basado en ocupación y carga
     nivelCongestion: {
       type: String,
-      enum: [...Object.values(CONGESTION_LEVELS), 'SIN_DATOS'],
+      enum: Object.values(CONGESTION_LEVELS),
       default: 'SIN_DATOS',
       index: true
     },
@@ -229,7 +214,7 @@ const trafficSchema = new mongoose.Schema({
     periodoDia: {
       type: String,
       enum: Object.values(DAY_PERIODS),
-      default: 'MAÑANA',
+      default: DAY_PERIODS.MAÑANA,
       index: true
     },
 
@@ -290,7 +275,7 @@ trafficSchema.index(
 // MEJORA: Reemplaza 2 índices redundantes optimizando espacio
 // Soporta queries: { fecha: -1 }, { fecha: -1, puntoMedidaId: 1 }, { fecha: -1, puntoMedidaId: 1, intensidad: -1 }
 // Usado en: trafficController.js:60,87 - Sort por fecha + filtro puntoMedidaId + ordenación por intensidad
-// ✅ Leftmost prefix permite múltiples patrones de consulta
+// Leftmost prefix permite múltiples patrones de consulta
 trafficSchema.index({ fecha: -1, puntoMedidaId: 1, 'metricas.intensidad': -1 }, {
   name: 'idx_traffic_date_point_intensity',
   background: true
@@ -324,7 +309,7 @@ trafficSchema.index({ tipoElemento: 1, fecha: -1 }, {
 trafficSchema.index({ 'metricas.velocidadMedia': -1, fecha: -1 }, {
   name: 'idx_traffic_speed_m30',
   background: true,
-  sparse: true, // ✅ SPARSE: Solo indexa docs con velocidadMedia != null
+  sparse: true, // SPARSE: Solo indexa docs con velocidadMedia != null
   partialFilterExpression: {
     'metricas.velocidadMedia': { $ne: null },
     tipoElemento: 'M-30' // Solo M-30 tiene velocidad

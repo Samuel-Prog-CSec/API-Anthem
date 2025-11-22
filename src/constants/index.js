@@ -366,6 +366,17 @@ const WEATHER_CONDITIONS = {
 };
 
 /**
+ * Periodos de tiempo para rangos y filtros
+ */
+const TIME_PERIODS = {
+  HOUR: 'HORA',
+  DAY: 'DIA',
+  WEEK: 'SEMANA',
+  MONTH: 'MES',
+  YEAR: 'ANIO'
+};
+
+/**
  * Periodos del día
  */
 const DAY_PERIODS = {
@@ -531,7 +542,268 @@ const USER_SECURITY = {
   MAX_LOGIN_ATTEMPTS: 5,
   LOCK_TIME_MS: 2 * 60 * 60 * 1000, // 2 horas
   MIN_PASSWORD_LENGTH: 6,
-  MAX_PASSWORD_LENGTH: 128
+  MAX_PASSWORD_LENGTH: 128,
+  MIN_USERNAME_LENGTH: 3,
+  MAX_USERNAME_LENGTH: 30
+};
+
+/**
+ * Límites de validación para usuarios (login, registro, formularios)
+ * Usados en middleware de validación de express-validator
+ */
+const USER_VALIDATION = {
+  // Username
+  MIN_USERNAME_LENGTH: 3,
+  MAX_USERNAME_LENGTH: 30,
+
+  // Password
+  MIN_PASSWORD_LENGTH: 8,
+  MAX_PASSWORD_LENGTH: 64,
+
+  // Email
+  MAX_EMAIL_LENGTH: 155,
+
+  // Identifier (login puede ser username o email)
+  MIN_IDENTIFIER_LENGTH: 3,
+  MAX_IDENTIFIER_LENGTH: 30,
+
+  // Password strength pattern (usado en regex de validación)
+  PASSWORD_PATTERN: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/,
+
+  // Username pattern (solo alfanuméricos, guiones y guiones bajos)
+  USERNAME_PATTERN: /^[a-zA-Z0-9_-]+$/,
+
+  // Forbidden usernames (no permitidos para registro)
+  FORBIDDEN_USERNAMES: ['admin', 'root', 'api', 'system', 'null', 'undefined']
+};
+
+/**
+ * Límites de búsqueda y filtrado
+ * Usados en validaciones de query strings
+ */
+const SEARCH_LIMITS = {
+  // Búsqueda general (query 'q')
+  QUERY_MIN_LENGTH: 1,
+  QUERY_MAX_LENGTH: 100,
+
+  // Filtros geográficos
+  DISTRITO_MIN_LENGTH: 2,
+  DISTRITO_MAX_LENGTH: 100,
+  BARRIO_MIN_LENGTH: 2,
+  BARRIO_MAX_LENGTH: 100,
+
+  // Pattern para fields de proyección
+  FIELDS_PATTERN: /^[a-zA-Z,_]+$/,
+
+  // Pattern para sortBy
+  SORTBY_PATTERN: /^[a-zA-Z][a-zA-Z0-9_]*$/,
+
+  // Otros límites de string
+  PATTERN_MIN_LENGTH: 1,
+  PATTERN_MAX_LENGTH: 100
+};
+
+/**
+ * Límites de coordenadas geográficas
+ * Usados en validaciones de consultas por proximidad
+ */
+const GEO_LIMITS = {
+  LONGITUDE_MIN: -180,
+  LONGITUDE_MAX: 180,
+  LATITUDE_MIN: -90,
+  LATITUDE_MAX: 90,
+  MIN_DISTANCE_METERS: 50,
+  MAX_DISTANCE_METERS: 5000
+};
+
+/**
+ * Límites de rangos de fechas para consultas
+ * Diferentes endpoints permiten diferentes rangos máximos
+ */
+const DATE_RANGE_LIMITS = {
+  DEFAULT_MAX_DAYS: 365,    // 1 año por defecto
+  ACCIDENTS_MAX_DAYS: 730,  // 2 años para accidentes (datos históricos importantes)
+  NOISE_MAX_DAYS: 1825,     // 5 años para análisis histórico de ruido
+  MAX_MILLISECONDS_CALCULATION: 24 * 60 * 60 * 1000  // Cálculo del rango en ms
+};
+
+/**
+ * Configuración de rate limiting
+ * Ventanas de tiempo y máximos de peticiones por ventana
+ */
+const RATE_LIMITS = {
+  // Ventanas de tiempo en milisegundos
+  WINDOWS: {
+    ONE_MINUTE: 1 * 60 * 1000,
+    FIVE_MINUTES: 5 * 60 * 1000,
+    FIFTEEN_MINUTES: 15 * 60 * 1000,
+    ONE_HOUR: 60 * 60 * 1000
+  },
+
+  // Ventanas en segundos (para retryAfter en headers)
+  RETRY_AFTER: {
+    ONE_MINUTE: 60,
+    FIVE_MINUTES: 5 * 60,
+    FIFTEEN_MINUTES: 15 * 60,
+    ONE_HOUR: 60 * 60
+  },
+
+  // Máximos por tipo de operación
+  GENERAL: {
+    WINDOW_MS: 15 * 60 * 1000,  // 15 minutos
+    MAX_REQUESTS: 100,
+    RETRY_AFTER: 15 * 60
+  },
+
+  EXPORT: {
+    WINDOW_MS: 60 * 60 * 1000,  // 1 hora
+    MAX_REQUESTS: 5,
+    RETRY_AFTER: 60 * 60
+  },
+
+  HEAVY_QUERY: {
+    WINDOW_MS: 5 * 60 * 1000,   // 5 minutos
+    MAX_REQUESTS: 10,
+    RETRY_AFTER: 5 * 60
+  },
+
+  AUTH: {
+    WINDOW_MS: 15 * 60 * 1000,  // 15 minutos
+    MAX_REQUESTS: 10,           // Más restrictivo para auth
+    RETRY_AFTER: 15 * 60
+  },
+
+  // Rate limits específicos por recurso
+  NOISE_MONITORING: {
+    LIST_MAX: 25,               // Listado general
+    STATS_MAX: 10,              // Estadísticas
+    SEARCH_MAX: 15              // Búsquedas
+  },
+
+  AIR_QUALITY: {
+    LIST_MAX: 30
+  },
+
+  ACCIDENTS: {
+    HEATMAP_MAX: 10,            // Análisis de mapa de calor
+    EXPORT_MAX: 3               // Exportaciones (datos sensibles)
+  }
+};
+
+/**
+ * Límites específicos de validación por ruta/entidad
+ * Agrupados por categoría para fácil mantenimiento
+ */
+const ROUTE_SPECIFIC_LIMITS = {
+  // Traffic
+  TRAFFIC: {
+    PUNTO_MAX_LIMIT: 500        // Consultas de punto específico permiten más registros
+  },
+
+  // Noise Monitoring
+  NOISE: {
+    YEAR_MIN: 1900,
+    YEAR_MAX: 2100,
+    MONTH_MIN: 1,
+    MONTH_MAX: 12,
+    TOP_N_MIN: 5,
+    TOP_N_MAX: 50,
+    LIMIT_MIN: 1,
+    LIMIT_MAX: 100,
+    POINT_LIMIT_MIN: 5,
+    POINT_LIMIT_MAX: 50,
+    DB_THRESHOLD_MIN: 40,
+    DB_THRESHOLD_MAX: 100
+  },
+
+  // Census
+  CENSUS: {
+    YEAR_MIN: 2000,
+    YEAR_MAX: 3000,
+    MONTH_MIN: 1,
+    MONTH_MAX: 12,
+    AGE_MIN: 0,
+    AGE_MAX: 150,
+    LIMIT_MIN: 1,
+    LIMIT_MAX: 100
+  },
+
+  // Bike Availability
+  BIKE: {
+    YEAR_MIN: 2050,
+    YEAR_MAX: 2052,
+    TOP_N_MIN: 1,
+    TOP_N_MAX: 50,
+    OCCUPANCY_MIN: 50,
+    OCCUPANCY_MAX: 100
+  },
+
+  // Air Quality
+  AIR: {
+    PROVINCIA_MIN: 1,
+    PROVINCIA_MAX: 99,
+    LIMIT_MIN: 1,
+    LIMIT_MAX: 100
+  },
+
+  // Fines
+  FINES: {
+    POINTS_MIN: 0,
+    POINTS_MAX: 12,            // Máximo de puntos del carnet
+    LIMIT_MIN: 1,
+    LIMIT_MAX: 100,
+    TOP_N_MIN: 1,
+    TOP_N_MAX: 50
+  },
+
+  // Locations
+  LOCATIONS: {
+    LIMIT_MIN: 1,
+    LIMIT_MAX: 1000,
+    DISTANCE_MIN: 100,
+    DISTANCE_MAX: 50000
+  },
+
+  // Scooter Assignments
+  SCOOTER: {
+    PAGE_MIN: 1,
+    PAGE_MAX: 1000,
+    LIMIT_MIN: 1,
+    LIMIT_MAX: 100,
+    PROVIDER_MIN_LENGTH: 2,
+    PROVIDER_MAX_LENGTH: 30,
+    DISTRICT_MIN_LENGTH: 2,
+    DISTRICT_MAX_LENGTH: 50,
+    NEIGHBORHOOD_MIN_LENGTH: 2,
+    NEIGHBORHOOD_MAX_LENGTH: 50,
+    PATINETES_MIN: 0,
+    PATINETES_MAX: 1000,
+    DISPONIBLES_MIN: 0,
+    DISPONIBLES_MAX: 1000,
+    TOP_N_MIN: 1,
+    TOP_N_MAX: 50
+  },
+
+  // Containers
+  CONTAINERS: {
+    LOTE_MIN: 1,
+    LOTE_MAX: 3,
+    SEARCH_MAX_LIMIT: 200
+  },
+
+  // Accidents
+  ACCIDENTS: {
+    DISTANCE_MIN: 100,
+    DISTANCE_MAX: 1000
+  },
+
+  // Admin
+  ADMIN: {
+    PATTERN_MIN_LENGTH: 1,
+    PATTERN_MAX_LENGTH: 100,
+    MEMORY_THRESHOLD_MB: 500,
+    MEMORY_THRESHOLD_BYTES: 500 * 1024 * 1024
+  }
 };
 
 /**
@@ -555,7 +827,7 @@ const VALIDATION_CODES = {
 
 /**
  * Tipos de reporte de scooters
- * Usados en ScooterAssignment para campos faltantes
+ * Usaedos en ScooterAssignment para campos faltants
  */
 const SCOOTER_REPORT_TYPES = ['proveedores', 'ubicacion', 'totales'];
 
@@ -570,6 +842,90 @@ const TOKEN_REVOCATION_REASONS = ['rotation', 'logout', 'compromised', 'password
  * Usados en NoiseMonitoring para campos faltantes en metadatos
  */
 const NOISE_METRIC_FIELDS = ['nivelDiurno', 'nivelVespertino', 'nivelNocturno', 'laeq24', 'percentiles'];
+
+/**
+ * Constantes de tiempo
+ * Usadas en validaciones temporales y cálculos de disponibilidad
+ */
+const TIME_CONSTANTS = {
+  HOURS_PER_DAY: 24,
+  MINUTES_PER_HOUR: 60,
+  SECONDS_PER_MINUTE: 60,
+  MILLISECONDS_PER_SECOND: 1000,
+  DAYS_PER_WEEK: 7,
+  MONTHS_PER_YEAR: 12,
+  DAYS_PER_YEAR: 365,
+  // Conversiones de tiempo útiles
+  MILLISECONDS_PER_DAY: 24 * 60 * 60 * 1000,  // 86400000 ms = 1 día
+  MILLISECONDS_PER_HOUR: 60 * 60 * 1000,      // 3600000 ms = 1 hora
+  MILLISECONDS_PER_MINUTE: 60 * 1000          // 60000 ms = 1 minuto
+};
+
+/**
+ * Configuración de multas
+ * Tasas y porcentajes aplicados en cálculos de infracciones
+ */
+const FINE_CONFIG = {
+  DISCOUNT_RATE: 0.5, // 50% descuento por pronto pago
+  MAX_POINTS: 12 // Puntos máximos del carnet de conducir
+};
+
+/**
+ * Thresholds de densidad de patinetes eléctricos
+ * Usados para clasificar zonas según número de patinetes disponibles
+ */
+const SCOOTER_DENSITY_THRESHOLDS = {
+  MUY_ALTA: 200, // >= 200 patinetes
+  ALTA: 100, // >= 100 patinetes
+  MEDIA: 50, // >= 50 patinetes
+  BAJA: 0 // < 50 patinetes
+};
+
+/**
+ * Thresholds de demanda estimada de patinetes
+ * Basados en análisis de uso y disponibilidad por zona
+ */
+const SCOOTER_DEMAND_THRESHOLDS = {
+  MUY_ALTA: 150, // >= 150 patinetes (demanda crítica)
+  ALTA: 100, // >= 100 patinetes
+  MEDIA: 50, // >= 50 patinetes
+  BAJA: 0 // < 50 patinetes
+};
+
+/**
+ * Thresholds de concentración de mercado (Índice Herfindahl-Hirschman)
+ * Valores estándar económicos para análisis de competencia
+ * HHI = suma de cuadrados de participaciones de mercado (0-10000)
+ * Fuente: Directrices de Concentración Horizontal (UE, DOJ/FTC)
+ */
+const MARKET_CONCENTRATION_THRESHOLDS = {
+  HIGH: 5000, // HHI >= 5000: Monopolio o alta concentración
+  MODERATE: 2500, // HHI >= 2500: Concentración moderada
+  LOW: 1500, // HHI >= 1500: Baja concentración
+  COMPETITIVE: 0 // HHI < 1500: Mercado competitivo
+};
+
+/**
+ * Thresholds de diversidad cultural
+ * Basados en porcentaje de población extranjera
+ * Criterios demográficos estándar para análisis sociológico
+ */
+const CULTURAL_DIVERSITY_THRESHOLDS = {
+  HIGH: 25, // > 25% extranjeros = Alta diversidad
+  MEDIUM: 10, // > 10% extranjeros = Media diversidad
+  LOW: 0 // <= 10% extranjeros = Baja diversidad
+};
+
+/**
+ * Thresholds de uso de bicicletas eléctricas
+ * Basados en porcentaje de ocupación y patrones de demanda
+ */
+const BIKE_USAGE_THRESHOLDS = {
+  HIGH_DEMAND_OCCUPANCY: 80, // > 80% ocupación = Alta demanda
+  MEDIUM_DEMAND_OCCUPANCY: 60, // > 60% ocupación = Media demanda
+  LOW_DEMAND_OCCUPANCY: 40, // > 40% ocupación = Baja demanda
+  MIN_OCCUPANCY: 0 // >= 0% ocupación
+};
 
 module.exports = {
   // Severidad
@@ -618,14 +974,23 @@ module.exports = {
 
   // Periodos temporales
   DAY_PERIODS,
+  TIME_PERIODS,
   WORKDAY_TYPES,
 
   // Usuarios y autenticación
   USER_ROLES,
   USER_SECURITY,
+  USER_VALIDATION,
 
   // HTTP
   HTTP_STATUS,
+
+  // Validación y límites
+  SEARCH_LIMITS,
+  GEO_LIMITS,
+  DATE_RANGE_LIMITS,
+  RATE_LIMITS,
+  ROUTE_SPECIFIC_LIMITS,
 
   // Clima
   WEATHER_CONDITIONS,
@@ -658,5 +1023,22 @@ module.exports = {
   TOKEN_REVOCATION_REASONS,
 
   // Métricas de ruido
-  NOISE_METRIC_FIELDS
+  NOISE_METRIC_FIELDS,
+
+  // Constantes de tiempo
+  TIME_CONSTANTS,
+
+  // Multas - Configuración
+  FINE_CONFIG,
+
+  // Patinetes - Thresholds
+  SCOOTER_DENSITY_THRESHOLDS,
+  SCOOTER_DEMAND_THRESHOLDS,
+  MARKET_CONCENTRATION_THRESHOLDS,
+
+  // Censo - Thresholds
+  CULTURAL_DIVERSITY_THRESHOLDS,
+
+  // Bicicletas - Thresholds
+  BIKE_USAGE_THRESHOLDS
 };

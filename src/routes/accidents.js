@@ -7,14 +7,17 @@
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { query, body } = require('express-validator');
+const { query } = require('express-validator');
 const {
-  SEVERITY_LEVELS
+  SEVERITY_LEVELS,
+  USER_ROLES,
+  RATE_LIMITS,
+  DATE_RANGE_LIMITS,
+  ROUTE_SPECIFIC_LIMITS
 } = require('../constants');
 
 const accidentController = require('../controllers/accidentController');
 const { authenticate } = require('../middleware/auth');
-const { adminOnly } = require('../middleware/authorization');
 const { validateRequest } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
@@ -42,36 +45,36 @@ router.use(performanceMonitor);
 
 // Para consultas generales
 const generalLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100, // 100 requests por ventana
+  windowMs: RATE_LIMITS.GENERAL.WINDOW_MS,
+  max: RATE_LIMITS.GENERAL.MAX_REQUESTS,
   message: {
     error: 'Demasiadas consultas de accidentalidad. Intente nuevamente en 15 minutos.',
-    retryAfter: 15 * 60
+    retryAfter: RATE_LIMITS.GENERAL.RETRY_AFTER
   },
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => {
-    return req.user && req.user.role === 'admin';
+    return req.user && req.user.role === USER_ROLES.ADMIN;
   }
 });
 
 // Para mapas de calor y análisis pesados
 const heavyAnalysisLimit = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutos
-  max: 10, // 10 requests por 5 minutos
+  windowMs: RATE_LIMITS.HEAVY_QUERY.WINDOW_MS,
+  max: RATE_LIMITS.ACCIDENTS.HEATMAP_MAX,
   message: {
     error: 'Demasiadas consultas de análisis intensivo. Intente nuevamente en 5 minutos.',
-    retryAfter: 5 * 60
+    retryAfter: RATE_LIMITS.HEAVY_QUERY.RETRY_AFTER
   }
 });
 
 // Para exportaciones
 const exportLimit = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hora
-  max: 3, // 3 exports por hora (datos sensibles)
+  windowMs: RATE_LIMITS.EXPORT.WINDOW_MS,
+  max: RATE_LIMITS.ACCIDENTS.EXPORT_MAX,
   message: {
     error: 'Límite de exportaciones de accidentes alcanzado. Intente nuevamente en 1 hora.',
-    retryAfter: 60 * 60
+    retryAfter: RATE_LIMITS.EXPORT.RETRY_AFTER
   }
 });
 
@@ -94,7 +97,7 @@ const exportLimit = rateLimit({
 router.get('/',
   generalLimit,
   authenticate,
-  validateDateRange(730), // 2 años
+  validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   validatePagination,
   validateAccidentFilters,
   cacheMiddleware('statistics', (req) => `accidents:list:${JSON.stringify(req.query)}`),
@@ -124,7 +127,7 @@ router.get('/stats',
   generalLimit,
   authenticate,
   validateDistrictQuery,
-  validateDateRange(730), // 2 años
+  validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   etagMiddleware, // ETags para estadísticas agregadas (datos estables)
   cacheMiddleware('statistics', (req) => `accidents:stats:${JSON.stringify(req.query)}`),
   accidentController.getAccidentStats
@@ -147,12 +150,12 @@ router.get('/heatmap',
 
     query('limite')
       .optional()
-      .isInt({ min: 100, max: 1000 })
-      .withMessage('Límite debe ser entre 100 y 1000'),
+      .isInt({ min: ROUTE_SPECIFIC_LIMITS.ACCIDENTS.DISTANCE_MIN, max: ROUTE_SPECIFIC_LIMITS.ACCIDENTS.DISTANCE_MAX })
+      .withMessage(`Límite debe ser entre ${ROUTE_SPECIFIC_LIMITS.ACCIDENTS.DISTANCE_MIN} y ${ROUTE_SPECIFIC_LIMITS.ACCIDENTS.DISTANCE_MAX}`),
 
     validateRequest
   ],
-  validateDateRange(730), // 2 años
+  validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   cacheMiddleware('statistics', (req) => `accidents:heatmap:${JSON.stringify(req.query)}`),
   accidentController.getAccidentHeatmap
 );
@@ -167,7 +170,7 @@ router.get('/safety-analysis',
   heavyAnalysisLimit,
   authenticate,
   validateDistrictQuery,
-  validateDateRange(730), // 2 años
+  validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   cacheMiddleware('statistics', (req) => `accidents:safety:${JSON.stringify(req.query)}`),
   accidentController.getSafetyAnalysis
 );
@@ -181,7 +184,7 @@ router.get('/safety-analysis',
 router.get('/district-comparison',
   generalLimit,
   authenticate,
-  validateDateRange(730), // 2 años
+  validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   cacheMiddleware('statistics', (req) => `accidents:district-comp:${JSON.stringify(req.query)}`),
   accidentController.getDistrictComparison
 );
@@ -195,6 +198,10 @@ router.get('/district-comparison',
  * @desc    Exportar datos de accidentes (solo administradores y analistas)
  * @access  Admin/Analyst only
  * @rateLimit 3 requests per hour
+ * @todo    IMPLEMENTAR: Controller de exportación con soporte para CSV/JSON/Excel
+ *          - Debe incluir anonimización de datos personales para no-admins
+ *          - Debe permitir filtros por fecha, gravedad, tipo de accidente
+ *          - Debe generar archivos con formato configurable
  */
 router.get('/export',
   exportLimit,
@@ -213,7 +220,7 @@ router.get('/export',
 
     validateRequest
   ],
-  validateDateRange(730), // 2 años
+  validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   validateAccidentFilters,
   async (req, res, next) => {
     try {
@@ -235,139 +242,6 @@ router.get('/export',
       res.status(501).json({
         success: false,
         message: 'Funcionalidad de exportación en desarrollo'
-      });
-
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
- * @route   POST /api/accidents/bulk-update
- * @desc    Actualización masiva de clasificaciones de accidentes
- * @access  Admin only
- */
-router.post('/bulk-update',
-  authenticate,
-  adminOnly,
-  [
-    body('operation')
-      .isIn(['reclassify', 'update_coordinates', 'fix_data'])
-      .withMessage('Operación debe ser reclassify, update_coordinates o fix_data'),
-
-    body('filters')
-      .isObject()
-      .withMessage('Filtros deben ser un objeto'),
-
-    body('confirm')
-      .equals('BULK_UPDATE_CONFIRMED')
-      .withMessage('Debe confirmar con BULK_UPDATE_CONFIRMED'),
-
-    validateRequest
-  ],
-  async (req, res, next) => {
-    try {
-      const { operation, filters } = req.body;
-
-      logger.info({
-        userId: req.user.id,
-        operation,
-        filters,
-        endpoint: 'PUT /api/accidents/bulk-update'
-      }, 'Actualización masiva de accidentes solicitada');
-
-      // TODO: Implementar operaciones de actualización masiva
-      res.status(501).json({
-        success: false,
-        message: 'Funcionalidad de actualización masiva en desarrollo'
-      });
-
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
- * @route   DELETE /api/accidents/cleanup
- * @desc    Limpiar datos antiguos o duplicados (solo administradores)
- * @access  Admin only
- */
-router.delete('/cleanup',
-  authenticate,
-  adminOnly,
-  [
-    body('operation')
-      .isIn(['remove_old', 'remove_duplicates', 'remove_invalid'])
-      .withMessage('Operación debe ser remove_old, remove_duplicates o remove_invalid'),
-
-    body('olderThanDays')
-      .optional()
-      .isInt({ min: 365, max: 3650 })
-      .withMessage('Debe especificar días (mínimo 1 año, máximo 10 años)'),
-
-    body('confirm')
-      .equals('DELETE_ACCIDENT_DATA')
-      .withMessage('Debe confirmar con DELETE_ACCIDENT_DATA'),
-
-    validateRequest
-  ],
-  async (req, res, next) => {
-    try {
-      const { operation, olderThanDays } = req.body;
-
-      logger.info({
-        userId: req.user.id,
-        operation,
-        olderThanDays,
-        endpoint: 'DELETE /api/accidents/cleanup'
-      }, 'Limpieza de datos de accidentes solicitada');
-
-      // TODO: Implementar lógica de limpieza
-      res.status(501).json({
-        success: false,
-        message: 'Funcionalidad de limpieza en desarrollo'
-      });
-
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
- * RUTAS DE ANÁLISIS AVANZADO (requieren permisos especiales)
- */
-
-/**
- * @route   GET /api/accidents/risk-prediction
- * @desc    Análisis predictivo de riesgo de accidentes
- * @access  Admin/Analyst only
- */
-router.get('/risk-prediction',
-  heavyAnalysisLimit,
-  authenticate,
-  [
-    query('modelo')
-      .optional()
-      .isIn(['temporal', 'espacial', 'meteorologico', 'vehicular'])
-      .withMessage('Modelo debe ser temporal, espacial, meteorologico o vehicular'),
-
-    validateRequest
-  ],
-  async (req, res, next) => {
-    try {
-      logger.info({
-        userId: req.user.id,
-        modelo: req.query.modelo,
-        endpoint: 'POST /api/accidents/predictive-analysis'
-      }, 'Análisis predictivo de riesgo solicitado');
-
-      // TODO: Implementar modelos predictivos
-      res.status(501).json({
-        success: false,
-        message: 'Análisis predictivo en desarrollo'
       });
 
     } catch (error) {

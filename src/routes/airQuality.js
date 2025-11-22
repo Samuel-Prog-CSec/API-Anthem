@@ -1,5 +1,5 @@
 /**
- * Rutas de Calidad de Aire
+ * Rutas de calidad de aire
  *
  * Define todos los endpoints relacionados con datos de calidad de aire,
  * incluyendo consultas, filtros, estadísticas y tendencias.
@@ -16,6 +16,15 @@ const { performanceMonitor } = require('../middleware/performanceMonitor');
 
 // Middleware de caché optimizado
 const { cacheMiddleware } = require('../middleware/cache');
+
+// Constantes
+const {
+  MAGNITUDES_PERMITIDAS,
+  SORT_FIELDS,
+  TIME_PERIODS,
+  RATE_LIMITS,
+  ROUTE_SPECIFIC_LIMITS
+} = require('../constants');
 
 // Controladores
 const {
@@ -41,8 +50,8 @@ router.use(performanceMonitor);
  * para mantener consistencia con otros endpoints de estadísticas del proyecto.
  */
 const dataQueryLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minuto
-  max: 30, // 30 peticiones por minuto por IP
+  windowMs: RATE_LIMITS.WINDOWS.ONE_MINUTE,
+  max: RATE_LIMITS.AIR_QUALITY.LIST_MAX,
   message: {
     success: false,
     message: 'Demasiadas consultas de datos, intente nuevamente en 1 minuto'
@@ -73,8 +82,8 @@ const airQualityQueryValidation = [
 
   query('provincia')
     .optional()
-    .isInt({ min: 1, max: 99 })
-    .withMessage('provincia debe ser un número entre 1 y 99'),
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.AIR.PROVINCIA_MIN, max: ROUTE_SPECIFIC_LIMITS.AIR.PROVINCIA_MAX })
+    .withMessage(`provincia debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.AIR.PROVINCIA_MIN} y ${ROUTE_SPECIFIC_LIMITS.AIR.PROVINCIA_MAX}`),
 
   query('municipio')
     .optional()
@@ -89,7 +98,7 @@ const airQualityQueryValidation = [
   query('magnitud')
     .optional()
     .custom((value) => {
-      const validMagnitudes = [1, 6, 7, 8, 9, 10, 12, 14, 20, 30, 42, 43, 44];
+      const validMagnitudes = [...MAGNITUDES_PERMITIDAS];
       if (Array.isArray(value)) {
         return value.every(v => validMagnitudes.includes(parseInt(v)));
       }
@@ -104,17 +113,23 @@ const airQualityQueryValidation = [
 
   query('limit')
     .optional()
-    .isInt({ min: 1, max: 100 })
-    .withMessage('limit debe ser un número entre 1 y 100'),
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.AIR.LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.AIR.LIMIT_MAX })
+    .withMessage(`limit debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.AIR.LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.AIR.LIMIT_MAX}`),
 
   query('sortBy')
     .optional()
-    .isIn(['fecha', 'provincia', 'municipio', 'estacion', 'magnitud'])
+    .toLowerCase()
+    .trim()
+    .isIn(SORT_FIELDS.AIR_QUALITY)
+    .escape()
     .withMessage('sortBy debe ser un campo válido para ordenamiento'),
 
   query('sortOrder')
     .optional()
+    .toLowerCase()
+    .trim()
     .isIn(['asc', 'desc'])
+    .escape()
     .withMessage('sortOrder debe ser "asc" o "desc"'),
 
   query('includeInvalid')
@@ -140,13 +155,15 @@ const statisticsValidation = [
 
   query('groupBy')
     .optional()
-    .isIn(['day', 'month', 'year', 'station'])
-    .withMessage('groupBy debe ser "day", "month", "year" o "station"'),
+    .toUpperCase()
+    .trim()
+    .isIn([...Object.values(TIME_PERIODS), 'STATION'])
+    .withMessage('groupBy debe ser "HOUR", "DAY", "WEEK", "MONTH", "YEAR" o "STATION"'),
 
   query('provincia')
     .optional()
-    .isInt({ min: 1, max: 99 })
-    .withMessage('provincia debe ser un número entre 1 y 99'),
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.AIR.PROVINCIA_MIN, max: ROUTE_SPECIFIC_LIMITS.AIR.PROVINCIA_MAX })
+    .withMessage(`provincia debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.AIR.PROVINCIA_MIN} y ${ROUTE_SPECIFIC_LIMITS.AIR.PROVINCIA_MAX}`),
 
   query('municipio')
     .optional()
@@ -156,6 +173,7 @@ const statisticsValidation = [
   query('magnitud')
     .optional()
     .isInt({ min: 1 })
+    .isIn(MAGNITUDES_PERMITIDAS)
     .withMessage('magnitud debe ser un número entero')
 ];
 
@@ -211,9 +229,9 @@ router.get('/trends',
   [
     query('startDate').optional().isISO8601(),
     query('endDate').optional().isISO8601(),
-    query('provincia').optional().isInt({ min: 1, max: 99 }),
+    query('provincia').optional().isInt({ min: ROUTE_SPECIFIC_LIMITS.AIR.PROVINCIA_MIN, max: ROUTE_SPECIFIC_LIMITS.AIR.PROVINCIA_MAX }),
     query('municipio').optional().isInt({ min: 1 }),
-    query('magnitud').optional().isInt({ min: 1 })
+    query('magnitud').optional().isInt({ min: 1 }).isIn(MAGNITUDES_PERMITIDAS)
   ],
   validateRequest,
   cacheMiddleware('airQuality'), // Cache por 30 minutos

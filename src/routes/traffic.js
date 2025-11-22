@@ -7,15 +7,19 @@
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { query, body, param } = require('express-validator');
+const { query, param } = require('express-validator');
 
 const trafficController = require('../controllers/trafficController');
 const { authenticate } = require('../middleware/auth');
-const { adminOnly } = require('../middleware/authorization');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
 const { etagMiddleware } = require('../middleware/etag');
-const { TRAFFIC_ELEMENT_TYPES } = require('../constants');
+const {
+  TRAFFIC_ELEMENT_TYPES,
+  RATE_LIMITS,
+  DATE_RANGE_LIMITS,
+  ROUTE_SPECIFIC_LIMITS
+} = require('../constants');
 const {
   validatePagination,
   validateDateRange,
@@ -37,11 +41,11 @@ router.use(performanceMonitor);
 
 // Para consultas generales (más restrictivo)
 const generalLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100, // 100 requests por ventana
+  windowMs: RATE_LIMITS.GENERAL.WINDOW_MS,
+  max: RATE_LIMITS.GENERAL.MAX_REQUESTS,
   message: {
     error: 'Demasiadas consultas de tráfico. Intente nuevamente en 15 minutos.',
-    retryAfter: 15 * 60
+    retryAfter: RATE_LIMITS.GENERAL.RETRY_AFTER
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -53,11 +57,11 @@ const generalLimit = rateLimit({
 
 // Para exportación de datos (muy restrictivo)
 const exportLimit = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hora
-  max: 5, // 5 exports por hora
+  windowMs: RATE_LIMITS.EXPORT.WINDOW_MS,
+  max: RATE_LIMITS.EXPORT.MAX_REQUESTS,
   message: {
     error: 'Límite de exportaciones alcanzado. Intente nuevamente en 1 hora.',
-    retryAfter: 60 * 60
+    retryAfter: RATE_LIMITS.EXPORT.RETRY_AFTER
   }
 });
 
@@ -74,7 +78,7 @@ const exportLimit = rateLimit({
 router.get('/',
   generalLimit,
   authenticate,
-  validateDateRange(365), // 1 año
+  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
   validatePagination,
   validateTrafficFilters,
   trafficController.getAllTrafficData
@@ -96,12 +100,12 @@ router.get('/punto/:id',
 
     query('limit')
       .optional()
-      .isInt({ min: 1, max: 500 })
-      .withMessage('Límite debe ser entre 1 y 500 para consultas de punto'),
+      .isInt({ min: 1, max: ROUTE_SPECIFIC_LIMITS.TRAFFIC.PUNTO_MAX_LIMIT })
+      .withMessage(`Límite debe ser entre 1 y ${ROUTE_SPECIFIC_LIMITS.TRAFFIC.PUNTO_MAX_LIMIT} para consultas de punto`),
 
     validateRequest
   ],
-  validateDateRange(365), // 1 año
+  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
   trafficController.getTrafficByPoint
 );
 
@@ -123,7 +127,7 @@ router.get('/stats',
 
     validateRequest
   ],
-  validateDateRange(365), // 1 año
+  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
   // ETags para estadísticas agregadas (datos relativamente estables)
   etagMiddleware,
   // Caché de 5 minutos para estadísticas de tráfico (datos volátiles)
@@ -150,7 +154,7 @@ router.get('/congestion-analysis',
 
     validateRequest
   ],
-  validateDateRange(365), // 1 año
+  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
   // Caché de 5 minutos para análisis de congestión
   cacheMiddleware('traffic', (req) =>
     `traffic-congestion-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.groupBy || 'distrito'}`
@@ -180,7 +184,7 @@ router.get('/historical',
 
     validateRequest
   ],
-  validateDateRange(365), // 1 año
+  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
   validateTrafficFilters,
   // Caché de 5 minutos para datos históricos
   cacheMiddleware('traffic', (req) =>
@@ -198,6 +202,11 @@ router.get('/historical',
  * @desc    Exportar datos de tráfico (solo administradores)
  * @access  Admin only
  * @rateLimit 5 requests per hour
+ * @todo    IMPLEMENTAR: Controller de exportación con soporte para CSV/JSON/Excel
+ *          - Debe incluir metadatos de puntos de medición
+ *          - Debe permitir filtros por fecha, tipo de elemento, ubicación
+ *          - Debe generar archivos con formato configurable
+ *          - Debe incluir agregaciones opcionales (por hora/día/mes)
  */
 router.get('/export',
   exportLimit,
@@ -211,7 +220,7 @@ router.get('/export',
 
     validateRequest
   ],
-  validateDateRange(365), // 1 año
+  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
   validateTrafficFilters,
   async (req, res, next) => {
     try {
@@ -226,47 +235,6 @@ router.get('/export',
       res.status(501).json({
         success: false,
         message: 'Funcionalidad de exportación en desarrollo'
-      });
-
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
- * @route   DELETE /api/traffic/cleanup
- * @desc    Limpiar datos antiguos de tráfico (solo administradores)
- * @access  Admin only
- */
-router.delete('/cleanup',
-  authenticate,
-  adminOnly,
-  [
-    body('olderThanDays')
-      .isInt({ min: 30, max: 3650 })
-      .withMessage('Debe especificar días (entre 30 y 3650)'),
-
-    body('confirm')
-      .equals('DELETE_OLD_DATA')
-      .withMessage('Debe confirmar con CONFIRM: DELETE_OLD_DATA'),
-
-    validateRequest
-  ],
-  async (req, res, next) => {
-    try {
-      const { olderThanDays } = req.body;
-
-      logger.info({
-        userId: req.user.id,
-        olderThanDays,
-        endpoint: 'DELETE /api/traffic/cleanup'
-      }, 'Limpieza de datos de tráfico solicitada');
-
-      // TODO: Implementar lógica de limpieza
-      res.status(501).json({
-        success: false,
-        message: 'Funcionalidad de limpieza en desarrollo'
       });
 
     } catch (error) {

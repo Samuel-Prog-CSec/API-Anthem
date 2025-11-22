@@ -11,6 +11,7 @@ const helmet = require('helmet');
 const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss');
 const config = require('../config/config');
+const { RATE_LIMITS } = require('../constants');
 const { createRateLimitResponse, createErrorResponse } = require('../utils/responseHelper');
 const { securityLogger: pinoSecurityLogger } = require('../config/logger');
 
@@ -36,26 +37,26 @@ const generalLimiter = rateLimit({
 
 // Limitador de tasa estricto para endpoints de autenticación
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 10, // Máximo 10 intentos por 15 minutos
-  message: createRateLimitResponse(15 * 60), // 15 minutos en segundos
+  windowMs: RATE_LIMITS.AUTH.WINDOW_MS,
+  max: RATE_LIMITS.AUTH.MAX_REQUESTS,
+  message: createRateLimitResponse(RATE_LIMITS.AUTH.RETRY_AFTER),
   skipSuccessfulRequests: true, // No contar peticiones exitosas
   handler: (req, res) => {
     pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa de autenticación excedido');
-    res.status(429).json(createRateLimitResponse(15 * 60));
+    res.status(429).json(createRateLimitResponse(RATE_LIMITS.AUTH.RETRY_AFTER));
   }
 });
 
 // Limitador de tasa para consultas pesadas para endpoints intensivos en recursos
 const heavyQueryLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minuto
-  max: 5, // Máximo 5 consultas pesadas por minuto
-  message: createRateLimitResponse(60),
+  windowMs: RATE_LIMITS.HEAVY_QUERY.WINDOW_MS,
+  max: RATE_LIMITS.HEAVY_QUERY.MAX_REQUESTS,
+  message: createRateLimitResponse(RATE_LIMITS.HEAVY_QUERY.RETRY_AFTER),
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => {
     pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa de consulta pesada excedido');
-    res.status(429).json(createRateLimitResponse(60));
+    res.status(429).json(createRateLimitResponse(RATE_LIMITS.HEAVY_QUERY.RETRY_AFTER));
   }
 });
 

@@ -19,7 +19,7 @@ const {
 
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
-const { SEVERITY_LEVELS, INFRACTION_TYPES } = require('../constants');
+const { SEVERITY_LEVELS, INFRACTION_TYPES, ROUTE_SPECIFIC_LIMITS } = require('../constants');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
 const { etagMiddleware } = require('../middleware/etag');
 
@@ -64,8 +64,8 @@ const paginationValidation = [
     .toInt(),
   query('limit')
     .optional()
-    .isInt({ min: 1, max: 100 })
-    .withMessage('Límite debe estar entre 1 y 100')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.FINES.LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.FINES.LIMIT_MAX })
+    .withMessage(`Límite debe estar entre ${ROUTE_SPECIFIC_LIMITS.FINES.LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.FINES.LIMIT_MAX}`)
     .toInt(),
   query('sortBy')
     .optional()
@@ -135,14 +135,14 @@ router.get('/',
 
   query('minPuntos')
     .optional()
-    .isInt({ min: 0, max: 12 })
-    .withMessage('Puntos mínimos debe estar entre 0 y 12')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.FINES.POINTS_MIN, max: ROUTE_SPECIFIC_LIMITS.FINES.POINTS_MAX })
+    .withMessage(`Puntos mínimos debe estar entre ${ROUTE_SPECIFIC_LIMITS.FINES.POINTS_MIN} y ${ROUTE_SPECIFIC_LIMITS.FINES.POINTS_MAX}`)
     .toInt(),
 
   query('maxPuntos')
     .optional()
-    .isInt({ min: 0, max: 12 })
-    .withMessage('Puntos máximos debe estar entre 0 y 12')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.FINES.POINTS_MIN, max: ROUTE_SPECIFIC_LIMITS.FINES.POINTS_MAX })
+    .withMessage(`Puntos máximos debe estar entre ${ROUTE_SPECIFIC_LIMITS.FINES.POINTS_MIN} y ${ROUTE_SPECIFIC_LIMITS.FINES.POINTS_MAX}`)
     .toInt(),
 
   query('conDescuento')
@@ -194,8 +194,8 @@ router.get('/statistics',
 
   query('limit')
     .optional()
-    .isInt({ min: 1, max: 50 })
-    .withMessage('Límite debe estar entre 1 y 50')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.FINES.TOP_N_MIN, max: ROUTE_SPECIFIC_LIMITS.FINES.TOP_N_MAX })
+    .withMessage(`Límite debe estar entre ${ROUTE_SPECIFIC_LIMITS.FINES.TOP_N_MIN} y ${ROUTE_SPECIFIC_LIMITS.FINES.TOP_N_MAX}`)
     .toInt(),
 
   // Middleware de validación
@@ -226,8 +226,8 @@ router.get('/locations/ranking',
 
   query('limit')
     .optional()
-    .isInt({ min: 1, max: 50 })
-    .withMessage('Límite debe estar entre 1 y 50')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.FINES.TOP_N_MIN, max: ROUTE_SPECIFIC_LIMITS.FINES.TOP_N_MAX })
+    .withMessage(`Límite debe estar entre ${ROUTE_SPECIFIC_LIMITS.FINES.TOP_N_MIN} y ${ROUTE_SPECIFIC_LIMITS.FINES.TOP_N_MAX}`)
     .toInt(),
 
   query('tipoInfraccion')

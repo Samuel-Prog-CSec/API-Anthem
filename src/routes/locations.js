@@ -7,6 +7,8 @@ const {
   getProximityAnalysis
 } = require('../controllers/locationController');
 
+const { ROUTE_SPECIFIC_LIMITS } = require('../constants');
+
 // Middleware
 const { validateRequest } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
@@ -33,8 +35,8 @@ router.get('/',
       .withMessage('Tipo de ubicación no válido'),
     query('limit')
       .optional()
-      .isInt({ min: 1, max: 1000 })
-      .withMessage('El límite debe ser entre 1 y 1000'),
+      .isInt({ min: ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MAX })
+      .withMessage(`El límite debe ser entre ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MAX}`),
     query('page')
       .optional()
       .isInt({ min: 1 })
@@ -102,8 +104,8 @@ router.get('/proximidad',
       .withMessage('Coordenada Y es requerida y debe ser numérica'),
     query('radio')
       .optional()
-      .isInt({ min: 100, max: 50000 })
-      .withMessage('El radio debe estar entre 100 y 50000 metros')
+      .isInt({ min: ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MIN, max: ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MAX })
+      .withMessage(`El radio debe estar entre ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MIN} y ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MAX} metros`)
   ],
   validateRequest,
   getProximityAnalysis

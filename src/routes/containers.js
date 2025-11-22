@@ -11,7 +11,9 @@ const rateLimit = require('express-rate-limit');
 const { query, param } = require('express-validator');
 const {
   CONTAINER_TYPES,
-  PAGINATION
+  PAGINATION,
+  RATE_LIMITS,
+  ROUTE_SPECIFIC_LIMITS
 } = require('../constants');
 
 const containerController = require('../controllers/containerController');
@@ -39,11 +41,11 @@ router.use(performanceMonitor);
 
 // Para consultas generales
 const generalLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100,
+  windowMs: RATE_LIMITS.GENERAL.WINDOW_MS,
+  max: RATE_LIMITS.GENERAL.MAX_REQUESTS,
   message: {
     error: 'Demasiadas consultas de contenedores. Intente nuevamente en 15 minutos.',
-    retryAfter: 15 * 60
+    retryAfter: RATE_LIMITS.GENERAL.RETRY_AFTER
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -210,8 +212,8 @@ router.get('/search',
 
     query('limit')
       .optional()
-      .isInt({ min: PAGINATION.MIN_LIMIT, max: 200 })
-      .withMessage('Límite debe ser entre 1 y 200'),
+      .isInt({ min: PAGINATION.MIN_LIMIT, max: ROUTE_SPECIFIC_LIMITS.CONTAINERS.SEARCH_MAX_LIMIT })
+      .withMessage(`Límite debe ser entre ${PAGINATION.MIN_LIMIT} y ${ROUTE_SPECIFIC_LIMITS.CONTAINERS.SEARCH_MAX_LIMIT}`),
 
     validateRequest
   ],

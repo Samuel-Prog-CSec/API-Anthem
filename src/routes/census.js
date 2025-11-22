@@ -17,6 +17,8 @@ const {
   getDemographicDashboard
 } = require('../controllers/censusController');
 
+const { ROUTE_SPECIFIC_LIMITS } = require('../constants');
+
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
@@ -61,8 +63,8 @@ const paginationValidation = [
     .toInt(),
   query('limit')
     .optional()
-    .isInt({ min: 1, max: 100 })
-    .withMessage('Límite debe estar entre 1 y 100')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.LIMIT_MAX })
+    .withMessage(`Límite debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.LIMIT_MAX}`)
     .toInt(),
   query('sortBy')
     .optional()
@@ -134,14 +136,14 @@ router.get('/',
 
   query('minEdad')
     .optional()
-    .isInt({ min: 0, max: 150 })
-    .withMessage('Edad mínima debe estar entre 0 y 150')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.AGE_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.AGE_MAX })
+    .withMessage(`Edad mínima debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.AGE_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.AGE_MAX}`)
     .toInt(),
 
   query('maxEdad')
     .optional()
-    .isInt({ min: 0, max: 150 })
-    .withMessage('Edad máxima debe estar entre 0 y 150')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.AGE_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.AGE_MAX })
+    .withMessage(`Edad máxima debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.AGE_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.AGE_MAX}`)
     .toInt()
     .custom((value, { req }) => {
       if (req.query.minEdad && value < req.query.minEdad) {
@@ -213,8 +215,8 @@ router.get('/pyramid',
 
   query('año')
     .optional()
-    .isInt({ min: 2000, max: 3000 })
-    .withMessage('Año debe estar entre 2000 y 3000')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX })
+    .withMessage(`Año debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX}`)
     .toInt(),
 
   query('incluirExtranjeros')
@@ -252,14 +254,14 @@ router.get('/districts/statistics',
   // Validaciones
   query('año')
     .optional()
-    .isInt({ min: 2000, max: 3000 })
-    .withMessage('Año debe estar entre 2000 y 3000')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX })
+    .withMessage(`Año debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX}`)
     .toInt(),
 
   query('mes')
     .optional()
-    .isInt({ min: 1, max: 12 })
-    .withMessage('Mes debe estar entre 1 y 12')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MAX })
+    .withMessage(`Mes debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MAX}`)
     .toInt(),
 
   query('incluirBarrios')
@@ -300,8 +302,8 @@ router.get('/analysis/demographic',
 
   query('año')
     .optional()
-    .isInt({ min: 2000, max: 3000 })
-    .withMessage('Año debe estar entre 2000 y 3000')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX })
+    .withMessage(`Año debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX}`)
     .toInt(),
 
   query('tipoAnalisis')
@@ -338,14 +340,14 @@ router.get('/evolution',
 
   query('startYear')
     .optional()
-    .isInt({ min: 2000, max: 3000 })
-    .withMessage('Año de inicio debe estar entre 2000 y 3000')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX })
+    .withMessage(`Año de inicio debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX}`)
     .toInt(),
 
   query('endYear')
     .optional()
-    .isInt({ min: 2000, max: 3000 })
-    .withMessage('Año de fin debe estar entre 2000 y 3000')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX })
+    .withMessage(`Año de fin debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX}`)
     .toInt()
     .custom((value, { req }) => {
       if (req.query.startYear && value < req.query.startYear) {
@@ -385,8 +387,8 @@ router.get('/dashboard',
   // Validaciones
   query('año')
     .optional()
-    .isInt({ min: 2000, max: 3000 })
-    .withMessage('Año debe estar entre 2000 y 3000')
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX })
+    .withMessage(`Año debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX}`)
     .toInt(),
 
   query('distrito')

@@ -9,6 +9,7 @@
 const express = require('express');
 const { param, query } = require('express-validator');
 const rateLimit = require('express-rate-limit');
+const { RATE_LIMITS, ROUTE_SPECIFIC_LIMITS } = require('../constants');
 
 const bikeController = require('../controllers/bikeAvailabilityController');
 const { authenticate } = require('../middleware/auth');
@@ -34,11 +35,11 @@ router.use(performanceMonitor);
 
 // Para consultas generales
 const generalLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100,
+  windowMs: RATE_LIMITS.GENERAL.WINDOW_MS,
+  max: RATE_LIMITS.GENERAL.MAX_REQUESTS,
   message: {
     error: 'Demasiadas consultas de bicicletas. Intente nuevamente en 15 minutos.',
-    retryAfter: 15 * 60
+    retryAfter: RATE_LIMITS.GENERAL.RETRY_AFTER
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -107,8 +108,8 @@ router.get('/trends/monthly',
   [
     query('year')
       .optional()
-      .isInt({ min: 2050, max: 2052 })
-      .withMessage('Año debe ser un número entre 2050 y 2052'),
+      .isInt({ min: ROUTE_SPECIFIC_LIMITS.BIKE.YEAR_MIN, max: ROUTE_SPECIFIC_LIMITS.BIKE.YEAR_MAX })
+      .withMessage(`Año debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.BIKE.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.BIKE.YEAR_MAX}`),
     validateRequest
   ],
   etagMiddleware, // ETags para tendencias mensuales (datos agregados estables)
@@ -127,8 +128,8 @@ router.get('/top-usage',
   [
     query('limit')
       .optional()
-      .isInt({ min: 1, max: 50 })
-      .withMessage('Límite debe ser entre 1 y 50'),
+      .isInt({ min: ROUTE_SPECIFIC_LIMITS.BIKE.TOP_N_MIN, max: ROUTE_SPECIFIC_LIMITS.BIKE.TOP_N_MAX })
+      .withMessage(`Límite debe ser entre ${ROUTE_SPECIFIC_LIMITS.BIKE.TOP_N_MIN} y ${ROUTE_SPECIFIC_LIMITS.BIKE.TOP_N_MAX}`),
     validateRequest
   ],
   cacheMiddleware('bikes'), // Cache por 5 minutos
@@ -233,8 +234,8 @@ router.get('/prediction/demand',
       .withMessage('endDate debe ser una fecha válida'),
     query('threshold')
       .optional()
-      .isInt({ min: 50, max: 100 })
-      .withMessage('threshold debe ser un número entre 50 y 100'),
+      .isInt({ min: ROUTE_SPECIFIC_LIMITS.BIKE.OCCUPANCY_MIN, max: ROUTE_SPECIFIC_LIMITS.BIKE.OCCUPANCY_MAX })
+      .withMessage(`threshold debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.BIKE.OCCUPANCY_MIN} y ${ROUTE_SPECIFIC_LIMITS.BIKE.OCCUPANCY_MAX}`),
     validateRequest
   ],
   cacheMiddleware('bikes'), // Cache por 30 minutos

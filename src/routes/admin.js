@@ -8,6 +8,8 @@
 const express = require('express');
 const { query } = require('express-validator');
 
+const { ROUTE_SPECIFIC_LIMITS } = require('../constants');
+
 // Middleware de autenticación y autorización
 const { authenticate } = require('../middleware/auth');
 const { adminOnly } = require('../middleware/authorization');
@@ -94,8 +96,8 @@ router.delete('/cache/clear',
     .optional()
     .isString()
     .trim()
-    .isLength({ min: 1, max: 100 })
-    .withMessage('Pattern debe ser una cadena de texto válida'),
+    .isLength({ min: ROUTE_SPECIFIC_LIMITS.ADMIN.PATTERN_MIN_LENGTH, max: ROUTE_SPECIFIC_LIMITS.ADMIN.PATTERN_MAX_LENGTH })
+    .withMessage(`Pattern debe tener entre ${ROUTE_SPECIFIC_LIMITS.ADMIN.PATTERN_MIN_LENGTH} y ${ROUTE_SPECIFIC_LIMITS.ADMIN.PATTERN_MAX_LENGTH} caracteres`),
 
   validateRequest,
 
@@ -197,7 +199,7 @@ router.get('/system/health',
         healthData.issues = ['database_disconnected'];
       }
 
-      if (memoryUsage.heapUsed > 500 * 1024 * 1024) { // 500MB
+      if (memoryUsage.heapUsed > ROUTE_SPECIFIC_LIMITS.ADMIN.MEMORY_THRESHOLD_BYTES) {
         healthData.status = healthData.status === 'healthy' ? 'warning' : 'degraded';
         healthData.issues = healthData.issues || [];
         healthData.issues.push('high_memory_usage');
@@ -290,7 +292,7 @@ router.get('/etag/stats',
 /**
  * Función auxiliar para calcular hit rate del caché
  */
-function calculateHitRate(stats) {
+function _calculateHitRate(stats) {
   if (!stats || !stats.hits || !stats.misses) {
     return 0;
   }

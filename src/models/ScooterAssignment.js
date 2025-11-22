@@ -16,7 +16,11 @@ const {
   SCOOTER_PRIORITY_LEVELS,
   SCOOTER_DEMAND_LEVELS,
   SCOOTER_REPORT_TYPES,
-  AGGREGATION_LIMITS
+  AGGREGATION_LIMITS,
+  SCOOTER_DENSITY_THRESHOLDS,
+  SCOOTER_DEMAND_THRESHOLDS,
+  MARKET_CONCENTRATION_THRESHOLDS,
+  TIME_CONSTANTS
 } = require('../constants');
 
 /**
@@ -367,11 +371,11 @@ scooterAssignmentSchema.methods.calculateStatistics = function() {
       : 0;
 
   // Clasificar densidad basada en total de patinetes
-  if (this.estadisticas.totalPatinetes >= 200) {
+  if (this.estadisticas.totalPatinetes >= SCOOTER_DENSITY_THRESHOLDS.MUY_ALTA) {
     this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[3]; // 'MUY_ALTA'
-  } else if (this.estadisticas.totalPatinetes >= 100) {
+  } else if (this.estadisticas.totalPatinetes >= SCOOTER_DENSITY_THRESHOLDS.ALTA) {
     this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[2]; // 'ALTA'
-  } else if (this.estadisticas.totalPatinetes >= 50) {
+  } else if (this.estadisticas.totalPatinetes >= SCOOTER_DENSITY_THRESHOLDS.MEDIA) {
     this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[1]; // 'MEDIA'
   } else {
     this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[0]; // 'BAJA'
@@ -417,13 +421,13 @@ scooterAssignmentSchema.methods.analyzeDistribution = function() {
   this.analisisDistribucion.indiceHerfindahl = Math.round(hhi);
 
   // Clasificar concentración del mercado
-  if (hhi >= 5000) {
+  if (hhi >= MARKET_CONCENTRATION_THRESHOLDS.HIGH) {
     this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION[3]; // 'ALTA_CONCENTRACION'
     this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE[1]; // 'MONOPOLIO'
-  } else if (hhi >= 2500) {
+  } else if (hhi >= MARKET_CONCENTRATION_THRESHOLDS.MODERATE) {
     this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION[2]; // 'CONCENTRADA'
     this.estadisticas.dominanciaProveedores = proveedoresActivos.length === 2 ? SCOOTER_PROVIDER_DOMINANCE[2] : SCOOTER_PROVIDER_DOMINANCE[3]; // 'DUOPOLIO' : 'OLIGOPOLIO'
-  } else if (hhi >= 1500) {
+  } else if (hhi >= MARKET_CONCENTRATION_THRESHOLDS.LOW) {
     this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION[1]; // 'MODERADA'
     this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE[3]; // 'OLIGOPOLIO'
   } else {
@@ -460,11 +464,11 @@ scooterAssignmentSchema.methods.classifyArea = function() {
   }
 
   // Estimar demanda basada en densidad
-  if (totalPatinetes >= 150) {
+  if (totalPatinetes >= SCOOTER_DEMAND_THRESHOLDS.MUY_ALTA) {
     this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[3]; // 'MUY_ALTA'
-  } else if (totalPatinetes >= 100) {
+  } else if (totalPatinetes >= SCOOTER_DEMAND_THRESHOLDS.ALTA) {
     this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[2]; // 'ALTA'
-  } else if (totalPatinetes >= 50) {
+  } else if (totalPatinetes >= SCOOTER_DEMAND_THRESHOLDS.MEDIA) {
     this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[1]; // 'MEDIA'
   } else {
     this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[0]; // 'BAJA'
@@ -570,7 +574,7 @@ scooterAssignmentSchema.statics.getDistrictStatistics = function(fecha = null) {
   if (fecha) {
     matchCondition.fechaAsignacion = {
       $gte: new Date(fecha),
-      $lt: new Date(new Date(fecha).getTime() + 24 * 60 * 60 * 1000)
+      $lt: new Date(new Date(fecha).getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY)
     };
   }
 
@@ -608,7 +612,7 @@ scooterAssignmentSchema.statics.getProviderMarketAnalysis = function(fecha = nul
   if (fecha) {
     matchCondition.fechaAsignacion = {
       $gte: new Date(fecha),
-      $lt: new Date(new Date(fecha).getTime() + 24 * 60 * 60 * 1000)
+      $lt: new Date(new Date(fecha).getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY)
     };
   }
 
@@ -658,7 +662,7 @@ scooterAssignmentSchema.statics.getHighestConcentrationZones = function(limite =
   if (fecha) {
     matchCondition.fechaAsignacion = {
       $gte: new Date(fecha),
-      $lt: new Date(new Date(fecha).getTime() + 24 * 60 * 60 * 1000)
+      $lt: new Date(new Date(fecha).getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY)
     };
   }
 
@@ -693,7 +697,7 @@ scooterAssignmentSchema.statics.getDistributionDashboard = function(fecha = null
   if (fecha) {
     matchCondition.fechaAsignacion = {
       $gte: new Date(fecha),
-      $lt: new Date(new Date(fecha).getTime() + 24 * 60 * 60 * 1000)
+      $lt: new Date(new Date(fecha).getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY)
     };
   }
 
@@ -762,7 +766,7 @@ scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = n
   const matchCondition = {};
   if (fecha) {
     const fechaInicio = new Date(fecha);
-    const fechaFin = new Date(fechaInicio.getTime() + 24 * 60 * 60 * 1000);
+    const fechaFin = new Date(fechaInicio.getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY);
     matchCondition.fechaAsignacion = { $gte: fechaInicio, $lt: fechaFin };
   }
 
@@ -921,7 +925,7 @@ scooterAssignmentSchema.statics.getAreaDetailsOptimized = async function(distrit
   const areaFilter = { ...baseFilter };
   if (fecha) {
     const fechaInicio = new Date(fecha);
-    const fechaFin = new Date(fechaInicio.getTime() + 24 * 60 * 60 * 1000);
+    const fechaFin = new Date(fechaInicio.getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY);
     areaFilter.fechaAsignacion = { $gte: fechaInicio, $lt: fechaFin };
   } else {
     // Si no hay fecha, buscar el más reciente
@@ -934,7 +938,7 @@ scooterAssignmentSchema.statics.getAreaDetailsOptimized = async function(distrit
     }
 
     const fechaInicio = new Date(ultimoRegistro.fechaAsignacion);
-    const fechaFin = new Date(fechaInicio.getTime() + 24 * 60 * 60 * 1000);
+    const fechaFin = new Date(fechaInicio.getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY);
     areaFilter.fechaAsignacion = { $gte: fechaInicio, $lt: fechaFin };
   }
 

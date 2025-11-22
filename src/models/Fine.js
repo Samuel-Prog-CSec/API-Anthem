@@ -17,7 +17,11 @@ const {
   validateMonth,
   validateYear
 } = require('./schemas/commonSchemas');
-const { SEVERITY_LEVELS, INFRACTION_TYPES } = require('../constants');
+const {
+  SEVERITY_LEVELS,
+  INFRACTION_TYPES,
+  FINE_CONFIG
+} = require('../constants');
 
 /**
  * Esquema principal de Multas
@@ -392,7 +396,7 @@ fineSchema.pre('save', function(next) {
 
   // Calcular importe final con descuento
   if (this.tieneDescuento && this.importeBoletín) {
-    this.importeFinal = this.importeBoletín * 0.5; // 50% de descuento
+    this.importeFinal = this.importeBoletín * FINE_CONFIG.DISCOUNT_RATE; // 50% de descuento
   } else {
     this.importeFinal = this.importeBoletín;
   }
