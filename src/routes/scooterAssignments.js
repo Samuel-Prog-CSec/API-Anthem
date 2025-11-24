@@ -32,6 +32,7 @@ const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { etagMiddleware } = require('../middleware/etag');
 const {
   validateDateRange,
   validateDistrictQuery,
@@ -227,6 +228,7 @@ router.get('/statistics/districts',
     ...dateValidation
   ],
   validateRequest,
+  etagMiddleware, // ETags para estadísticas agregadas (datos estables)
   cacheMiddleware('traffic', (req) => `scooters:stats:districts:${req.query.fecha || 'all'}`),
   getDistrictStatistics
 );
@@ -244,6 +246,7 @@ router.get('/market-analysis/providers',
     ...dateValidation
   ],
   validateRequest,
+  etagMiddleware, // ETags para análisis de mercado (datos agregados estables)
   cacheMiddleware('traffic', (req) => `scooters:market:providers:${req.query.fecha || 'all'}`),
   getProviderMarketAnalysis
 );
@@ -265,6 +268,7 @@ router.get('/concentration-zones',
       .toInt()
   ],
   validateRequest,
+  etagMiddleware, // ETags para zonas de concentración (datos agregados)
   cacheMiddleware('traffic', (req) => `scooters:concentration:${req.query.fecha || 'all'}:${req.query.limite || 10}`),
   getConcentrationZones
 );
@@ -282,6 +286,7 @@ router.get('/dashboard',
     ...dateValidation
   ],
   validateRequest,
+  etagMiddleware, // ETags para dashboard (datos agregados estables)
   cacheMiddleware('traffic', (req) => `scooters:dashboard:${req.query.fecha || 'all'}`),
   getDistributionDashboard
 );
@@ -333,9 +338,9 @@ router.get('/temporal-comparison',
     query('agrupacion')
       .optional()
       .isIn(['distrito', 'barrio'])
-      .withMessage('Agrupación debe ser "distrito" o "barrio"')
+      .withMessage('Agrupación debe ser "distrito" o "barrio"'),
+    validateRequest
   ],
-  validateRequest,
   cacheMiddleware('traffic', (req) => `scooters:temporal:${req.query.fechaInicio}:${req.query.fechaFin}:${req.query.agrupacion || 'distrito'}`),
   getTemporalComparison
 );

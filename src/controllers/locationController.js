@@ -4,7 +4,7 @@ const { createValidationError, createInternalError, createBadRequestError } = re
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SPECIAL_PAGINATION_LIMITS, AGGREGATION_LIMITS } = require('../constants');
+const { SPECIAL_PAGINATION_LIMITS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
 
 /**
  * Obtener todas las ubicaciones con filtros
@@ -108,7 +108,7 @@ const getMeasurementPoints = async (req, res, next) => {
       tipo: tiposValidos[tipo_medicion]
     })
     .select('nombre coordenadas nmt cod_cent geometry')
-    .maxTimeMS(10000) // Timeout de 10 segundos
+    .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
     .lean();
 
     const responseData = {
@@ -155,7 +155,7 @@ const getTransportRoutes = async (req, res, next) => {
 
     const rutas = await Location.find(filter)
       .select('tipo nombre coordenadas geometry')
-      .maxTimeMS(10000) // Timeout de 10 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
       .lean();
 
     const responseData = {
@@ -224,7 +224,7 @@ const getProximityAnalysis = async (req, res, next) => {
         }
       }
     ])
-      .maxTimeMS(10000) // Timeout de 10 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
       .exec();
 
     const responseData = {

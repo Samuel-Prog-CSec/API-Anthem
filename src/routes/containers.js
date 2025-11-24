@@ -13,7 +13,8 @@ const {
   CONTAINER_TYPES,
   PAGINATION,
   RATE_LIMITS,
-  ROUTE_SPECIFIC_LIMITS
+  ROUTE_SPECIFIC_LIMITS,
+  HTTP_STATUS
 } = require('../constants');
 
 const containerController = require('../controllers/containerController');
@@ -82,7 +83,8 @@ router.get('/nearby',
   authenticate,
   validateCoordinates,
   validateContainerType,
-  cacheMiddleware('containers'), // Cache por 24 horas (datos est�ticos)`n  containerController.getNearbyContainers
+  cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
+  containerController.getNearbyContainers
 );
 
 /**
@@ -93,7 +95,9 @@ router.get('/nearby',
 router.get('/stats',
   generalLimit,
   authenticate,
-  cacheMiddleware('containers'), // Cache por 24 horas (datos est�ticos)`n  containerController.getContainerStats
+  etagMiddleware, // ETags para estadísticas agregadas (datos estáticos)
+  cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
+  containerController.getContainerStats
 );
 
 /**
@@ -112,7 +116,9 @@ router.get('/stats/district',
       .withMessage('Distrito no puede estar vacío'),
     validateRequest
   ],
-  cacheMiddleware('containers'), // Cache por 24 horas (datos est�ticos)`n  containerController.getStatsByDistrict
+  etagMiddleware, // ETags para estadísticas por distrito (datos estáticos)
+  cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
+  containerController.getStatsByDistrict
 );
 
 /**
@@ -137,7 +143,9 @@ router.get('/stats/neighborhood',
 
     validateRequest
   ],
-  cacheMiddleware('containers'), // Cache por 24 horas (datos est�ticos)`n  containerController.getStatsByNeighborhood
+  etagMiddleware, // ETags para estadísticas por barrio (datos estáticos)
+  cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
+  containerController.getStatsByNeighborhood
 );
 
 /**
@@ -162,7 +170,8 @@ router.get('/count-by-type',
 
     validateRequest
   ],
-  cacheMiddleware('containers'), // Cache por 24 horas (datos est�ticos)`n  containerController.countByType
+  cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
+  containerController.countByType
 );
 
 /**
@@ -173,7 +182,8 @@ router.get('/count-by-type',
 router.get('/districts',
   generalLimit,
   authenticate,
-  cacheMiddleware('containers'), // Cache por 24 horas (datos est�ticos)`n  containerController.getDistricts
+  cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
+  containerController.getDistricts
 );
 
 /**
@@ -191,7 +201,8 @@ router.get('/neighborhoods/:distrito',
       .withMessage('Distrito no puede estar vacío'),
     validateRequest
   ],
-  cacheMiddleware('containers'), // Cache por 24 horas (datos est�ticos)`n  containerController.getNeighborhoodsByDistrict
+  cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
+  containerController.getNeighborhoodsByDistrict
 );
 
 /**
@@ -218,7 +229,8 @@ router.get('/search',
     validateRequest
   ],
   validateContainerType,
-  cacheMiddleware('containers'), // Cache por 24 horas (datos est�ticos)`n  containerController.searchByAddress
+  cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
+  containerController.searchByAddress
 );
 
 /**
@@ -230,7 +242,8 @@ router.get('/heatmap',
   generalLimit,
   authenticate,
   validateContainerType,
-  cacheMiddleware('containers'), // Cache por 24 horas (datos est�ticos)`n  containerController.getHeatmapData
+  cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
+  containerController.getHeatmapData
 );
 
 /**
@@ -322,7 +335,7 @@ router.use((error, req, res, _next) => {
     });
   }
 
-  res.status(500).json({
+  res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
     success: false,
     message: 'Error interno en el procesamiento de datos de contenedores',
     requestId: req.id || Date.now()

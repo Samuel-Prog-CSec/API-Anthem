@@ -11,7 +11,7 @@ const { createValidationError, createInternalError, createNotFoundError, createB
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -85,9 +85,9 @@ const getNoiseMonitoringData = async (req, res, next) => {
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .maxTimeMS(10000) // Timeout de 10 segundos
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
         .lean(),
-      NoiseMonitoring.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
+      NoiseMonitoring.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
     ]);
 
     // Agregar cumplimiento normativo usando método del modelo
@@ -126,7 +126,7 @@ const getNoiseMonitoringById = async (req, res, next) => {
     const { id } = req.params;
 
     const data = await NoiseMonitoring.findById(id)
-      .maxTimeMS(5000) // Timeout de 5 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos
       .lean();
 
     if (!data) {
@@ -348,7 +348,7 @@ const searchStations = async (req, res, next) => {
     ];
 
     const estaciones = await NoiseMonitoring.aggregate(pipeline)
-      .maxTimeMS(10000) // Timeout de 10 segundos para agregación
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos para agregación
       .exec();
 
     const responseData = {

@@ -11,7 +11,7 @@ const User = require('../models/User');
 const TokenBlacklist = require('../models/TokenBlacklist');
 const { createResponse } = require('../utils/responseHelper');
 const { validatePassword } = require('../utils/passwordValidator');
-const { HTTP_STATUS } = require('../constants');
+const { HTTP_STATUS, MONGODB_TIMEOUTS } = require('../constants');
 const {
   createValidationError,
   createAuthError,
@@ -66,7 +66,7 @@ const register = async (req, res, next) => {
     }
 
     // Verificar si el usuario ya existe
-    const existingUser = await User.findByEmailOrUsername(email);
+    const existingUser = await User.findByEmailOrUsername(email).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
     if (existingUser) {
       return next(createConflictError('Ya existe un usuario con este email o nombre de usuario'));
     }
@@ -113,7 +113,7 @@ const register = async (req, res, next) => {
     // Registrar evento de seguridad
     logUserRegistration(user._id.toString(), email, username, req.ip);
 
-    res.status(201).json(
+    res.status(HTTP_STATUS.CREATED).json(
       createResponse(
         'Usuario registrado exitosamente',
         {
@@ -164,7 +164,7 @@ const login = async (req, res, next) => {
     const { identifier, password } = req.body;
 
     // Buscar usuario por email o nombre de usuario
-    const user = await User.findByEmailOrUsername(identifier);
+    const user = await User.findByEmailOrUsername(identifier).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
     if (!user) {
       logLoginAttempt(false, identifier, null, req.ip, req.get('user-agent'), 'user_not_found');
       return next(createAuthError('Credenciales inválidas'));
@@ -175,7 +175,7 @@ const login = async (req, res, next) => {
       logLoginAttempt(false, identifier, user._id.toString(), req.ip, req.get('user-agent'), 'account_locked');
       logAccountLockout(user._id.toString(), identifier, user.loginAttempts, user.lockUntil, req.ip);
 
-      return res.status(423).json(
+      return res.status(HTTP_STATUS.LOCKED).json(
         formatErrorResponse(
           createAuthError('Cuenta bloqueada temporalmente por demasiados intentos fallidos')
         )
@@ -320,7 +320,10 @@ const logout = async (req, res, next) => {
  */
 const getProfile = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id).select('-password').lean();
+    const user = await User.findById(req.user.id)
+      .select('-password')
+      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+      .lean();
 
     if (!user) {
       return next(createNotFoundError('Usuario', req.user.id));
@@ -366,7 +369,7 @@ const refreshAccessToken = async (req, res, next) => {
     let decoded;
     try {
       decoded = await verifyRefreshToken(refreshToken);
-    } catch (error) {
+    } catch (_error) {
       // Error genérico - no revelar si el token es inválido o está en lista negra
       authLogger.warn({ ip: req.ip }, 'Token refresh fallido: token inválido');
       return next(createAuthError('Token inválido o expirado'));
@@ -383,7 +386,10 @@ const refreshAccessToken = async (req, res, next) => {
     }
 
     // Obtener usuario desde el token
-    const user = await User.findById(decoded.id).select('-password');
+    const user = await User.findById(decoded.id)
+      .select('-password')
+      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+      .lean();
     if (!user) {
       return next(createNotFoundError('Usuario', decoded.id));
     }
@@ -471,7 +477,9 @@ const changePassword = async (req, res, next) => {
     const userId = req.user._id;
 
     // Obtener usuario con campo de contraseña
-    const user = await User.findById(userId).select('+password');
+    const user = await User.findById(userId)
+      .select('+password')
+      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
 
     if (!user) {
       return next(createNotFoundError('Usuario', userId));

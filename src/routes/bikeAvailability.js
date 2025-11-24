@@ -9,7 +9,7 @@
 const express = require('express');
 const { param, query } = require('express-validator');
 const rateLimit = require('express-rate-limit');
-const { RATE_LIMITS, ROUTE_SPECIFIC_LIMITS } = require('../constants');
+const { RATE_LIMITS, ROUTE_SPECIFIC_LIMITS, HTTP_STATUS } = require('../constants');
 
 const bikeController = require('../controllers/bikeAvailabilityController');
 const { authenticate } = require('../middleware/auth');
@@ -145,6 +145,7 @@ router.get('/subscription-comparison',
   generalLimit,
   authenticate,
   validateDateRange,
+  etagMiddleware, // ETags para comparación de suscripciones (datos agregados)
   cacheMiddleware('bikes'), // Cache por 5 minutos
   bikeController.getSubscriptionComparison
 );
@@ -158,6 +159,7 @@ router.get('/efficiency',
   generalLimit,
   authenticate,
   validateDateRange,
+  etagMiddleware, // ETags para análisis de eficiencia (datos agregados)
   cacheMiddleware('bikes'), // Cache por 5 minutos
   bikeController.getEfficiencyAnalysis
 );
@@ -283,7 +285,7 @@ router.use((error, req, res, _next) => {
     });
   }
 
-  res.status(500).json({
+  res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
     success: false,
     message: 'Error interno en el procesamiento de datos de bicicletas',
     requestId: req.id || Date.now()

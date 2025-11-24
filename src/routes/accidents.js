@@ -13,7 +13,8 @@ const {
   USER_ROLES,
   RATE_LIMITS,
   DATE_RANGE_LIMITS,
-  ROUTE_SPECIFIC_LIMITS
+  ROUTE_SPECIFIC_LIMITS,
+  HTTP_STATUS
 } = require('../constants');
 
 const accidentController = require('../controllers/accidentController');
@@ -235,11 +236,11 @@ router.get('/export',
 
       // Por seguridad, siempre anonimizar para no-admins
       if (req.user.role !== 'admin' && req.query.includePersonalData === 'true') {
-        return res.status(403).json(createForbiddenResponse('No tiene permisos para exportar datos personales'));
+        return res.status(HTTP_STATUS.FORBIDDEN).json(createForbiddenResponse('No tiene permisos para exportar datos personales'));
       }
 
       // TODO: Implementar lógica de exportación con anonimización
-      res.status(501).json({
+      res.status(HTTP_STATUS.NOT_IMPLEMENTED).json({
         success: false,
         message: 'Funcionalidad de exportación en desarrollo'
       });
@@ -293,7 +294,7 @@ router.use((error, req, res, _next) => {
   }
 
   // Error específico de accidentes
-  res.status(500).json({
+  res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
     success: false,
     message: 'Error interno en el procesamiento de datos de accidentalidad',
     requestId: req.id || Date.now()

@@ -272,6 +272,11 @@ router.get('/analysis/temporal',
   // Middleware de validación
   validateRequest,
 
+  // Middleware de caché (30 minutos para análisis temporal)
+  cacheMiddleware('statistics', (req) =>
+    `fines-temporal-analysis-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.granularity || 'month'}`
+  ),
+
   // Controlador
   getTemporalAnalysis
 );
@@ -295,6 +300,11 @@ router.get('/dashboard',
 
   // Middleware de validación
   validateRequest,
+
+  // Middleware de caché (30 minutos para métricas de dashboard)
+  cacheMiddleware('statistics', (req) =>
+    `fines-dashboard-${req.query.periodo || '30days'}`
+  ),
 
   // Controlador
   getDashboardMetrics

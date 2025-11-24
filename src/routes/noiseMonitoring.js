@@ -209,7 +209,6 @@ router.get('/',
   authenticate,
   validateDateRange(DATE_RANGE_LIMITS.NOISE_MAX_DAYS),
   noiseQueryValidation,
-  validateRequest,
   cacheMiddleware('noise'), // Cache por 3 minutos
   getNoiseMonitoringData
 );
@@ -224,7 +223,6 @@ router.get('/statistics',
   authenticate,
   validateDateRange(DATE_RANGE_LIMITS.NOISE_MAX_DAYS),
   noiseStatisticsValidation,
-  validateRequest,
   etagMiddleware, // ETags para estadísticas agregadas (datos estables)
   cacheMiddleware('noise'), // Cache por 1 hora
   getNoiseStatistics
@@ -271,6 +269,7 @@ router.get('/stations/compare',
       .withMessage('metric debe ser un tipo válido')
   ],
   validateRequest,
+  etagMiddleware, // ETags para comparación de estaciones (datos agregados)
   cacheMiddleware('noise'),
   compareStations
 );
@@ -306,6 +305,7 @@ router.get('/trends/temporal',
       .withMessage('metric debe ser un tipo válido')
   ],
   validateRequest,
+  etagMiddleware, // ETags para tendencias temporales (datos agregados estables)
   cacheMiddleware('noise'),
   getTemporalTrends
 );
@@ -337,6 +337,7 @@ router.get('/compliance/zone',
       .withMessage('zoneType debe ser un tipo de zona válido')
   ],
   validateRequest,
+  etagMiddleware, // ETags para análisis de cumplimiento (datos agregados)
   cacheMiddleware('noise'),
   getComplianceByZone
 );

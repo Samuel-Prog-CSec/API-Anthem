@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { query, param } = require('express-validator');
 const {
   getLocations,
@@ -7,9 +8,10 @@ const {
   getProximityAnalysis
 } = require('../controllers/locationController');
 
-const { ROUTE_SPECIFIC_LIMITS } = require('../constants');
+const { ROUTE_SPECIFIC_LIMITS, RATE_LIMITS } = require('../constants');
 
 // Middleware
+const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
@@ -21,11 +23,29 @@ const router = express.Router();
 router.use(performanceMonitor);
 
 /**
+ * Rate limiter para endpoints de ubicaciones
+ * Límite permisivo ya que las consultas son ligeras y consumen pocos recursos
+ */
+const locationsLimiter = rateLimit({
+  windowMs: RATE_LIMITS.GENERAL.WINDOW_MS,
+  max: RATE_LIMITS.GENERAL.MAX_REQUESTS * 3, // Triple límite (300 req/15min) - consultas muy ligeras
+  message: {
+    success: false,
+    message: 'Demasiadas consultas de ubicaciones, intente nuevamente en 15 minutos'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.user && req.user.role === 'admin' // Admins sin límite
+});
+
+/**
  * @route   GET /api/v0.1/ubicaciones
  * @desc    Obtener todas las ubicaciones con filtros
- * @access  Public
+ * @access  Private (requiere autenticación)
  */
 router.get('/',
+  locationsLimiter, // Rate limiting permisivo para consultas ligeras
+  authenticate, // Requiere autenticación
   etagMiddleware, // ETags para datos estáticos de ubicaciones
   cacheMiddleware(),
   [
@@ -57,9 +77,11 @@ router.get('/',
 /**
  * @route   GET /api/v0.1/ubicaciones/puntos-medicion/:tipo_medicion
  * @desc    Obtener puntos de medición específicos
- * @access  Public
+ * @access  Private (requiere autenticación)
  */
 router.get('/puntos-medicion/:tipo_medicion',
+  locationsLimiter, // Rate limiting permisivo para consultas ligeras
+  authenticate, // Requiere autenticación
   cacheMiddleware(),
   [
     param('tipo_medicion')
@@ -73,9 +95,11 @@ router.get('/puntos-medicion/:tipo_medicion',
 /**
  * @route   GET /api/v0.1/ubicaciones/transporte/:tipo_transporte
  * @desc    Obtener rutas de transporte público
- * @access  Public
+ * @access  Private (requiere autenticación)
  */
 router.get('/transporte/:tipo_transporte',
+  locationsLimiter, // Rate limiting permisivo para consultas ligeras
+  authenticate, // Requiere autenticación
   cacheMiddleware(),
   [
     param('tipo_transporte')
@@ -89,9 +113,11 @@ router.get('/transporte/:tipo_transporte',
 /**
  * @route   GET /api/v0.1/ubicaciones/proximidad
  * @desc    Análisis de proximidad a un punto
- * @access  Public
+ * @access  Private (requiere autenticación)
  */
 router.get('/proximidad',
+  locationsLimiter, // Rate limiting permisivo para consultas ligeras
+  authenticate, // Requiere autenticación
   cacheMiddleware(),
   [
     query('x')

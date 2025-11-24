@@ -7,6 +7,7 @@
 const express = require('express');
 const router = express.Router();
 const config = require('../config/config');
+const { HTTP_STATUS } = require('../constants');
 const { createResponse } = require('../utils/responseHelper');
 const { getConnectionStats } = require('../config/database');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
@@ -41,7 +42,7 @@ router.get('/api/v1.0', (req, res) => {
   const uptimeMinutes = Math.floor((uptime % 3600) / 60);
   const uptimeSeconds = Math.floor(uptime % 60);
 
-  res.status(200).json(
+  res.status(HTTP_STATUS.OK).json(
     createResponse(
       'La API REST de la Smart City Anthem está operativa',
       {
@@ -124,7 +125,7 @@ router.get('/health', (req, res) => {
     healthData.issues = ['Database connection unavailable'];
   }
 
-  const statusCode = healthData.status === 'healthy' ? 200 : 503;
+  const statusCode = healthData.status === 'healthy' ? HTTP_STATUS.OK : HTTP_STATUS.SERVICE_UNAVAILABLE;
 
   res.status(statusCode).json(
     createResponse(
@@ -145,7 +146,7 @@ router.get('/health', (req, res) => {
 router.get('/cors-test', (req, res) => {
   const origin = req.get('origin') || 'No origin header';
 
-  res.status(200).json(
+  res.status(HTTP_STATUS.OK).json(
     createResponse(
       'CORS test successful',
       {

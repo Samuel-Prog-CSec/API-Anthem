@@ -8,7 +8,7 @@
 const express = require('express');
 const { query } = require('express-validator');
 
-const { ROUTE_SPECIFIC_LIMITS } = require('../constants');
+const { ROUTE_SPECIFIC_LIMITS, HTTP_STATUS } = require('../constants');
 
 // Middleware de autenticación y autorización
 const { authenticate } = require('../middleware/auth');
@@ -54,7 +54,7 @@ router.get('/cache/stats',
         ? ((globalHitRate.totalHits / globalHitRate.totalRequests) * 100).toFixed(2) + '%'
         : '0%';
 
-      res.status(200).json({
+      res.status(HTTP_STATUS.OK).json({
         success: true,
         message: 'Estadísticas de caché obtenidas exitosamente',
         data: {
@@ -72,7 +72,7 @@ router.get('/cache/stats',
         endpoint: 'GET /api/v1/admin/cache/stats',
         userId: req.user?.id
       }, 'Error obteniendo estadísticas de caché');
-      next(new AppError('Error interno del servidor al obtener estadísticas', 500));
+      next(new AppError('Error interno del servidor al obtener estadísticas', HTTP_STATUS.INTERNAL_SERVER_ERROR));
     }
   }
 );
@@ -107,7 +107,7 @@ router.delete('/cache/clear',
 
       const result = clearCache(type || null, pattern || null);
 
-      res.status(200).json({
+      res.status(HTTP_STATUS.OK).json({
         success: true,
         message: pattern
           ? `Caché limpiado para el patrón: ${pattern}`
@@ -137,7 +137,7 @@ router.delete('/cache/clear',
         endpoint: 'DELETE /api/v1/admin/cache/clear',
         userId: req.user?.id
       }, 'Error limpiando caché');
-      next(new AppError('Error interno del servidor al limpiar caché', 500));
+      next(new AppError('Error interno del servidor al limpiar caché', HTTP_STATUS.INTERNAL_SERVER_ERROR));
     }
   }
 );
@@ -205,7 +205,7 @@ router.get('/system/health',
         healthData.issues.push('high_memory_usage');
       }
 
-      res.status(200).json({
+      res.status(HTTP_STATUS.OK).json({
         success: true,
         message: 'Estado de salud del sistema obtenido exitosamente',
         data: healthData
@@ -218,7 +218,7 @@ router.get('/system/health',
         endpoint: 'GET /api/v1/admin/system/health',
         userId: req.user?.id
       }, 'Error obteniendo estado de salud');
-      next(new AppError('Error interno del servidor al obtener estado de salud', 500));
+      next(new AppError('Error interno del servidor al obtener estado de salud', HTTP_STATUS.INTERNAL_SERVER_ERROR));
     }
   }
 );
@@ -235,7 +235,7 @@ router.get('/performance/stats',
     try {
       const stats = getPerformanceStats();
 
-      res.status(200).json({
+      res.status(HTTP_STATUS.OK).json({
         success: true,
         message: 'Estadísticas de rendimiento obtenidas exitosamente',
         data: {
@@ -251,7 +251,7 @@ router.get('/performance/stats',
         endpoint: 'GET /api/v1/admin/performance/stats',
         userId: req.user?.id
       }, 'Error obteniendo estadísticas de rendimiento');
-      next(new AppError('Error interno del servidor al obtener estadísticas de rendimiento', 500));
+      next(new AppError('Error interno del servidor al obtener estadísticas de rendimiento', HTTP_STATUS.INTERNAL_SERVER_ERROR));
     }
   }
 );
@@ -268,7 +268,7 @@ router.get('/etag/stats',
     try {
       const stats = getETagStats();
 
-      res.status(200).json({
+      res.status(HTTP_STATUS.OK).json({
         success: true,
         message: 'Estadísticas de ETags obtenidas exitosamente',
         data: {
@@ -284,7 +284,7 @@ router.get('/etag/stats',
         endpoint: 'GET /api/v1/admin/etag/stats',
         userId: req.user?.id
       }, 'Error obteniendo estadísticas de ETags');
-      next(new AppError('Error interno del servidor al obtener estadísticas de ETags', 500));
+      next(new AppError('Error interno del servidor al obtener estadísticas de ETags', HTTP_STATUS.INTERNAL_SERVER_ERROR));
     }
   }
 );

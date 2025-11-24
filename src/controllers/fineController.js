@@ -12,7 +12,7 @@ const { AppError, createValidationError, createInternalError } = require('../uti
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, AGGREGATION_LIMITS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -109,9 +109,9 @@ const getFines = async (req, res, next) => {
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .maxTimeMS(10000) // Timeout de 10 segundos
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
         .lean(),
-      Fine.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
+      Fine.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
     ]);
 
     // Calcular metadatos de paginación usando helper
@@ -178,11 +178,11 @@ const getFineById = async (req, res, next) => {
     const { id } = req.params;
 
     const multa = await Fine.findById(id)
-      .maxTimeMS(5000) // Timeout de 5 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos
       .lean();
 
     if (!multa) {
-      return next(new AppError('Multa no encontrada', 404));
+      return next(new AppError('Multa no encontrada', HTTP_STATUS.NOT_FOUND));
     }
 
     // Agregar información calculada adicional
@@ -409,7 +409,7 @@ const getDashboardMetrics = async (req, res, next) => {
         }
       }
     ])
-      .maxTimeMS(10000) // Timeout de 10 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
       .exec();
 
     // Top 5 tipos de infracciones
@@ -430,7 +430,7 @@ const getDashboardMetrics = async (req, res, next) => {
       { $sort: { cantidad: -1 } },
       { $limit: AGGREGATION_LIMITS.PREVIEW }
     ])
-      .maxTimeMS(10000) // Timeout de 10 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
       .exec();
 
     // Evolución diaria del periodo
@@ -458,7 +458,7 @@ const getDashboardMetrics = async (req, res, next) => {
       },
       { $sort: { '_id.fecha': 1 } }
     ])
-      .maxTimeMS(10000) // Timeout de 10 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
       .exec();
 
     const responseData = {

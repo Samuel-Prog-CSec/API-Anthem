@@ -11,7 +11,7 @@ const { createValidationError, createInternalError } = require('../utils/errorUt
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildSortOptions, buildPaginationOptions, buildFilters } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS, AGGREGATION_LIMITS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -335,7 +335,8 @@ const getDistrictStatistics = async (req, res, next) => {
         }
       },
       { $sort: { 'poblacion.total': -1 } }
-    ]);
+    ])
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
 
     let neighborhoodStatistics = null;
 
@@ -374,7 +375,8 @@ const getDistrictStatistics = async (req, res, next) => {
         },
         { $sort: { poblacionTotal: -1 } },
         { $limit: AGGREGATION_LIMITS.TOP_RESULTS } // Top 50 barrios
-      ]);
+      ])
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
     }
 
     // Ranking de distritos por diferentes métricas
@@ -560,7 +562,8 @@ const getDemographicEvolution = async (req, res, next) => {
         }
       },
       { $sort: { '_id.año': 1, '_id.mes': 1 } }
-    ]);
+    ])
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
 
     // Calcular tendencias
     let tendencia = null;
@@ -678,7 +681,8 @@ const getDemographicDashboard = async (req, res, next) => {
           }
         }
       }
-    ]);
+    ])
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
 
     // Top distritos por población
     const topDistritos = await Census.aggregate([
@@ -695,7 +699,8 @@ const getDemographicDashboard = async (req, res, next) => {
       },
       { $sort: { poblacionTotal: -1 } },
       { $limit: AGGREGATION_LIMITS.PREVIEW }
-    ]);
+    ])
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
 
     // Distribución por grupos de edad
     const distribucionEdad = await Census.aggregate([
@@ -707,7 +712,8 @@ const getDemographicDashboard = async (req, res, next) => {
         }
       },
       { $sort: { poblacionTotal: -1 } }
-    ]);
+    ])
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
 
     const responseData = {
       message: 'Dashboard demográfico obtenido exitosamente',

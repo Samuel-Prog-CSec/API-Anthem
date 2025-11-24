@@ -18,7 +18,8 @@ const {
   TRAFFIC_ELEMENT_TYPES,
   RATE_LIMITS,
   DATE_RANGE_LIMITS,
-  ROUTE_SPECIFIC_LIMITS
+  ROUTE_SPECIFIC_LIMITS,
+  HTTP_STATUS
 } = require('../constants');
 const {
   validatePagination,
@@ -232,7 +233,7 @@ router.get('/export',
       }, 'Exportación de datos de tráfico solicitada');
 
       // TODO: Implementar lógica de exportación
-      res.status(501).json({
+      res.status(HTTP_STATUS.NOT_IMPLEMENTED).json({
         success: false,
         message: 'Funcionalidad de exportación en desarrollo'
       });
@@ -286,7 +287,7 @@ router.use((error, req, res, _next) => {
   }
 
   // Error específico de tráfico
-  res.status(500).json({
+  res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
     success: false,
     message: 'Error interno en el procesamiento de datos de tráfico',
     requestId: req.id || Date.now()

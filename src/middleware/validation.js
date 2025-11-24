@@ -121,6 +121,32 @@ const validateObjectId = (paramName = 'id') => [
 ];
 
 /**
+ * Middleware de validación de peticiones
+ *
+ * Procesa los resultados de validación de express-validator y devuelve
+ * respuestas de error formateadas correctamente si la validación falla.
+ */
+const validateRequest = (req, res, next) => {
+  const errors = validationResult(req);
+
+  if (!errors.isEmpty()) {
+    const formattedErrors = errors.array().map(error => ({
+      field: error.path || error.param,
+      message: error.msg,
+      value: error.value
+    }));
+
+    return res.status(400).json({
+      success: false,
+      message: 'Errores de validación',
+      errors: formattedErrors
+    });
+  }
+
+  next();
+};
+
+/**
  * Reglas de validación de paginación
  *
  * Valida los parámetros de query de paginación.
@@ -146,7 +172,9 @@ const validatePagination = [
   query('sortBy')
     .optional()
     .matches(SEARCH_LIMITS.SORTBY_PATTERN)
-    .withMessage('SortBy debe ser un nombre de campo válido')
+    .withMessage('SortBy debe ser un nombre de campo válido'),
+
+  validateRequest
 ];
 
 /**
@@ -167,32 +195,6 @@ const validateSearch = [
     .matches(SEARCH_LIMITS.FIELDS_PATTERN)
     .withMessage('Fields debe ser nombres de campos separados por comas')
 ];
-
-/**
- * Middleware de validación de peticiones
- *
- * Procesa los resultados de validación de express-validator y devuelve
- * respuestas de error formateadas correctamente si la validación falla.
- */
-const validateRequest = (req, res, next) => {
-  const errors = validationResult(req);
-
-  if (!errors.isEmpty()) {
-    const formattedErrors = errors.array().map(error => ({
-      field: error.path || error.param,
-      message: error.msg,
-      value: error.value
-    }));
-
-    return res.status(400).json({
-      success: false,
-      message: 'Errores de validación',
-      errors: formattedErrors
-    });
-  }
-
-  next();
-};
 
 /**
  * Validación de rango de fechas para consultas
@@ -239,7 +241,9 @@ const validateDateRange = (maxRangeDays = DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS) =>
         }
       }
       return true;
-    })
+    }),
+
+  validateRequest
 ];
 
 /**

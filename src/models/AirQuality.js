@@ -8,7 +8,13 @@
 
 const mongoose = require('mongoose');
 const { validateNotFutureDate } = require('./schemas/commonSchemas');
-const { MAGNITUDES_PERMITIDAS, AIR_QUALITY_MAGNITUDES, VALIDATION_CODES, AGGREGATION_LIMITS, TIME_CONSTANTS } = require('../constants');
+const {
+  MAGNITUDES_PERMITIDAS,
+  AIR_QUALITY_MAGNITUDES,
+  VALIDATION_CODES,
+  AGGREGATION_LIMITS,
+  TIME_CONSTANTS
+} = require('../constants');
 
 /**
  * Sub-esquema para mediciones horarias

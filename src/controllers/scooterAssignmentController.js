@@ -12,7 +12,7 @@ const { createValidationError, createInternalError, createNotFoundError, createB
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, escapeRegex, validateDateRange } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS } = require('../constants');
 
 /**
  * Obtener datos de asignación de patinetes con filtros
@@ -118,7 +118,8 @@ const getScooterAssignments = async (req, res, next) => {
           }
         }
       }
-    ]);
+    ])
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
 
     // Respuesta
     const responseData = {

@@ -67,6 +67,15 @@ const PAGINATION = {
 };
 
 /**
+ * Timeouts para queries de MongoDB
+ * Previenen conexiones colgadas y mejoran la resiliencia
+ */
+const MONGODB_TIMEOUTS = {
+  QUERY_TIMEOUT_MS: 5000,      // 5 segundos para queries simples (find, findOne, findById, count)
+  AGGREGATE_TIMEOUT_MS: 10000  // 10 segundos para aggregations complejas
+};
+
+/**
  * Límites para agregaciones de MongoDB
  * Usados en pipelines de agregación para prevenir problemas de memoria
  */
@@ -322,6 +331,7 @@ const HTTP_STATUS = {
   NOT_FOUND: 404,
   CONFLICT: 409,
   UNPROCESSABLE_ENTITY: 422,
+  LOCKED: 423,
   TOO_MANY_REQUESTS: 429,
   INTERNAL_SERVER_ERROR: 500,
   SERVICE_UNAVAILABLE: 503
@@ -938,6 +948,9 @@ module.exports = {
   PAGINATION,
   AGGREGATION_LIMITS,
   SPECIAL_PAGINATION_LIMITS,
+
+  // MongoDB
+  MONGODB_TIMEOUTS,
 
   // Accidentes
   ACCIDENT_TYPES,

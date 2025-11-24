@@ -10,7 +10,7 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES, AGGREGATION_LIMITS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -88,9 +88,9 @@ const getAllTrafficData = async (req, res, next) => {
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .maxTimeMS(10000) // Timeout de 10 segundos
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
         .lean(),
-      Traffic.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
+      Traffic.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
     ]);
 
     // Calcular estadísticas básicas para la respuesta con límite
@@ -194,13 +194,13 @@ const getTrafficByPoint = async (req, res, next) => {
       Traffic.find(filters, projection)
         .sort({ fecha: -1 })
         .limit(parseInt(limit))
-        .maxTimeMS(10000) // Timeout de 10 segundos
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
         .lean(),
       Location.findOne({
         tipo: 'punto_trafico',
         id_punto: id
       })
-      .maxTimeMS(5000) // Timeout de 5 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos
       .lean()
     ]);
 

@@ -10,7 +10,7 @@ const { createInternalError, createNotFoundError, createBadRequestError } = requ
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
 
 /**
  * Obtener todos los registros de disponibilidad con filtros y paginación
@@ -68,9 +68,9 @@ exports.getAllBikeAvailability = async (req, res, next) => {
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .maxTimeMS(10000) // Timeout de 10 segundos
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
         .lean(),
-      BikeAvailability.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
+      BikeAvailability.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
     ]);
 
     const responseData = {
@@ -103,7 +103,7 @@ exports.getBikeAvailabilityByDate = async (req, res, next) => {
 
     const data = await BikeAvailability.findOne({ dia: targetDate })
       .select('-__v')
-      .maxTimeMS(5000) // Timeout de 5 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos
       .lean();
 
     if (!data) {

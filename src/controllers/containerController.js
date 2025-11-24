@@ -10,7 +10,7 @@ const { createInternalError, createNotFoundError, createBadRequestError } = requ
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, escapeRegex } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
 
 /**
  * Obtener todos los contenedores con filtros y paginación
@@ -72,9 +72,9 @@ exports.getAllContainers = async (req, res, next) => {
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .maxTimeMS(10000) // Timeout de 10 segundos
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
         .lean(),
-      Container.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
+      Container.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
     ]);
 
     const responseData = {
@@ -352,7 +352,7 @@ exports.searchByAddress = async (req, res, next) => {
 
     const containers = await Container.find(filters)
       .limit(parseInt(limit))
-      .maxTimeMS(10000) // Timeout de 10 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
       .select('-__v')
       .lean();
 

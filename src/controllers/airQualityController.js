@@ -11,7 +11,7 @@ const { AppError, createValidationError, createInternalError, createNotFoundErro
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, VALIDATION_CODES } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, VALIDATION_CODES, MONGODB_TIMEOUTS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -47,7 +47,7 @@ const getAirQualityData = async (req, res, next) => {
     const { startDate, endDate } = req.query;
     const dateValidation = validateDateRange(startDate, endDate, 730);
     if (!dateValidation.isValid) {
-      return next(new AppError(dateValidation.error, 400));
+      return next(new AppError(dateValidation.error, HTTP_STATUS.BAD_REQUEST));
     }
 
     // Configurar ordenamiento y paginación usando queryHelper
@@ -94,9 +94,9 @@ const getAirQualityData = async (req, res, next) => {
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .maxTimeMS(10000) // Timeout de 10 segundos
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
         .lean(),
-      AirQuality.countDocuments(filters).maxTimeMS(5000) // Timeout de 5 segundos para count
+      AirQuality.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
     ]);
 
     const responseData = {
@@ -132,7 +132,7 @@ const getAirQualityById = async (req, res, next) => {
     const { id } = req.params;
 
     const data = await AirQuality.findById(id)
-      .maxTimeMS(5000) // Timeout de 5 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos
       .lean();
 
     if (!data) {

@@ -8,6 +8,9 @@
 
 const express = require('express');
 const router = express.Router();
+const { HTTP_STATUS } = require('../constants');
+const { createResponse } = require('../utils/responseHelper');
+const logger = require('../config/logger');
 
 // Controladores
 const {
@@ -125,25 +128,32 @@ router.get('/me',
  */
 router.get('/verify-token',
   authenticate, // Requiere autenticación
-  (req, res) => {
-    // Si llegamos aquí, el token es válido (el middleware authenticate pasó)
-    const { createResponse } = require('../utils/responseHelper');
-
-    res.status(200).json(
-      createResponse(
-        'Token válido',
-        {
-          user: {
-            id: req.user._id,
-            username: req.user.username,
-            email: req.user.email,
-            role: req.user.role,
-            isActive: req.user.isActive
+  (req, res, next) => {
+    try {
+      // Si llegamos aquí, el token es válido (el middleware authenticate pasó)
+      res.status(HTTP_STATUS.OK).json(
+        createResponse(
+          {
+            user: {
+              id: req.user._id,
+              username: req.user.username,
+              email: req.user.email,
+              role: req.user.role,
+              isActive: req.user.isActive
+            },
+            tokenValid: true
           },
-          tokenValid: true
-        }
-      )
-    );
+          'Token válido'
+        )
+      );
+    } catch (error) {
+      logger.error({
+        error: error.message,
+        stack: error.stack,
+        userId: req.user?._id
+      }, 'Error en verificación de token');
+      next(error);
+    }
   }
 );
 

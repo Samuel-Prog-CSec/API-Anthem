@@ -11,7 +11,7 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, AGGREGATION_LIMITS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
 const logger = require('../config/logger');
 
 
@@ -88,9 +88,9 @@ const getAllAccidents = async (req, res, next) => {
         .sort(sortOptions)
         .skip(paginationOptions.skip)
         .limit(paginationOptions.limit)
-        .maxTimeMS(10000) // Timeout de 10 segundos
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
         .lean(),
-      Accident.countDocuments(filters).maxTimeMS(5000), // Timeout de 5 segundos para count
+      Accident.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS), // Timeout de 5 segundos para count
       Accident.aggregate([
         { $match: filters },
         { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos para estadísticas
@@ -110,7 +110,7 @@ const getAllAccidents = async (req, res, next) => {
           }
         }
       ])
-        .maxTimeMS(10000) // Timeout de 10 segundos
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
         .exec()
     ]);
 
@@ -170,7 +170,7 @@ const getAccidentByFileNumber = async (req, res, next) => {
     // Buscar todas las personas afectadas en el mismo expediente
     const accidentData = await Accident.find({ numeroExpediente: numero })
       .sort({ 'personaAfectada.tipoPersona': 1 })
-      .maxTimeMS(5000) // Timeout de 5 segundos
+      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos
       .lean();
 
     if (!accidentData || accidentData.length === 0) {
