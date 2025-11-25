@@ -8,7 +8,7 @@
 
 const mongoose = require('mongoose');
 const { coordinatesUTMSchema } = require('./schemas/commonSchemas');
-const { CONTAINER_TYPES, CONTAINER_LOTES, AGGREGATION_LIMITS, GEOMETRY_TYPES } = require('../constants');
+const { CONTAINER_TYPES, CONTAINER_LOTES, GEOMETRY_TYPES, VALIDATION_LIMITS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -49,7 +49,7 @@ const containerSchema = new mongoose.Schema({
     type: Number,
     required: true,
     default: 1,
-    min: [1, 'La cantidad debe ser al menos 1']
+    min: [VALIDATION_LIMITS.QUANTITY_POSITIVE_MIN, 'La cantidad debe ser al menos 1']
   },
 
   // Lote al que pertenece (1, 2 o 3)
@@ -179,6 +179,7 @@ containerSchema.index({
   codigoInternoSituado: 1,
   tipoContenedor: 1
 }, {
+  unique: true,
   name: 'idx_containers_unique_code_type',
   background: true
 });
@@ -414,7 +415,7 @@ containerSchema.statics.getStatsByNeighborhood = function(distrito, barrio = nul
  */
 containerSchema.statics.getGeneralSummary = function() {
   return this.aggregate([
-    { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos
+    // NO usar $limit antes de $group - necesitamos TODOS los documentos para estadísticas correctas
     {
       $group: {
         _id: '$tipoContenedor',

@@ -937,6 +937,176 @@ const BIKE_USAGE_THRESHOLDS = {
   MIN_OCCUPANCY: 0 // >= 0% ocupación
 };
 
+/**
+ * Años del dataset
+ * IMPORTANTE: El dataset de Anthem Smart City contiene datos del año 2051
+ * Estos valores se usan como defaults en consultas y validaciones
+ *
+ * CONTEXTO: Este proyecto trabaja con datos proyectados/simulados del futuro
+ * para análisis de Smart City. NO cambiar estos valores sin revisar todo el proyecto.
+ */
+const DATASET_YEARS = {
+  DEFAULT_YEAR: 2051,        // Año por defecto para consultas (donde están los datos)
+  MIN_YEAR: 2050,            // Año mínimo del dataset
+  MAX_YEAR: 2052,            // Año máximo del dataset
+  VALIDATION_MIN: 2000,      // Validación mínima para inputs de usuario
+  VALIDATION_MAX: 2099,      // Validación máxima para inputs de usuario
+
+  // Fechas default para consultas (strings ISO para construcción de Date objects)
+  DEFAULT_START_DATE: '2051-01-01', // Fecha de inicio por defecto
+  DEFAULT_END_DATE: '2051-12-31'    // Fecha de fin por defecto
+};
+
+/**
+ * Límites de validación numérica
+ * Valores estándar usados en validaciones de Mongoose schemas
+ * Centraliza min/max para edad, fechas, coordenadas, porcentajes, etc.
+ */
+const VALIDATION_LIMITS = {
+  // Tiempo - Fechas y horas
+  MONTH_MIN: 1,
+  MONTH_MAX: 12,
+  DAY_MIN: 1,
+  DAY_MAX: 31,
+  HOUR_MIN: 0,
+  HOUR_MAX: 23,
+  MINUTE_MIN: 0,
+  MINUTE_MAX: 59,
+  YEAR_MIN: 2000,          // Años históricos aceptados
+  YEAR_MAX: 3000,          // Años futuros aceptados (para proyecciones)
+
+  // Demografía y personas
+  AGE_MIN: 0,
+  AGE_MAX: 120,            // Edad máxima humana razonable
+
+  // Porcentajes y ratios
+  PERCENTAGE_MIN: 0,
+  PERCENTAGE_MAX: 100,
+  RATIO_MIN: 0,            // Ratios siempre no negativos
+  SCORE_MIN: 0,            // Puntuaciones normalizadas 0-1
+  SCORE_MAX: 1,
+
+  // Coordenadas geográficas - WGS84 (lat/lng)
+  LATITUDE_MIN: -90,
+  LATITUDE_MAX: 90,
+  LONGITUDE_MIN: -180,
+  LONGITUDE_MAX: 180,
+
+  // Coordenadas UTM - España (zonas 29, 30, 31)
+  UTM_X_MIN: 100000,       // 100,000 m (100 km)
+  UTM_X_MAX: 1000000,      // 1,000,000 m (1,000 km)
+  UTM_Y_MIN: 3000000,      // 3,000,000 m (límite sur España)
+  UTM_Y_MAX: 5000000,      // 5,000,000 m (límite norte España)
+
+  // Velocidades (km/h)
+  SPEED_MIN: 0,
+  SPEED_MAX: 300,          // Velocidad máxima razonable (trenes de alta velocidad)
+
+  // Ruido (decibelios dB)
+  NOISE_MIN: 0,
+  NOISE_MAX: 150,          // 150 dB = umbral del dolor
+
+  // Multas - Puntos de carnet
+  DRIVER_POINTS_MIN: 0,
+  DRIVER_POINTS_MAX: 12,   // Sistema español de puntos de carnet
+
+  // Cantidades genéricas
+  QUANTITY_MIN: 0,         // Cantidad no negativa
+  QUANTITY_POSITIVE_MIN: 1, // Cantidad mínima positiva
+
+  // Tráfico
+  TRAFFIC_INTENSITY_MIN: 0,
+  TRAFFIC_INTENSITY_MAX: 10000, // Vehículos/hora máximo razonable
+  TRAFFIC_OCCUPANCY_MIN: 0,
+  TRAFFIC_OCCUPANCY_MAX: 100    // Porcentaje de ocupación
+};
+
+/**
+ * Thresholds de tráfico
+ * Umbrales para clasificar niveles de congestión, intensidad y calidad de datos
+ */
+const TRAFFIC_THRESHOLDS = {
+  // Niveles de congestión basados en ocupación (%) y carga (%)
+  CONGESTION_CRITICAL_OCCUPANCY: 80,  // >= 80% ocupación = Crítico
+  CONGESTION_CRITICAL_LOAD: 90,       // >= 90% carga = Crítico
+  CONGESTION_HIGH_OCCUPANCY: 60,      // >= 60% ocupación = Alto
+  CONGESTION_HIGH_LOAD: 70,           // >= 70% carga = Alto
+  CONGESTION_MEDIUM_OCCUPANCY: 40,    // >= 40% ocupación = Medio
+  CONGESTION_MEDIUM_LOAD: 50,         // >= 50% carga = Medio
+
+  // Niveles de intensidad (vehículos/hora)
+  INTENSITY_VERY_HIGH: 4000,          // >= 4000 veh/h = Muy alta
+  INTENSITY_HIGH: 3000,               // >= 3000 veh/h = Alta
+  INTENSITY_MEDIUM: 2000,             // >= 2000 veh/h = Media
+  INTENSITY_LOW: 1000,                // >= 1000 veh/h = Baja
+
+  // Calidad de datos por periodo de integración (minutos)
+  DATA_QUALITY_EXCELLENT_PERIOD: 3,   // >= 3 min + sin errores = Excelente
+  DATA_QUALITY_GOOD_PERIOD: 2,        // >= 2 min + datos parciales = Buena
+  DATA_QUALITY_ACCEPTABLE_PERIOD: 1   // >= 1 min = Aceptable
+};
+
+/**
+ * Límites de velocidad por zona (km/h)
+ * Usado en Location model para defaults y validaciones
+ */
+const SPEED_LIMIT_ZONES = {
+  ZONE_30: 30,             // Zona 30 (mayoría de Madrid)
+  ZONE_50: 50,             // Zona 50 (vías principales)
+  ZONE_70: 70,             // Zona 70 (circunvalación)
+  ZONE_90: 90,             // Carreteras convencionales
+  ZONE_120: 120,           // Autopistas/autovías
+  DEFAULT: 30              // Default para Madrid (zona 30)
+};
+
+/**
+ * Whitelist de parámetros HTTP que legítimamente pueden ser arrays
+ * Usado en middleware de seguridad (HPP protection) para permitir arrays en query strings
+ *
+ * IMPORTANTE: Solo incluir parámetros que REALMENTE necesitan soportar arrays múltiples
+ * Formato típico de uso: ?ids=1&ids=2&ids=3 o ?distrito=Centro&distrito=Norte
+ *
+ * @constant {Array<string>}
+ */
+const HPP_ARRAY_PARAMS_WHITELIST = [
+  // Identificadores
+  'id',                     // Filtros por ID único
+  'ids',                    // Filtros por múltiples IDs: ?ids=1&ids=2&ids=3
+
+  // Estados y clasificaciones
+  'status',                 // Múltiples estados: ?status=active&status=pending
+  'tipo',                   // Tipos generales (contenedor, accidente, ubicación, etc.)
+  'tipoContenedor',         // Tipos de contenedor: ORGANICA, RESTO, ENVASES, etc.
+  'tipoAccidente',          // Tipos de accidente: ALCANCE, ATROPELLO, etc.
+  'tipoVehiculo',           // Tipos de vehículo: TURISMO, MOTOCICLETA, etc.
+  'tipoInfraccion',         // Tipos de infracción de tráfico
+
+  // Ubicaciones geográficas
+  'distrito',               // Múltiples distritos en consultas (Census usa $in)
+  'barrio',                 // Múltiples barrios
+
+  // Calidad del aire
+  'magnitud',               // Múltiples magnitudes de contaminación: NO2, PM10, etc.
+  'estacion',               // Múltiples estaciones de medición
+
+  // Ruido
+  'nmt',                    // Múltiples estaciones de ruido (NoiseMonitoring usa $in)
+  'stations',               // Estaciones para comparativas de ruido
+
+  // Multas
+  'calificacion',           // Múltiples calificaciones de multas: LEVE, GRAVE, MUY_GRAVE (Fine usa $in)
+
+  // Accidentes
+  'gravedad',               // Múltiples gravedades de accidentes
+
+  // Fechas (se usan en paralelo en muchas queries)
+  'startDate',              // Fecha de inicio de rango
+  'endDate',                // Fecha de fin de rango
+
+  // Metadatos
+  'fields'                  // Proyección de campos (usado en algunas consultas avanzadas)
+];
+
 module.exports = {
   // Severidad
   SEVERITY_LEVELS,
@@ -1053,5 +1223,20 @@ module.exports = {
   CULTURAL_DIVERSITY_THRESHOLDS,
 
   // Bicicletas - Thresholds
-  BIKE_USAGE_THRESHOLDS
+  BIKE_USAGE_THRESHOLDS,
+
+  // Dataset - Años de los datos
+  DATASET_YEARS,
+
+  // Validación - Límites numéricos
+  VALIDATION_LIMITS,
+
+  // Tráfico - Thresholds
+  TRAFFIC_THRESHOLDS,
+
+  // Velocidad - Zonas de límite
+  SPEED_LIMIT_ZONES,
+
+  // Seguridad HTTP - Whitelist para HPP protection
+  HPP_ARRAY_PARAMS_WHITELIST
 };

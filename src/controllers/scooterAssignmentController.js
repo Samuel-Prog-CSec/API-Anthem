@@ -10,7 +10,7 @@ const { validationResult } = require('express-validator');
 const ScooterAssignment = require('../models/ScooterAssignment');
 const { createValidationError, createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions, escapeRegex, validateDateRange } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS } = require('../constants');
 
@@ -45,12 +45,13 @@ const getScooterAssignments = async (req, res, next) => {
 
     const filters = buildFilters(req.query, filterConfig);
 
-    // Filtro especial por proveedor (array anidado) con escapeRegex para prevenir ReDoS
+    // Filtro especial por proveedor (array anidado)
+    // Los nombres están normalizados en MAYÚSCULAS en BD (ver importScooterAssignments.js)
+    // Usar match exacto en lugar de RegExp para mejor performance
     if (proveedor) {
-      const escapedProveedor = escapeRegex(proveedor);
       filters.proveedores = {
         $elemMatch: {
-          nombre: new RegExp(escapedProveedor, 'i'),
+          nombre: proveedor.toUpperCase(), // Normalizar a mayúsculas
           activo: soloProveedoresActivos === 'true',
           cantidad: { $gt: 0 }
         }

@@ -10,7 +10,7 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES, MONGODB_TIMEOUTS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -93,10 +93,10 @@ const getAllTrafficData = async (req, res, next) => {
       Traffic.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
     ]);
 
-    // Calcular estadísticas básicas para la respuesta con límite
+    // Calcular estadísticas básicas para la respuesta
     const stats = await Traffic.aggregate([
       { $match: filters },
-      { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos para agregación
+      // NO usar $limit antes de $group - corrompe las estadísticas globales
       {
         $group: {
           _id: null,
@@ -208,10 +208,10 @@ const getTrafficByPoint = async (req, res, next) => {
       return next(createNotFoundError('Datos de tráfico para el punto de medida', id));
     }
 
-    // Calcular estadísticas del punto con límite
+    // Calcular estadísticas del punto
     const stats = await Traffic.aggregate([
       { $match: filters },
-      { $limit: AGGREGATION_LIMITS.MEDIUM }, // Límite máximo para agregación de un punto específico
+      // NO usar $limit antes de $group - corrompe las estadísticas
       {
         $group: {
           _id: null,

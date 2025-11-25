@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const { coordinatesUTMSchema } = require('./schemas/commonSchemas');
-const { LOCATION_TYPES, GEOMETRY_TYPES, UTM_ZONES, TRAFFIC_ELEMENT_TYPES } = require('../constants');
+const { LOCATION_TYPES, GEOMETRY_TYPES, UTM_ZONES, TRAFFIC_ELEMENT_TYPES, SPEED_LIMIT_ZONES, VALIDATION_LIMITS } = require('../constants');
 /**
  * Esquema para las ubicaciones de infraestructura y puntos de medición
  * Modelo mejorado con validaciones y métodos geoespaciales
@@ -99,7 +99,7 @@ const locationSchema = new mongoose.Schema({
   zonaUTM: {
     type: Number,
     enum: UTM_ZONES,
-    default: 30 // La mayoría de Madrid está en zona 30
+    default: SPEED_LIMIT_ZONES.DEFAULT // La mayoría de Madrid está en zona 30
   },
 
   // Para análisis geoespacial con GeoJSON
@@ -123,7 +123,8 @@ const locationSchema = new mongoose.Schema({
             }
             // Validar rangos: lng entre -180 y 180, lat entre -90 y 90
             const [lng, lat] = coords;
-            return lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90;
+            return lng >= VALIDATION_LIMITS.LONGITUDE_MIN && lng <= VALIDATION_LIMITS.LONGITUDE_MAX &&
+                   lat >= VALIDATION_LIMITS.LATITUDE_MIN && lat <= VALIDATION_LIMITS.LATITUDE_MAX;
           }
 
           if (geomType === 'LineString') {
@@ -135,7 +136,8 @@ const locationSchema = new mongoose.Schema({
             return coords.every(point => {
               if (!Array.isArray(point) || point.length !== 2) {return false;}
               const [lng, lat] = point;
-              return lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90;
+              return lng >= VALIDATION_LIMITS.LONGITUDE_MIN && lng <= VALIDATION_LIMITS.LONGITUDE_MAX &&
+                     lat >= VALIDATION_LIMITS.LATITUDE_MIN && lat <= VALIDATION_LIMITS.LATITUDE_MAX;
             });
           }
 

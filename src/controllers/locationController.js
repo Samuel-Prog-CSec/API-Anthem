@@ -200,7 +200,7 @@ const getProximityAnalysis = async (req, res, next) => {
           key: 'geometry' // Especificar el campo con índice geoespacial
         }
       },
-      { $limit: AGGREGATION_LIMITS.SMALL }, // Límite máximo de documentos procesados
+      // NO usar $limit antes de $group - limitar después si es necesario
       {
         $group: {
           _id: '$tipo',

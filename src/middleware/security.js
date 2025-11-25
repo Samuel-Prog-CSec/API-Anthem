@@ -11,7 +11,7 @@ const helmet = require('helmet');
 const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss');
 const config = require('../config/config');
-const { RATE_LIMITS } = require('../constants');
+const { RATE_LIMITS, HPP_ARRAY_PARAMS_WHITELIST } = require('../constants');
 const { createRateLimitResponse, createErrorResponse } = require('../utils/responseHelper');
 const { securityLogger: pinoSecurityLogger } = require('../config/logger');
 
@@ -231,14 +231,21 @@ const validateRequest = (req, res, next) => {
 
   // Prevenir HTTP Parameter Pollution (HPP)
   // Detectar parámetros duplicados en query string
+  // Whitelist de parámetros que legítimamente pueden ser arrays (importada desde constants)
   if (req.query) {
     for (const [key, value] of Object.entries(req.query)) {
       if (Array.isArray(value)) {
+        // Si el parámetro está en la whitelist, permitir el array
+        if (HPP_ARRAY_PARAMS_WHITELIST.includes(key)) {
+          // Mantener el array tal cual para filtros legítimos
+          continue;
+        }
+
+        // Si no está en whitelist, es potencial HPP - tomar solo primer valor
         pinoSecurityLogger.warn(
           { key, valueCount: value.length, ip: req.ip },
-          'Parámetro duplicado detectado - posible HTTP Parameter Pollution'
+          'Parámetro duplicado detectado fuera de whitelist - posible HTTP Parameter Pollution'
         );
-        // Tomar solo el primer valor para prevenir HPP
         req.query[key] = value[0];
       }
     }

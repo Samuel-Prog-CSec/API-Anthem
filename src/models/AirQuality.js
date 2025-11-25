@@ -7,7 +7,7 @@
  */
 
 const mongoose = require('mongoose');
-const { validateNotFutureDate } = require('./schemas/commonSchemas');
+const { validateDatasetDate } = require('./schemas/commonSchemas');
 const {
   MAGNITUDES_PERMITIDAS,
   AIR_QUALITY_MAGNITUDES,
@@ -92,8 +92,8 @@ const airQualitySchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateNotFutureDate,
-      message: 'La fecha de medición no puede ser futura'
+      validator: validateDatasetDate,
+      message: 'La fecha de medición debe estar dentro del rango del dataset (2050-2052)'
     }
   },
 

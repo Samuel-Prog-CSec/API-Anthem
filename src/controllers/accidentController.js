@@ -11,7 +11,7 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, MONGODB_TIMEOUTS, TIME_CONSTANTS } = require('../constants');
 const logger = require('../config/logger');
 
 
@@ -93,7 +93,7 @@ const getAllAccidents = async (req, res, next) => {
       Accident.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS), // Timeout de 5 segundos para count
       Accident.aggregate([
         { $match: filters },
-        { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos para estadísticas
+        // NO usar $limit antes de $group - corrompe las estadísticas globales
         {
           $group: {
             _id: null,
@@ -243,7 +243,7 @@ const getAccidentStats = async (req, res, next) => {
 
     // Estadísticas generales
     const generalStats = await Accident.getStatisticsByPeriod(
-      filters.fecha?.$gte || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      filters.fecha?.$gte || new Date(Date.now() - 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY),
       filters.fecha?.$lte || new Date()
     );
 

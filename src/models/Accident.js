@@ -7,7 +7,7 @@
  */
 
 const mongoose = require('mongoose');
-const { coordinatesUTMSchema, validateTimeFormat, validateNotFutureDate } = require('./schemas/commonSchemas');
+const { coordinatesUTMSchema, validateTimeFormat, validateDatasetDate } = require('./schemas/commonSchemas');
 const {
   ACCIDENT_TYPES,
   VEHICLE_TYPES,
@@ -20,7 +20,8 @@ const {
   SEVERITY_LEVELS,
   GENDERS,
   BINARY_INDICATORS,
-  AGGREGATION_LIMITS
+  DATASET_YEARS,
+  VALIDATION_LIMITS
 } = require('../constants');
 
 /**
@@ -141,8 +142,8 @@ const accidentSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateNotFutureDate,
-      message: 'La fecha del accidente no puede ser futura'
+      validator: validateDatasetDate,
+      message: 'La fecha del accidente debe estar dentro del rango del dataset (2050-2052)'
     }
   },
 
@@ -150,23 +151,34 @@ const accidentSchema = new mongoose.Schema({
     type: Number,
     required: true,
     index: true,
-    min: [2000, 'Año debe ser 2000 o posterior'],
-    max: [new Date().getFullYear(), 'Año no puede ser futuro']
+    min: [DATASET_YEARS.VALIDATION_MIN, 'Año debe ser 2000 o posterior'],
+    // IMPORTANTE: Validación dinámica para soportar datos históricos y futuros
+    // Los datos del proyecto corresponden al año 2051 (dataset Anthem)
+    // No usar max estático porque se evalúa al cargar el módulo
+    validate: {
+      validator: function(value) {
+        // Permitir años históricos (2000-2099) para análisis de datos
+        // El dataset actual contiene datos de 2051
+        return value >= DATASET_YEARS.VALIDATION_MIN && value <= DATASET_YEARS.VALIDATION_MAX;
+      },
+      message: 'Año debe estar entre $<DATASET_YEARS.VALIDATION_MIN> y $<DATASET_YEARS.VALIDATION_MAX>'
+    },
+    default: DATASET_YEARS.DEFAULT_YEAR
   },
 
   mes: {
     type: Number,
     required: true,
     index: true,
-    min: [1, 'Mes debe estar entre 1 y 12'],
-    max: [12, 'Mes debe estar entre 1 y 12']
+    min: [VALIDATION_LIMITS.MONTH_MIN, `Mes debe estar entre ${VALIDATION_LIMITS.MONTH_MIN} y ${VALIDATION_LIMITS.MONTH_MAX}`],
+    max: [VALIDATION_LIMITS.MONTH_MAX, `Mes debe estar entre ${VALIDATION_LIMITS.MONTH_MIN} y ${VALIDATION_LIMITS.MONTH_MAX}`]
   },
 
   dia: {
     type: Number,
     required: true,
-    min: [1, 'Día debe estar entre 1 y 31'],
-    max: [31, 'Día debe estar entre 1 y 31']
+    min: [VALIDATION_LIMITS.DAY_MIN, `Día debe estar entre ${VALIDATION_LIMITS.DAY_MIN} y ${VALIDATION_LIMITS.DAY_MAX}`],
+    max: [VALIDATION_LIMITS.DAY_MAX, `Día debe estar entre ${VALIDATION_LIMITS.DAY_MIN} y ${VALIDATION_LIMITS.DAY_MAX}`]
   },
 
   // Hora en formato de rango (ej: "1:15:00")
@@ -894,7 +906,7 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
 accidentSchema.statics.getRiskFactorsAnalysis = function(filters = {}) {
   return this.aggregate([
     { $match: filters },
-    { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos
+    // NO usar $limit antes de $unwind/$group - corrompe las estadísticas
     { $unwind: { path: '$analisis.factoresRiesgo', preserveNullAndEmptyArrays: true } },
     {
       $group: {

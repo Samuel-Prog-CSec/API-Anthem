@@ -10,7 +10,7 @@ const { createInternalError, createNotFoundError, createBadRequestError } = requ
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS } = require('../constants');
 
 /**
  * Obtener todos los registros de disponibilidad con filtros y paginación
@@ -132,8 +132,8 @@ exports.getBikeStats = async (req, res, next) => {
     const { startDate, endDate } = req.query;
 
     // Si no se proporcionan fechas, usar todo el dataset
-    const start = startDate ? new Date(startDate) : new Date('2051-01-01');
-    const end = endDate ? new Date(endDate) : new Date('2051-12-31');
+    const start = startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE);
+    const end = endDate ? new Date(endDate) : new Date(DATASET_YEARS.DEFAULT_END_DATE);
 
     const stats = await BikeAvailability.getStatsByDateRange(start, end);
 
@@ -166,7 +166,7 @@ exports.getBikeStats = async (req, res, next) => {
  */
 exports.getMonthlyTrends = async (req, res, next) => {
   try {
-    const { year = 2051 } = req.query;
+    const { year = DATASET_YEARS.DEFAULT_YEAR } = req.query;
 
     const trends = await BikeAvailability.getMonthlyTrends(parseInt(year));
 
@@ -242,8 +242,8 @@ exports.getSubscriptionComparison = async (req, res, next) => {
     const { startDate, endDate } = req.query;
 
     // Si no se proporcionan fechas, usar todo el año
-    const start = startDate ? new Date(startDate) : new Date('2051-01-01');
-    const end = endDate ? new Date(endDate) : new Date('2051-12-31');
+    const start = startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE);
+    const end = endDate ? new Date(endDate) : new Date(DATASET_YEARS.DEFAULT_END_DATE);
 
     const comparison = await BikeAvailability.compareSubscriptionTypes(start, end);
 

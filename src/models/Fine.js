@@ -10,7 +10,7 @@ const mongoose = require('mongoose');
 const {
   coordinatesUTMSchema,
   validateTimeFormat,
-  validateNotFutureDate,
+  validateDatasetDate,
   validateAmount,
   validateSpeed,
   validateLicensePoints,
@@ -20,7 +20,8 @@ const {
 const {
   SEVERITY_LEVELS,
   INFRACTION_TYPES,
-  FINE_CONFIG
+  FINE_CONFIG,
+  VALIDATION_LIMITS
 } = require('../constants');
 
 /**
@@ -46,8 +47,8 @@ const fineSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateNotFutureDate,
-      message: 'La fecha de la multa no puede ser futura'
+      validator: validateDatasetDate,
+      message: 'La fecha de la multa debe estar dentro del rango del dataset (2050-2052)'
     }
   },
 
@@ -109,7 +110,7 @@ const fineSchema = new mongoose.Schema({
     type: Number,
     required: true,
     index: true,
-    min: [0, 'Importe del boletín no puede ser negativo'],
+    min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Importe del boletín no puede ser negativo'],
     validate: {
       validator: validateAmount,
       message: 'Importe del boletín debe ser válido (máximo 2 decimales, no negativo)'
@@ -126,7 +127,7 @@ const fineSchema = new mongoose.Schema({
   importeFinal: {
     type: Number,
     required: false,
-    min: [0, 'Importe final no puede ser negativo'],
+    min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Importe final no puede ser negativo'],
     validate: [
       {
         validator: validateAmount,
@@ -173,7 +174,7 @@ const fineSchema = new mongoose.Schema({
     velocidadLimite: {
       type: Number,
       required: false,
-      min: [0, 'Velocidad límite no puede ser negativa'],
+      min: [VALIDATION_LIMITS.SPEED_MIN, 'Velocidad límite no puede ser negativa'],
       validate: {
         validator: validateSpeed,
         message: 'Velocidad límite debe estar entre 0 y 300 km/h'
@@ -182,7 +183,7 @@ const fineSchema = new mongoose.Schema({
     velocidadCirculacion: {
       type: Number,
       required: false,
-      min: [0, 'Velocidad de circulación no puede ser negativa'],
+      min: [VALIDATION_LIMITS.SPEED_MIN, 'Velocidad de circulación no puede ser negativa'],
       validate: {
         validator: validateSpeed,
         message: 'Velocidad de circulación debe estar entre 0 y 300 km/h'
@@ -191,7 +192,7 @@ const fineSchema = new mongoose.Schema({
     exceso: {
       type: Number,
       required: false,
-      min: [0, 'Exceso de velocidad no puede ser negativo'],
+      min: [VALIDATION_LIMITS.SPEED_MIN, 'Exceso de velocidad no puede ser negativo'],
       validate: {
         validator: function(v) {
           // Validar coherencia con velocidades

@@ -11,7 +11,11 @@ const User = require('../models/User');
 const TokenBlacklist = require('../models/TokenBlacklist');
 const { createResponse } = require('../utils/responseHelper');
 const { validatePassword } = require('../utils/passwordValidator');
-const { HTTP_STATUS, MONGODB_TIMEOUTS } = require('../constants');
+const {
+  HTTP_STATUS,
+  MONGODB_TIMEOUTS,
+  TIME_CONSTANTS
+} = require('../constants');
 const {
   createValidationError,
   createAuthError,
@@ -98,14 +102,14 @@ const register = async (req, res, next) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 15 * 60 * 1000 // 15 minutos
+      maxAge: 15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE // 15 minutos
     });
 
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 días
+      maxAge: 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY // 30 días
     });
 
     req.log.info({ username, email }, 'Nuevo usuario registrado exitosamente');
@@ -220,14 +224,14 @@ const login = async (req, res, next) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 15 * 60 * 1000 // 15 minutos
+      maxAge: 15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE // 15 minutos
     });
 
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 días
+      maxAge: 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY // 30 días
     });
 
     req.log.info({ username: user.username, email: user.email }, 'Usuario inició sesión exitosamente');
@@ -385,9 +389,9 @@ const refreshAccessToken = async (req, res, next) => {
       return next(createAuthError('Token inválido o expirado'));
     }
 
-    // Obtener usuario desde el token
+    // Obtener usuario desde el token (incluir passwordChangedAt para verificación)
     const user = await User.findById(decoded.id)
-      .select('-password')
+      .select('-password +passwordChangedAt')
       .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
       .lean();
     if (!user) {
@@ -402,6 +406,23 @@ const refreshAccessToken = async (req, res, next) => {
     // Verificar si la cuenta está bloqueada
     if (user.isLocked) {
       return next(createForbiddenError('Cuenta bloqueada temporalmente'));
+    }
+
+    // SEGURIDAD CRÍTICA: Verificar si el usuario cambió su contraseña después de emitir este refresh token
+    // Esto invalida TODOS los tokens (access y refresh) emitidos antes del cambio de contraseña
+    if (user.passwordChangedAt) {
+      const changedTimestamp = parseInt(user.passwordChangedAt.getTime() / 1000, 10);
+      const tokenIssuedAt = decoded.iat;
+
+      if (tokenIssuedAt < changedTimestamp) {
+        authLogger.warn({
+          userId: user._id,
+          ip: req.ip,
+          tokenIat: tokenIssuedAt,
+          passwordChangedAt: changedTimestamp
+        }, 'Intento de usar refresh token emitido antes de cambio de contraseña');
+        return next(createAuthError('Token inválido o expirado'));
+      }
     }
 
     // Invalidar refresh token antiguo (rotación)
@@ -421,14 +442,14 @@ const refreshAccessToken = async (req, res, next) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 15 * 60 * 1000 // 15 minutos
+      maxAge: 15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE // 15 minutos
     });
 
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 días
+      maxAge: 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY // 30 días
     });
 
     authLogger.info({ userId: user._id }, 'Refresh token rotado exitosamente');
@@ -506,13 +527,11 @@ const changePassword = async (req, res, next) => {
       return next(createBadRequestError('La nueva contraseña debe ser diferente de la actual'));
     }
 
-    // Actualizar contraseña
+    // Actualizar contraseña y timestamp de cambio
     user.password = newPassword;
+    // Restamos 1 segundo para asegurar que el token creado inmediatamente después sea válido
+    user.passwordChangedAt = Date.now() - 1000;
     await user.save();
-
-    // TODO: Invalidar todos los refresh tokens para este usuario
-    // Esto requeriría rastrear refresh tokens activos por usuario
-    // Por ahora, los tokens expirarán naturalmente
 
     // Registrar evento de seguridad
     logPasswordChange(userId.toString(), req.ip, true);

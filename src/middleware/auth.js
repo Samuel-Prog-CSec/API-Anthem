@@ -11,6 +11,7 @@ const { verifyToken, extractToken } = require('../utils/tokenHelper');
 const { createUnauthorizedResponse } = require('../utils/responseHelper');
 const { authLogger } = require('../config/logger');
 const { logTokenValidation } = require('../utils/securityLogger');
+const { HTTP_STATUS } = require('../constants');
 
 /**
  * Middleware de autenticación
@@ -77,15 +78,22 @@ const authenticate = async (req, res, next) => {
 
     // Verificar si la cuenta de usuario está activa
     if (!user.isActive) {
-      return res.status(403).json(
+      return res.status(HTTP_STATUS.FORBIDDEN).json(
         createUnauthorizedResponse('La cuenta está desactivada')
       );
     }
 
     // Verificar si la cuenta está bloqueada
     if (user.isLocked) {
-      return res.status(423).json(
+      return res.status(HTTP_STATUS.LOCKED).json(
         createUnauthorizedResponse('La cuenta está temporalmente bloqueada')
+      );
+    }
+
+    // Verificar si el usuario cambió la contraseña después de emitir el token
+    if (user.changedPasswordAfter(decoded.iat)) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
+        createUnauthorizedResponse('El usuario cambió la contraseña recientemente. Por favor inicie sesión nuevamente.')
       );
     }
 
@@ -103,7 +111,7 @@ const authenticate = async (req, res, next) => {
       method: req.method,
       ip: req.ip
     }, 'Error en middleware de autenticación');
-    return res.status(500).json(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
       createUnauthorizedResponse('Error de autenticación')
     );
   }

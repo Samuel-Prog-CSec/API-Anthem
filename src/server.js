@@ -20,7 +20,6 @@ const { warmupCacheAsync } = require('./config/cacheWarming');
 
 // Importar logger Pino
 const logger = require('./config/logger');
-const { corsLogger } = logger;
 const { httpLoggerMiddleware, enrichRequestContext, errorLogger } = require('./middleware/requestLogger');
 
 // Importar middleware
@@ -66,6 +65,12 @@ handleUncaughtException();
 app.set('trust proxy', 1);
 
 /**
+ * Deshabilitar header X-Powered-By
+ * Mejora la seguridad evitando revelar la tecnología del servidor
+ */
+app.disable('x-powered-by');
+
+/**
  * Configuración de Middleware de Seguridad
  * Aplicado en orden de importancia para seguridad
  */
@@ -77,14 +82,32 @@ app.use(timeoutHandler(config.api.timeout));
 app.use(helmetConfig);
 app.use(customSecurityHeaders);
 
+// IMPORTANTE: Validación ANTES de sanitización
+// La validación debe ocurrir primero para rechazar datos inválidos sin alterarlos
+// Si sanitizamos primero, podemos alterar datos válidos (ej: contraseñas con caracteres especiales)
+app.use(validateRequest);
+
 // Sanitización de entrada (prevenir inyección NoSQL)
+// Se aplica DESPUÉS de validación para limpiar datos que ya pasaron las reglas de negocio
 app.use(sanitizeInput);
 
 // Protección XSS (prevenir Cross-Site Scripting)
+// Se aplica al final para escapar caracteres antes de procesamiento
 app.use(xssProtection);
 
-// Validación de peticiones y límites de tamaño
-app.use(validateRequest);
+/**
+ * Endpoint de Health Check (ANTES del rate limiting)
+ * Endpoint simple para health checks de balanceadores de carga
+ * IMPORTANTE: Debe estar antes del rate limiter para evitar que los health checks
+ * consuman las peticiones del límite de tasa y marquen falsamente el servicio como caído
+ */
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
 
 // Limitación de tasa
 app.use(generalLimiter);
@@ -235,18 +258,6 @@ app.use(enrichRequestContext);
  * Rastrea tiempos de respuesta y registra peticiones lentas
  */
 app.use(performanceMonitor);
-
-/**
- * Endpoint de Health Check (antes del rate limiting)
- * Endpoint simple para health checks de balanceadores de carga
- */
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
-});
 
 /**
  * Rutas de la API

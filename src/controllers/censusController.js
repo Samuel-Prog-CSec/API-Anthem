@@ -11,7 +11,7 @@ const { createValidationError, createInternalError } = require('../utils/errorUt
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildSortOptions, buildPaginationOptions, buildFilters } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -205,7 +205,7 @@ const getPopulationPyramid = async (req, res, next) => {
   try {
     const {
       distrito,
-      año = 2051,
+      año = DATASET_YEARS.DEFAULT_YEAR,
       incluirExtranjeros = true
     } = req.query;
 
@@ -250,7 +250,7 @@ const getPopulationPyramid = async (req, res, next) => {
 const getDistrictStatistics = async (req, res, next) => {
   try {
     const {
-      año = 2051,
+      año = DATASET_YEARS.DEFAULT_YEAR,
       mes,
       incluirBarrios = false
     } = req.query;
@@ -258,10 +258,10 @@ const getDistrictStatistics = async (req, res, next) => {
     const matchCondition = { año: parseInt(año) };
     if (mes) {matchCondition.mes = parseInt(mes);}
 
-    // Estadísticas por distrito con límite
+    // Estadísticas por distrito
     const districtStatistics = await Census.aggregate([
       { $match: matchCondition },
-      { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos
+      // NO usar $limit antes de $group - corrompe las estadísticas globales
       {
         $group: {
           _id: {
@@ -340,11 +340,11 @@ const getDistrictStatistics = async (req, res, next) => {
 
     let neighborhoodStatistics = null;
 
-    // Si se solicita información de barrios, obtenerla con límite
+    // Si se solicita información de barrios, obtenerla
     if (incluirBarrios === 'true') {
       neighborhoodStatistics = await Census.aggregate([
         { $match: matchCondition },
-        { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos
+        // NO usar $limit antes de $group - corrompe las estadísticas
         {
           $group: {
             _id: {
@@ -374,7 +374,7 @@ const getDistrictStatistics = async (req, res, next) => {
           }
         },
         { $sort: { poblacionTotal: -1 } },
-        { $limit: AGGREGATION_LIMITS.TOP_RESULTS } // Top 50 barrios
+        { $limit: AGGREGATION_LIMITS.TOP_RESULTS } // Top 50 barrios DESPUÉS de agrupar
       ])
         .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
     }
@@ -435,7 +435,7 @@ const getDemographicAnalysis = async (req, res, next) => {
   try {
     const {
       distrito,
-      año = 2051,
+      año = DATASET_YEARS.DEFAULT_YEAR,
       mes
     } = req.query;
 
@@ -624,7 +624,7 @@ const getDemographicEvolution = async (req, res, next) => {
 const getDemographicDashboard = async (req, res, next) => {
   try {
     const {
-      año = 2051,
+      año = DATASET_YEARS.DEFAULT_YEAR,
       distrito
     } = req.query;
 

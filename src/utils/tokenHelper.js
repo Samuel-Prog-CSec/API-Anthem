@@ -40,7 +40,7 @@ const generateRefreshToken = (payload) => {
     payload,
     config.jwt.secret,
     {
-      expiresIn: '30d', // Los tokens de refresco duran más
+      expiresIn: config.jwt.refreshExpiresIn, // Configurado desde variable de entorno
       algorithm: config.jwt.algorithm,
       issuer: 'api-rest-auth',
       audience: 'api-rest-auth-refresh'

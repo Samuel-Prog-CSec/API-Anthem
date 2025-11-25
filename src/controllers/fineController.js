@@ -12,7 +12,7 @@ const { AppError, createValidationError, createInternalError } = require('../uti
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, TIME_CONSTANTS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -117,10 +117,10 @@ const getFines = async (req, res, next) => {
     // Calcular metadatos de paginación usando helper
     const paginationMeta = createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
 
-    // Obtener estadísticas rápidas del conjunto filtrado con límite
+    // Obtener estadísticas rápidas del conjunto filtrado
     const quickStatistics = await Fine.aggregate([
       { $match: filters },
-      { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos para estadísticas
+      // NO usar $limit antes de $group - corrompe las estadísticas globales
       {
         $group: {
           _id: null,
@@ -369,28 +369,28 @@ const getDashboardMetrics = async (req, res, next) => {
 
     switch (periodo) {
       case '7days':
-        fechaInicio = new Date(ahora.getTime() - 7 * 24 * 60 * 60 * 1000);
+        fechaInicio = new Date(ahora.getTime() - 7 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
         break;
       case '90days':
-        fechaInicio = new Date(ahora.getTime() - 90 * 24 * 60 * 60 * 1000);
+        fechaInicio = new Date(ahora.getTime() - 90 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
         break;
       case 'year':
         fechaInicio = new Date(ahora.getFullYear(), 0, 1);
         break;
       case '30days':
       default:
-        fechaInicio = new Date(ahora.getTime() - 30 * 24 * 60 * 60 * 1000);
+        fechaInicio = new Date(ahora.getTime() - 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
         break;
     }
 
-    // Métricas generales del periodo con límite
+    // Métricas generales del periodo
     const [metricsGeneral] = await Fine.aggregate([
       {
         $match: {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
-      { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos para agregación
+      // NO usar $limit antes de $group - corrompe las estadísticas globales
       {
         $group: {
           _id: null,
@@ -419,7 +419,7 @@ const getDashboardMetrics = async (req, res, next) => {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
-      { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos
+      // NO usar $limit antes de $group - corrompe las estadísticas
       {
         $group: {
           _id: '$metadatos.tipoInfraccion',
@@ -428,7 +428,7 @@ const getDashboardMetrics = async (req, res, next) => {
         }
       },
       { $sort: { cantidad: -1 } },
-      { $limit: AGGREGATION_LIMITS.PREVIEW }
+      { $limit: AGGREGATION_LIMITS.PREVIEW } // Limitar DESPUÉS de agrupar para obtener top 5 real
     ])
       .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
       .exec();
@@ -440,7 +440,7 @@ const getDashboardMetrics = async (req, res, next) => {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
-      { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos
+      // NO usar $limit antes de $group - corrompe las estadísticas
       {
         $group: {
           _id: {

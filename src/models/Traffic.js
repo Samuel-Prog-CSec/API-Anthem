@@ -1,14 +1,22 @@
 /**
  * Modelo de Tráfico
  *
- * Esquema de Mongoose para almacenar y gestionar datos de intensidad del tráfico
+ * Esquema de Mon  fecha: {
+    type: Date,
+    required: true,
+    index: true,
+    validate: {
+      validator: validateDatasetDate,
+      message: 'La fecha debe estar dentro del rango del dataset (2050-2052)'
+    }
+  },a almacenar y gestionar datos de intensidad del tráfico
  * provenientes de los sensores distribuidos por la ciudad.
  * Incluye validaciones, índices optimizados para consultas frecuentes,
  * y métodos para análisis de congestión y calidad de datos.
  */
 
 const mongoose = require('mongoose');
-const { validateSpeed, validatePercentage, validateNotFutureDate, validateMonth, validateYear } = require('./schemas/commonSchemas');
+const { validateSpeed, validatePercentage, validateDatasetDate, validateMonth, validateYear } = require('./schemas/commonSchemas');
 const {
   CONGESTION_LEVELS,
   DATA_QUALITY_LEVELS,
@@ -16,7 +24,9 @@ const {
   TRAFFIC_INTENSITY_LEVELS,
   TRAFFIC_ERROR_CODES,
   DAY_PERIODS,
-  WORKDAY_TYPES
+  WORKDAY_TYPES,
+  VALIDATION_LIMITS,
+  TRAFFIC_THRESHOLDS
 } = require('../constants');
 
 /**
@@ -49,8 +59,8 @@ const trafficSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateNotFutureDate,
-      message: 'La fecha de medición no puede ser futura'
+      validator: validateDatasetDate,
+      message: 'La fecha de medición debe estar dentro del rango del dataset (2050-2052)'
     }
   },
 
@@ -78,23 +88,23 @@ const trafficSchema = new mongoose.Schema({
   dia: {
     type: Number,
     required: true,
-    min: [1, 'Día debe estar entre 1 y 31'],
-    max: [31, 'Día debe estar entre 1 y 31']
+    min: [VALIDATION_LIMITS.DAY_MIN, `Día debe estar entre ${VALIDATION_LIMITS.DAY_MIN} y ${VALIDATION_LIMITS.DAY_MAX}`],
+    max: [VALIDATION_LIMITS.DAY_MAX, `Día debe estar entre ${VALIDATION_LIMITS.DAY_MIN} y ${VALIDATION_LIMITS.DAY_MAX}`]
   },
 
   hora: {
     type: Number,
     required: true,
     index: true,
-    min: [0, 'Hora debe estar entre 0 y 23'],
-    max: [23, 'Hora debe estar entre 0 y 23']
+    min: [VALIDATION_LIMITS.HOUR_MIN, `Hora debe estar entre ${VALIDATION_LIMITS.HOUR_MIN} y ${VALIDATION_LIMITS.HOUR_MAX}`],
+    max: [VALIDATION_LIMITS.HOUR_MAX, `Hora debe estar entre ${VALIDATION_LIMITS.HOUR_MIN} y ${VALIDATION_LIMITS.HOUR_MAX}`]
   },
 
   minutos: {
     type: Number,
     required: true,
-    min: [0, 'Minutos deben estar entre 0 y 59'],
-    max: [59, 'Minutos deben estar entre 0 y 59']
+    min: [VALIDATION_LIMITS.MINUTE_MIN, `Minutos deben estar entre ${VALIDATION_LIMITS.MINUTE_MIN} y ${VALIDATION_LIMITS.MINUTE_MAX}`],
+    max: [VALIDATION_LIMITS.MINUTE_MAX, `Minutos deben estar entre ${VALIDATION_LIMITS.MINUTE_MIN} y ${VALIDATION_LIMITS.MINUTE_MAX}`]
   },
 
   // Clasificación del punto de medida
@@ -116,9 +126,9 @@ const trafficSchema = new mongoose.Schema({
       validate: {
         validator: function(v) {
           // Validación mejorada: límite superior realista (máximo físico ~10000 veh/h por carril)
-          return v >= 0 && v <= 10000;
+          return v >= VALIDATION_LIMITS.TRAFFIC_INTENSITY_MIN && v <= VALIDATION_LIMITS.TRAFFIC_INTENSITY_MAX;
         },
-        message: 'Intensidad debe estar entre 0 y 10000 veh/h (límite físico razonable)'
+        message: `Intensidad debe estar entre ${VALIDATION_LIMITS.TRAFFIC_INTENSITY_MIN} y ${VALIDATION_LIMITS.TRAFFIC_INTENSITY_MAX} veh/h (límite físico razonable)`
       }
     },
 
@@ -382,11 +392,11 @@ trafficSchema.methods.calculateCongestionLevel = function() {
   }
 
   // Clasificación basada en ocupación y carga
-  if (ocupacion >= 80 || carga >= 90) {
+  if (ocupacion >= TRAFFIC_THRESHOLDS.CONGESTION_CRITICAL_OCCUPANCY || carga >= TRAFFIC_THRESHOLDS.CONGESTION_CRITICAL_LOAD) {
     this.analisis.nivelCongestion = CONGESTION_LEVELS.COLAPSADO;
-  } else if (ocupacion >= 60 || carga >= 70) {
+  } else if (ocupacion >= TRAFFIC_THRESHOLDS.CONGESTION_HIGH_OCCUPANCY || carga >= TRAFFIC_THRESHOLDS.CONGESTION_HIGH_LOAD) {
     this.analisis.nivelCongestion = CONGESTION_LEVELS.CONGESTIONADO;
-  } else if (ocupacion >= 40 || carga >= 50) {
+  } else if (ocupacion >= TRAFFIC_THRESHOLDS.CONGESTION_MEDIUM_OCCUPANCY || carga >= TRAFFIC_THRESHOLDS.CONGESTION_MEDIUM_LOAD) {
     this.analisis.nivelCongestion = CONGESTION_LEVELS.DENSO;
   } else {
     this.analisis.nivelCongestion = CONGESTION_LEVELS.FLUIDO;
@@ -407,13 +417,13 @@ trafficSchema.methods.calculateIntensityClassification = function() {
   }
 
   // Clasificación basada en intensidad (vehículos/hora)
-  if (intensidad >= 4000) {
+  if (intensidad >= TRAFFIC_THRESHOLDS.INTENSITY_VERY_HIGH) {
     this.analisis.clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.MUY_ALTA;
-  } else if (intensidad >= 3000) {
+  } else if (intensidad >= TRAFFIC_THRESHOLDS.INTENSITY_HIGH) {
     this.analisis.clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.ALTA;
-  } else if (intensidad >= 2000) {
+  } else if (intensidad >= TRAFFIC_THRESHOLDS.INTENSITY_MEDIUM) {
     this.analisis.clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.MEDIA;
-  } else if (intensidad >= 1000) {
+  } else if (intensidad >= TRAFFIC_THRESHOLDS.INTENSITY_LOW) {
     this.analisis.clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.BAJA;
   } else {
     this.analisis.clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.MUY_BAJA;
@@ -429,11 +439,11 @@ trafficSchema.methods.calculateOverallQuality = function() {
   const periodoIntegracion = this.calidadDatos.periodoIntegracion || 0;
 
   // Clasificación de calidad
-  if (error === TRAFFIC_ERROR_CODES.NO_ERROR && periodoIntegracion >= 3) {
+  if (error === TRAFFIC_ERROR_CODES.NO_ERROR && periodoIntegracion >= TRAFFIC_THRESHOLDS.DATA_QUALITY_EXCELLENT_PERIOD) {
     this.calidadDatos.calidadGeneral = DATA_QUALITY_LEVELS.ALTA;
-  } else if (error === TRAFFIC_ERROR_CODES.SIN_DATOS && periodoIntegracion >= 2) {
+  } else if (error === TRAFFIC_ERROR_CODES.SIN_DATOS && periodoIntegracion >= TRAFFIC_THRESHOLDS.DATA_QUALITY_GOOD_PERIOD) {
     this.calidadDatos.calidadGeneral = DATA_QUALITY_LEVELS.MEDIA;
-  } else if (periodoIntegracion >= 1) {
+  } else if (periodoIntegracion >= TRAFFIC_THRESHOLDS.DATA_QUALITY_ACCEPTABLE_PERIOD) {
     this.calidadDatos.calidadGeneral = DATA_QUALITY_LEVELS.BAJA;
   } else {
     this.calidadDatos.calidadGeneral = DATA_QUALITY_LEVELS.SIN_DATOS;

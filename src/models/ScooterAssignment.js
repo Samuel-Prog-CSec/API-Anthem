@@ -7,7 +7,7 @@
  */
 
 const mongoose = require('mongoose');
-const { validateNotFutureDate } = require('./schemas/commonSchemas');
+const { validateDatasetDate } = require('./schemas/commonSchemas');
 const {
   SCOOTER_DENSITY_LEVELS,
   SCOOTER_PROVIDER_DOMINANCE,
@@ -20,7 +20,9 @@ const {
   SCOOTER_DENSITY_THRESHOLDS,
   SCOOTER_DEMAND_THRESHOLDS,
   MARKET_CONCENTRATION_THRESHOLDS,
-  TIME_CONSTANTS
+  TIME_CONSTANTS,
+  VALIDATION_LIMITS,
+  DATASET_YEARS
 } = require('../constants');
 
 /**
@@ -35,7 +37,7 @@ const proveedorSchema = new mongoose.Schema({
   cantidad: {
     type: Number,
     required: true,
-    min: [0, 'La cantidad de patinetes no puede ser negativa']
+    min: [VALIDATION_LIMITS.QUANTITY_MIN, 'La cantidad de patinetes no puede ser negativa']
   },
   activo: {
     type: Boolean,
@@ -57,11 +59,11 @@ const scooterAssignmentSchema = new mongoose.Schema({
   fechaAsignacion: {
     type: Date,
     required: true,
-    default: Date.now,
+    default: DATASET_YEARS.DEFAULT_START_DATE,
     index: true,
     validate: {
-      validator: validateNotFutureDate,
-      message: 'La fecha de asignación no puede ser futura'
+      validator: validateDatasetDate,
+      message: 'La fecha de asignación debe estar dentro del rango del dataset (2050-2052)'
     }
   },
 
@@ -103,7 +105,7 @@ const scooterAssignmentSchema = new mongoose.Schema({
       type: Number,
       required: true,
       index: true,
-      min: [0, 'El total de patinetes no puede ser negativo'],
+      min: [VALIDATION_LIMITS.QUANTITY_MIN, 'El total de patinetes no puede ser negativo'],
       validate: {
         validator: function(value) {
           // Validar que totalPatinetes coincida con la suma de proveedores
@@ -915,10 +917,12 @@ scooterAssignmentSchema.statics.getAssignmentsWithFilters = async function(filte
  * @returns {Promise<Object>} - Detalles completos del área
  */
 scooterAssignmentSchema.statics.getAreaDetailsOptimized = async function(distrito, barrio, fecha = null) {
-  // Construir filtro base
+  // Construir filtro base usando búsqueda exacta (case-insensitive)
+  // NO usamos $text aquí porque necesitamos match exacto de distrito+barrio
+  // $text haría búsqueda parcial, no exacta
   const baseFilter = {
-    'distrito.nombre': new RegExp(distrito, 'i'),
-    'barrio.nombre': new RegExp(barrio, 'i')
+    'distrito.nombre': distrito,
+    'barrio.nombre': barrio
   };
 
   // Buscar el área específica
@@ -1002,8 +1006,10 @@ scooterAssignmentSchema.statics.getTemporalComparisonData = async function(fecha
     }
   };
 
+  // Si hay filtro por distrito, usar match exacto (case-sensitive como en BD)
+  // NO usar RegExp porque degrada performance en agregaciones
   if (distrito) {
-    matchCondition['distrito.nombre'] = new RegExp(distrito, 'i');
+    matchCondition['distrito.nombre'] = distrito;
   }
 
   // Campo de agrupación dinámico

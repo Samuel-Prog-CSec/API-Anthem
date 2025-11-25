@@ -9,7 +9,7 @@
 const mongoose = require('mongoose');
 const {
   validateNoiseLevel,
-  validateNotFutureDate,
+  validateDatasetDate,
   validateMonth,
   validateYear
 } = require('./schemas/commonSchemas');
@@ -32,8 +32,8 @@ const noiseMonitoringSchema = new mongoose.Schema({
     type: Date,
     required: true,
     validate: {
-      validator: validateNotFutureDate,
-      message: 'La fecha no puede ser futura'
+      validator: validateDatasetDate,
+      message: 'La fecha debe estar dentro del rango del dataset (2050-2052)'
     }
   },
 

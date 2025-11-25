@@ -25,9 +25,18 @@ const validateEnvironment = () => {
   }
 
   // Validar la fortaleza de JWT_SECRET
-  if (process.env.JWT_SECRET.length < 32) {
+  const MIN_JWT_SECRET_LENGTH = 32;
+  if (process.env.JWT_SECRET.length < MIN_JWT_SECRET_LENGTH) {
+    const errorMessage = `SEGURIDAD CRÍTICA: JWT_SECRET debe tener al menos ${MIN_JWT_SECRET_LENGTH} caracteres para mayor seguridad`;
+
+    // En producción, detener el servidor
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(errorMessage);
+    }
+
+    // En desarrollo, solo advertir (usar console.warn porque logger aún no está inicializado)
     // eslint-disable-next-line no-console
-    console.warn('Advertencia: JWT_SECRET debe tener al menos 32 caracteres para mayor seguridad');
+    console.warn(`⚠️  ADVERTENCIA: ${errorMessage}`);
   }
 };
 
@@ -56,6 +65,7 @@ const config = {
   jwt: {
     secret: process.env.JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRE || '15m',
+    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRE || '30d',
     algorithm: 'HS256' // Algoritmo recomendado para JWT por su balance entre seguridad y rendimiento
   },
 
