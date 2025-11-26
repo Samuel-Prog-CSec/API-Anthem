@@ -12,7 +12,7 @@ const { AppError, createValidationError, createInternalError } = require('../uti
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, TIME_CONSTANTS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, TIME_CONSTANTS, FINE_CONSTANTS, DASHBOARD_PERIODS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -31,10 +31,10 @@ const getFines = async (req, res, next) => {
     const {
       conDescuento,
       esGrave,
-      page = 1,
-      limit = 50,
-      sortBy = 'fecha',
-      sortOrder = 'desc',
+      page = PAGINATION.DEFAULT_PAGE,
+      limit = PAGINATION.DEFAULT_LIMIT,
+      sortBy = SORT_FIELDS.FINE.DEFAULT_SORT_BY,
+      sortOrder = SORT_FIELDS.DEFAULT_SORT_ORDER,
       includeCoordinates = false
     } = req.query;
 
@@ -190,7 +190,7 @@ const getFineById = async (req, res, next) => {
       importeOriginal: multa.importeBoletín,
       importeFinal: multa.importeFinal,
       descuentoAplicado: multa.tieneDescuento ? multa.importeBoletín - multa.importeFinal : 0,
-      porcentajeDescuento: multa.tieneDescuento ? 50 : 0
+      porcentajeDescuento: multa.tieneDescuento ? FINE_CONSTANTS.DISCOUNT_PERCENTAGE : 0
     };
 
     const responseData = {
@@ -228,7 +228,7 @@ const getFinesStatistics = async (req, res, next) => {
       startDate,
       endDate,
       groupBy = 'month',
-      limit = 12
+      limit = AGGREGATION_LIMITS.MONTHLY_STATS
     } = req.query;
 
     // Llamar al método optimizado del modelo
@@ -271,7 +271,7 @@ const getLocationsRanking = async (req, res, next) => {
     const {
       startDate,
       endDate,
-      limit = 20,
+      limit = AGGREGATION_LIMITS.TOP_RESULTS,
       tipoInfraccion
     } = req.query;
 
@@ -369,17 +369,17 @@ const getDashboardMetrics = async (req, res, next) => {
 
     switch (periodo) {
       case '7days':
-        fechaInicio = new Date(ahora.getTime() - 7 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
+        fechaInicio = new Date(ahora.getTime() - DASHBOARD_PERIODS.DAYS_7 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
         break;
       case '90days':
-        fechaInicio = new Date(ahora.getTime() - 90 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
+        fechaInicio = new Date(ahora.getTime() - DASHBOARD_PERIODS.DAYS_90 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
         break;
       case 'year':
         fechaInicio = new Date(ahora.getFullYear(), 0, 1);
         break;
       case '30days':
       default:
-        fechaInicio = new Date(ahora.getTime() - 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
+        fechaInicio = new Date(ahora.getTime() - DASHBOARD_PERIODS.DAYS_30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
         break;
     }
 

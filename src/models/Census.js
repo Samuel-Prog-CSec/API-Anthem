@@ -18,7 +18,8 @@ const {
   CULTURAL_DIVERSITY_THRESHOLDS,
   CENSUS_FIELD_TYPES,
   DATASET_YEARS,
-  VALIDATION_LIMITS
+  VALIDATION_LIMITS,
+  MONGODB_TIMEOUTS
 } = require('../constants');
 
 /**
@@ -261,7 +262,7 @@ const censusSchema = new mongoose.Schema({
   metadatos: {
     densidadPoblacional: {
       type: String,
-      enum: POPULATION_DENSITY_LEVELS,
+      enum: Object.values(POPULATION_DENSITY_LEVELS),
       default: CULTURAL_DIVERSITY_LEVELS.MEDIA
     },
     diversidadCultural: {
@@ -280,7 +281,7 @@ const censusSchema = new mongoose.Schema({
       },
       camposFaltantes: [{
         type: String,
-        enum: CENSUS_FIELD_TYPES
+        enum: Object.values(CENSUS_FIELD_TYPES)
       }],
       puntuacionCalidad: {
         type: Number,
@@ -747,7 +748,7 @@ censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
         }
       },
       { $sort: { edad: 1 } }
-    ]).allowDiskUse(true).maxTimeMS(10000),
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
 
     // Agregación 2: Totales y simplificada
     this.aggregate([
@@ -784,7 +785,7 @@ censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
         }
       },
       { $sort: { 'rangoEdad.minima': 1 } }
-    ]).allowDiskUse(true).maxTimeMS(10000)
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
   ]);
 
   // Calcular totales desde piramide simplificada
@@ -929,7 +930,7 @@ censusSchema.statics.getOptimizedDemographicAnalysis = async function(options) {
         ]
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   return {
     distribuciones: {
@@ -989,7 +990,7 @@ censusSchema.statics.findWithOptions = async function(options) {
     .sort(sort)
     .skip(pagination.skip)
     .limit(pagination.limit)
-    .maxTimeMS(10000);
+    .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   // Aplicar .lean() si se solicita (default true para performance)
   if (lean) {
@@ -1029,7 +1030,7 @@ censusSchema.statics.findWithOptions = async function(options) {
             barriosUnicos: { $addToSet: '$barrio.codigo' }
           }
         }
-      ]).allowDiskUse(true).maxTimeMS(10000)
+      ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
     );
   }
 

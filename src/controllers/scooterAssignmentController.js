@@ -12,7 +12,7 @@ const { createValidationError, createInternalError, createNotFoundError, createB
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, DATE_RANGE_LIMITS, BINARY_INDICATORS } = require('../constants');
 
 /**
  * Obtener datos de asignación de patinetes con filtros
@@ -27,8 +27,8 @@ const getScooterAssignments = async (req, res, next) => {
 
     const {
       proveedor,
-      soloProveedoresActivos = true,
-      includeAnalisis = true
+      soloProveedoresActivos = BINARY_INDICATORS.TRUE,
+      includeAnalisis = BINARY_INDICATORS.TRUE
     } = req.query;
 
     // Usar queryHelper para construir filtros
@@ -232,7 +232,7 @@ const getConcentrationZones = async (req, res, next) => {
       return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
     }
 
-    const { limite = 20, fecha } = req.query;
+    const { limite = AGGREGATION_LIMITS.TOP_RESULTS, fecha } = req.query;
 
     const zonas = await ScooterAssignment.getHighestConcentrationZones(parseInt(limite), fecha);
 
@@ -271,7 +271,7 @@ const getDistributionDashboard = async (req, res, next) => {
 
     // Obtener datos adicionales para métricas
     const [topZonas, analisisProveedores] = await Promise.all([
-      ScooterAssignment.getHighestConcentrationZones(10, fecha),
+      ScooterAssignment.getHighestConcentrationZones(AGGREGATION_LIMITS.PREVIEW, fecha),
       ScooterAssignment.getProviderMarketAnalysis(fecha)
     ]);
 
@@ -425,7 +425,7 @@ const getTemporalComparison = async (req, res, next) => {
     }
 
     // Validar rango de fechas usando queryHelper
-    const dateValidation = validateDateRange(fechaInicio, fechaFin, 365);
+    const dateValidation = validateDateRange(fechaInicio, fechaFin, DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS);
     if (!dateValidation.isValid) {
       return next(createBadRequestError(dateValidation.error));
     }

@@ -26,10 +26,10 @@ const getAllTrafficData = async (req, res, next) => {
     }, 'Obteniendo datos de tráfico con filtros');
 
     const {
-      page = 1,
-      limit = 50,
-      sortBy = 'fecha',
-      sortOrder = 'desc'
+      page = PAGINATION.DEFAULT_PAGE,
+      limit = PAGINATION.DEFAULT_LIMIT,
+      sortBy = SORT_FIELDS.TRAFFIC.DEFAULT_SORT_BY,
+      sortOrder = SORT_FIELDS.DEFAULT_SORT_ORDER
     } = req.query;
 
     // Configurar paginación usando queryHelper
@@ -164,7 +164,7 @@ const getAllTrafficData = async (req, res, next) => {
 const getTrafficByPoint = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { limit = 100 } = req.query;
+    const { limit = PAGINATION.DEFAULT_LIMIT } = req.query;
 
     logger.debug({
       puntoId: id,

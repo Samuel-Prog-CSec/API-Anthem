@@ -7,7 +7,12 @@
 
 const mongoose = require('mongoose');
 const { validateDatasetDate } = require('./schemas/commonSchemas');
-const { TIME_CONSTANTS, BIKE_USAGE_THRESHOLDS, VALIDATION_LIMITS } = require('../constants');
+const {
+  TIME_CONSTANTS,
+  BIKE_USAGE_THRESHOLDS,
+  VALIDATION_LIMITS,
+  MONGODB_TIMEOUTS
+} = require('../constants');
 
 /**
  * Esquema de Disponibilidad de Bicicletas
@@ -269,7 +274,7 @@ bikeAvailabilitySchema.statics.getStatsByDateRange = function(startDate, endDate
         totalUsosOcasional: { $sum: '$usosAbonadoOcasional' }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -302,7 +307,7 @@ bikeAvailabilitySchema.statics.getMonthlyTrends = function(year) {
     {
       $sort: { mes: 1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -318,14 +323,14 @@ bikeAvailabilitySchema.statics.getTopUsageDays = async function(limit = 10) {
       .limit(limit)
       .select('dia totalUsos mediaBicicletasDisponibles tasaOcupacion')
       .lean()
-      .maxTimeMS(10000),
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
 
     this.find()
       .sort({ totalUsos: 1 })
       .limit(limit)
       .select('dia totalUsos mediaBicicletasDisponibles tasaOcupacion')
       .lean()
-      .maxTimeMS(10000)
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
   ]);
 
   return { topDays, bottomDays };
@@ -379,7 +384,7 @@ bikeAvailabilitySchema.statics.compareSubscriptionTypes = function(startDate, en
         }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -414,7 +419,7 @@ bikeAvailabilitySchema.statics.getEfficiencyAnalysisOptimized = async function(f
         promedioHorasDisponibilidad: { $round: ['$promedioHorasDisponibilidad', 2] }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   return analysis.length > 0 ? analysis[0] : null;
 };
@@ -485,7 +490,7 @@ bikeAvailabilitySchema.statics.getHistoricalDataOptimized = async function(filte
         registros: 1
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   return historicalData;
 };
@@ -600,7 +605,7 @@ bikeAvailabilitySchema.statics.getUsageTrends = function(options) {
     { $sort: sortField }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -673,7 +678,7 @@ bikeAvailabilitySchema.statics.getDemandPrediction = async function(options = {}
       }
     },
     { $sort: { probabilidadAltaDemanda: -1 } }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   const globalStats = await this.aggregate([
     ...(Object.keys(matchStage).length > 0 ? [{ $match: matchStage }] : []),
@@ -697,7 +702,7 @@ bikeAvailabilitySchema.statics.getDemandPrediction = async function(options = {}
         promedioTasaOcupacion: { $round: ['$promedioTasaOcupacion', 2] }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   return {
     patrones: patternAnalysis,

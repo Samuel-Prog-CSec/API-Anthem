@@ -11,7 +11,7 @@ const { createValidationError, createInternalError } = require('../utils/errorUt
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildSortOptions, buildPaginationOptions, buildFilters } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS, CENSUS_DEFAULTS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -32,10 +32,10 @@ const getCensusData = async (req, res, next) => {
       grupoEdad,
       soloProductivos,
       soloTerceraEdad,
-      page = 1,
-      limit = 50,
-      sortBy = 'totalPoblacion',
-      sortOrder = 'desc',
+      page = PAGINATION.DEFAULT_PAGE,
+      limit = PAGINATION.DEFAULT_LIMIT,
+      sortBy = SORT_FIELDS.CENSUS.DEFAULT_SORT_BY,
+      sortOrder = SORT_FIELDS.DEFAULT_SORT_ORDER,
       includeEstadisticas = true
     } = req.query;
 
@@ -224,7 +224,7 @@ const getPopulationPyramid = async (req, res, next) => {
         totales: result.totales
       },
       configuracion: {
-        distrito: distrito ? parseInt(distrito) : 'TODOS',
+        distrito: distrito ? parseInt(distrito) : CENSUS_DEFAULTS.DISTRICT_LABEL,
         año: parseInt(año),
         incluirExtranjeros: incluirExtranjeros === 'true'
       }
@@ -381,13 +381,13 @@ const getDistrictStatistics = async (req, res, next) => {
 
     // Ranking de distritos por diferentes métricas
     const rankings = {
-      masHabitados: districtStatistics.slice(0, 10),
+      masHabitados: districtStatistics.slice(0, AGGREGATION_LIMITS.TOP_RESULTS),
       masDiversos: [...districtStatistics]
         .sort((a, b) => b.porcentajes.extranjeros - a.porcentajes.extranjeros)
-        .slice(0, 10),
+        .slice(0, AGGREGATION_LIMITS.TOP_RESULTS),
       masProductivos: [...districtStatistics]
         .sort((a, b) => b.porcentajes.poblacionProductiva - a.porcentajes.poblacionProductiva)
-        .slice(0, 10)
+        .slice(0, AGGREGATION_LIMITS.TOP_RESULTS)
     };
 
     const responseData = {
@@ -483,8 +483,8 @@ const getDemographicEvolution = async (req, res, next) => {
   try {
     const {
       distrito,
-      startYear = 2051,
-      endYear = 2051,
+      startYear = CENSUS_DEFAULTS.START_YEAR,
+      endYear = CENSUS_DEFAULTS.END_YEAR,
       metrica = 'poblacionTotal' // poblacionTotal, extranjeros, productiva
     } = req.query;
 
@@ -595,7 +595,7 @@ const getDemographicEvolution = async (req, res, next) => {
         }
       },
       configuracion: {
-        distrito: distrito ? parseInt(distrito) : 'TODOS',
+        distrito: distrito ? parseInt(distrito) : CENSUS_DEFAULTS.DISTRICT_LABEL,
         periodoAnalisis: {
           inicio: parseInt(startYear),
           fin: parseInt(endYear)
@@ -757,7 +757,7 @@ const getDemographicDashboard = async (req, res, next) => {
       },
       configuracion: {
         año: parseInt(año),
-        distrito: distrito ? parseInt(distrito) : 'TODOS'
+        distrito: distrito ? parseInt(distrito) : CENSUS_DEFAULTS.DISTRICT_LABEL
       }
     };
 

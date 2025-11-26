@@ -22,7 +22,8 @@ const {
   MARKET_CONCENTRATION_THRESHOLDS,
   TIME_CONSTANTS,
   VALIDATION_LIMITS,
-  DATASET_YEARS
+  DATASET_YEARS,
+  MONGODB_TIMEOUTS
 } = require('../constants');
 
 /**
@@ -162,18 +163,18 @@ const scooterAssignmentSchema = new mongoose.Schema({
   clasificacionArea: {
     tipoZona: {
       type: String,
-      enum: SCOOTER_ZONE_TYPES,
-      default: 'ZONA_RESIDENCIAL'
+      enum: Object.values(SCOOTER_ZONE_TYPES),
+      default: SCOOTER_ZONE_TYPES.ZONA_RESIDENCIAL
     },
     prioridadServicio: {
       type: String,
-      enum: SCOOTER_PRIORITY_LEVELS,
-      default: 'MEDIA'
+      enum: Object.values(SCOOTER_PRIORITY_LEVELS),
+      default: SCOOTER_PRIORITY_LEVELS.MEDIA
     },
     demandaEstimada: {
       type: String,
-      enum: SCOOTER_DEMAND_LEVELS,
-      default: 'MEDIA'
+      enum: Object.values(SCOOTER_DEMAND_LEVELS),
+      default: SCOOTER_DEMAND_LEVELS.MEDIA
     }
   },
 
@@ -186,7 +187,7 @@ const scooterAssignmentSchema = new mongoose.Schema({
       },
       camposFaltantes: [{
         type: String,
-        enum: SCOOTER_REPORT_TYPES
+        enum: Object.values(SCOOTER_REPORT_TYPES)
       }],
       puntuacionCalidad: {
         type: Number,
@@ -449,31 +450,31 @@ scooterAssignmentSchema.methods.classifyArea = function() {
 
   // Clasificar tipo de zona (basado en distritos conocidos de Madrid)
   if (distrito.includes('CENTRO') || barrio.includes('SOL')) {
-    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES[0]; // 'CENTRO_URBANO'
-    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS[3]; // 'CRITICA'
+    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.CENTRO_URBANO;
+    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.CRITICA;
   } else if (barrio.includes('UNIVERSIDAD') || barrio.includes('CAMPUS')) {
-    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES[3]; // 'ZONA_UNIVERSITARIA'
-    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS[2]; // 'ALTA'
+    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.ZONA_UNIVERSITARIA;
+    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.ALTA;
   } else if (barrio.includes('ATOCHA') || barrio.includes('CHAMARTIN')) {
-    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES[7]; // 'ZONA_TRANSPORTE'
-    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS[2]; // 'ALTA'
+    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.ZONA_TRANSPORTE;
+    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.ALTA;
   } else if (distrito.includes('RETIRO') || distrito.includes('SALAMANCA')) {
-    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES[1]; // 'ZONA_COMERCIAL'
-    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS[2]; // 'ALTA'
+    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.ZONA_COMERCIAL;
+    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.ALTA;
   } else {
-    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES[2]; // 'ZONA_RESIDENCIAL'
-    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS[1]; // 'MEDIA'
+    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.ZONA_RESIDENCIAL;
+    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.MEDIA;
   }
 
   // Estimar demanda basada en densidad
   if (totalPatinetes >= SCOOTER_DEMAND_THRESHOLDS.MUY_ALTA) {
-    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[3]; // 'MUY_ALTA'
+    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS.MUY_ALTA;
   } else if (totalPatinetes >= SCOOTER_DEMAND_THRESHOLDS.ALTA) {
-    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[2]; // 'ALTA'
+    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS.ALTA;
   } else if (totalPatinetes >= SCOOTER_DEMAND_THRESHOLDS.MEDIA) {
-    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[1]; // 'MEDIA'
+    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS.MEDIA;
   } else {
-    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS[0]; // 'BAJA'
+    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS.BAJA;
   }
 };
 
@@ -592,7 +593,7 @@ scooterAssignmentSchema.statics.getDistrictStatistics = function(fecha = null) {
         zonasMayorDemanda: {
           $sum: {
             $cond: [
-              { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[3]] },
+              { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.MUY_ALTA] },
               1,
               0
             ]
@@ -603,7 +604,7 @@ scooterAssignmentSchema.statics.getDistrictStatistics = function(fecha = null) {
     {
       $sort: { totalPatinetes: -1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -637,7 +638,7 @@ scooterAssignmentSchema.statics.getProviderMarketAnalysis = function(fecha = nul
         zonasAlta: {
           $sum: {
             $cond: [
-              { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[3]] },
+              { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.MUY_ALTA] },
               1,
               0
             ]
@@ -653,7 +654,7 @@ scooterAssignmentSchema.statics.getProviderMarketAnalysis = function(fecha = nul
     {
       $sort: { totalPatinetes: -1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -688,7 +689,7 @@ scooterAssignmentSchema.statics.getHighestConcentrationZones = function(limite =
     {
       $limit: limite
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -757,7 +758,7 @@ scooterAssignmentSchema.statics.getDistributionDashboard = function(fecha = null
         ]
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -781,10 +782,10 @@ scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = n
           demandaNumerica: {
             $switch: {
               branches: [
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[0]] }, then: 1 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[1]] }, then: 2 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[2]] }, then: 3 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[3]] }, then: 4 }
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.BAJA] }, then: 1 },
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.MEDIA] }, then: 2 },
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.ALTA] }, then: 3 },
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.MUY_ALTA] }, then: 4 }
               ],
               default: 2
             }

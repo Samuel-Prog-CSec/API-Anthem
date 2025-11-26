@@ -10,7 +10,7 @@ const { createInternalError, createNotFoundError, createBadRequestError } = requ
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS, MONTH_NAMES, BIKE_THRESHOLDS, AGGREGATION_LIMITS } = require('../constants');
 
 /**
  * Obtener todos los registros de disponibilidad con filtros y paginación
@@ -174,15 +174,9 @@ exports.getMonthlyTrends = async (req, res, next) => {
       return next(createNotFoundError('Tendencias mensuales', `año ${year}`));
     }
 
-    // Mapear números de mes a nombres
-    const monthNames = [
-      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-    ];
-
     const formattedTrends = trends.map(item => ({
       mes: item.mes,
-      nombreMes: monthNames[item.mes - 1],
+      nombreMes: MONTH_NAMES[item.mes - 1],
       totalUsos: item.totalUsos,
       promedioUsosDiarios: Math.round(item.promedioUsosDiarios * 100) / 100,
       promedioBicicletasDisponibles: Math.round(item.promedioBicicletasDisponibles * 100) / 100,
@@ -213,7 +207,7 @@ exports.getMonthlyTrends = async (req, res, next) => {
  */
 exports.getTopUsageDays = async (req, res, next) => {
   try {
-    const { limit = 10 } = req.query;
+    const { limit = AGGREGATION_LIMITS.TOP_RESULTS } = req.query;
 
     const topDays = await BikeAvailability.getTopUsageDays(parseInt(limit));
 
@@ -382,14 +376,12 @@ exports.getUsageTrendsAnalysis = async (req, res, next) => {
 };
 
 /**
- * Predicción de demanda basada en patrones históricos
- *
  * @route GET /api/bikes/prediction/demand
  * @access Private
  */
 exports.getDemandPredictionAnalysis = async (req, res, next) => {
   try {
-    const { startDate, endDate, threshold = '80' } = req.query;
+    const { startDate, endDate, threshold = BIKE_THRESHOLDS.DEMAND_PREDICTION } = req.query;
 
     const options = {
       startDate: startDate ? new Date(startDate) : undefined,

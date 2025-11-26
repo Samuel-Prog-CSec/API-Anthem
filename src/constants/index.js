@@ -85,7 +85,8 @@ const AGGREGATION_LIMITS = {
   LARGE: 10000,       // Para aggregations grandes (estadísticas generales)
   XLARGE: 50000,      // Para aggregations muy grandes (análisis masivos)
   TOP_RESULTS: 50,    // Límite para rankings/tops
-  PREVIEW: 5          // Límite para vistas previas
+  PREVIEW: 5,         // Límite para vistas previas
+  MONTHLY_STATS: 12   // Límite para estadísticas mensuales
 };
 
 /**
@@ -201,19 +202,33 @@ const AIR_QUALITY_MAGNITUDES = {
  * Array de códigos de magnitudes permitidas
  * Usado en validación de modelo AirQuality.js
  */
-const MAGNITUDES_PERMITIDAS = [1, 6, 7, 8, 9, 10, 12, 14, 20, 30, 35, 42, 43, 44];
+/**
+ * Array de códigos de magnitudes permitidas
+ * Usado en validación de modelo AirQuality.js
+ * Generado dinámicamente desde AIR_QUALITY_MAGNITUDES para asegurar consistencia
+ */
+const MAGNITUDES_PERMITIDAS = Object.keys(AIR_QUALITY_MAGNITUDES).map(Number);
+
+/**
+ * Valores por defecto para calidad de aire
+ */
+const AIR_QUALITY_DEFAULTS = {
+  PROVINCIA: 28, // Madrid
+  MUNICIPIO: 79, // Madrid ciudad
+  MAGNITUD: 10   // PM10
+};
 
 /**
  * Tipos de contenedores
  * Deben coincidir con el enum del modelo Container.js
  */
-const CONTAINER_TYPES = [
-  'ORGANICA',
-  'RESTO',
-  'ENVASES',
-  'VIDRIO',
-  'PAPEL-CARTON'
-];
+const CONTAINER_TYPES = {
+  ORGANICA: 'ORGANICA',
+  RESTO: 'RESTO',
+  ENVASES: 'ENVASES',
+  VIDRIO: 'VIDRIO',
+  PAPEL_CARTON: 'PAPEL-CARTON'
+};
 
 /**
  * Lotes de contenedores válidos
@@ -295,47 +310,57 @@ const SCOOTER_MARKET_CONCENTRATION = {
 /**
  * Tipos de zona urbana para patinetes
  */
-const SCOOTER_ZONE_TYPES = [
-  'CENTRO_URBANO',
-  'ZONA_COMERCIAL',
-  'ZONA_RESIDENCIAL',
-  'ZONA_UNIVERSITARIA',
-  'ZONA_TURISTICA',
-  'ZONA_EMPRESARIAL',
-  'PERIFERIA',
-  'ZONA_TRANSPORTE'
-];
+const SCOOTER_ZONE_TYPES = {
+  CENTRO_URBANO: 'CENTRO_URBANO',
+  ZONA_COMERCIAL: 'ZONA_COMERCIAL',
+  ZONA_RESIDENCIAL: 'ZONA_RESIDENCIAL',
+  ZONA_UNIVERSITARIA: 'ZONA_UNIVERSITARIA',
+  ZONA_TURISTICA: 'ZONA_TURISTICA',
+  ZONA_EMPRESARIAL: 'ZONA_EMPRESARIAL',
+  PERIFERIA: 'PERIFERIA',
+  ZONA_TRANSPORTE: 'ZONA_TRANSPORTE'
+};
 
 /**
  * Niveles de prioridad de servicio de patinetes
  */
-const SCOOTER_PRIORITY_LEVELS = ['BAJA', 'MEDIA', 'ALTA', 'CRITICA'];
+const SCOOTER_PRIORITY_LEVELS = {
+  BAJA: 'BAJA',
+  MEDIA: 'MEDIA',
+  ALTA: 'ALTA',
+  CRITICA: 'CRITICA'
+};
 
 /**
  * Niveles de demanda estimada de patinetes
  */
-const SCOOTER_DEMAND_LEVELS = ['BAJA', 'MEDIA', 'ALTA', 'MUY_ALTA'];
+const SCOOTER_DEMAND_LEVELS = {
+  BAJA: 'BAJA',
+  MEDIA: 'MEDIA',
+  ALTA: 'ALTA',
+  MUY_ALTA: 'MUY_ALTA'
+};
 
 /**
  * Proveedores de patinetes eléctricos
  * Valores extraídos del CSV Anthem_CTC_AsignaciónPatinetes.csv
  */
-const SCOOTER_PROVIDERS = [
-  'ACCIONA',
-  'BIRD',
-  'FLASH',
-  'JUMP_UBER',
-  'KOKO',
-  'LIME',
-  'MOVO',
-  'MYGO',
-  'REBY_RIDES',
-  'RIDECONGA',
-  'SJV_CONSULTING',
-  'TAXIFY',
-  'UFO',
-  'WIND'
-];
+const SCOOTER_PROVIDERS = {
+  ACCIONA: 'ACCIONA',
+  BIRD: 'BIRD',
+  FLASH: 'FLASH',
+  JUMP_UBER: 'JUMP_UBER',
+  KOKO: 'KOKO',
+  LIME: 'LIME',
+  MOVO: 'MOVO',
+  MYGO: 'MYGO',
+  REBY_RIDES: 'REBY_RIDES',
+  RIDECONGA: 'RIDECONGA',
+  SJV_CONSULTING: 'SJV_CONSULTING',
+  TAXIFY: 'TAXIFY',
+  UFO: 'UFO',
+  WIND: 'WIND'
+};
 
 /**
  * Roles de usuario
@@ -471,6 +496,20 @@ const TIME_PERIODS = {
 };
 
 /**
+ * Días de la semana
+ * Usado para mapear índices de día (0-6) a nombres
+ */
+const DAYS_OF_WEEK = [
+  'Domingo',
+  'Lunes',
+  'Martes',
+  'Miércoles',
+  'Jueves',
+  'Viernes',
+  'Sábado'
+];
+
+/**
  * Periodos del día
  */
 const DAY_PERIODS = {
@@ -489,6 +528,14 @@ const WORKDAY_TYPES = {
   SABADO: 'SABADO',
   DOMINGO_FESTIVO: 'DOMINGO_FESTIVO'
 };
+
+/**
+ * Nombres de meses
+ */
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
 
 /**
  * Factores de riesgo en accidentes
@@ -583,7 +630,12 @@ const AGE_GROUPS = {
  * Niveles de densidad poblacional
  * Usado en metadatos de Census
  */
-const POPULATION_DENSITY_LEVELS = ['BAJA', 'MEDIA', 'ALTA', 'MUY_ALTA'];
+const POPULATION_DENSITY_LEVELS = {
+  BAJA: 'BAJA',
+  MEDIA: 'MEDIA',
+  ALTA: 'ALTA',
+  MUY_ALTA: 'MUY_ALTA'
+};
 
 /**
  * Niveles de diversidad cultural
@@ -600,7 +652,11 @@ const CULTURAL_DIVERSITY_LEVELS = {
  * Tipos de campos en metadatos
  * Usado en Census para tracking de campos faltantes
  */
-const CENSUS_FIELD_TYPES = ['poblacion', 'ubicacion', 'edad'];
+const CENSUS_FIELD_TYPES = {
+  POBLACION: 'poblacion',
+  UBICACION: 'ubicacion',
+  EDAD: 'edad'
+};
 
 /**
  * Rangos de edad por grupo
@@ -704,6 +760,13 @@ const SEARCH_LIMITS = {
 };
 
 /**
+ * Valores por defecto para campos opcionales
+ */
+const DEFAULT_VALUES = {
+  UNSPECIFIED: 'SIN ESPECIFICAR'
+};
+
+/**
  * Límites de coordenadas geográficas
  * Usados en validaciones de consultas por proximidad
  */
@@ -713,7 +776,8 @@ const GEO_LIMITS = {
   LATITUDE_MIN: -90,
   LATITUDE_MAX: 90,
   MIN_DISTANCE_METERS: 50,
-  MAX_DISTANCE_METERS: 5000
+  MAX_DISTANCE_METERS: 5000,
+  DEFAULT_DISTANCE_METERS: 500
 };
 
 /**
@@ -723,6 +787,7 @@ const GEO_LIMITS = {
 const DATE_RANGE_LIMITS = {
   DEFAULT_MAX_DAYS: 365,    // 1 año por defecto
   ACCIDENTS_MAX_DAYS: 730,  // 2 años para accidentes (datos históricos importantes)
+  AIR_QUALITY_MAX_DAYS: 730, // 2 años para calidad de aire
   NOISE_MAX_DAYS: 1825,     // 5 años para análisis histórico de ruido
   MAX_MILLISECONDS_CALCULATION: 24 * 60 * 60 * 1000  // Cálculo del rango en ms
 };
@@ -938,19 +1003,34 @@ const VALIDATION_CODES = {
  * Tipos de reporte de scooters
  * Usaedos en ScooterAssignment para campos faltants
  */
-const SCOOTER_REPORT_TYPES = ['proveedores', 'ubicacion', 'totales'];
+const SCOOTER_REPORT_TYPES = {
+  PROVEEDORES: 'proveedores',
+  UBICACION: 'ubicacion',
+  TOTALES: 'totales'
+};
 
 /**
  * Razones de revocación de tokens
  * Usados en TokenBlacklist para registrar por qué un token fue revocado
  */
-const TOKEN_REVOCATION_REASONS = ['rotation', 'logout', 'compromised', 'password_change'];
+const TOKEN_REVOCATION_REASONS = {
+  ROTATION: 'rotation',
+  LOGOUT: 'logout',
+  COMPROMISED: 'compromised',
+  PASSWORD_CHANGE: 'password_change'
+};
 
 /**
  * Campos de métricas de ruido
  * Usados en NoiseMonitoring para campos faltantes en metadatos
  */
-const NOISE_METRIC_FIELDS = ['nivelDiurno', 'nivelVespertino', 'nivelNocturno', 'laeq24', 'percentiles'];
+const NOISE_METRIC_FIELDS = {
+  NIVEL_DIURNO: 'nivelDiurno',
+  NIVEL_VESPERTINO: 'nivelVespertino',
+  NIVEL_NOCTURNO: 'nivelNocturno',
+  LAEQ24: 'laeq24',
+  PERCENTILES: 'percentiles'
+};
 
 /**
  * Constantes de tiempo
@@ -1215,11 +1295,12 @@ module.exports = {
 
   // Paginación
   PAGINATION,
+  MONGODB_TIMEOUTS,
   AGGREGATION_LIMITS,
   SPECIAL_PAGINATION_LIMITS,
 
-  // MongoDB
-  MONGODB_TIMEOUTS,
+  // Valores por defecto
+  DEFAULT_VALUES,
 
   // Accidentes
   ACCIDENT_TYPES,
@@ -1338,5 +1419,41 @@ module.exports = {
   SPEED_LIMIT_ZONES,
 
   // Seguridad HTTP - Whitelist para HPP protection
-  HPP_ARRAY_PARAMS_WHITELIST
+  HPP_ARRAY_PARAMS_WHITELIST,
+  AIR_QUALITY_DEFAULTS,
+  MONTH_NAMES,
+  BIKE_THRESHOLDS: {
+    DEMAND_PREDICTION: 80
+  },
+  CENSUS_DEFAULTS: {
+    START_YEAR: 2051,
+    END_YEAR: 2051,
+    DISTRICT_LABEL: 'TODOS'
+  },
+  FINE_CONSTANTS: {
+    DISCOUNT_PERCENTAGE: 50
+  },
+  DASHBOARD_PERIODS: {
+    DAYS_7: 7,
+    DAYS_30: 30,
+    DAYS_90: 90
+  },
+  MEASUREMENT_POINT_TYPES: {
+    ACUSTICA: 'acustica',
+    TRAFICO: 'trafico'
+  },
+  TRANSPORT_ROUTE_TYPES: [
+    'ruta_cercanias',
+    'ruta_autobus',
+    'ruta_interurbano',
+    'ruta_metro',
+    'ruta_metro_ligero',
+    'zona_taxi'
+  ],
+  NOISE_THRESHOLDS: {
+    DEFAULT: 65
+  },
+  ZONE_TYPES: {
+    MIXED: 'mixed'
+  }
 };

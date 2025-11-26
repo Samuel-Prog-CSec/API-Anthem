@@ -11,7 +11,7 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, INJURY_SEVERITY_MAPPING, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, MONGODB_TIMEOUTS, TIME_CONSTANTS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, INJURY_SEVERITY_MAPPING, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, MONGODB_TIMEOUTS, TIME_CONSTANTS, DAYS_OF_WEEK } = require('../constants');
 const logger = require('../config/logger');
 
 
@@ -276,7 +276,7 @@ const getAccidentStats = async (req, res, next) => {
         patronesHorarios: hourlyPatterns,
         patronesSemanales: weeklyPatterns.map(p => ({
           ...p,
-          diaNombre: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][p._id]
+          diaNombre: DAYS_OF_WEEK[p._id]
         })),
         distribucionDistritos: districtDistribution,
         factoresRiesgo: riskFactorsAnalysis,

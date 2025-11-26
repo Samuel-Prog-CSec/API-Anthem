@@ -4,20 +4,6 @@
  * Maneja las operaciones CRUD y consultas para datos de calidad de aire.
  * Incluye filtrado avanzado, agregaciones y análisis estadístico para el dashboard.
  */
-
-const { validationResult } = require('express-validator');
-const AirQuality = require('../models/AirQuality');
-const { AppError, createValidationError, createInternalError, createNotFoundError } = require('../utils/errorUtils');
-const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange } = require('../utils/queryHelper');
-const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, VALIDATION_CODES, MONGODB_TIMEOUTS } = require('../constants');
-const logger = require('../config/logger');
-
-/**
- * Obtener datos de calidad de aire con filtros
- * GET /api/v1/air-quality
- */
 const getAirQualityData = async (req, res, next) => {
   try {
     // Verificar errores de validación
@@ -45,7 +31,7 @@ const getAirQualityData = async (req, res, next) => {
 
     // Validar rango de fechas usando queryHelper
     const { startDate, endDate } = req.query;
-    const dateValidation = validateDateRange(startDate, endDate, 730);
+    const dateValidation = validateDateRange(startDate, endDate, DATE_RANGE_LIMITS.AIR_QUALITY_MAX_DAYS);
     if (!dateValidation.isValid) {
       return next(new AppError(dateValidation.error, HTTP_STATUS.BAD_REQUEST));
     }
@@ -240,39 +226,6 @@ const getAirQualityStatistics = async (req, res, next) => {
 /**
  * Obtener tendencias de calidad de aire
  * GET /api/v1/air-quality/trends
- */
-const getAirQualityTrends = async (req, res, next) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
-    const {
-      startDate,
-      endDate,
-      provincia = 28, // Madrid por defecto
-      municipio = 79, // Madrid ciudad por defecto
-      magnitud = 10 // PM10 por defecto
-    } = req.query;
-
-    // Llamar al método optimizado del modelo
-    const result = await AirQuality.getTrendsOptimized(
-      provincia,
-      municipio,
-      magnitud,
-      startDate,
-      endDate
-    );
-
-    const responseData = {
-      message: 'Tendencias de calidad de aire obtenidas exitosamente',
-      data: {
-        ...result,
-        parametros: {
-          provincia: parseInt(provincia),
-          municipio: parseInt(municipio),
-          magnitud: parseInt(magnitud),
           magnitudDescripcion: AirQuality.getMagnitudes()[parseInt(magnitud)]
         }
       }

@@ -1,6 +1,13 @@
 const mongoose = require('mongoose');
 const { coordinatesUTMSchema } = require('./schemas/commonSchemas');
-const { LOCATION_TYPES, GEOMETRY_TYPES, UTM_ZONES, TRAFFIC_ELEMENT_TYPES, SPEED_LIMIT_ZONES, VALIDATION_LIMITS } = require('../constants');
+const {
+  LOCATION_TYPES,
+  GEOMETRY_TYPES,
+  UTM_ZONES,
+  TRAFFIC_ELEMENT_TYPES,
+  SPEED_LIMIT_ZONES,
+  VALIDATION_LIMITS
+} = require('../constants');
 /**
  * Esquema para las ubicaciones de infraestructura y puntos de medición
  * Modelo mejorado con validaciones y métodos geoespaciales

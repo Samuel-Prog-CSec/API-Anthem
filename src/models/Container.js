@@ -8,7 +8,14 @@
 
 const mongoose = require('mongoose');
 const { coordinatesUTMSchema } = require('./schemas/commonSchemas');
-const { CONTAINER_TYPES, CONTAINER_LOTES, GEOMETRY_TYPES, VALIDATION_LIMITS } = require('../constants');
+const {
+  CONTAINER_TYPES,
+  CONTAINER_LOTES,
+  GEOMETRY_TYPES,
+  VALIDATION_LIMITS,
+  DEFAULT_VALUES,
+  MONGODB_TIMEOUTS
+} = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -21,15 +28,17 @@ const containerSchema = new mongoose.Schema({
   // Código de identificación del situado/punto de aportación
   codigoInternoSituado: {
     type: String,
+    trim: true,
     required: true
   },
 
   // Tipo de residuo que recoge el contenedor
   tipoContenedor: {
     type: String,
+    trim: true,
     required: true,
     uppercase: true,
-    enum: CONTAINER_TYPES
+    enum: Object.values(CONTAINER_TYPES)
   },
 
   // Modelo del contenedor (código interno)
@@ -71,7 +80,7 @@ const containerSchema = new mongoose.Schema({
     type: String,
     required: false, // Opcional - algunos registros no tienen barrio especificado
     trim: true,
-    default: 'SIN ESPECIFICAR'
+    default: DEFAULT_VALUES.UNSPECIFIED
   },
 
   // Dirección del contenedor
@@ -356,7 +365,7 @@ containerSchema.statics.getStatsByDistrict = function(distrito = null) {
     {
       $sort: { distrito: 1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -405,7 +414,7 @@ containerSchema.statics.getStatsByNeighborhood = function(distrito, barrio = nul
     {
       $sort: { barrio: 1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -437,7 +446,7 @@ containerSchema.statics.getGeneralSummary = function() {
         totalUbicaciones: { $sum: '$totalUbicaciones' }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**

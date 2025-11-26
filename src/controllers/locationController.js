@@ -4,7 +4,7 @@ const { createValidationError, createInternalError, createBadRequestError } = re
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SPECIAL_PAGINATION_LIMITS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
+const { SPECIAL_PAGINATION_LIMITS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS, MEASUREMENT_POINT_TYPES, GEO_LIMITS, TRANSPORT_ROUTE_TYPES, LOCATION_TYPES } = require('../constants');
 
 /**
  * Obtener todas las ubicaciones con filtros
@@ -96,8 +96,8 @@ const getMeasurementPoints = async (req, res, next) => {
     const { tipo_medicion } = req.params;
 
     const tiposValidos = {
-      'acustica': 'estacion_acustica',
-      'trafico': 'punto_trafico'
+      [MEASUREMENT_POINT_TYPES.ACUSTICA]: LOCATION_TYPES.ESTACION_ACUSTICA,
+      [MEASUREMENT_POINT_TYPES.TRAFICO]: LOCATION_TYPES.PUNTO_TRAFICO
     };
 
     if (!tiposValidos[tipo_medicion]) {
@@ -133,14 +133,7 @@ const getTransportRoutes = async (req, res, next) => {
   try {
     const { tipo_transporte } = req.params;
 
-    const tiposTransporte = [
-      'ruta_cercanias',
-      'ruta_autobus',
-      'ruta_interurbano',
-      'ruta_metro',
-      'ruta_metro_ligero',
-      'zona_taxi'
-    ];
+    const tiposTransporte = TRANSPORT_ROUTE_TYPES;
 
     const filter = {};
     if (tipo_transporte !== 'todos') {
@@ -178,7 +171,7 @@ const getTransportRoutes = async (req, res, next) => {
  */
 const getProximityAnalysis = async (req, res, next) => {
   try {
-    const { x, y, radio = 1000 } = req.query;
+    const { x, y, radio = GEO_LIMITS.DEFAULT_DISTANCE_METERS } = req.query;
 
     if (!x || !y) {
       return next(createBadRequestError('Coordenadas x e y son requeridas'));
@@ -220,7 +213,7 @@ const getProximityAnalysis = async (req, res, next) => {
         $project: {
           tipo: '$_id',
           total: '$count',
-          ubicaciones: { $slice: ['$ubicaciones', 10] } // Limitar a 10 por tipo
+          ubicaciones: { $slice: ['$ubicaciones', AGGREGATION_LIMITS.TOP_RESULTS] } // Limitar a 50 por tipo
         }
       }
     ])

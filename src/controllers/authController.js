@@ -14,7 +14,8 @@ const { validatePassword } = require('../utils/passwordValidator');
 const {
   HTTP_STATUS,
   MONGODB_TIMEOUTS,
-  TIME_CONSTANTS
+  TIME_CONSTANTS,
+  TOKEN_REVOCATION_REASONS
 } = require('../constants');
 const {
   createValidationError,
@@ -280,7 +281,7 @@ const logout = async (req, res, next) => {
         await TokenBlacklist.addToken(
           refreshToken,
           decoded.id,
-          'logout',
+          TOKEN_REVOCATION_REASONS.LOGOUT,
           tokenExpiration
         );
       } catch (error) {
@@ -430,7 +431,7 @@ const refreshAccessToken = async (req, res, next) => {
     await TokenBlacklist.addToken(
       refreshToken,
       user._id,
-      'rotation',
+      TOKEN_REVOCATION_REASONS.ROTATION,
       tokenExpiration
     );
 

@@ -104,6 +104,7 @@ const userSchema = new mongoose.Schema(
   {
     timestamps: true, // Agrega campos createdAt y updatedAt
     versionKey: false, // Elimina el campo __v
+    collection: "users"
   }
 );
 

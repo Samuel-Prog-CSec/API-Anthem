@@ -16,7 +16,13 @@
  */
 
 const mongoose = require('mongoose');
-const { validateSpeed, validatePercentage, validateDatasetDate, validateMonth, validateYear } = require('./schemas/commonSchemas');
+const {
+  validateSpeed,
+  validatePercentage,
+  validateDatasetDate,
+  validateMonth,
+  validateYear
+} = require('./schemas/commonSchemas');
 const {
   CONGESTION_LEVELS,
   DATA_QUALITY_LEVELS,
@@ -28,7 +34,8 @@ const {
   VALIDATION_LIMITS,
   TRAFFIC_THRESHOLDS,
   BINARY_INDICATORS,
-  LOCATION_TYPES
+  LOCATION_TYPES,
+  MONGODB_TIMEOUTS
 } = require('../constants');
 
 /**
@@ -621,7 +628,7 @@ trafficSchema.statics.getCongestionAnalysisOptimized = async function(filters = 
     { $sort: { porcentajeCongestion: -1 } }
   );
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -787,7 +794,7 @@ trafficSchema.statics.getHistoricalDataOptimized = async function(filters = {}, 
     { $sort: sortFields }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -890,7 +897,7 @@ trafficSchema.statics.getTrafficStatisticsOptimized = async function(filters = {
         }
       },
       { $sort: { cantidad: -1 } }
-    ]).allowDiskUse(true).maxTimeMS(10000),
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
 
     // Distribución horaria
     this.aggregate([
@@ -929,7 +936,7 @@ trafficSchema.statics.getTrafficStatisticsOptimized = async function(filters = {
           periodo: 1
         }
       }
-    ]).allowDiskUse(true).maxTimeMS(10000)
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
   ]);
 
   return {

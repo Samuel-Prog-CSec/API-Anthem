@@ -21,7 +21,8 @@ const {
   SEVERITY_LEVELS,
   INFRACTION_TYPES,
   FINE_CONFIG,
-  VALIDATION_LIMITS
+  VALIDATION_LIMITS,
+  MONGODB_TIMEOUTS
 } = require('../constants');
 
 /**
@@ -536,7 +537,7 @@ fineSchema.statics.getStatisticsOptimized = async function(options) {
       },
       { $sort: sortStage },
       { $limit: parseInt(limit) }
-    ]).allowDiskUse(true).maxTimeMS(10000),
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
 
     // Agregación 2: Resumen general
     this.aggregate([
@@ -554,7 +555,7 @@ fineSchema.statics.getStatisticsOptimized = async function(options) {
           denunciantesUnicos: { $addToSet: '$denunciante' }
         }
       }
-    ]).allowDiskUse(true).maxTimeMS(10000)
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
   ]);
 
   return {
@@ -621,7 +622,7 @@ fineSchema.statics.getLocationRankingOptimized = async function(options) {
     },
     { $sort: { totalMultas: -1 } },
     { $limit: parseInt(limit) }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   return ranking;
 };
@@ -730,7 +731,7 @@ fineSchema.statics.getTemporalAnalysisOptimized = async function(options) {
       }
     },
     { $sort: sortField }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   // Calcular tendencias si hay suficientes datos
   let tendencia = null;

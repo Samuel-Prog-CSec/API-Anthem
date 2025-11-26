@@ -13,7 +13,12 @@ const {
   validateMonth,
   validateYear
 } = require('./schemas/commonSchemas');
-const { NOISE_LIMITS, NOISE_METRIC_FIELDS, AGGREGATION_LIMITS } = require('../constants');
+const {
+  NOISE_LIMITS,
+  NOISE_METRIC_FIELDS,
+  AGGREGATION_LIMITS,
+  MONGODB_TIMEOUTS
+} = require('../constants');
 
 /**
  * Esquema de Contaminación Acústica
@@ -181,7 +186,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     },
     missingFields: [{
       type: String,
-      enum: NOISE_METRIC_FIELDS
+      enum: Object.values(NOISE_METRIC_FIELDS)
     }],
     qualityScore: {
       type: Number,
@@ -466,7 +471,7 @@ noiseMonitoringSchema.statics.getStatisticsOptimized = async function(filters, g
       },
       { $sort: sortStage },
       { $limit: AGGREGATION_LIMITS.SMALL }
-    ]).allowDiskUse(true).maxTimeMS(10000),
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
 
     // Resumen general
     this.aggregate([
@@ -490,7 +495,7 @@ noiseMonitoringSchema.statics.getStatisticsOptimized = async function(filters, g
           }
         }
       }
-    ]).allowDiskUse(true).maxTimeMS(10000)
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
   ]);
 
   const resumen = resumenGeneral[0] ? {
@@ -540,7 +545,7 @@ noiseMonitoringSchema.statics.getRankingOptimized = function(filters, sortBy = '
     { $limit: limit }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -638,7 +643,7 @@ noiseMonitoringSchema.statics.getStationComparison = function(options) {
     { $sort: { promedioNivel: -1 } }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -737,7 +742,7 @@ noiseMonitoringSchema.statics.getTemporalTrends = function(options) {
     { $sort: sortField }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -824,7 +829,7 @@ noiseMonitoringSchema.statics.getComplianceAnalysisByZone = async function(optio
         promedioGeneralLaeq24: { $round: ['$promedioLaeq24', 2] }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   const resumenGlobal = {
     totalEstaciones: estaciones.length,

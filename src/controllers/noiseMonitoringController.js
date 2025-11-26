@@ -11,7 +11,7 @@ const { createValidationError, createInternalError, createNotFoundError, createB
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS, SEARCH_LIMITS, NOISE_THRESHOLDS, ZONE_TYPES } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -264,7 +264,7 @@ const getNoiseRanking = async (req, res, next) => {
   try {
     const {
       orderBy = 'laeq24',
-      limit = 20
+      limit = AGGREGATION_LIMITS.TOP_RESULTS
     } = req.query;
 
     // Configuración de filtros usando queryHelper
@@ -320,9 +320,9 @@ const getNoiseRanking = async (req, res, next) => {
  */
 const searchStations = async (req, res, next) => {
   try {
-    const { q: searchTerm, limit = 20 } = req.query;
+    const { q: searchTerm, limit = AGGREGATION_LIMITS.TOP_RESULTS } = req.query;
 
-    if (!searchTerm || searchTerm.trim().length < 2) {
+    if (!searchTerm || searchTerm.trim().length < SEARCH_LIMITS.MIN_SEARCH_LENGTH) {
       return next(createBadRequestError('Término de búsqueda debe tener al menos 2 caracteres'));
     }
 
@@ -492,7 +492,7 @@ const getTemporalTrends = async (req, res, next) => {
  */
 const getComplianceByZone = async (req, res, next) => {
   try {
-    const { startDate, endDate, threshold = 65, zoneType = 'mixed' } = req.query;
+    const { startDate, endDate, threshold = NOISE_THRESHOLDS.DEFAULT, zoneType = ZONE_TYPES.MIXED } = req.query;
 
     const compliance = await NoiseMonitoring.getComplianceAnalysisByZone({
       startDate: startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE),

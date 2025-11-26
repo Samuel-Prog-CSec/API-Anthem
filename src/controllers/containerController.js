@@ -10,7 +10,7 @@ const { createInternalError, createNotFoundError, createBadRequestError } = requ
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, GEO_LIMITS } = require('../constants');
 
 /**
  * Obtener todos los contenedores con filtros y paginación
@@ -100,7 +100,7 @@ exports.getNearbyContainers = async (req, res, next) => {
     const {
       longitude,
       latitude,
-      maxDistance = 500,
+      maxDistance = GEO_LIMITS.DEFAULT_DISTANCE_METERS,
       tipoContenedor
     } = req.query;
 
@@ -335,7 +335,7 @@ exports.getNeighborhoodsByDistrict = async (req, res, next) => {
  */
 exports.searchByAddress = async (req, res, next) => {
   try {
-    const { q, tipoContenedor, limit = 50 } = req.query;
+    const { q, tipoContenedor, limit = PAGINATION.DEFAULT_LIMIT } = req.query;
 
     if (!q) {
       return next(createBadRequestError('Se requiere el parámetro de búsqueda q'));
