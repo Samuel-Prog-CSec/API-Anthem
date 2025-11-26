@@ -26,7 +26,9 @@ const {
   DAY_PERIODS,
   WORKDAY_TYPES,
   VALIDATION_LIMITS,
-  TRAFFIC_THRESHOLDS
+  TRAFFIC_THRESHOLDS,
+  BINARY_INDICATORS,
+  LOCATION_TYPES
 } = require('../constants');
 
 /**
@@ -185,7 +187,7 @@ const trafficSchema = new mongoose.Schema({
       type: String,
       required: true,
       enum: TRAFFIC_ERROR_CODES,
-      default: 'N'
+      default: BINARY_INDICATORS.NO
     },
 
     // Número de muestras integradas
@@ -514,7 +516,7 @@ trafficSchema.statics.getCongestionAnalysisOptimized = async function(filters = 
               $match: {
                 $expr: {
                   $and: [
-                    { $eq: ['$tipo', 'punto_trafico'] },
+                    { $eq: ['$tipo', LOCATION_TYPES.PUNTO_TRAFICO] },
                     { $eq: ['$id_punto', '$$puntoId'] }
                   ]
                 }
@@ -552,16 +554,16 @@ trafficSchema.statics.getCongestionAnalysisOptimized = async function(filters = 
           }
         },
         medicionesFluidas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', 'FLUIDO'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.FLUIDO] }, 1, 0] }
         },
         medicionesDensas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', 'DENSO'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.DENSO] }, 1, 0] }
         },
         medicionesCongestionadas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', 'CONGESTIONADO'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.CONGESTIONADO] }, 1, 0] }
         },
         medicionesColapsadas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', 'COLAPSADO'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.COLAPSADO] }, 1, 0] }
         }
       }
     },

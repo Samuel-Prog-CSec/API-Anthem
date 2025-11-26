@@ -103,8 +103,8 @@ const containerSchema = new mongoose.Schema({
   location: {
     type: {
       type: String,
-      enum: GEOMETRY_TYPES,
-      default: 'Point'
+      enum: Object.values(GEOMETRY_TYPES),
+      default: GEOMETRY_TYPES.POINT
     },
     coordinates: {
       type: [Number],
@@ -301,7 +301,7 @@ containerSchema.statics.findNearby = function(longitude, latitude, maxDistance =
     location: {
       $near: {
         $geometry: {
-          type: 'Point',
+          type: GEOMETRY_TYPES.POINT,
           coordinates: [longitude, latitude]
         },
         $maxDistance: maxDistance

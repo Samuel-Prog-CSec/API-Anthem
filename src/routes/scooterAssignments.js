@@ -111,7 +111,7 @@ const categoryValidation = [
     .withMessage('Tipo de zona no válido'),
   query('densidad')
     .optional()
-    .isIn(SCOOTER_DENSITY_LEVELS)
+    .isIn(Object.values(SCOOTER_DENSITY_LEVELS))
     .withMessage('Densidad no válida'),
   query('demanda')
     .optional()
@@ -119,7 +119,7 @@ const categoryValidation = [
     .withMessage('Demanda no válida'),
   query('concentracion')
     .optional()
-    .isIn(SCOOTER_MARKET_CONCENTRATION)
+    .isIn(Object.values(SCOOTER_MARKET_CONCENTRATION))
     .withMessage('Concentración no válida')
 ];
 

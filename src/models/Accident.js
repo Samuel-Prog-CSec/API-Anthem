@@ -13,6 +13,7 @@ const {
   VEHICLE_TYPES,
   PERSON_TYPES,
   INJURY_TYPES,
+  INJURY_SEVERITY_MAPPING,
   WEATHER_CONDITIONS,
   DAY_PERIODS,
   WORKDAY_TYPES,
@@ -243,9 +244,9 @@ const accidentSchema = new mongoose.Schema({
       type: String,
       required: true,
       trim: true,
-      enum: ACCIDENT_TYPES,
+      enum: Object.values(ACCIDENT_TYPES),
       index: true,
-      default: 'OTRO'
+      default: ACCIDENT_TYPES.OTRO
     },
 
     // Campo temporal para procesar
@@ -278,10 +279,10 @@ const accidentSchema = new mongoose.Schema({
       type: String,
       required: true,
       trim: true,
-      enum: VEHICLE_TYPES,
+      enum: Object.values(VEHICLE_TYPES),
       uppercase: true,
       index: true,
-      default: 'SIN_ESPECIFICAR'
+      default: VEHICLE_TYPES.SIN_ESPECIFICAR
     },
 
     tipoVehiculoOriginal: {
@@ -455,8 +456,8 @@ accidentSchema.index({ 'vehiculo.tipo': 1, fecha: -1 });
 // ========================================
 
 // Índice para tipo de persona afectada
-// Usado en: GET /api/accidents?tipoPersona=PEATON
-// Tipos: CONDUCTOR, PASAJERO, PEATON
+// Usado en: GET /api/accidents?tipoPersona=PEATÓN
+// Tipos: CONDUCTOR, PASAJERO, PEATÓN, TESTIGO, VIAJERO
 accidentSchema.index({ 'personaAfectada.tipoPersona': 1, fecha: -1 });
 
 // Índice para tipo de lesión
@@ -554,22 +555,22 @@ accidentSchema.statics.getStatisticsByPeriod = function(startDate, endDate) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         accidentesMortales: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.gravedad', 'MORTAL'] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0]
           }
         },
         atropellos: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', 'ATROPELLO_PERSONA'] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.tipoAccidente', ACCIDENT_TYPES.ATROPELLO_A_PERSONA] }, 1, 0]
           }
         },
         accidentesConAlcohol: {
           $sum: {
-            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', 'S'] }, 1, 0]
+            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0]
           }
         }
       }
@@ -598,7 +599,7 @@ accidentSchema.statics.getAccidentBlackSpots = function(limit = 10, startDate = 
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         tiposAccidente: { $addToSet: '$circunstancias.tipoAccidente' },
@@ -635,7 +636,7 @@ accidentSchema.statics.getVehicleTypeAnalysis = function(startDate = null, endDa
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
@@ -670,7 +671,7 @@ accidentSchema.statics.getTemporalPatterns = function(groupBy = 'hora') {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         }
       }
@@ -693,38 +694,38 @@ accidentSchema.statics.getDistrictComparisonData = function(filters = {}) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         accidentesMortales: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.gravedad', 'MORTAL'] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0]
           }
         },
         atropellos: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', 'ATROPELLO_PERSONA'] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.tipoAccidente', ACCIDENT_TYPES.ATROPELLO_A_PERSONA] }, 1, 0]
           }
         },
         accidentesAlcohol: {
           $sum: {
-            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', 'S'] }, 1, 0]
+            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0]
           }
         },
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' },
         turismos: {
           $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', 'TURISMO'] }, 1, 0]
+            $cond: [{ $eq: ['$vehiculo.tipo', VEHICLE_TYPES.TURISMO] }, 1, 0]
           }
         },
         motocicletas: {
           $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', 'MOTOCICLETA'] }, 1, 0]
+            $cond: [{ $eq: ['$vehiculo.tipo', VEHICLE_TYPES.MOTOCICLETA_MAS_125CC] }, 1, 0]
           }
         },
         bicicletas: {
           $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', 'BICICLETA'] }, 1, 0]
+            $cond: [{ $eq: ['$vehiculo.tipo', VEHICLE_TYPES.BICICLETA] }, 1, 0]
           }
         }
       }
@@ -780,17 +781,17 @@ accidentSchema.statics.getStreetSafetyAnalysis = function(filters = {}, limit = 
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         atropellos: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', 'ATROPELLO_PERSONA'] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.tipoAccidente', ACCIDENT_TYPES.ATROPELLO_A_PERSONA] }, 1, 0]
           }
         },
         accidentesAlcohol: {
           $sum: {
-            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', 'S'] }, 1, 0]
+            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0]
           }
         },
         indiceSeveridad: { $avg: '$analisis.puntuacionGravedad' }
@@ -830,7 +831,7 @@ accidentSchema.statics.getTrendAnalysis = function(filters = {}) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         }
       }
@@ -853,7 +854,7 @@ accidentSchema.statics.getWeatherCorrelation = function(filters = {}) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         }
       }
@@ -887,7 +888,7 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
@@ -969,7 +970,7 @@ accidentSchema.statics.getHeatmapDataOptimized = async function(filters = {}, li
     groupedPoints[key].accidentes.push(accident);
     groupedPoints[key].totalAccidentes++;
 
-    if (['GRAVE', 'MORTAL'].includes(accident.circunstancias.gravedad)) {
+    if (INJURY_SEVERITY_MAPPING.GRAVES.includes(accident.circunstancias.gravedad)) {
       groupedPoints[key].accidentesGraves++;
     }
 

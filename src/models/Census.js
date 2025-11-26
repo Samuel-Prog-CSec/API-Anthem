@@ -262,15 +262,15 @@ const censusSchema = new mongoose.Schema({
     densidadPoblacional: {
       type: String,
       enum: POPULATION_DENSITY_LEVELS,
-      default: 'MEDIA'
+      default: CULTURAL_DIVERSITY_LEVELS.MEDIA
     },
     diversidadCultural: {
       type: String,
-      enum: CULTURAL_DIVERSITY_LEVELS,
+      enum: Object.values(CULTURAL_DIVERSITY_LEVELS),
       default: function() {
-        if (this.estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.HIGH) {return 'ALTA';}
-        if (this.estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.MEDIUM) {return 'MEDIA';}
-        return 'BAJA';
+        if (this.estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.HIGH) {return CULTURAL_DIVERSITY_LEVELS.ALTA;}
+        if (this.estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.MEDIUM) {return CULTURAL_DIVERSITY_LEVELS.MEDIA;}
+        return CULTURAL_DIVERSITY_LEVELS.BAJA;
       }
     },
     calidadDatos: {

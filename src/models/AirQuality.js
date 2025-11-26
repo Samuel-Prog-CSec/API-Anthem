@@ -113,7 +113,7 @@ const airQualitySchema = new mongoose.Schema({
       {
         validator: function(v) {
           // Validar que haya al menos 1 medición válida (validationCode = 'V')
-          const validas = Array.from(v.values()).filter(m => m.validationCode === 'V');
+          const validas = Array.from(v.values()).filter(m => m.validationCode === VALIDATION_CODES.VALID);
           return validas.length > 0;
         },
         message: 'Debe haber al menos una medición válida (validationCode=V) en el día'
@@ -349,7 +349,7 @@ airQualitySchema.statics.getStatisticsOptimized = async function(filters = {}, g
                 $cond: [
                   {
                     $and: [
-                      { $eq: ['$$medicion.v.validationCode', 'V'] },
+                      { $eq: ['$$medicion.v.validationCode', VALIDATION_CODES.VALID] },
                       { $ne: ['$$medicion.v.value', null] }
                     ]
                   },
@@ -454,7 +454,7 @@ airQualitySchema.statics.getTrendsOptimized = async function(provincia, municipi
                 $cond: [
                   {
                     $and: [
-                      { $eq: ['$$medicion.v.validationCode', 'V'] },
+                      { $eq: ['$$medicion.v.validationCode', VALIDATION_CODES.VALID] },
                       { $ne: ['$$medicion.v.value', null] }
                     ]
                   },

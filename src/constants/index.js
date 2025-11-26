@@ -110,66 +110,70 @@ const SPECIAL_PAGINATION_LIMITS = {
  * Tipos de accidentes válidos
  * Deben coincidir con el enum del modelo Accident.js
  * Valores extraídos del CSV Anthem_CTC_Accidentalidad.csv
+ * IMPORTANTE: Valores con formato exacto del CSV (espacios → guiones bajos, tildes preservadas)
+ * ESTRUCTURA: Objeto clave-valor para eliminar hardcoded strings
  */
-const ACCIDENT_TYPES = [
-  'ALCANCE',
-  'ATROPELLO_ANIMAL',
-  'ATROPELLO_PERSONA',
-  'CAIDA',
-  'CHOQUE_OBSTACULO_FIJO',
-  'COLISION_FRONTAL',
-  'COLISION_FRONTO_LATERAL',
-  'COLISION_LATERAL',
-  'COLISION_MULTIPLE',
-  'DESPENAMIENTO',
-  'OTRO',
-  'SOLO_SALIDA_VIA',
-  'VUELCO'
-];
+const ACCIDENT_TYPES = {
+  ALCANCE: 'ALCANCE',
+  ATROPELLO_A_ANIMAL: 'ATROPELLO_A_ANIMAL',
+  ATROPELLO_A_PERSONA: 'ATROPELLO_A_PERSONA',
+  CAIDA: 'CAÍDA',
+  CHOQUE_CONTRA_OBSTACULO_FIJO: 'CHOQUE_CONTRA_OBSTÁCULO_FIJO',
+  COLISION_FRONTAL: 'COLISIÓN_FRONTAL',
+  COLISION_FRONTO_LATERAL: 'COLISIÓN_FRONTO-LATERAL',
+  COLISION_LATERAL: 'COLISIÓN_LATERAL',
+  COLISION_MULTIPLE: 'COLISIÓN_MÚLTIPLE',
+  DESPEÑAMIENTO: 'DESPEÑAMIENTO',
+  OTRO: 'OTRO',
+  SOLO_SALIDA_DE_LA_VIA: 'SOLO_SALIDA_DE_LA_VÍA',
+  VUELCO: 'VUELCO'
+};
 
 /**
  * Tipos de vehículos
  * Deben coincidir con el enum del modelo Accident.js
  * Valores completos extraídos del CSV Anthem_CTC_Accidentalidad.csv
+ * IMPORTANTE: Formato exacto del CSV (espacios → guiones bajos, tildes/símbolos preservados)
+ * ESTRUCTURA: Objeto clave-valor para eliminar hardcoded strings
  */
-const VEHICLE_TYPES = [
-  'AMBULANCIA',
-  'AUTOBUS',
-  'AUTOBUS_ARTICULADO',
-  'AUTOBUS_ARTICULADO_EMT',
-  'AUTOBUS_EMT',
-  'AUTOCARAVANA',
-  'BICICLETA',
-  'BICICLETA_EPAC',
-  'CAMION_BOMBEROS',
-  'CAMION_RIGIDO',
-  'CICLO',
-  'CICLOMOTOR',
-  'CICLOMOTOR_DOS_RUEDAS_L1EB',
-  'CICLOMOTOR_TRES_RUEDAS',
-  'CUADRICICLO_LIGERO',
-  'CUADRICICLO_NO_LIGERO',
-  'FURGONETA',
-  'MAQUINARIA_AGRICOLA',
-  'MAQUINARIA_OBRAS',
-  'MOTOCICLETA_HASTA_125CC',
-  'MOTOCICLETA_MAS_125CC',
-  'MOTO_TRES_RUEDAS_HASTA_125CC',
-  'MOTO_TRES_RUEDAS_MAS_125CC',
-  'OTROS_CON_MOTOR',
-  'OTROS_SIN_MOTOR',
-  'PATINETE',
-  'REMOLQUE',
-  'SEMIREMOLQUE',
-  'SIN_ESPECIFICAR',
-  'TAXI',
-  'TODO_TERRENO',
-  'TRACTOCAMION',
-  'TREN_METRO',
-  'TURISMO',
-  'VEHICULO_ARTICULADO',
-  'VMU_ELECTRICO'
-];
+const VEHICLE_TYPES = {
+  AMBULANCIA_SAMUR: 'AMBULANCIA_SAMUR',
+  AUTOBUS_EMT: 'AUTOBUS_EMT',
+  AUTOBUS: 'AUTOBÚS',
+  AUTOBUS_ARTICULADO: 'AUTOBÚS_ARTICULADO',
+  AUTOBUS_ARTICULADO_EMT: 'AUTOBÚS_ARTICULADO_EMT',
+  AUTOCARAVANA: 'AUTOCARAVANA',
+  BICICLETA: 'BICICLETA',
+  BICICLETA_EPAC: 'BICICLETA_EPAC_(PEDALEO_ASISTIDO)',
+  CAMION_DE_BOMBEROS: 'CAMIÓN_DE_BOMBEROS',
+  CAMION_RIGIDO: 'CAMIÓN_RÍGIDO',
+  CICLO: 'CICLO',
+  CICLOMOTOR: 'CICLOMOTOR',
+  CICLOMOTOR_DOS_RUEDAS: 'CICLOMOTOR_DE_DOS_RUEDAS_L1E-B',
+  CICLOMOTOR_TRES_RUEDAS: 'CICLOMOTOR_DE_TRES_RUEDAS',
+  CUADRICICLO_LIGERO: 'CUADRICICLO_LIGERO',
+  CUADRICICLO_NO_LIGERO: 'CUADRICICLO_NO_LIGERO',
+  FURGONETA: 'FURGONETA',
+  MAQUINARIA_AGRICOLA: 'MAQUINARIA_AGRÍCOLA',
+  MAQUINARIA_DE_OBRAS: 'MAQUINARIA_DE_OBRAS',
+  MOTO_TRES_RUEDAS_MAS_125CC: 'MOTO_DE_TRES_RUEDAS_>_125CC',
+  MOTO_TRES_RUEDAS_HASTA_125CC: 'MOTO_DE_TRES_RUEDAS_HASTA_125CC',
+  MOTOCICLETA_MAS_125CC: 'MOTOCICLETA_>_125CC',
+  MOTOCICLETA_HASTA_125CC: 'MOTOCICLETA_HASTA_125CC',
+  OTROS_VEHICULOS_CON_MOTOR: 'OTROS_VEHÍCULOS_CON_MOTOR',
+  OTROS_VEHICULOS_SIN_MOTOR: 'OTROS_VEHÍCULOS_SIN_MOTOR',
+  PATINETE: 'PATINETE',
+  REMOLQUE: 'REMOLQUE',
+  SEMIREMOLQUE: 'SEMIREMOLQUE',
+  SIN_ESPECIFICAR: 'SIN_ESPECIFICAR',
+  TAXI: 'TAXI',
+  TODO_TERRENO: 'TODO_TERRENO',
+  TRACTOCAMION: 'TRACTOCAMIÓN',
+  TREN_METRO: 'TREN/METRO',
+  TURISMO: 'TURISMO',
+  VEHICULO_ARTICULADO: 'VEHÍCULO_ARTICULADO',
+  VMU_ELECTRICO: 'VMU_ELÉCTRICO'
+};
 
 /**
  * Magnitudes de calidad de aire
@@ -218,22 +222,27 @@ const CONTAINER_LOTES = [1, 2, 3];
 
 /**
  * Tipos de ubicaciones (Location model)
+ * ESTRUCTURA: Objeto clave-valor para eliminar accesos por índice
  */
-const LOCATION_TYPES = [
-  'estacion_acustica',
-  'punto_trafico',
-  'ruta_cercanias',
-  'ruta_autobus',
-  'ruta_interurbano',
-  'ruta_metro',
-  'ruta_metro_ligero',
-  'zona_taxi'
-];
+const LOCATION_TYPES = {
+  ESTACION_ACUSTICA: 'estacion_acustica',
+  PUNTO_TRAFICO: 'punto_trafico',
+  RUTA_CERCANIAS: 'ruta_cercanias',
+  RUTA_AUTOBUS: 'ruta_autobus',
+  RUTA_INTERURBANO: 'ruta_interurbano',
+  RUTA_METRO: 'ruta_metro',
+  RUTA_METRO_LIGERO: 'ruta_metro_ligero',
+  ZONA_TAXI: 'zona_taxi'
+};
 
 /**
  * Tipos de geometría GeoJSON
+ * ESTRUCTURA: Objeto clave-valor para eliminar accesos por índice
  */
-const GEOMETRY_TYPES = ['Point', 'LineString'];
+const GEOMETRY_TYPES = {
+  POINT: 'Point',
+  LINE_STRING: 'LineString'
+};
 
 /**
  * Zonas UTM válidas para España
@@ -252,18 +261,36 @@ const NOISE_LIMITS = {
 
 /**
  * Niveles de densidad de patinetes
+ * ESTRUCTURA: Objeto clave-valor para eliminar accesos por índice
  */
-const SCOOTER_DENSITY_LEVELS = ['BAJA', 'MEDIA', 'ALTA', 'MUY_ALTA'];
+const SCOOTER_DENSITY_LEVELS = {
+  BAJA: 'BAJA',
+  MEDIA: 'MEDIA',
+  ALTA: 'ALTA',
+  MUY_ALTA: 'MUY_ALTA'
+};
 
 /**
  * Tipos de dominancia de proveedores de patinetes
+ * ESTRUCTURA: Objeto clave-valor para eliminar accesos por índice
  */
-const SCOOTER_PROVIDER_DOMINANCE = ['EQUILIBRADA', 'MONOPOLIO', 'DUOPOLIO', 'OLIGOPOLIO'];
+const SCOOTER_PROVIDER_DOMINANCE = {
+  EQUILIBRADA: 'EQUILIBRADA',
+  MONOPOLIO: 'MONOPOLIO',
+  DUOPOLIO: 'DUOPOLIO',
+  OLIGOPOLIO: 'OLIGOPOLIO'
+};
 
 /**
  * Concentración de mercado de patinetes
+ * ESTRUCTURA: Objeto clave-valor para eliminar accesos por índice
  */
-const SCOOTER_MARKET_CONCENTRATION = ['COMPETITIVA', 'MODERADA', 'CONCENTRADA', 'ALTA_CONCENTRACION'];
+const SCOOTER_MARKET_CONCENTRATION = {
+  COMPETITIVA: 'COMPETITIVA',
+  MODERADA: 'MODERADA',
+  CONCENTRADA: 'CONCENTRADA',
+  ALTA_CONCENTRACION: 'ALTA_CONCENTRACION'
+};
 
 /**
  * Tipos de zona urbana para patinetes
@@ -339,10 +366,15 @@ const HTTP_STATUS = {
 
 /**
  * Tipos de persona en accidentes
+ *
+ * IMPORTANTE: Valores del CSV: CONDUCTOR, PASAJERO, PEATÓN
+ * Valores adicionales de dominio:
+ * - TESTIGO: Testigos presenciales de accidentes (no aparece en CSV actual)
+ * - VIAJERO: Viajeros de transporte público (no aparece en CSV actual, alias de PASAJERO)
  */
 const PERSON_TYPES = {
   CONDUCTOR: 'CONDUCTOR',
-  PEATON: 'PEATON',
+  PEATÓN: 'PEATÓN',
   TESTIGO: 'TESTIGO',
   VIAJERO: 'VIAJERO',
   PASAJERO: 'PASAJERO'
@@ -350,29 +382,81 @@ const PERSON_TYPES = {
 
 /**
  * Tipos de lesión en accidentes
+ * IMPORTANTE: Valores exactos del CSV (espacios → guiones bajos, tildes preservadas)
+ *
+ * Incluye alias cortos para compatibilidad con código existente:
+ * - LEVE: Lesiones menores (asistencia ambulatoria, en el lugar, sin asistencia)
+ * - GRAVE: Lesiones graves (ingresos hospitalarios)
+ * - FALLECIDO: Fallecido en 24 horas
+ * - DESCONOCIDO: Se desconoce el tipo de lesión
  */
 const INJURY_TYPES = {
-  LEVE: 'LEVE',
-  GRAVE: 'GRAVE',
-  FALLECIDO: 'FALLECIDO',
-  SIN_ASISTENCIA: 'SIN_ASISTENCIA',
-  DESCONOCIDO: 'DESCONOCIDO'
+  // Valores exactos del CSV
+  ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD: 'ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD',
+  ASISTENCIA_SANITARIA_INMEDIATA_EN_CENTRO_DE_SALUD_O_MUTUA: 'ASISTENCIA_SANITARIA_INMEDIATA_EN_CENTRO_DE_SALUD_O_MUTUA',
+  ASISTENCIA_SANITARIA_SÓLO_EN_EL_LUGAR_DEL_ACCIDENTE: 'ASISTENCIA_SANITARIA_SÓLO_EN_EL_LUGAR_DEL_ACCIDENTE',
+  ATENCIÓN_EN_URGENCIAS_SIN_POSTERIOR_INGRESO: 'ATENCIÓN_EN_URGENCIAS_SIN_POSTERIOR_INGRESO',
+  FALLECIDO_24_HORAS: 'FALLECIDO_24_HORAS',
+  INGRESO_INFERIOR_O_IGUAL_A_24_HORAS: 'INGRESO_INFERIOR_O_IGUAL_A_24_HORAS',
+  INGRESO_SUPERIOR_A_24_HORAS: 'INGRESO_SUPERIOR_A_24_HORAS',
+  SE_DESCONOCE: 'SE_DESCONOCE',
+  SIN_ASISTENCIA_SANITARIA: 'SIN_ASISTENCIA_SANITARIA',
+
+  // Alias para compatibilidad con código existente (no usar en imports CSV)
+  LEVE: 'ASISTENCIA_SANITARIA_SÓLO_EN_EL_LUGAR_DEL_ACCIDENTE',  // Representativo de lesiones leves
+  GRAVE: 'INGRESO_SUPERIOR_A_24_HORAS',  // Representativo de lesiones graves
+  FALLECIDO: 'FALLECIDO_24_HORAS',
+  DESCONOCIDO: 'SE_DESCONOCE'
+};
+
+/**
+ * Mapeo de tipos de lesión por severidad
+ * Usado para clasificar accidentes según impacto en personas
+ *
+ * IMPORTANTE: Este mapeo agrupa los valores descriptivos del CSV por severidad
+ * para facilitar consultas y estadísticas sin depender de alias individuales
+ */
+const INJURY_SEVERITY_MAPPING = {
+  GRAVES: [
+    'FALLECIDO_24_HORAS',
+    'INGRESO_SUPERIOR_A_24_HORAS',
+    'INGRESO_INFERIOR_O_IGUAL_A_24_HORAS',
+    'ATENCIÓN_EN_URGENCIAS_SIN_POSTERIOR_INGRESO'
+  ],
+  LEVES: [
+    'ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD',
+    'ASISTENCIA_SANITARIA_INMEDIATA_EN_CENTRO_DE_SALUD_O_MUTUA',
+    'ASISTENCIA_SANITARIA_SÓLO_EN_EL_LUGAR_DEL_ACCIDENTE',
+    'SIN_ASISTENCIA_SANITARIA'
+  ],
+  DESCONOCIDAS: ['SE_DESCONOCE']
 };
 
 /**
  * Estados meteorológicos
+ *
+ * IMPORTANTE: Valores exactos del CSV (espacios → guiones bajos, sin tildes)
+ * - DESPEJADO, NUBLADO, LLUVIA_DEBIL, LLUVIA_INTENSA, GRANIZANDO, NEVANDO, SE_DESCONOCE
+ *
+ * Valores adicionales de dominio (condiciones meteorológicas válidas):
+ * - NIEBLA: No aparece en CSV actual, pero es condición meteorológica común
+ * - VIENTO_FUERTE: No aparece en CSV actual, pero es condición meteorológica válida
+ * - NULL: Valor presente en CSV para casos sin datos
  */
 const WEATHER_CONDITIONS = {
   DESPEJADO: 'DESPEJADO',
   NUBLADO: 'NUBLADO',
-  LLUVIA_LIGERA: 'LLUVIA_LIGERA',
+  LLUVIA_DEBIL: 'LLUVIA_DEBIL',
   LLUVIA_INTENSA: 'LLUVIA_INTENSA',
+  GRANIZANDO: 'GRANIZANDO',
+  NEVANDO: 'NEVANDO',
+  SE_DESCONOCE: 'SE_DESCONOCE',
   NIEBLA: 'NIEBLA',
   VIENTO_FUERTE: 'VIENTO_FUERTE',
-  GRANIZO: 'GRANIZO',
-  NIEVE: 'NIEVE',
-  DESCONOCIDO: 'DESCONOCIDO',
-  NULL: 'NULL'
+  NULL: 'NULL',
+
+  // Alias para compatibilidad
+  DESCONOCIDO: 'SE_DESCONOCE'
 };
 
 /**
@@ -463,10 +547,11 @@ const DATA_QUALITY_LEVELS = {
 
 /**
  * Tipos de elementos de medición de tráfico
+ * IMPORTANTE: Valores exactos del CSV (M30 sin guion)
  */
 const TRAFFIC_ELEMENT_TYPES = {
   URB: 'URB',
-  M30: 'M-30'
+  M30: 'M30'
 };
 
 /**
@@ -503,8 +588,13 @@ const POPULATION_DENSITY_LEVELS = ['BAJA', 'MEDIA', 'ALTA', 'MUY_ALTA'];
 /**
  * Niveles de diversidad cultural
  * Usado en metadatos de Census
+ * ESTRUCTURA: Objeto clave-valor para eliminar accesos por índice
  */
-const CULTURAL_DIVERSITY_LEVELS = ['BAJA', 'MEDIA', 'ALTA'];
+const CULTURAL_DIVERSITY_LEVELS = {
+  BAJA: 'BAJA',
+  MEDIA: 'MEDIA',
+  ALTA: 'ALTA'
+};
 
 /**
  * Tipos de campos en metadatos
@@ -817,12 +907,21 @@ const ROUTE_SPECIFIC_LIMITS = {
 };
 
 /**
- * Indicadores binarios S/N/NULL
- * Usados en varios modelos para campos con valores S/N/NULL
+ * Indicadores binarios S/N/NULL y variantes
+ * Usados en varios modelos para campos con valores binarios o ausentes
+ *
+ * IMPORTANTE: Valores exactos del CSV
+ * - Multas: descuento usa "SI"/"NO"
+ * - Accidentes: positiva_alcohol usa "S"/"N", positiva_droga usa "1" (numérico)
+ * - Calidad aire: validación usa "V"/"N"
  */
 const BINARY_INDICATORS = {
   YES: 'S',
   NO: 'N',
+  YES_FULL: 'SI',
+  NO_FULL: 'NO',
+  NUMERIC_TRUE: '1',
+  NUMERIC_FALSE: '0',
   NULL: 'NULL'
 };
 
@@ -1127,6 +1226,7 @@ module.exports = {
   VEHICLE_TYPES,
   PERSON_TYPES,
   INJURY_TYPES,
+  INJURY_SEVERITY_MAPPING,
   RISK_FACTORS,
 
   // Calidad del aire

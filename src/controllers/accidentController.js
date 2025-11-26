@@ -11,7 +11,7 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, MONGODB_TIMEOUTS, TIME_CONSTANTS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, INJURY_SEVERITY_MAPPING, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, MONGODB_TIMEOUTS, TIME_CONSTANTS } = require('../constants');
 const logger = require('../config/logger');
 
 
@@ -40,10 +40,10 @@ const getAllAccidents = async (req, res, next) => {
 
     // Filtros booleanos especiales
     const { conAlcohol, conDrogas } = req.query;
-    if (conAlcohol === 'true') { filters['personaAfectada.positivaAlcohol'] = 'S'; }
-    if (conAlcohol === 'false') { filters['personaAfectada.positivaAlcohol'] = 'N'; }
-    if (conDrogas === 'true') { filters['personaAfectada.positivaDroga'] = 'S'; }
-    if (conDrogas === 'false') { filters['personaAfectada.positivaDroga'] = 'N'; }
+    if (conAlcohol === 'true') { filters['personaAfectada.positivaAlcohol'] = BINARY_INDICATORS.YES; }
+    if (conAlcohol === 'false') { filters['personaAfectada.positivaAlcohol'] = BINARY_INDICATORS.NO; }
+    if (conDrogas === 'true') { filters['personaAfectada.positivaDroga'] = BINARY_INDICATORS.NUMERIC_TRUE; }
+    if (conDrogas === 'false') { filters['personaAfectada.positivaDroga'] = BINARY_INDICATORS.NUMERIC_FALSE; }
 
     // Configurar ordenamiento y paginación usando queryHelper
     const sortOptions = buildSortOptions(
@@ -121,8 +121,8 @@ const getAllAccidents = async (req, res, next) => {
         applied: filters,
         available: {
           gravedad: Object.values(SEVERITY_LEVELS.ACCIDENT),
-          tipoAccidente: ACCIDENT_TYPES,
-          tipoVehiculo: VEHICLE_TYPES,
+          tipoAccidente: Object.values(ACCIDENT_TYPES),
+          tipoVehiculo: Object.values(VEHICLE_TYPES),
           tipoLesion: Object.values(INJURY_TYPES)
         }
       },
@@ -190,8 +190,8 @@ const getAccidentByFileNumber = async (req, res, next) => {
 
     const summary = personasAfectadas.reduce((acc, persona) => {
       if (persona.tipoPersona === PERSON_TYPES.CONDUCTOR) { acc.conductores++; }
-      if (persona.tipoPersona === PERSON_TYPES.PEATON) { acc.peatones++; }
-      if ([INJURY_TYPES.GRAVE, INJURY_TYPES.FALLECIDO].includes(persona.tipoLesion)) { acc.personasGraves++; }
+      if (persona.tipoPersona === PERSON_TYPES.PEATÓN) { acc.peatones++; }
+      if (INJURY_SEVERITY_MAPPING.GRAVES.includes(persona.tipoLesion)) { acc.personasGraves++; }
       if (persona.positivaAlcohol === BINARY_INDICATORS.YES) { acc.conAlcohol++; }
       return acc;
     }, { totalPersonas: accidentData.length, conductores: 0, peatones: 0, personasGraves: 0, conAlcohol: 0 });

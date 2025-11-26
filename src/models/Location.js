@@ -9,7 +9,7 @@ const locationSchema = new mongoose.Schema({
   // Identificación
   tipo: {
     type: String,
-    enum: LOCATION_TYPES,
+    enum: Object.values(LOCATION_TYPES),
     required: true,
     uppercase: true,
     index: true
@@ -22,7 +22,7 @@ const locationSchema = new mongoose.Schema({
     sparse: true,
     validate: {
       validator: function(v) {
-        return this.tipo !== 'estacion_acustica' || (v && v.length > 0);
+        return this.tipo !== LOCATION_TYPES.ESTACION_ACUSTICA || (v && v.length > 0);
       },
       message: 'Las estaciones acústicas requieren nmt'
     }
@@ -40,7 +40,7 @@ const locationSchema = new mongoose.Schema({
     sparse: true,
     validate: {
       validator: function(v) {
-        return this.tipo !== 'punto_trafico' || (v && v.length > 0);
+        return this.tipo !== LOCATION_TYPES.PUNTO_TRAFICO || (v && v.length > 0);
       },
       message: 'Los puntos de tráfico requieren id_punto'
     }
@@ -106,17 +106,17 @@ const locationSchema = new mongoose.Schema({
   geometry: {
     type: {
       type: String,
-      enum: GEOMETRY_TYPES,
-      default: 'Point'
+      enum: Object.values(GEOMETRY_TYPES),
+      default: GEOMETRY_TYPES.POINT
     },
     coordinates: {
       type: [Number], // [longitude, latitude] para Point, array de arrays para LineString
       required: true,
       validate: {
         validator: function(coords) {
-          const geomType = this.geometry?.type || 'Point';
+          const geomType = this.geometry?.type || GEOMETRY_TYPES.POINT;
 
-          if (geomType === 'Point') {
+          if (geomType === GEOMETRY_TYPES.POINT) {
             // Point requiere exactamente 2 coordenadas [lng, lat]
             if (!Array.isArray(coords) || coords.length !== 2) {
               return false;
@@ -127,7 +127,7 @@ const locationSchema = new mongoose.Schema({
                    lat >= VALIDATION_LIMITS.LATITUDE_MIN && lat <= VALIDATION_LIMITS.LATITUDE_MAX;
           }
 
-          if (geomType === 'LineString') {
+          if (geomType === GEOMETRY_TYPES.LINE_STRING) {
             // LineString requiere array de arrays, mínimo 2 puntos
             if (!Array.isArray(coords) || coords.length < 2) {
               return false;
@@ -286,7 +286,7 @@ locationSchema.statics.findWithOptions = async function(options) {
     finalFilters.geometry = {
       $near: {
         $geometry: {
-          type: 'Point',
+          type: GEOMETRY_TYPES.POINT,
           coordinates: geoQuery.coordinates // [longitude, latitude]
         },
         $maxDistance: geoQuery.maxDistance || 1000

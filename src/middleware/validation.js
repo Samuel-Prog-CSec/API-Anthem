@@ -304,7 +304,7 @@ const validateAccidentFilters = [
   query('tipoAccidente')
     .optional()
     .trim()
-    .isIn(ACCIDENT_TYPES)
+    .isIn(Object.values(ACCIDENT_TYPES))
     .withMessage('Tipo de accidente no válido')
     .escape(), // Sanitización XSS
 
@@ -318,7 +318,7 @@ const validateAccidentFilters = [
   query('tipoVehiculo')
     .optional()
     .trim()
-    .isIn(VEHICLE_TYPES)
+    .isIn(Object.values(VEHICLE_TYPES))
     .withMessage('Tipo de vehículo no válido')
     .escape(), // Sanitización XSS
 
@@ -369,8 +369,8 @@ const validateFileNumber = [
 const validateTrafficFilters = [
   query('tipoElemento')
     .optional()
-    .isIn([...Object.values(TRAFFIC_ELEMENT_TYPES), 'urb', 'm-30']) // Incluir variantes en minúsculas
-    .withMessage('Tipo de elemento debe ser URB o M-30'),
+    .isIn(Object.values(TRAFFIC_ELEMENT_TYPES))
+    .withMessage(`Tipo de elemento debe ser ${Object.values(TRAFFIC_ELEMENT_TYPES).join(' o ')}`),
 
   query('nivelCongestion')
     .optional()

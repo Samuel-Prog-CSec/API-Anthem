@@ -126,13 +126,13 @@ const scooterAssignmentSchema = new mongoose.Schema({
     },
     densidadPatinetes: {
       type: String,
-      enum: SCOOTER_DENSITY_LEVELS,
-      default: 'MEDIA'
+      enum: Object.values(SCOOTER_DENSITY_LEVELS),
+      default: SCOOTER_DENSITY_LEVELS.MEDIA
     },
     dominanciaProveedores: {
       type: String,
-      enum: SCOOTER_PROVIDER_DOMINANCE,
-      default: 'EQUILIBRADA'
+      enum: Object.values(SCOOTER_PROVIDER_DOMINANCE),
+      default: SCOOTER_PROVIDER_DOMINANCE.EQUILIBRADA
     }
   },
 
@@ -153,8 +153,8 @@ const scooterAssignmentSchema = new mongoose.Schema({
     },
     concentracionMercado: {
       type: String,
-      enum: SCOOTER_MARKET_CONCENTRATION,
-      default: 'COMPETITIVA'
+      enum: Object.values(SCOOTER_MARKET_CONCENTRATION),
+      default: SCOOTER_MARKET_CONCENTRATION.COMPETITIVA
     }
   },
 
@@ -374,13 +374,13 @@ scooterAssignmentSchema.methods.calculateStatistics = function() {
 
   // Clasificar densidad basada en total de patinetes
   if (this.estadisticas.totalPatinetes >= SCOOTER_DENSITY_THRESHOLDS.MUY_ALTA) {
-    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[3]; // 'MUY_ALTA'
+    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS.MUY_ALTA;
   } else if (this.estadisticas.totalPatinetes >= SCOOTER_DENSITY_THRESHOLDS.ALTA) {
-    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[2]; // 'ALTA'
+    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS.ALTA;
   } else if (this.estadisticas.totalPatinetes >= SCOOTER_DENSITY_THRESHOLDS.MEDIA) {
-    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[1]; // 'MEDIA'
+    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS.MEDIA;
   } else {
-    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS[0]; // 'BAJA'
+    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS.BAJA;
   }
 };
 
@@ -424,17 +424,17 @@ scooterAssignmentSchema.methods.analyzeDistribution = function() {
 
   // Clasificar concentración del mercado
   if (hhi >= MARKET_CONCENTRATION_THRESHOLDS.HIGH) {
-    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION[3]; // 'ALTA_CONCENTRACION'
-    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE[1]; // 'MONOPOLIO'
+    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION.ALTA_CONCENTRACION;
+    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE.MONOPOLIO;
   } else if (hhi >= MARKET_CONCENTRATION_THRESHOLDS.MODERATE) {
-    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION[2]; // 'CONCENTRADA'
-    this.estadisticas.dominanciaProveedores = proveedoresActivos.length === 2 ? SCOOTER_PROVIDER_DOMINANCE[2] : SCOOTER_PROVIDER_DOMINANCE[3]; // 'DUOPOLIO' : 'OLIGOPOLIO'
+    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION.CONCENTRADA;
+    this.estadisticas.dominanciaProveedores = proveedoresActivos.length === 2 ? SCOOTER_PROVIDER_DOMINANCE.DUOPOLIO : SCOOTER_PROVIDER_DOMINANCE.OLIGOPOLIO;
   } else if (hhi >= MARKET_CONCENTRATION_THRESHOLDS.LOW) {
-    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION[1]; // 'MODERADA'
-    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE[3]; // 'OLIGOPOLIO'
+    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION.MODERADA;
+    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE.OLIGOPOLIO;
   } else {
-    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION[0]; // 'COMPETITIVA'
-    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE[0]; // 'EQUILIBRADA'
+    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION.COMPETITIVA;
+    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE.EQUILIBRADA;
   }
 };
 
@@ -592,7 +592,7 @@ scooterAssignmentSchema.statics.getDistrictStatistics = function(fecha = null) {
         zonasMayorDemanda: {
           $sum: {
             $cond: [
-              { $eq: ['$clasificacionArea.demandaEstimada', 'MUY_ALTA'] },
+              { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[3]] },
               1,
               0
             ]
@@ -637,7 +637,7 @@ scooterAssignmentSchema.statics.getProviderMarketAnalysis = function(fecha = nul
         zonasAlta: {
           $sum: {
             $cond: [
-              { $eq: ['$clasificacionArea.demandaEstimada', 'MUY_ALTA'] },
+              { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[3]] },
               1,
               0
             ]
@@ -717,7 +717,7 @@ scooterAssignmentSchema.statics.getDistributionDashboard = function(fecha = null
               areasAltaDensidad: {
                 $sum: {
                   $cond: [
-                    { $in: ['$estadisticas.densidadPatinetes', ['ALTA', 'MUY_ALTA']] },
+                    { $in: ['$estadisticas.densidadPatinetes', [SCOOTER_DENSITY_LEVELS.ALTA, SCOOTER_DENSITY_LEVELS.MUY_ALTA]] },
                     1,
                     0
                   ]
@@ -781,10 +781,10 @@ scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = n
           demandaNumerica: {
             $switch: {
               branches: [
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', 'BAJA'] }, then: 1 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', 'MEDIA'] }, then: 2 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', 'ALTA'] }, then: 3 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', 'MUY_ALTA'] }, then: 4 }
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[0]] }, then: 1 },
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[1]] }, then: 2 },
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[2]] }, then: 3 },
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS[3]] }, then: 4 }
               ],
               default: 2
             }
@@ -792,10 +792,10 @@ scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = n
           ofertaNumerica: {
             $switch: {
               branches: [
-                { case: { $eq: ['$estadisticas.densidadPatinetes', 'BAJA'] }, then: 1 },
-                { case: { $eq: ['$estadisticas.densidadPatinetes', 'MEDIA'] }, then: 2 },
-                { case: { $eq: ['$estadisticas.densidadPatinetes', 'ALTA'] }, then: 3 },
-                { case: { $eq: ['$estadisticas.densidadPatinetes', 'MUY_ALTA'] }, then: 4 }
+                { case: { $eq: ['$estadisticas.densidadPatinetes', SCOOTER_DENSITY_LEVELS.BAJA] }, then: 1 },
+                { case: { $eq: ['$estadisticas.densidadPatinetes', SCOOTER_DENSITY_LEVELS.MEDIA] }, then: 2 },
+                { case: { $eq: ['$estadisticas.densidadPatinetes', SCOOTER_DENSITY_LEVELS.ALTA] }, then: 3 },
+                { case: { $eq: ['$estadisticas.densidadPatinetes', SCOOTER_DENSITY_LEVELS.MUY_ALTA] }, then: 4 }
               ],
               default: 2
             }
@@ -856,9 +856,9 @@ scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = n
         $addFields: {
           necesitaAtencion: {
             $or: [
-              { $and: [{ $in: ['$demanda', ['ALTA', 'MUY_ALTA']] }, { $eq: ['$densidad', 'BAJA'] }] },
-              { $and: [{ $eq: ['$demanda', 'BAJA'] }, { $in: ['$densidad', ['ALTA', 'MUY_ALTA']] }] },
-              { $eq: ['$concentracion', 'ALTA_CONCENTRACION'] }
+              { $and: [{ $in: ['$demanda', [SCOOTER_DEMAND_LEVELS.ALTA, SCOOTER_DEMAND_LEVELS.MUY_ALTA]] }, { $eq: ['$densidad', SCOOTER_DENSITY_LEVELS.BAJA] }] },
+              { $and: [{ $eq: ['$demanda', SCOOTER_DEMAND_LEVELS.BAJA] }, { $in: ['$densidad', [SCOOTER_DENSITY_LEVELS.ALTA, SCOOTER_DENSITY_LEVELS.MUY_ALTA]] }] },
+              { $eq: ['$concentracion', SCOOTER_MARKET_CONCENTRATION.ALTA_CONCENTRACION] }
             ]
           }
         }
