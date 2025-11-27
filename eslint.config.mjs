@@ -96,9 +96,10 @@ export default [
       "dist/**",
       "build/**",
       ".clinic/**",
+      ".git/**",
+      ".github/**",
       "*.min.js",
-      "docs/**",
-      ".github/**"
+      "**/*.md"
     ]
   }
 ];
