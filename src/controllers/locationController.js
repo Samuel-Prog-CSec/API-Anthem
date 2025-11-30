@@ -1,6 +1,5 @@
 const Location = require('../models/Location');
-const { validationResult } = require('express-validator');
-const { createValidationError, createInternalError, createBadRequestError } = require('../utils/errorUtils');
+const { createInternalError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
@@ -11,14 +10,9 @@ const { SPECIAL_PAGINATION_LIMITS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS, MEASURE
  */
 const getLocations = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Errores de validación en los parámetros', errors.array()));
-    }
-
     const {
       bbox, // bounding box: "minX,minY,maxX,maxY"
-      cerca_de // "x,y,radio_metros"
+      near // "x,y,radio_metros"
     } = req.query;
 
     // Construir filtros usando buildFilters de queryHelper
@@ -39,8 +33,8 @@ const getLocations = async (req, res, next) => {
 
     // Configurar query geoespacial si existe cerca_de
     let geoQuery = null;
-    if (cerca_de) {
-      const [x, y, radio] = cerca_de.split(',').map(Number);
+    if (near) {
+      const [x, y, radio] = near.split(',').map(Number);
       geoQuery = {
         coordinates: [x, y], // [longitude, latitude]
         maxDistance: radio
@@ -93,19 +87,19 @@ const getLocations = async (req, res, next) => {
  */
 const getMeasurementPoints = async (req, res, next) => {
   try {
-    const { tipo_medicion } = req.params;
+    const { measurementType } = req.params;
 
     const tiposValidos = {
       [MEASUREMENT_POINT_TYPES.ACUSTICA]: LOCATION_TYPES.ESTACION_ACUSTICA,
       [MEASUREMENT_POINT_TYPES.TRAFICO]: LOCATION_TYPES.PUNTO_TRAFICO
     };
 
-    if (!tiposValidos[tipo_medicion]) {
+    if (!tiposValidos[measurementType]) {
       return next(createBadRequestError('Tipo de medición no válido. Use: acustica, trafico'));
     }
 
     const puntos = await Location.find({
-      tipo: tiposValidos[tipo_medicion]
+      tipo: tiposValidos[measurementType]
     })
     .select('nombre coordenadas nmt cod_cent geometry')
     .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
@@ -113,7 +107,7 @@ const getMeasurementPoints = async (req, res, next) => {
 
     const responseData = {
       data: {
-        tipo_medicion,
+        measurementType,
         total_puntos: puntos.length,
         puntos
       }
@@ -122,7 +116,7 @@ const getMeasurementPoints = async (req, res, next) => {
     res.json(createResponse(responseData, 'Puntos de medición obtenidos exitosamente'));
 
   } catch (error) {
-    next(createInternalError(`Error al obtener puntos de medición de ${req.params.tipo_medicion}`, error));
+    next(createInternalError(`Error al obtener puntos de medición de ${req.params.measurementType}`, error));
   }
 };
 
@@ -131,14 +125,14 @@ const getMeasurementPoints = async (req, res, next) => {
  */
 const getTransportRoutes = async (req, res, next) => {
   try {
-    const { tipo_transporte } = req.params;
+    const { transportType } = req.params;
 
-    const tiposTransporte = TRANSPORT_ROUTE_TYPES;
+    const tiposTransporte = Object.values(TRANSPORT_ROUTE_TYPES);
 
     const filter = {};
-    if (tipo_transporte !== 'todos') {
-      const tipoCompleto = `ruta_${tipo_transporte}`;
-      if (!tiposTransporte.includes(tipoCompleto) && tipo_transporte !== 'zona_taxi') {
+    if (transportType !== 'todos') {
+      const tipoCompleto = `ruta_${transportType}`;
+      if (!tiposTransporte.includes(tipoCompleto) && transportType !== 'zona_taxi') {
         return next(createBadRequestError('Tipo de transporte no válido'));
       }
       filter.tipo = tipoCompleto;
@@ -153,7 +147,7 @@ const getTransportRoutes = async (req, res, next) => {
 
     const responseData = {
       data: {
-        tipo_transporte,
+        transportType,
         total_rutas: rutas.length,
         rutas
       }

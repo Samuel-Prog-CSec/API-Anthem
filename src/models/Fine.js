@@ -536,7 +536,7 @@ fineSchema.statics.getStatisticsOptimized = async function(options) {
         }
       },
       { $sort: sortStage },
-      { $limit: parseInt(limit) }
+      { $limit: parseInt(limit, 10) }
     ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
 
     // Agregación 2: Resumen general
@@ -621,7 +621,7 @@ fineSchema.statics.getLocationRankingOptimized = async function(options) {
       }
     },
     { $sort: { totalMultas: -1 } },
-    { $limit: parseInt(limit) }
+    { $limit: parseInt(limit, 10) }
   ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   return ranking;

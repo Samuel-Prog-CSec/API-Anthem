@@ -12,6 +12,7 @@ const cookieParser = require('cookie-parser');
 const compression = require('compression');
 
 // Importar configuración y base de datos
+const { HTTP_STATUS } = require('./constants');
 const config = require('./config/config');
 const { connectDB } = require('./config/database');
 const { validateCorsOrigin } = require('./config/corsValidator');
@@ -102,7 +103,7 @@ app.use(xssProtection);
  * consuman las peticiones del límite de tasa y marquen falsamente el servicio como caído
  */
 app.get('/health', (req, res) => {
-  res.status(200).json({
+  res.status(HTTP_STATUS.OK).json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
@@ -270,7 +271,7 @@ app.use(config.api.prefix + '/' + config.api.version, routes);
  * Redirigir a documentación de la API
  */
 app.get('/', (req, res) => {
-  res.status(200).json({
+  res.status(HTTP_STATUS.OK).json({
     success: true,
     message: 'Bienvenido a la API REST Profesional',
     version: config.api.version,

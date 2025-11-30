@@ -50,8 +50,17 @@ const SORT_FIELDS = {
   LOCATION: ['nombre', 'distrito', 'barrio', 'tipo'],
   NOISE_MONITORING: ['fecha', 'nmt', 'nombre', 'laeq24', 'nivelDiurno', 'nivelVespertino', 'nivelNocturno'],
   PARKING_OCCUPANCY: ['fecha', 'distrito', 'plazasTotales', 'plazasOcupadas'],
-  SCOOTER_ASSIGNMENT: ['fecha', 'distrito', 'proveedor', 'numeroPatinetes', 'disponibles', 'enUso'],
+  SCOOTER_ASSIGNMENT: ['totalPatinetes', 'distrito', 'barrio', 'fecha', 'densidad', 'proveedor'],
   TRAFFIC: ['fecha', 'puntoMedidaId', 'intensidad', 'ocupacion', 'carga']
+};
+
+/**
+ * Campos de ordenamiento por defecto
+ */
+const DEFAULT_SORT_FIELDS = {
+  FINE: 'fecha',
+  SCOOTER_ASSIGNMENT: 'totalPatinetes',
+  DEFAULT_ORDER: 'desc'
 };
 
 /**
@@ -71,8 +80,8 @@ const PAGINATION = {
  * Previenen conexiones colgadas y mejoran la resiliencia
  */
 const MONGODB_TIMEOUTS = {
-  QUERY_TIMEOUT_MS: 5000,      // 5 segundos para queries simples (find, findOne, findById, count)
-  AGGREGATE_TIMEOUT_MS: 10000  // 10 segundos para aggregations complejas
+  QUERY_TIMEOUT_MS: 5000, // 5 segundos para queries simples (find, findOne, findById, count)
+  AGGREGATE_TIMEOUT_MS: 10000 // 10 segundos para aggregations complejas
 };
 
 /**
@@ -80,13 +89,13 @@ const MONGODB_TIMEOUTS = {
  * Usados en pipelines de agregación para prevenir problemas de memoria
  */
 const AGGREGATION_LIMITS = {
-  SMALL: 1000,        // Para aggregations pequeñas (proximidad, detalles)
-  MEDIUM: 5000,       // Para aggregations medianas (estadísticas de punto único)
-  LARGE: 10000,       // Para aggregations grandes (estadísticas generales)
-  XLARGE: 50000,      // Para aggregations muy grandes (análisis masivos)
-  TOP_RESULTS: 50,    // Límite para rankings/tops
-  PREVIEW: 5,         // Límite para vistas previas
-  MONTHLY_STATS: 12   // Límite para estadísticas mensuales
+  SMALL: 1000, // Para aggregations pequeñas (proximidad, detalles)
+  MEDIUM: 5000, // Para aggregations medianas (estadísticas de punto único)
+  LARGE: 10000, // Para aggregations grandes (estadísticas generales)
+  XLARGE: 50000, // Para aggregations muy grandes (análisis masivos)
+  TOP_RESULTS: 50, // Límite para rankings/tops
+  PREVIEW: 5, // Límite para vistas previas
+  MONTHLY_STATS: 12 // Límite para estadísticas mensuales
 };
 
 /**
@@ -95,15 +104,15 @@ const AGGREGATION_LIMITS = {
  */
 const SPECIAL_PAGINATION_LIMITS = {
   LOCATIONS: {
-    DEFAULT: 100,     // Más puntos geográficos por defecto
-    MAX: 500          // Límite alto para mapas
+    DEFAULT: 100, // Más puntos geográficos por defecto
+    MAX: 500 // Límite alto para mapas
   },
   CONTAINERS: {
-    DEFAULT: 100,     // Muchos contenedores en la ciudad
-    SEARCH_MAX: 200   // Límite para búsquedas de contenedores
+    DEFAULT: 100, // Muchos contenedores en la ciudad
+    SEARCH_MAX: 200 // Límite para búsquedas de contenedores
   },
   BIKES: {
-    DEFAULT: 100      // Muchas estaciones de bicicletas
+    DEFAULT: 100 // Muchas estaciones de bicicletas
   }
 };
 
@@ -215,7 +224,7 @@ const MAGNITUDES_PERMITIDAS = Object.keys(AIR_QUALITY_MAGNITUDES).map(Number);
 const AIR_QUALITY_DEFAULTS = {
   PROVINCIA: 28, // Madrid
   MUNICIPIO: 79, // Madrid ciudad
-  MAGNITUD: 10   // PM10
+  MAGNITUD: 10 // PM10
 };
 
 /**
@@ -428,8 +437,8 @@ const INJURY_TYPES = {
   SIN_ASISTENCIA_SANITARIA: 'SIN_ASISTENCIA_SANITARIA',
 
   // Alias para compatibilidad con código existente (no usar en imports CSV)
-  LEVE: 'ASISTENCIA_SANITARIA_SÓLO_EN_EL_LUGAR_DEL_ACCIDENTE',  // Representativo de lesiones leves
-  GRAVE: 'INGRESO_SUPERIOR_A_24_HORAS',  // Representativo de lesiones graves
+  LEVE: 'ASISTENCIA_SANITARIA_SÓLO_EN_EL_LUGAR_DEL_ACCIDENTE', // Representativo de lesiones leves
+  GRAVE: 'INGRESO_SUPERIOR_A_24_HORAS', // Representativo de lesiones graves
   FALLECIDO: 'FALLECIDO_24_HORAS',
   DESCONOCIDO: 'SE_DESCONOCE'
 };
@@ -688,7 +697,7 @@ const ELDERLY_AGE = { min: 65, max: 120 };
 const GENDERS = {
   HOMBRE: 'HOMBRE',
   MUJER: 'MUJER',
-  DESCONOCIDO: 'DESCONOCIDO'  // Cambiado de NO_ASIGNADO para coincidir con CSV
+  DESCONOCIDO: 'DESCONOCIDO' // Cambiado de NO_ASIGNADO para coincidir con CSV
 };
 
 /**
@@ -785,11 +794,11 @@ const GEO_LIMITS = {
  * Diferentes endpoints permiten diferentes rangos máximos
  */
 const DATE_RANGE_LIMITS = {
-  DEFAULT_MAX_DAYS: 365,    // 1 año por defecto
-  ACCIDENTS_MAX_DAYS: 730,  // 2 años para accidentes (datos históricos importantes)
+  DEFAULT_MAX_DAYS: 365, // 1 año por defecto
+  ACCIDENTS_MAX_DAYS: 730, // 2 años para accidentes (datos históricos importantes)
   AIR_QUALITY_MAX_DAYS: 730, // 2 años para calidad de aire
-  NOISE_MAX_DAYS: 1825,     // 5 años para análisis histórico de ruido
-  MAX_MILLISECONDS_CALCULATION: 24 * 60 * 60 * 1000  // Cálculo del rango en ms
+  NOISE_MAX_DAYS: 1825, // 5 años para análisis histórico de ruido
+  MAX_MILLISECONDS_CALCULATION: 24 * 60 * 60 * 1000 // Cálculo del rango en ms
 };
 
 /**
@@ -815,34 +824,34 @@ const RATE_LIMITS = {
 
   // Máximos por tipo de operación
   GENERAL: {
-    WINDOW_MS: 15 * 60 * 1000,  // 15 minutos
+    WINDOW_MS: 15 * 60 * 1000, // 15 minutos
     MAX_REQUESTS: 100,
     RETRY_AFTER: 15 * 60
   },
 
   EXPORT: {
-    WINDOW_MS: 60 * 60 * 1000,  // 1 hora
+    WINDOW_MS: 60 * 60 * 1000, // 1 hora
     MAX_REQUESTS: 5,
     RETRY_AFTER: 60 * 60
   },
 
   HEAVY_QUERY: {
-    WINDOW_MS: 5 * 60 * 1000,   // 5 minutos
+    WINDOW_MS: 5 * 60 * 1000, // 5 minutos
     MAX_REQUESTS: 10,
     RETRY_AFTER: 5 * 60
   },
 
   AUTH: {
-    WINDOW_MS: 15 * 60 * 1000,  // 15 minutos
-    MAX_REQUESTS: 10,           // Más restrictivo para auth
+    WINDOW_MS: 15 * 60 * 1000, // 15 minutos
+    MAX_REQUESTS: 10, // Más restrictivo para auth
     RETRY_AFTER: 15 * 60
   },
 
   // Rate limits específicos por recurso
   NOISE_MONITORING: {
-    LIST_MAX: 25,               // Listado general
-    STATS_MAX: 10,              // Estadísticas
-    SEARCH_MAX: 15              // Búsquedas
+    LIST_MAX: 25, // Listado general
+    STATS_MAX: 10, // Estadísticas
+    SEARCH_MAX: 15 // Búsquedas
   },
 
   AIR_QUALITY: {
@@ -850,8 +859,8 @@ const RATE_LIMITS = {
   },
 
   ACCIDENTS: {
-    HEATMAP_MAX: 10,            // Análisis de mapa de calor
-    EXPORT_MAX: 3               // Exportaciones (datos sensibles)
+    HEATMAP_MAX: 10, // Análisis de mapa de calor
+    EXPORT_MAX: 3 // Exportaciones (datos sensibles)
   }
 };
 
@@ -862,7 +871,7 @@ const RATE_LIMITS = {
 const ROUTE_SPECIFIC_LIMITS = {
   // Traffic
   TRAFFIC: {
-    PUNTO_MAX_LIMIT: 500        // Consultas de punto específico permiten más registros
+    PUNTO_MAX_LIMIT: 500 // Consultas de punto específico permiten más registros
   },
 
   // Noise Monitoring
@@ -914,7 +923,7 @@ const ROUTE_SPECIFIC_LIMITS = {
   // Fines
   FINES: {
     POINTS_MIN: 0,
-    POINTS_MAX: 12,            // Máximo de puntos del carnet
+    POINTS_MAX: 12, // Máximo de puntos del carnet
     LIMIT_MIN: 1,
     LIMIT_MAX: 100,
     TOP_N_MIN: 1,
@@ -987,7 +996,9 @@ const BINARY_INDICATORS = {
   NO_FULL: 'NO',
   NUMERIC_TRUE: '1',
   NUMERIC_FALSE: '0',
-  NULL: 'NULL'
+  NULL: 'NULL',
+  TRUE: 'true',
+  FALSE: 'false'
 };
 
 /**
@@ -1045,9 +1056,9 @@ const TIME_CONSTANTS = {
   MONTHS_PER_YEAR: 12,
   DAYS_PER_YEAR: 365,
   // Conversiones de tiempo útiles
-  MILLISECONDS_PER_DAY: 24 * 60 * 60 * 1000,  // 86400000 ms = 1 día
-  MILLISECONDS_PER_HOUR: 60 * 60 * 1000,      // 3600000 ms = 1 hora
-  MILLISECONDS_PER_MINUTE: 60 * 1000          // 60000 ms = 1 minuto
+  MILLISECONDS_PER_DAY: 24 * 60 * 60 * 1000, // 86400000 ms = 1 día
+  MILLISECONDS_PER_HOUR: 60 * 60 * 1000, // 3600000 ms = 1 hora
+  MILLISECONDS_PER_MINUTE: 60 * 1000 // 60000 ms = 1 minuto
 };
 
 /**
@@ -1057,6 +1068,18 @@ const TIME_CONSTANTS = {
 const FINE_CONFIG = {
   DISCOUNT_RATE: 0.5, // 50% descuento por pronto pago
   MAX_POINTS: 12 // Puntos máximos del carnet de conducir
+};
+
+/**
+ * Tipos de denunciante para multas de trafico
+ * Valores extraidos del CSV Anthem_CTC_Multas_*.csv
+ * ESTRUCTURA: Objeto clave-valor para eliminar hardcoded strings
+ */
+const FINE_DENOUNCER_TYPES = {
+  POLICIA_MUNICIPAL: 'POLICIA MUNICIPAL',
+  SER: 'SER',
+  SACE: 'SACE',
+  AGENTES_DE_MOVILIDAD: 'AGENTES DE MOVILIDAD'
 };
 
 /**
@@ -1125,15 +1148,15 @@ const BIKE_USAGE_THRESHOLDS = {
  * para análisis de Smart City. NO cambiar estos valores sin revisar todo el proyecto.
  */
 const DATASET_YEARS = {
-  DEFAULT_YEAR: 2051,        // Año por defecto para consultas (donde están los datos)
-  MIN_YEAR: 2050,            // Año mínimo del dataset
-  MAX_YEAR: 2052,            // Año máximo del dataset
-  VALIDATION_MIN: 2000,      // Validación mínima para inputs de usuario
-  VALIDATION_MAX: 2099,      // Validación máxima para inputs de usuario
+  DEFAULT_YEAR: 2051, // Año por defecto para consultas (donde están los datos)
+  MIN_YEAR: 2050, // Año mínimo del dataset
+  MAX_YEAR: 2052, // Año máximo del dataset
+  VALIDATION_MIN: 2000, // Validación mínima para inputs de usuario
+  VALIDATION_MAX: 2099, // Validación máxima para inputs de usuario
 
   // Fechas default para consultas (strings ISO para construcción de Date objects)
   DEFAULT_START_DATE: '2051-01-01', // Fecha de inicio por defecto
-  DEFAULT_END_DATE: '2051-12-31'    // Fecha de fin por defecto
+  DEFAULT_END_DATE: '2051-12-31' // Fecha de fin por defecto
 };
 
 /**
@@ -1151,18 +1174,18 @@ const VALIDATION_LIMITS = {
   HOUR_MAX: 23,
   MINUTE_MIN: 0,
   MINUTE_MAX: 59,
-  YEAR_MIN: 2000,          // Años históricos aceptados
-  YEAR_MAX: 3000,          // Años futuros aceptados (para proyecciones)
+  YEAR_MIN: 2000, // Años históricos aceptados
+  YEAR_MAX: 3000, // Años futuros aceptados (para proyecciones)
 
   // Demografía y personas
   AGE_MIN: 0,
-  AGE_MAX: 120,            // Edad máxima humana razonable
+  AGE_MAX: 120, // Edad máxima humana razonable
 
   // Porcentajes y ratios
   PERCENTAGE_MIN: 0,
   PERCENTAGE_MAX: 100,
-  RATIO_MIN: 0,            // Ratios siempre no negativos
-  SCORE_MIN: 0,            // Puntuaciones normalizadas 0-1
+  RATIO_MIN: 0, // Ratios siempre no negativos
+  SCORE_MIN: 0, // Puntuaciones normalizadas 0-1
   SCORE_MAX: 1,
 
   // Coordenadas geográficas - WGS84 (lat/lng)
@@ -1172,32 +1195,32 @@ const VALIDATION_LIMITS = {
   LONGITUDE_MAX: 180,
 
   // Coordenadas UTM - España (zonas 29, 30, 31)
-  UTM_X_MIN: 100000,       // 100,000 m (100 km)
-  UTM_X_MAX: 1000000,      // 1,000,000 m (1,000 km)
-  UTM_Y_MIN: 3000000,      // 3,000,000 m (límite sur España)
-  UTM_Y_MAX: 5000000,      // 5,000,000 m (límite norte España)
+  UTM_X_MIN: 100000, // 100,000 m (100 km)
+  UTM_X_MAX: 1000000, // 1,000,000 m (1,000 km)
+  UTM_Y_MIN: 3000000, // 3,000,000 m (límite sur España)
+  UTM_Y_MAX: 5000000, // 5,000,000 m (límite norte España)
 
   // Velocidades (km/h)
   SPEED_MIN: 0,
-  SPEED_MAX: 300,          // Velocidad máxima razonable (trenes de alta velocidad)
+  SPEED_MAX: 300, // Velocidad máxima razonable (trenes de alta velocidad)
 
   // Ruido (decibelios dB)
   NOISE_MIN: 0,
-  NOISE_MAX: 150,          // 150 dB = umbral del dolor
+  NOISE_MAX: 150, // 150 dB = umbral del dolor
 
   // Multas - Puntos de carnet
   DRIVER_POINTS_MIN: 0,
-  DRIVER_POINTS_MAX: 12,   // Sistema español de puntos de carnet
+  DRIVER_POINTS_MAX: 12, // Sistema español de puntos de carnet
 
   // Cantidades genéricas
-  QUANTITY_MIN: 0,         // Cantidad no negativa
+  QUANTITY_MIN: 0, // Cantidad no negativa
   QUANTITY_POSITIVE_MIN: 1, // Cantidad mínima positiva
 
   // Tráfico
   TRAFFIC_INTENSITY_MIN: 0,
   TRAFFIC_INTENSITY_MAX: 10000, // Vehículos/hora máximo razonable
   TRAFFIC_OCCUPANCY_MIN: 0,
-  TRAFFIC_OCCUPANCY_MAX: 100    // Porcentaje de ocupación
+  TRAFFIC_OCCUPANCY_MAX: 100 // Porcentaje de ocupación
 };
 
 /**
@@ -1206,23 +1229,23 @@ const VALIDATION_LIMITS = {
  */
 const TRAFFIC_THRESHOLDS = {
   // Niveles de congestión basados en ocupación (%) y carga (%)
-  CONGESTION_CRITICAL_OCCUPANCY: 80,  // >= 80% ocupación = Crítico
-  CONGESTION_CRITICAL_LOAD: 90,       // >= 90% carga = Crítico
-  CONGESTION_HIGH_OCCUPANCY: 60,      // >= 60% ocupación = Alto
-  CONGESTION_HIGH_LOAD: 70,           // >= 70% carga = Alto
-  CONGESTION_MEDIUM_OCCUPANCY: 40,    // >= 40% ocupación = Medio
-  CONGESTION_MEDIUM_LOAD: 50,         // >= 50% carga = Medio
+  CONGESTION_CRITICAL_OCCUPANCY: 80, // >= 80% ocupación = Crítico
+  CONGESTION_CRITICAL_LOAD: 90, // >= 90% carga = Crítico
+  CONGESTION_HIGH_OCCUPANCY: 60, // >= 60% ocupación = Alto
+  CONGESTION_HIGH_LOAD: 70, // >= 70% carga = Alto
+  CONGESTION_MEDIUM_OCCUPANCY: 40, // >= 40% ocupación = Medio
+  CONGESTION_MEDIUM_LOAD: 50, // >= 50% carga = Medio
 
   // Niveles de intensidad (vehículos/hora)
-  INTENSITY_VERY_HIGH: 4000,          // >= 4000 veh/h = Muy alta
-  INTENSITY_HIGH: 3000,               // >= 3000 veh/h = Alta
-  INTENSITY_MEDIUM: 2000,             // >= 2000 veh/h = Media
-  INTENSITY_LOW: 1000,                // >= 1000 veh/h = Baja
+  INTENSITY_VERY_HIGH: 4000, // >= 4000 veh/h = Muy alta
+  INTENSITY_HIGH: 3000, // >= 3000 veh/h = Alta
+  INTENSITY_MEDIUM: 2000, // >= 2000 veh/h = Media
+  INTENSITY_LOW: 1000, // >= 1000 veh/h = Baja
 
   // Calidad de datos por periodo de integración (minutos)
-  DATA_QUALITY_EXCELLENT_PERIOD: 3,   // >= 3 min + sin errores = Excelente
-  DATA_QUALITY_GOOD_PERIOD: 2,        // >= 2 min + datos parciales = Buena
-  DATA_QUALITY_ACCEPTABLE_PERIOD: 1   // >= 1 min = Aceptable
+  DATA_QUALITY_EXCELLENT_PERIOD: 3, // >= 3 min + sin errores = Excelente
+  DATA_QUALITY_GOOD_PERIOD: 2, // >= 2 min + datos parciales = Buena
+  DATA_QUALITY_ACCEPTABLE_PERIOD: 1 // >= 1 min = Aceptable
 };
 
 /**
@@ -1230,12 +1253,12 @@ const TRAFFIC_THRESHOLDS = {
  * Usado en Location model para defaults y validaciones
  */
 const SPEED_LIMIT_ZONES = {
-  ZONE_30: 30,             // Zona 30 (mayoría de Madrid)
-  ZONE_50: 50,             // Zona 50 (vías principales)
-  ZONE_70: 70,             // Zona 70 (circunvalación)
-  ZONE_90: 90,             // Carreteras convencionales
-  ZONE_120: 120,           // Autopistas/autovías
-  DEFAULT: 30              // Default para Madrid (zona 30)
+  ZONE_30: 30, // Zona 30 (mayoría de Madrid)
+  ZONE_50: 50, // Zona 50 (vías principales)
+  ZONE_70: 70, // Zona 70 (circunvalación)
+  ZONE_90: 90, // Carreteras convencionales
+  ZONE_120: 120, // Autopistas/autovías
+  DEFAULT: 30 // Default para Madrid (zona 30)
 };
 
 /**
@@ -1249,41 +1272,41 @@ const SPEED_LIMIT_ZONES = {
  */
 const HPP_ARRAY_PARAMS_WHITELIST = [
   // Identificadores
-  'id',                     // Filtros por ID único
-  'ids',                    // Filtros por múltiples IDs: ?ids=1&ids=2&ids=3
+  'id', // Filtros por ID único
+  'ids', // Filtros por múltiples IDs: ?ids=1&ids=2&ids=3
 
   // Estados y clasificaciones
-  'status',                 // Múltiples estados: ?status=active&status=pending
-  'tipo',                   // Tipos generales (contenedor, accidente, ubicación, etc.)
-  'tipoContenedor',         // Tipos de contenedor: ORGANICA, RESTO, ENVASES, etc.
-  'tipoAccidente',          // Tipos de accidente: ALCANCE, ATROPELLO, etc.
-  'tipoVehiculo',           // Tipos de vehículo: TURISMO, MOTOCICLETA, etc.
-  'tipoInfraccion',         // Tipos de infracción de tráfico
+  'status', // Múltiples estados: ?status=active&status=pending
+  'tipo', // Tipos generales (contenedor, accidente, ubicación, etc.)
+  'tipoContenedor', // Tipos de contenedor: ORGANICA, RESTO, ENVASES, etc.
+  'tipoAccidente', // Tipos de accidente: ALCANCE, ATROPELLO, etc.
+  'tipoVehiculo', // Tipos de vehículo: TURISMO, MOTOCICLETA, etc.
+  'tipoInfraccion', // Tipos de infracción de tráfico
 
   // Ubicaciones geográficas
-  'distrito',               // Múltiples distritos en consultas (Census usa $in)
-  'barrio',                 // Múltiples barrios
+  'distrito', // Múltiples distritos en consultas (Census usa $in)
+  'barrio', // Múltiples barrios
 
   // Calidad del aire
-  'magnitud',               // Múltiples magnitudes de contaminación: NO2, PM10, etc.
-  'estacion',               // Múltiples estaciones de medición
+  'magnitud', // Múltiples magnitudes de contaminación: NO2, PM10, etc.
+  'estacion', // Múltiples estaciones de medición
 
   // Ruido
-  'nmt',                    // Múltiples estaciones de ruido (NoiseMonitoring usa $in)
-  'stations',               // Estaciones para comparativas de ruido
+  'nmt', // Múltiples estaciones de ruido (NoiseMonitoring usa $in)
+  'stations', // Estaciones para comparativas de ruido
 
   // Multas
-  'calificacion',           // Múltiples calificaciones de multas: LEVE, GRAVE, MUY_GRAVE (Fine usa $in)
+  'calificacion', // Múltiples calificaciones de multas: LEVE, GRAVE, MUY_GRAVE (Fine usa $in)
 
   // Accidentes
-  'gravedad',               // Múltiples gravedades de accidentes
+  'gravedad', // Múltiples gravedades de accidentes
 
   // Fechas (se usan en paralelo en muchas queries)
-  'startDate',              // Fecha de inicio de rango
-  'endDate',                // Fecha de fin de rango
+  'startDate', // Fecha de inicio de rango
+  'endDate', // Fecha de fin de rango
 
   // Metadatos
-  'fields'                  // Proyección de campos (usado en algunas consultas avanzadas)
+  'fields' // Proyección de campos (usado en algunas consultas avanzadas)
 ];
 
 module.exports = {
@@ -1394,6 +1417,7 @@ module.exports = {
 
   // Multas - Configuración
   FINE_CONFIG,
+  FINE_DENOUNCER_TYPES,
 
   // Patinetes - Thresholds
   SCOOTER_DENSITY_THRESHOLDS,
@@ -1442,18 +1466,29 @@ module.exports = {
     ACUSTICA: 'acustica',
     TRAFICO: 'trafico'
   },
-  TRANSPORT_ROUTE_TYPES: [
-    'ruta_cercanias',
-    'ruta_autobus',
-    'ruta_interurbano',
-    'ruta_metro',
-    'ruta_metro_ligero',
-    'zona_taxi'
-  ],
+  TRANSPORT_ROUTE_TYPES: {
+    CERCANIAS: 'ruta_cercanias',
+    AUTOBUS: 'ruta_autobus',
+    INTERURBANO: 'ruta_interurbano',
+    METRO: 'ruta_metro',
+    METRO_LIGERO: 'ruta_metro_ligero',
+    TAXI: 'zona_taxi'
+  },
   NOISE_THRESHOLDS: {
     DEFAULT: 65
   },
   ZONE_TYPES: {
     MIXED: 'mixed'
-  }
+  },
+  SCOOTER_KEY_AREAS: {
+    CENTRAL: ['CENTRO', 'SOL'],
+    UNIVERSITY: ['UNIVERSIDAD', 'CAMPUS'],
+    TRANSPORT: ['ATOCHA', 'CHAMARTIN'],
+    COMMERCIAL: ['RETIRO', 'SALAMANCA']
+  },
+  SCOOTER_AGGREGATION_FIELDS: {
+    DISTRITO: 'distrito',
+    BARRIO: 'barrio'
+  },
+  DEFAULT_SORT_FIELDS
 };

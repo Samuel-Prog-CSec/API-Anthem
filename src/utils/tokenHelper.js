@@ -23,8 +23,8 @@ const generateAccessToken = (payload, expiresIn = config.jwt.expiresIn) => {
     {
       expiresIn,
       algorithm: config.jwt.algorithm,
-      issuer: 'api-rest-auth',
-      audience: 'api-rest-auth-client'
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience
     }
   );
 };
@@ -42,7 +42,7 @@ const generateRefreshToken = (payload) => {
     {
       expiresIn: config.jwt.refreshExpiresIn, // Configurado desde variable de entorno
       algorithm: config.jwt.algorithm,
-      issuer: 'api-rest-auth',
+      issuer: config.jwt.issuer,
       audience: 'api-rest-auth-refresh'
     }
   );
@@ -79,8 +79,8 @@ const verifyToken = async (token) => {
   try {
     return jwt.verify(token, config.jwt.secret, {
       algorithms: [config.jwt.algorithm],
-      issuer: 'api-rest-auth',
-      audience: 'api-rest-auth-client'
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience
     });
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -106,8 +106,8 @@ const verifyRefreshToken = async (token) => {
   try {
     return jwt.verify(token, config.jwt.secret, {
       algorithms: [config.jwt.algorithm],
-      issuer: 'api-rest-auth',
-      audience: 'api-rest-auth-refresh'
+      issuer: config.jwt.issuer,
+      audience: config.jwt.audience
     });
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

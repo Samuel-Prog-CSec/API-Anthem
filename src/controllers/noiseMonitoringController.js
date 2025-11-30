@@ -5,11 +5,10 @@
  * Incluye análisis por períodos del día, cumplimiento normativo y estadísticas.
  */
 
-const { validationResult } = require('express-validator');
 const NoiseMonitoring = require('../models/NoiseMonitoring');
-const { createValidationError, createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
+const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, buildResponseMetadata } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS, SEARCH_LIMITS, NOISE_THRESHOLDS, ZONE_TYPES } = require('../constants');
 const logger = require('../config/logger');
@@ -20,18 +19,12 @@ const logger = require('../config/logger');
  */
 const getNoiseMonitoringData = async (req, res, next) => {
   try {
-    // Verificar errores de validación
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     // Configuración de filtros usando queryHelper
     const filterConfig = [
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
       { field: 'año', type: 'numeric', param: 'año' },
       { field: 'mes', type: 'numeric', param: 'mes' },
-      { field: 'nmt', type: 'in', param: 'nmt', transform: v => Array.isArray(v) ? v.map(n => parseInt(n)) : [parseInt(v)] },
+      { field: 'nmt', type: 'in', param: 'nmt', transform: TRANSFORMS.toIntArray },
       { field: 'nombre', type: 'regex', param: 'nombre' }
     ];
 
@@ -68,15 +61,15 @@ const getNoiseMonitoringData = async (req, res, next) => {
     // Proyección optimizada: seleccionar solo campos necesarios
     const projection = {
       fecha: 1,
-      estacion: 1,
-      lden: 1,
-      ld: 1,
-      le: 1,
-      ln: 1,
-      'ubicacion.distrito': 1,
-      'ubicacion.coordenadas': 1,
-      'mediciones.tipo': 1,
-      'mediciones.valor': 1
+      nmt: 1,
+      nombre: 1,
+      laeq24: 1,
+      nivelDiurno: 1,
+      nivelVespertino: 1,
+      nivelNocturno: 1,
+      año: 1,
+      mes: 1,
+      'dataQuality.hasValidData': 1
     };
 
     // Ejecutar consulta con timeouts
@@ -208,11 +201,6 @@ const getNoiseMonitoringById = async (req, res, next) => {
  */
 const getNoiseStatistics = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const { groupBy = 'station' } = req.query;
 
     // Construir filtros usando queryHelper
@@ -230,10 +218,10 @@ const getNoiseStatistics = async (req, res, next) => {
       data: {
         estadisticas,
         resumen,
-        configuracion: {
+        configuracion: buildResponseMetadata({
           agrupacion: groupBy,
           filtros: Object.keys(matchStage).length > 0 ? matchStage : null
-        },
+        }),
         limitesNormativos: {
           diurno: NoiseMonitoring.LIMITES_NORMATIVOS.DIURNO,
           vespertino: NoiseMonitoring.LIMITES_NORMATIVOS.VESPERTINO,
@@ -262,10 +250,14 @@ const getNoiseStatistics = async (req, res, next) => {
  */
 const getNoiseRanking = async (req, res, next) => {
   try {
-    const {
-      orderBy = 'laeq24',
-      limit = AGGREGATION_LIMITS.TOP_RESULTS
-    } = req.query;
+    const { orderBy = 'laeq24' } = req.query;
+
+    // Parsear parámetros numéricos
+    const { limit } = parseNumericParams(
+      req.query,
+      ['limit'],
+      { limit: AGGREGATION_LIMITS.TOP_RESULTS }
+    );
 
     // Configuración de filtros usando queryHelper
     const filterConfig = [
@@ -275,12 +267,12 @@ const getNoiseRanking = async (req, res, next) => {
     const matchStage = buildFilters(req.query, filterConfig);
 
     // Obtener ranking con método optimizado del modelo
-    const ranking = await NoiseMonitoring.getRankingOptimized(matchStage, orderBy, parseInt(limit));
+    const ranking = await NoiseMonitoring.getRankingOptimized(matchStage, orderBy, limit);
 
     const responseData = {
       data: {
         ranking,
-        configuracion: {
+        configuracion: buildResponseMetadata({
           ordenadoPor: orderBy,
           descripcion: {
             laeq24: 'Nivel continuo equivalente 24h',
@@ -288,8 +280,8 @@ const getNoiseRanking = async (req, res, next) => {
             vespertino: 'Nivel vespertino (19:00-23:00)',
             nocturno: 'Nivel nocturno (23:00-07:00)'
           }[orderBy],
-          limite: parseInt(limit)
-        },
+          limite: limit
+        }),
         interpretacion: {
           orden: 'Descendente (de mayor a menor nivel de ruido)',
           limitesNormativos: NoiseMonitoring.LIMITES_NORMATIVOS
@@ -320,7 +312,14 @@ const getNoiseRanking = async (req, res, next) => {
  */
 const searchStations = async (req, res, next) => {
   try {
-    const { q: searchTerm, limit = AGGREGATION_LIMITS.TOP_RESULTS } = req.query;
+    const { q: searchTerm } = req.query;
+
+    // Parsear parámetros numéricos con valores por defecto
+    const { limit } = parseNumericParams(
+      req.query,
+      ['limit'],
+      { limit: AGGREGATION_LIMITS.TOP_RESULTS }
+    );
 
     if (!searchTerm || searchTerm.trim().length < SEARCH_LIMITS.MIN_SEARCH_LENGTH) {
       return next(createBadRequestError('Término de búsqueda debe tener al menos 2 caracteres'));
@@ -328,7 +327,7 @@ const searchStations = async (req, res, next) => {
 
     // Construir condición de búsqueda optimizada
     const matchCondition = {};
-    const nmtSearch = parseInt(searchTerm);
+    const nmtSearch = parseInt(searchTerm, 10);
 
     // Si es un número, buscar por NMT exacto (índice simple)
     if (!isNaN(nmtSearch)) {
@@ -355,7 +354,7 @@ const searchStations = async (req, res, next) => {
         $sort: { ultimaMedicion: -1 }
       },
       {
-        $limit: parseInt(limit)
+        $limit: limit
       }
     ];
 
@@ -363,14 +362,16 @@ const searchStations = async (req, res, next) => {
       .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos para agregación
       .exec();
 
-    const responseData = {
-      data: estaciones,
-      busqueda: {
-        termino: searchTerm,
-        resultados: estaciones.length,
-        limite: parseInt(limit)
+    // Construir metadatos de respuesta
+    const responseData = buildResponseMetadata(
+      { termino: searchTerm, limite: limit },
+      {
+        dataKey: 'data',
+        data: estaciones,
+        extraFields: { resultados: estaciones.length },
+        metaKey: 'busqueda'
       }
-    };
+    );
 
     res.status(HTTP_STATUS.OK).json(createResponse(responseData, `Encontradas ${estaciones.length} estaciones`));
 

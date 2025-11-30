@@ -4,21 +4,28 @@
  * Maneja las operaciones CRUD y consultas para datos de calidad de aire.
  * Incluye filtrado avanzado, agregaciones y análisis estadístico para el dashboard.
  */
+
+const AirQuality = require('../models/AirQuality');
+const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
+const { createPaginationMeta } = require('../utils/paginationHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange, TRANSFORMS, parseNumericParams } = require('../utils/queryHelper');
+const { createResponse } = require('../utils/responseHelper');
+const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, SORT_FIELDS, DATE_RANGE_LIMITS, VALIDATION_CODES } = require('../constants');
+const logger = require('../config/logger');
+
+/**
+ * Obtener datos de calidad de aire con filtros
+ * GET /api/v1/air-quality
+ */
 const getAirQualityData = async (req, res, next) => {
   try {
-    // Verificar errores de validación
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     // Configuración de filtros usando queryHelper
     const filterConfig = [
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
       { field: 'provincia', type: 'numeric', param: 'provincia' },
       { field: 'municipio', type: 'numeric', param: 'municipio' },
       { field: 'estacion', type: 'numeric', param: 'estacion' },
-      { field: 'magnitud', type: 'in', param: 'magnitud', transform: v => Array.isArray(v) ? v.map(m => parseInt(m)) : [parseInt(v)] },
+      { field: 'magnitud', type: 'in', param: 'magnitud', transform: TRANSFORMS.toIntArray },
       { field: 'puntoMuestreo', type: 'exact', param: 'puntoMuestreo' }
     ];
 
@@ -33,7 +40,7 @@ const getAirQualityData = async (req, res, next) => {
     const { startDate, endDate } = req.query;
     const dateValidation = validateDateRange(startDate, endDate, DATE_RANGE_LIMITS.AIR_QUALITY_MAX_DAYS);
     if (!dateValidation.isValid) {
-      return next(new AppError(dateValidation.error, HTTP_STATUS.BAD_REQUEST));
+      return next(createBadRequestError(dateValidation.error));
     }
 
     // Configurar ordenamiento y paginación usando queryHelper
@@ -131,7 +138,7 @@ const getAirQualityById = async (req, res, next) => {
 
     if (data.medicionesHorarias) {
       for (const [hora, medicion] of Object.entries(data.medicionesHorarias)) {
-        const horaNum = parseInt(hora.substring(1));
+        const horaNum = parseInt(hora.substring(1), 10);
         const esValido = medicion.validationCode === VALIDATION_CODES.VALID;
         medicionesArray.push({
           hora: horaNum,
@@ -182,11 +189,6 @@ const getAirQualityById = async (req, res, next) => {
  */
 const getAirQualityStatistics = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const { groupBy = 'day' } = req.query;
 
     // Construir filtros usando buildFilters de queryHelper
@@ -226,7 +228,40 @@ const getAirQualityStatistics = async (req, res, next) => {
 /**
  * Obtener tendencias de calidad de aire
  * GET /api/v1/air-quality/trends
-          magnitudDescripcion: AirQuality.getMagnitudes()[parseInt(magnitud)]
+ */
+const getAirQualityTrends = async (req, res, next) => {
+  try {
+    const { provincia, municipio, magnitud, startDate, endDate } = req.query;
+
+    // Validar que se proporcionen los parámetros requeridos
+    if (!provincia || !municipio || !magnitud) {
+      return next(createBadRequestError('Se requieren provincia, municipio y magnitud para calcular tendencias'));
+    }
+
+    // Llamar al método optimizado del modelo
+    const result = await AirQuality.getTrendsOptimized(
+      provincia,
+      municipio,
+      magnitud,
+      startDate,
+      endDate
+    );
+
+    // Parsear parámetros numéricos para la respuesta
+    const { provincia: provNum, municipio: munNum, magnitud: magNum } = parseNumericParams(
+      req.query,
+      ['provincia', 'municipio', 'magnitud'],
+      {}
+    );
+
+    const responseData = {
+      data: {
+        ...result,
+        filtros: {
+          provincia: provNum,
+          municipio: munNum,
+          magnitud: magNum,
+          magnitudDescripcion: AirQuality.getMagnitudes()[magNum]
         }
       }
     };
@@ -250,4 +285,3 @@ module.exports = {
   getAirQualityStatistics,
   getAirQualityTrends
 };
-

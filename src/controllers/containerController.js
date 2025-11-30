@@ -8,7 +8,7 @@
 const Container = require('../models/Container');
 const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, GEO_LIMITS } = require('../constants');
 
@@ -22,7 +22,7 @@ exports.getAllContainers = async (req, res, next) => {
   try {
     // Configuración de filtros usando queryHelper
     const filterConfig = [
-      { field: 'tipoContenedor', type: 'exact', param: 'tipoContenedor', transform: v => v.toUpperCase() },
+      { field: 'tipoContenedor', type: 'exact', param: 'tipoContenedor', transform: TRANSFORMS.toUpperCase },
       { field: 'distrito', type: 'regex', param: 'distrito' },
       { field: 'barrio', type: 'regex', param: 'barrio' },
       { field: 'lote', type: 'numeric', param: 'lote' }
@@ -54,16 +54,15 @@ exports.getAllContainers = async (req, res, next) => {
     // Proyección optimizada: solo campos necesarios para listado
     // Reduce ~40% tamaño de respuesta
     const projection = {
-      tipo: 1,
+      tipoContenedor: 1,
       modelo: 1,
-      capacidad: 1,
-      ubicacion: 1,
-      'direccion.via': 1,
-      'direccion.numero': 1,
-      'direccion.distrito': 1,
-      'direccion.barrio': 1,
-      'direccion.codigoPostal': 1,
-      estado: 1
+      descripcionModelo: 1,
+      cantidad: 1,
+      lote: 1,
+      distrito: 1,
+      barrio: 1,
+      direccion: 1,
+      coordenadas: 1
     };
 
     // Ejecutar consulta con paginación y timeouts
@@ -100,7 +99,6 @@ exports.getNearbyContainers = async (req, res, next) => {
     const {
       longitude,
       latitude,
-      maxDistance = GEO_LIMITS.DEFAULT_DISTANCE_METERS,
       tipoContenedor
     } = req.query;
 
@@ -111,7 +109,13 @@ exports.getNearbyContainers = async (req, res, next) => {
 
     const lng = parseFloat(longitude);
     const lat = parseFloat(latitude);
-    const distance = parseInt(maxDistance);
+
+    // Parsear parámetros numéricos
+    const { maxDistance } = parseNumericParams(
+      req.query,
+      ['maxDistance'],
+      { maxDistance: GEO_LIMITS.DEFAULT_DISTANCE_METERS }
+    );
 
     // Validar coordenadas
     if (isNaN(lng) || isNaN(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) {
@@ -121,7 +125,7 @@ exports.getNearbyContainers = async (req, res, next) => {
     const containers = await Container.findNearby(
       lng,
       lat,
-      distance,
+      maxDistance,
       tipoContenedor ? tipoContenedor.toUpperCase() : null
     );
 
@@ -131,7 +135,7 @@ exports.getNearbyContainers = async (req, res, next) => {
           longitude: lng,
           latitude: lat
         },
-        radioMetros: distance,
+        radioMetros: maxDistance,
         ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
         total: containers.length,
         contenedores: containers
@@ -335,7 +339,7 @@ exports.getNeighborhoodsByDistrict = async (req, res, next) => {
  */
 exports.searchByAddress = async (req, res, next) => {
   try {
-    const { q, tipoContenedor, limit = PAGINATION.DEFAULT_LIMIT } = req.query;
+    const { q, tipoContenedor } = req.query;
 
     if (!q) {
       return next(createBadRequestError('Se requiere el parámetro de búsqueda q'));
@@ -343,9 +347,16 @@ exports.searchByAddress = async (req, res, next) => {
 
     // Construir consulta de búsqueda usando helper para consistencia
     const filterConfig = [
-      { field: 'tipoContenedor', type: 'exact', param: 'tipoContenedor', transform: v => v.toUpperCase() }
+      { field: 'tipoContenedor', type: 'exact', param: 'tipoContenedor', transform: TRANSFORMS.toUpperCase }
     ];
     const filters = buildFilters(req.query, filterConfig);
+
+    // Parsear parámetros numéricos
+    const { limit } = parseNumericParams(
+      req.query,
+      ['limit'],
+      { limit: PAGINATION.DEFAULT_LIMIT }
+    );
 
     // Usar índice de texto para búsqueda OPTIMIZADA
     // Índice compuesto: direccion.nombre (peso 10) + direccion.completa (peso 5)
@@ -353,7 +364,7 @@ exports.searchByAddress = async (req, res, next) => {
     filters.$text = { $search: q };
 
     const containers = await Container.find(filters)
-      .limit(parseInt(limit))
+      .limit(limit)
       .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
       .select('-__v')
       .lean();

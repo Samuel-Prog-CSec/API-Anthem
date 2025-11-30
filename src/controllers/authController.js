@@ -6,7 +6,6 @@
  *
  */
 
-const { validationResult } = require('express-validator');
 const User = require('../models/User');
 const TokenBlacklist = require('../models/TokenBlacklist');
 const { createResponse } = require('../utils/responseHelper');
@@ -18,7 +17,6 @@ const {
   TOKEN_REVOCATION_REASONS
 } = require('../constants');
 const {
-  createValidationError,
   createAuthError,
   createInternalError,
   createConflictError,
@@ -54,12 +52,6 @@ const {
  */
 const register = async (req, res, next) => {
   try {
-    // Verificar errores de validación
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Errores de validación', errors.array()));
-    }
-
     const { username, email, password } = req.body;
 
     // Validar fortaleza de contraseña ANTES de hashear
@@ -160,12 +152,6 @@ const register = async (req, res, next) => {
  */
 const login = async (req, res, next) => {
   try {
-    // Verificar errores de validación
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Errores de validación', errors.array()));
-    }
-
     const { identifier, password } = req.body;
 
     // Buscar usuario por email o nombre de usuario
@@ -489,12 +475,6 @@ const refreshAccessToken = async (req, res, next) => {
  */
 const changePassword = async (req, res, next) => {
   try {
-    // Verificar errores de validación
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Errores de validación', errors.array()));
-    }
-
     const { currentPassword, newPassword } = req.body;
     const userId = req.user._id;
 
@@ -547,7 +527,7 @@ const changePassword = async (req, res, next) => {
     authLogger.error({
       error: error.message,
       stack: error.stack,
-      userId: req.user?._id,
+      userId: req.user?.id,
       endpoint: 'PUT /api/auth/change-password'
     }, 'Error al cambiar contraseña');
     return next(createInternalError('Error al cambiar la contraseña', error));

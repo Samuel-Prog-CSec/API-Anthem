@@ -14,7 +14,9 @@ const {
   SCOOTER_DEMAND_LEVELS,
   SCOOTER_MARKET_CONCENTRATION,
   ROUTE_SPECIFIC_LIMITS,
-  DATE_RANGE_LIMITS
+  DATE_RANGE_LIMITS,
+  SORT_FIELDS,
+  SCOOTER_AGGREGATION_FIELDS
 } = require('../constants');
 
 const {
@@ -85,7 +87,7 @@ const paginationValidation = [
 const sortValidation = [
   query('sortBy')
     .optional()
-    .isIn(['totalPatinetes', 'distrito', 'barrio', 'fecha', 'densidad'])
+    .isIn(SORT_FIELDS.SCOOTER_ASSIGNMENT)
     .withMessage('Campo de ordenación no válido'),
   query('sortOrder')
     .optional()
@@ -138,7 +140,7 @@ const numericValidation = [
     .withMessage(`Máximo de patinetes debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PATINETES_MIN} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PATINETES_MAX}`)
     .toInt()
     .custom((value, { req }) => {
-      if (req.query.minPatinetes && value < parseInt(req.query.minPatinetes)) {
+      if (req.query.minPatinetes && value < parseInt(req.query.minPatinetes, 10)) {
         throw new Error('Máximo de patinetes debe ser mayor al mínimo');
       }
       return true;
@@ -337,7 +339,7 @@ router.get('/temporal-comparison',
   [
     query('agrupacion')
       .optional()
-      .isIn(['distrito', 'barrio'])
+      .isIn(Object.values(SCOOTER_AGGREGATION_FIELDS))
       .withMessage('Agrupación debe ser "distrito" o "barrio"'),
     validateRequest
   ],

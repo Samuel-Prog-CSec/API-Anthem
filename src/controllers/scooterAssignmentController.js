@@ -6,11 +6,10 @@
  * por proveedor y métricas de optimización para el dashboard del frontend.
  */
 
-const { validationResult } = require('express-validator');
 const ScooterAssignment = require('../models/ScooterAssignment');
-const { createValidationError, createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
+const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange, TRANSFORMS } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, DATE_RANGE_LIMITS, BINARY_INDICATORS } = require('../constants');
 
@@ -20,11 +19,6 @@ const { SORT_FIELDS, PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, AGGREGATION_LIMI
  */
 const getScooterAssignments = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const {
       proveedor,
       soloProveedoresActivos = BINARY_INDICATORS.TRUE,
@@ -36,10 +30,10 @@ const getScooterAssignments = async (req, res, next) => {
       { field: 'fechaAsignacion', type: 'dateRange', params: ['fecha'] },
       { field: 'distrito.nombre', type: 'regex', param: 'distrito' },
       { field: 'barrio.nombre', type: 'regex', param: 'barrio' },
-      { field: 'clasificacionArea.tipoZona', type: 'exact', param: 'tipoZona', transform: v => v.toUpperCase() },
-      { field: 'estadisticas.densidadPatinetes', type: 'exact', param: 'densidad', transform: v => v.toUpperCase() },
-      { field: 'clasificacionArea.demandaEstimada', type: 'exact', param: 'demanda', transform: v => v.toUpperCase() },
-      { field: 'analisisDistribucion.concentracionMercado', type: 'exact', param: 'concentracion', transform: v => v.toUpperCase() },
+      { field: 'clasificacionArea.tipoZona', type: 'exact', param: 'tipoZona', transform: TRANSFORMS.toUpperCase },
+      { field: 'estadisticas.densidadPatinetes', type: 'exact', param: 'densidad', transform: TRANSFORMS.toUpperCase },
+      { field: 'clasificacionArea.demandaEstimada', type: 'exact', param: 'demanda', transform: TRANSFORMS.toUpperCase },
+      { field: 'analisisDistribucion.concentracionMercado', type: 'exact', param: 'concentracion', transform: TRANSFORMS.toUpperCase },
       { field: 'estadisticas.totalPatinetes', type: 'numericRange', params: ['minPatinetes', 'maxPatinetes'] }
     ];
 
@@ -155,11 +149,6 @@ const getScooterAssignments = async (req, res, next) => {
  */
 const getDistrictStatistics = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const { fecha } = req.query;
 
     const statistics = await ScooterAssignment.getDistrictStatistics(fecha);
@@ -185,11 +174,6 @@ const getDistrictStatistics = async (req, res, next) => {
  */
 const getProviderMarketAnalysis = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const { fecha } = req.query;
 
     const marketAnalysis = await ScooterAssignment.getProviderMarketAnalysis(fecha);
@@ -227,11 +211,6 @@ const getProviderMarketAnalysis = async (req, res, next) => {
  */
 const getConcentrationZones = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const { limite = AGGREGATION_LIMITS.TOP_RESULTS, fecha } = req.query;
 
     const zonas = await ScooterAssignment.getHighestConcentrationZones(parseInt(limite), fecha);
@@ -259,11 +238,6 @@ const getConcentrationZones = async (req, res, next) => {
  */
 const getDistributionDashboard = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const { fecha } = req.query;
 
     // Obtener dashboard principal
@@ -333,11 +307,6 @@ const getDistributionDashboard = async (req, res, next) => {
  */
 const getAreaDetails = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const { distrito, barrio } = req.params;
     const { fecha } = req.query;
 
@@ -352,7 +321,7 @@ const getAreaDetails = async (req, res, next) => {
       data: {
         area: {
           ...result.area,
-          resumen: new ScooterAssignment(result.area).getAssignmentSummary()
+          resumen: ScooterAssignment.getAssignmentSummary(result.area)
         },
         historial: result.historial,
         areasSimilares: result.areasSimilares,
@@ -377,11 +346,6 @@ const getAreaDetails = async (req, res, next) => {
  */
 const getOptimizationAnalysis = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const { fecha } = req.query;
 
     // Obtener análisis del modelo (lógica movida al modelo - 120+ líneas eliminadas)
@@ -412,11 +376,6 @@ const getOptimizationAnalysis = async (req, res, next) => {
  */
 const getTemporalComparison = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const { fechaInicio, fechaFin, distrito, agrupacion = 'distrito' } = req.query;
 
     // Validar que ambas fechas estén presentes

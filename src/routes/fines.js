@@ -19,7 +19,7 @@ const {
 
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
-const { SEVERITY_LEVELS, INFRACTION_TYPES, ROUTE_SPECIFIC_LIMITS } = require('../constants');
+const { SEVERITY_LEVELS, INFRACTION_TYPES, ROUTE_SPECIFIC_LIMITS, SORT_FIELDS } = require('../constants');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
 const { etagMiddleware } = require('../middleware/etag');
 
@@ -69,7 +69,7 @@ const paginationValidation = [
     .toInt(),
   query('sortBy')
     .optional()
-    .isIn(['fecha', 'importeFinal', 'puntosDetraídos', 'lugar', 'calificacion'])
+    .isIn(SORT_FIELDS.FINE)
     .withMessage('Campo de ordenamiento no válido'),
   query('sortOrder')
     .optional()
@@ -232,10 +232,7 @@ router.get('/locations/ranking',
 
   query('tipoInfraccion')
     .optional()
-    .isIn([
-      'VELOCIDAD', 'ESTACIONAMIENTO', 'TELEFONO_MOVIL',
-      'SEMAFORO', 'ALCOHOL_DROGAS', 'DOCUMENTACION', 'OTRAS'
-    ])
+    .isIn(Object.keys(INFRACTION_TYPES))
     .withMessage('Tipo de infracción no válido'),
 
   // Middleware de validación

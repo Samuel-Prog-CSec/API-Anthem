@@ -8,6 +8,7 @@
 
 const { body, param, query, validationResult } = require('express-validator');
 const {
+  HTTP_STATUS,
   SEVERITY_LEVELS,
   ACCIDENT_TYPES,
   VEHICLE_TYPES,
@@ -136,7 +137,7 @@ const validateRequest = (req, res, next) => {
       value: error.value
     }));
 
-    return res.status(400).json({
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
       success: false,
       message: 'Errores de validación',
       errors: formattedErrors
@@ -494,4 +495,3 @@ module.exports = {
   validateCoordinates,
   validateBikeFilters
 };
-

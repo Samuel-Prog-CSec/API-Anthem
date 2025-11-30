@@ -8,7 +8,7 @@
 const BikeAvailability = require('../models/BikeAvailability');
 const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, parseNumericParams } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS, MONTH_NAMES, BIKE_THRESHOLDS, AGGREGATION_LIMITS } = require('../constants');
 
@@ -166,9 +166,14 @@ exports.getBikeStats = async (req, res, next) => {
  */
 exports.getMonthlyTrends = async (req, res, next) => {
   try {
-    const { year = DATASET_YEARS.DEFAULT_YEAR } = req.query;
+    // Parsear parámetros numéricos
+    const { year } = parseNumericParams(
+      req.query,
+      ['year'],
+      { year: DATASET_YEARS.DEFAULT_YEAR }
+    );
 
-    const trends = await BikeAvailability.getMonthlyTrends(parseInt(year));
+    const trends = await BikeAvailability.getMonthlyTrends(year);
 
     if (!trends || trends.length === 0) {
       return next(createNotFoundError('Tendencias mensuales', `año ${year}`));
@@ -187,7 +192,7 @@ exports.getMonthlyTrends = async (req, res, next) => {
 
     const responseData = {
       data: {
-        year: parseInt(year),
+        year,
         tendencias: formattedTrends
       }
     };
@@ -207,9 +212,14 @@ exports.getMonthlyTrends = async (req, res, next) => {
  */
 exports.getTopUsageDays = async (req, res, next) => {
   try {
-    const { limit = AGGREGATION_LIMITS.TOP_RESULTS } = req.query;
+    // Parsear parámetros numéricos
+    const { limit } = parseNumericParams(
+      req.query,
+      ['limit'],
+      { limit: AGGREGATION_LIMITS.TOP_RESULTS }
+    );
 
-    const topDays = await BikeAvailability.getTopUsageDays(parseInt(limit));
+    const topDays = await BikeAvailability.getTopUsageDays(limit);
 
     const responseData = {
       data: {

@@ -8,7 +8,7 @@ const Traffic = require('../models/Traffic');
 const Location = require('../models/Location');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, buildResponseMetadata, parseNumericParams } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES, MONGODB_TIMEOUTS } = require('../constants');
 const logger = require('../config/logger');
@@ -42,9 +42,9 @@ const getAllTrafficData = async (req, res, next) => {
     const filterConfig = [
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
       { field: 'puntoMedidaId', type: 'exact', param: 'puntoMedidaId' },
-      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: v => v.toUpperCase() },
-      { field: 'analisis.nivelCongestion', type: 'exact', param: 'nivelCongestion', transform: v => v.toUpperCase() },
-      { field: 'calidadDatos.calidadGeneral', type: 'exact', param: 'calidad', transform: v => v.toUpperCase() }
+      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase },
+      { field: 'analisis.nivelCongestion', type: 'exact', param: 'nivelCongestion', transform: TRANSFORMS.toUpperCase },
+      { field: 'calidadDatos.calidadGeneral', type: 'exact', param: 'calidad', transform: TRANSFORMS.toUpperCase }
     ];
 
     const filters = buildFilters(req.query, filterConfig);
@@ -69,17 +69,15 @@ const getAllTrafficData = async (req, res, next) => {
     const projection = {
       fecha: 1,
       puntoMedidaId: 1,
-      'ubicacion.nombre': 1,
-      'ubicacion.distrito': 1,
-      'ubicacion.tipo': 1,
+      tipoElemento: 1,
       'metricas.intensidad': 1,
-      'metricas.velocidad': 1,
+      'metricas.velocidadMedia': 1,
       'metricas.ocupacion': 1,
       'metricas.carga': 1,
       'calidadDatos.calidadGeneral': 1,
       'calidadDatos.porcentajeValido': 1,
       'analisis.nivelCongestion': 1,
-      'analisis.desviacionVelocidad': 1
+      'analisis.clasificacionIntensidad': 1
     };
 
     // Ejecutar consulta principal con timeout
@@ -164,7 +162,13 @@ const getAllTrafficData = async (req, res, next) => {
 const getTrafficByPoint = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { limit = PAGINATION.DEFAULT_LIMIT } = req.query;
+
+    // Parsear parámetros numéricos con valores por defecto
+    const { limit } = parseNumericParams(
+      req.query,
+      ['limit'],
+      { limit: PAGINATION.DEFAULT_LIMIT }
+    );
 
     logger.debug({
       puntoId: id,
@@ -183,7 +187,7 @@ const getTrafficByPoint = async (req, res, next) => {
     const projection = {
       fecha: 1,
       'metricas.intensidad': 1,
-      'metricas.velocidad': 1,
+      'metricas.velocidadMedia': 1,
       'metricas.ocupacion': 1,
       'metricas.carga': 1,
       'calidadDatos.calidadGeneral': 1,
@@ -193,7 +197,7 @@ const getTrafficByPoint = async (req, res, next) => {
     const [trafficData, pointInfo] = await Promise.all([
       Traffic.find(filters, projection)
         .sort({ fecha: -1 })
-        .limit(parseInt(limit))
+        .limit(limit)
         .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
         .lean(),
       Location.findOne({
@@ -272,7 +276,7 @@ const getTrafficStats = async (req, res, next) => {
     // Construir filtros usando queryHelper
     const filterConfig = [
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: v => v.toUpperCase() }
+      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase }
     ];
     const filters = buildFilters(req.query, filterConfig);
 
@@ -358,7 +362,7 @@ const getHistoricalData = async (req, res, next) => {
     const filterConfig = [
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
       { field: 'puntoMedidaId', type: 'exact', param: 'puntoMedidaId' },
-      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: v => v.toUpperCase() }
+      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase }
     ];
     const filters = buildFilters(req.query, filterConfig);
 
@@ -368,14 +372,14 @@ const getHistoricalData = async (req, res, next) => {
     const responseData = {
       data: {
         serie: historicalData,
-        configuracion: {
+        configuracion: buildResponseMetadata({
           agregacion: aggregation,
           filtros: filters,
           periodo: {
             inicio: filters.fecha?.$gte,
             fin: filters.fecha?.$lte
           }
-        },
+        }),
         total: historicalData.length
       }
     };

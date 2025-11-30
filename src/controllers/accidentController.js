@@ -9,7 +9,7 @@
 const Accident = require('../models/Accident');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, INJURY_SEVERITY_MAPPING, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, MONGODB_TIMEOUTS, TIME_CONSTANTS, DAYS_OF_WEEK } = require('../constants');
 const logger = require('../config/logger');
@@ -29,10 +29,10 @@ const getAllAccidents = async (req, res, next) => {
     // Configuración de filtros usando queryHelper
     const filterConfig = [
       { field: 'ubicacion.nombreDistrito', type: 'regex', param: 'distrito' },
-      { field: 'circunstancias.tipoAccidente', type: 'exact', param: 'tipoAccidente', transform: v => v.toUpperCase() },
-      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: v => v.toUpperCase() },
-      { field: 'vehiculo.tipo', type: 'exact', param: 'tipoVehiculo', transform: v => v.toUpperCase() },
-      { field: 'personaAfectada.tipoLesion', type: 'exact', param: 'tipoLesion', transform: v => v.toUpperCase() },
+      { field: 'circunstancias.tipoAccidente', type: 'exact', param: 'tipoAccidente', transform: TRANSFORMS.toUpperCase },
+      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: TRANSFORMS.toUpperCase },
+      { field: 'vehiculo.tipo', type: 'exact', param: 'tipoVehiculo', transform: TRANSFORMS.toUpperCase },
+      { field: 'personaAfectada.tipoLesion', type: 'exact', param: 'tipoLesion', transform: TRANSFORMS.toUpperCase },
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
     ];
 
@@ -312,7 +312,7 @@ const getAccidentHeatmap = async (req, res, next) => {
     // Construir filtros usando queryHelper
     const filterConfig = [
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: v => v.toUpperCase() }
+      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: TRANSFORMS.toUpperCase }
     ];
     const filters = buildFilters(req.query, filterConfig);
 

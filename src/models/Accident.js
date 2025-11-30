@@ -129,11 +129,22 @@ const personaAfectadaSchema = new mongoose.Schema({
  * - coordenadas: Ubicación geográfica exacta
  */
 const accidentSchema = new mongoose.Schema({
-  // Identificación del expediente
+  /**
+   * Numero de expediente del accidente
+   *
+   * IMPORTANTE: NO es unico. Un mismo expediente puede tener multiples documentos
+   * (uno por cada persona afectada: conductor, pasajero, peaton, etc.)
+   *
+   * Para contar accidentes unicos, agrupar por numeroExpediente.
+   * Para contar personas afectadas, contar documentos.
+   *
+   * @type {String}
+   * @example "EXP-2051-001" (3 documentos: conductor, pasajero, peaton)
+   */
   numeroExpediente: {
     type: String,
     required: true,
-    unique: false,
+    unique: false, // Explicitamente NO unico - ver documentacion arriba
     index: true,
     trim: true
   },
@@ -530,7 +541,7 @@ accidentSchema.pre('save', function(next) {
 
   // Calcular franja horaria
   if (this.hora && !this.franjaHoraria) {
-    this.franjaHoraria = parseInt(this.hora.split(':')[0]);
+    this.franjaHoraria = parseInt(this.hora.split(':')[0], 10);
   }
 
   next();
@@ -947,7 +958,7 @@ accidentSchema.statics.getHeatmapDataOptimized = async function(filters = {}, li
       'personaAfectada.tipoLesion': 1,
       fecha: 1
     })
-    .limit(parseInt(limite))
+    .limit(parseInt(limite, 10))
     .lean();
 
   // Agrupar puntos cercanos para reducir ruido en el mapa

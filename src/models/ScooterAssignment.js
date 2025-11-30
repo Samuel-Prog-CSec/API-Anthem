@@ -23,7 +23,8 @@ const {
   TIME_CONSTANTS,
   VALIDATION_LIMITS,
   DATASET_YEARS,
-  MONGODB_TIMEOUTS
+  MONGODB_TIMEOUTS,
+  SCOOTER_KEY_AREAS
 } = require('../constants');
 
 /**
@@ -449,16 +450,16 @@ scooterAssignmentSchema.methods.classifyArea = function() {
   const totalPatinetes = this.estadisticas.totalPatinetes;
 
   // Clasificar tipo de zona (basado en distritos conocidos de Madrid)
-  if (distrito.includes('CENTRO') || barrio.includes('SOL')) {
+  if (SCOOTER_KEY_AREAS.CENTRAL.some(loc => distrito.includes(loc) || barrio.includes(loc))) {
     this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.CENTRO_URBANO;
     this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.CRITICA;
-  } else if (barrio.includes('UNIVERSIDAD') || barrio.includes('CAMPUS')) {
+  } else if (SCOOTER_KEY_AREAS.UNIVERSITY.some(loc => barrio.includes(loc))) {
     this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.ZONA_UNIVERSITARIA;
     this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.ALTA;
-  } else if (barrio.includes('ATOCHA') || barrio.includes('CHAMARTIN')) {
+  } else if (SCOOTER_KEY_AREAS.TRANSPORT.some(loc => barrio.includes(loc))) {
     this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.ZONA_TRANSPORTE;
     this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.ALTA;
-  } else if (distrito.includes('RETIRO') || distrito.includes('SALAMANCA')) {
+  } else if (SCOOTER_KEY_AREAS.COMMERCIAL.some(loc => distrito.includes(loc))) {
     this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.ZONA_COMERCIAL;
     this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.ALTA;
   } else {
@@ -532,35 +533,37 @@ scooterAssignmentSchema.pre('save', function(next) {
 });
 
 /**
- * Método para obtener resumen de asignación
+ * Método estático para obtener resumen de asignación desde un documento lean
+ * @param {Object} doc - Documento de asignación (puede ser lean o instancia)
+ * @returns {Object} Resumen de la asignación
  */
-scooterAssignmentSchema.methods.getAssignmentSummary = function() {
+scooterAssignmentSchema.statics.getAssignmentSummary = function(doc) {
   return {
     ubicacion: {
-      distrito: this.distrito.nombre,
-      barrio: this.barrio.nombre
+      distrito: doc.distrito?.nombre || doc.distrito,
+      barrio: doc.barrio?.nombre || doc.barrio
     },
     estadisticas: {
-      totalPatinetes: this.estadisticas.totalPatinetes,
-      totalProveedores: this.estadisticas.totalProveedores,
-      proveedoresActivos: this.estadisticas.proveedoresActivos,
-      densidad: this.estadisticas.densidadPatinetes
+      totalPatinetes: doc.estadisticas?.totalPatinetes || 0,
+      totalProveedores: doc.estadisticas?.totalProveedores || 0,
+      proveedoresActivos: doc.estadisticas?.proveedoresActivos || 0,
+      densidad: doc.estadisticas?.densidadPatinetes || 'N/A'
     },
     distribucion: {
-      proveedorDominante: this.analisisDistribucion.proveedorDominante,
-      concentracion: this.analisisDistribucion.concentracionMercado,
-      indiceHHI: this.analisisDistribucion.indiceHerfindahl
+      proveedorDominante: doc.analisisDistribucion?.proveedorDominante || 'N/A',
+      concentracion: doc.analisisDistribucion?.concentracionMercado || 'N/A',
+      indiceHHI: doc.analisisDistribucion?.indiceHerfindahl || 0
     },
     clasificacion: {
-      tipoZona: this.clasificacionArea.tipoZona,
-      prioridad: this.clasificacionArea.prioridadServicio,
-      demanda: this.clasificacionArea.demandaEstimada
+      tipoZona: doc.clasificacionArea?.tipoZona || 'N/A',
+      prioridad: doc.clasificacionArea?.prioridadServicio || 'N/A',
+      demanda: doc.clasificacionArea?.demandaEstimada || 'N/A'
     },
-    proveedores: this.proveedores.filter(p => p.activo && p.cantidad > 0).map(p => ({
+    proveedores: (doc.proveedores || []).filter(p => p.activo && p.cantidad > 0).map(p => ({
       nombre: p.nombre,
       cantidad: p.cantidad,
-      porcentaje: this.estadisticas.totalPatinetes > 0 ?
-        (p.cantidad / this.estadisticas.totalPatinetes) * 100 : 0
+      porcentaje: (doc.estadisticas?.totalPatinetes || 0) > 0 ?
+        (p.cantidad / doc.estadisticas.totalPatinetes) * 100 : 0
     }))
   };
 };

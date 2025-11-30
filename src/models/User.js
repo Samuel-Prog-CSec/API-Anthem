@@ -5,11 +5,11 @@
  * Implementa hashing seguro de contraseñas, validación y gestión de tokens JWT.
  */
 
-const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
-const config = require("../config/config");
-const { generateAccessToken } = require("../utils/tokenHelper");
-const { USER_SECURITY, USER_ROLES } = require("../constants");
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const config = require('../config/config');
+const { generateAccessToken } = require('../utils/tokenHelper');
+const { USER_SECURITY, USER_ROLES } = require('../constants');
 
 /**
  * Esquema de Usuario
@@ -22,7 +22,7 @@ const userSchema = new mongoose.Schema(
     // Información básica del usuario
     username: {
       type: String,
-      required: [true, "Nombre de usuario obligatorio"],
+      required: [true, 'Nombre de usuario obligatorio'],
       unique: true, // Índice único
       trim: true, // Elimina espacios en blanco al inicio y final
       minlength: [
@@ -35,34 +35,46 @@ const userSchema = new mongoose.Schema(
       ],
       match: [
         /^[a-zA-Z0-9_-]+$/,
-        "El nombre de usuario solo puede contener letras, números, guiones y guiones bajos",
+        'El nombre de usuario solo puede contener letras, números, guiones y guiones bajos',
       ],
       index: true, // Índice para búsquedas rápidas
     },
 
     email: {
       type: String,
-      required: [true, "Email necesario"],
+      required: [true, 'Email necesario'],
       unique: true,
       trim: true,
       lowercase: true,
       match: [
         /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
-        "Por favor, ingrese un email válido",
+        'Por favor, ingrese un email válido',
       ],
       index: true,
     },
 
+    /**
+     * Contrasena del usuario (se almacena hasheada)
+     *
+     * VALIDACION:
+     * - La validacion minlength aplica a la contrasena en TEXTO PLANO
+     * - El hook pre('save') hashea la contrasena DESPUES de la validacion
+     * - El controlador NO debe hashear la contrasena (se hace aqui)
+     * - Validaciones de fortaleza adicionales se hacen en el controlador
+     *
+     * PROCESO:
+     * 1. Controller recibe contrasena en texto plano
+     * 2. Mongoose valida longitud minima (texto plano)
+     * 3. Hook pre('save') hashea la contrasena
+     * 4. Se guarda el hash en BD
+     */
     password: {
       type: String,
-      required: [true, "Contraseña obligatoria"],
+      required: [true, 'Contraseña obligatoria'],
       minlength: [
         USER_SECURITY.MIN_PASSWORD_LENGTH,
         `La contraseña debe tener al menos ${USER_SECURITY.MIN_PASSWORD_LENGTH} caracteres`,
       ],
-      // La validación de fortaleza de contraseña se debe hacer en el controlador
-      // ANTES de guardar, no aquí, porque el pre-save hook hashea la contraseña
-      // y la validación fallaría con el hash
       select: false, // NO se devuelve por defecto en consultas
     },
 
@@ -104,7 +116,7 @@ const userSchema = new mongoose.Schema(
   {
     timestamps: true, // Agrega campos createdAt y updatedAt
     versionKey: false, // Elimina el campo __v
-    collection: "users"
+    collection: 'users'
   }
 );
 
@@ -112,7 +124,7 @@ const userSchema = new mongoose.Schema(
  * Propiedad virtual 'isLocked'
  * Determina si la cuenta está actualmente bloqueada debido a intentos fallidos de inicio de sesión
  */
-userSchema.virtual("isLocked").get(function () {
+userSchema.virtual('isLocked').get(function () {
   return !!(this.lockUntil && this.lockUntil > Date.now()); // Doble negación para convertir a booleano
 });
 
@@ -120,9 +132,9 @@ userSchema.virtual("isLocked").get(function () {
  * Middleware pre-save para hashing de contraseñas
  * Usa bcrypt con un número configurable de rondas de salt
  */
-userSchema.pre("save", async function (next) {
+userSchema.pre('save', async function (next) {
   // Solo hash la contraseña si ha sido modificada (o es nueva)
-  if (!this.isModified("password")) {
+  if (!this.isModified('password')) {
     return next();
   }
 
@@ -140,18 +152,18 @@ userSchema.pre("save", async function (next) {
  * Middleware pre-update para auto-actualización de timestamps
  * Se ejecuta en operaciones findOneAndUpdate, updateOne, updateMany
  */
-userSchema.pre("findOneAndUpdate", function (next) {
+userSchema.pre('findOneAndUpdate', function (next) {
   // Auto-actualizar el campo updatedAt en updates
   this.set({ updatedAt: new Date() });
   next();
 });
 
-userSchema.pre("updateOne", function (next) {
+userSchema.pre('updateOne', function (next) {
   this.set({ updatedAt: new Date() });
   next();
 });
 
-userSchema.pre("updateMany", function (next) {
+userSchema.pre('updateMany', function (next) {
   this.set({ updatedAt: new Date() });
   next();
 });
@@ -253,7 +265,7 @@ userSchema.methods.changedPasswordAfter = function(JWTTimestamp) {
 userSchema.statics.findByEmailOrUsername = function (identifier) {
   return this.findOne({
     $or: [{ email: identifier.toLowerCase() }, { username: identifier }],
-  }).select("+password"); // Incluir password para verificación
+  }).select('+password'); // Incluir password para verificación
 };
 
 /**
@@ -272,7 +284,7 @@ userSchema.statics.findByEmailOrUsername = function (identifier) {
 userSchema.index(
   { email: 1, username: 1 },
   {
-    name: "idx_user_credentials",
+    name: 'idx_user_credentials',
     background: true,
   }
 );
@@ -287,7 +299,7 @@ userSchema.index(
 userSchema.index(
   { createdAt: -1 },
   {
-    name: "idx_user_created_timeline",
+    name: 'idx_user_created_timeline',
     background: true,
   }
 );
@@ -299,13 +311,13 @@ userSchema.index(
 userSchema.index(
   { lastLogin: -1 },
   {
-    name: "idx_user_last_login",
+    name: 'idx_user_last_login',
     background: true,
     sparse: true, // ✅ SPARSE: lastLogin puede ser null para usuarios que nunca han iniciado sesión
   }
 );
 
 // Crear y exportar el modelo de usuario
-const User = mongoose.model("Users", userSchema);
+const User = mongoose.model('Users', userSchema);
 
 module.exports = User;

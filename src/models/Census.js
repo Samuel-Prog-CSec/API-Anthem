@@ -699,9 +699,9 @@ censusSchema.methods.getDemographicDistribution = function() {
 censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
   const { año = DATASET_YEARS.DEFAULT_YEAR, distrito = null, incluirExtranjeros = true } = options;
 
-  const matchFilters = { año: parseInt(año) };
+  const matchFilters = { año: parseInt(año, 10) };
   if (distrito) {
-    matchFilters['distrito.codigo'] = parseInt(distrito);
+    matchFilters['distrito.codigo'] = parseInt(distrito, 10);
   }
 
   // Estrategia: Ejecutar 2 agregaciones simples en paralelo (en lugar de 1 $facet complejo)
@@ -833,9 +833,9 @@ censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
 censusSchema.statics.getOptimizedDemographicAnalysis = async function(options) {
   const { año = DATASET_YEARS.DEFAULT_YEAR, mes = null, distrito = null } = options;
 
-  const matchFilters = { año: parseInt(año) };
-  if (mes) {matchFilters.mes = parseInt(mes);}
-  if (distrito) {matchFilters['distrito.codigo'] = parseInt(distrito);}
+  const matchFilters = { año: parseInt(año, 10) };
+  if (mes) {matchFilters.mes = parseInt(mes, 10);}
+  if (distrito) {matchFilters['distrito.codigo'] = parseInt(distrito, 10);}
 
   // Usar $facet para ejecutar 2 agregaciones en paralelo (eliminando porDistrito para mejorar rendimiento)
   const results = await this.aggregate([
@@ -938,9 +938,9 @@ censusSchema.statics.getOptimizedDemographicAnalysis = async function(options) {
     },
     indicadores: results[0].indicadores[0] || {},
     metadatos: {
-      año: parseInt(año),
-      mes: mes ? parseInt(mes) : null,
-      distrito: distrito ? parseInt(distrito) : null,
+      año: parseInt(año, 10),
+      mes: mes ? parseInt(mes, 10) : null,
+      distrito: distrito ? parseInt(distrito, 10) : null,
       fechaAnalisis: new Date()
     }
   };

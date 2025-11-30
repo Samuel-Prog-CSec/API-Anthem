@@ -11,8 +11,8 @@ const { config } = require('../config/config');
 /**
  * Crea una respuesta de éxito estandarizada
  *
+ * @param {*} data - Datos de respuesta (null si no hay datos)
  * @param {string} message - Mensaje de éxito
- * @param {*} data - Datos de respuesta (opcional)
  * @param {object} meta - Metadatos adicionales (opcional)
  * @returns {object} Respuesta de éxito estandarizada
  */
@@ -108,5 +108,6 @@ module.exports = {
   createResponse,
   createErrorResponse,
   createUnauthorizedResponse,
-  createRateLimitResponse
+  createRateLimitResponse,
+  createForbiddenResponse
 };
