@@ -331,7 +331,7 @@ trafficSchema.index({ 'metricas.velocidadMedia': -1, fecha: -1 }, {
   sparse: true, // SPARSE: Solo indexa docs con velocidadMedia != null
   partialFilterExpression: {
     'metricas.velocidadMedia': { $ne: null },
-    tipoElemento: 'M-30' // Solo M-30 tiene velocidad
+    tipoElemento: TRAFFIC_ELEMENT_TYPES.M30 // Solo M30 tiene velocidad
   }
 });
 

@@ -1,8 +1,16 @@
 /**
- * Script de Importación de Disponibilidad de Bicicletas
+ * Script de Importacion de Disponibilidad de Bicicletas
  *
  * Procesa y carga datos de disponibilidad de bicicletas desde CSV a MongoDB.
- * Ejecutar: node scripts/importation/importBikeAvailability.js
+ * Optimizado para rendimiento con manejo robusto de errores y cierre de conexiones.
+ *
+ * Uso: node scripts/importation/importBikeAvailability.js [--force] [--batch=N]
+ *
+ * Opciones:
+ *   --force    Sobrescribir registros existentes (upsert)
+ *   --batch=N  Tamano del lote para inserciones (default: 100)
+ *
+ * @module scripts/importation/importBikeAvailability
  */
 
 const fs = require('fs');
@@ -10,42 +18,139 @@ const path = require('path');
 const csv = require('csv-parser');
 const mongoose = require('mongoose');
 
-// Importar modelos y configuración
+// Configuracion y utilidades
+const { connectDB } = require('../../src/config/database');
+const { logger } = require('../../src/config/logger');
+const { handleMongoError } = require('../../src/utils/errorUtils');
+const { DATASET_YEARS, VALIDATION_LIMITS } = require('../../src/constants');
+const {
+  RejectionTracker,
+  formatDuration,
+  calculateProcessingSpeed
+} = require('./helpers/importHelpers');
+
+// Logger especifico para importacion
+const importLogger = logger.child({ component: 'import-bike-availability' });
+
+// Modelo
 const BikeAvailability = require('../../src/models/BikeAvailability');
-const config = require('../../src/config/config');
 
-// CONFIGURACIÓN
-const BATCH_SIZE = 100; // Tamaño de lote para inserciones
-const DATA_FILE = path.join(__dirname, '../../datos_hpe/Anthem_CTC_Bicicletas_Disponibilidad.csv');
+/**
+ * Configuracion del importador
+ * @constant {Object}
+ */
+const IMPORT_CONFIG = {
+  batchSize: 100,
+  dataFile: path.join(__dirname, '../../datos_hpe/Anthem_CTC_Bicicletas_Disponibilidad.csv'),
+  logInterval: 50,
+  csvSeparator: ';'
+};
 
-// Contadores
+// ============================================================================
+// CONTADORES GLOBALES
+// ============================================================================
+
 let totalProcessed = 0;
 let totalInserted = 0;
 let totalSkipped = 0;
+let totalRejected = 0;
 let totalErrors = 0;
+let startTime = null;
+
+// Tracker de rechazos por tipo
+const rejectionTracker = new RejectionTracker();
+
+/** Flag para controlar cierre graceful */
+let isShuttingDown = false;
 
 /**
- * Conectar a la base de datos
+ * Parsear argumentos de linea de comandos
+ * @returns {Object} Opciones parseadas
  */
-async function connectDatabase() {
-  try {
-    console.log('🔄 Conectando a MongoDB...');
-    await mongoose.connect(config.database.uri);
-    console.log('✅ Conexión a MongoDB establecida\n');
-    return true;
-  } catch (error) {
-    console.error('❌ Error conectando a MongoDB:', error.message);
-    return false;
+function parseArguments() {
+  const args = process.argv.slice(2);
+  const options = {
+    skipExisting: true,
+    batchSize: IMPORT_CONFIG.batchSize
+  };
+
+  for (const arg of args) {
+    if (arg === '--force') {
+      options.skipExisting = false;
+    } else if (arg.startsWith('--batch=')) {
+      const batchValue = parseInt(arg.split('=')[1], 10);
+      if (!isNaN(batchValue) && batchValue > 0) {
+        options.batchSize = batchValue;
+      }
+    }
   }
+
+  return options;
 }
 
 /**
- * Parsear número con formato español (coma decimal, punto miles)
+ * Registrar manejadores de senales para cierre graceful
+ */
+function registerSignalHandlers() {
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+
+  signals.forEach(signal => {
+    process.on(signal, async () => {
+      if (isShuttingDown) {return;}
+      isShuttingDown = true;
+
+      importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando conexiones...');
+
+      try {
+        if (mongoose.connection.readyState === 1) {
+          await mongoose.connection.close();
+          importLogger.info('Conexion a MongoDB cerrada correctamente');
+        }
+      } catch (error) {
+        importLogger.error({ error: error.message }, 'Error al cerrar conexion');
+      }
+
+      process.exit(0);
+    });
+  });
+
+  process.on('uncaughtException', async (error) => {
+    importLogger.fatal({ error: error.message, stack: error.stack }, 'Excepcion no capturada');
+
+    try {
+      if (mongoose.connection.readyState === 1) {
+        await mongoose.connection.close();
+      }
+    } catch (closeError) {
+      importLogger.error({ error: closeError.message }, 'Error al cerrar conexion tras excepcion');
+    }
+
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', async (reason) => {
+    importLogger.fatal({ reason: String(reason) }, 'Promesa rechazada no manejada');
+
+    try {
+      if (mongoose.connection.readyState === 1) {
+        await mongoose.connection.close();
+      }
+    } catch (closeError) {
+      importLogger.error({ error: closeError.message }, 'Error al cerrar conexion tras rechazo');
+    }
+
+    process.exit(1);
+  });
+}
+
+/**
+ * Parsear numero con formato espanol (coma decimal, punto miles)
+ * @param {string|number} value - Valor a parsear
+ * @returns {number} Valor numerico o 0 si invalido
  */
 function parseSpanishNumber(value) {
-  if (!value || value === '') {return 0;}
+  if (value === null || value === undefined || value === '') {return 0;}
 
-  // Eliminar puntos de miles y reemplazar coma por punto decimal
   const normalized = value.toString()
     .replace(/\./g, '')
     .replace(/,/g, '.');
@@ -55,255 +160,449 @@ function parseSpanishNumber(value) {
 }
 
 /**
+ * Codigos de razon de rechazo para trazabilidad
+ * @constant {Object}
+ */
+const REJECTION_REASONS = {
+  EMPTY_DATE: 'FECHA_VACIA',
+  INVALID_DATE_FORMAT: 'FORMATO_FECHA_INVALIDO',
+  DAY_OUT_OF_RANGE: 'DIA_FUERA_RANGO',
+  MONTH_OUT_OF_RANGE: 'MES_FUERA_RANGO',
+  YEAR_OUT_OF_RANGE: 'ANO_FUERA_RANGO_DATASET',
+  INVALID_DATE: 'FECHA_INVALIDA',
+  NEGATIVE_VALUES: 'VALORES_NEGATIVOS',
+  DUPLICATE_IN_DB: 'DUPLICADO_EN_BD',
+  DUPLICATE_KEY: 'CLAVE_DUPLICADA',
+  VALIDATION_ERROR: 'ERROR_VALIDACION_MODELO'
+};
+
+/**
  * Parsear fecha en formato DD/MM/YYYY
+ * @param {string} dateStr - Fecha en formato DD/MM/YYYY
+ * @returns {Date} Objeto Date
+ * @throws {Error} Si el formato es invalido o la fecha no esta en rango del dataset
  */
 function parseDate(dateStr) {
-  if (!dateStr) {throw new Error('Fecha vacía');}
+  if (!dateStr || typeof dateStr !== 'string') {
+    throw new Error(`${REJECTION_REASONS.EMPTY_DATE}: valor='${dateStr}'`);
+  }
 
   const parts = dateStr.trim().split('/');
-  if (parts.length !== 3) {throw new Error(`Formato de fecha inválido: ${dateStr}`);}
+  if (parts.length !== 3) {
+    throw new Error(`${REJECTION_REASONS.INVALID_DATE_FORMAT}: valor='${dateStr}'`);
+  }
 
-  const day = parseInt(parts[0]);
-  const month = parseInt(parts[1]) - 1; // Meses en JS son 0-11
-  const year = parseInt(parts[2]);
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const year = parseInt(parts[2], 10);
+
+  // Validar componentes
+  if (day < VALIDATION_LIMITS.DAY_MIN || day > VALIDATION_LIMITS.DAY_MAX) {
+    throw new Error(`${REJECTION_REASONS.DAY_OUT_OF_RANGE}: dia=${day}, limites=[${VALIDATION_LIMITS.DAY_MIN}-${VALIDATION_LIMITS.DAY_MAX}]`);
+  }
+  if (month < 0 || month > 11) {
+    throw new Error(`${REJECTION_REASONS.MONTH_OUT_OF_RANGE}: mes=${month + 1}`);
+  }
+  if (year < DATASET_YEARS.MIN_YEAR || year > DATASET_YEARS.MAX_YEAR) {
+    throw new Error(`${REJECTION_REASONS.YEAR_OUT_OF_RANGE}: ano=${year}, rango=[${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR}]`);
+  }
 
   const date = new Date(year, month, day);
-  if (isNaN(date.getTime())) {throw new Error(`Fecha inválida: ${dateStr}`);}
+  if (isNaN(date.getTime())) {
+    throw new Error(`${REJECTION_REASONS.INVALID_DATE}: valor='${dateStr}'`);
+  }
 
   return date;
 }
 
 /**
- * Validar y transformar una fila de datos
+ * Validar y transformar una fila de datos CSV
+ * @param {Object} row - Fila del CSV
+ * @param {number} rowIndex - Indice de la fila
+ * @returns {Object} Datos transformados para el modelo
+ * @throws {Error} Si la validacion falla
  */
 function validateAndTransformRow(row, rowIndex) {
-  try {
-    // Parsear fecha (nombre columna en mayúsculas)
-    const dia = parseDate(row.DIA);
+  // Parsear fecha
+  const dia = parseDate(row.DIA);
 
-    // Parsear todos los valores numéricos (manejar espacios en nombres de columna)
-    const horasTotalesUsosBicicletas = parseSpanishNumber(row.HORAS_TOTALES_USOS_BICICLETAS);
+  // Parsear valores numericos (manejar espacios en nombres de columna del CSV)
+  const horasTotalesUsosBicicletas = parseSpanishNumber(row.HORAS_TOTALES_USOS_BICICLETAS);
 
-    // El nombre de esta columna tiene un espacio extra en el CSV
-    const horasTotalesDisponibilidadBicicletasEnAnclajes = parseSpanishNumber(
-      row['HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN _ANCLAJES'] ||
-      row.HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN_ANCLAJES
-    );
+  // Nota: El CSV tiene un espacio extra en el nombre de esta columna
+  const horasTotalesDisponibilidadBicicletasEnAnclajes = parseSpanishNumber(
+    row['HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN _ANCLAJES'] ||
+    row.HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN_ANCLAJES
+  );
 
-    const totalHorasServicioBicicletas = parseSpanishNumber(row.TOTAL_HORAS_SERVICIO_BICICLETAS);
-    const mediaBicicletasDisponibles = parseSpanishNumber(row.MEDIA_BICICLETAS_DISPONIBLES);
-    const usosAbonadoAnual = parseInt(row.USOS_ABONADO_ANUAL) || 0;
-    const usosAbonadoOcasional = parseInt(row.USOS_ABONADO_OCASIONAL) || 0;
-    const totalUsos = parseInt(row.TOTAL_USOS) || 0;
+  const totalHorasServicioBicicletas = parseSpanishNumber(row.TOTAL_HORAS_SERVICIO_BICICLETAS);
+  const mediaBicicletasDisponibles = parseSpanishNumber(row.MEDIA_BICICLETAS_DISPONIBLES);
+  const usosAbonadoAnual = parseInt(row.USOS_ABONADO_ANUAL, 10) || 0;
+  const usosAbonadoOcasional = parseInt(row.USOS_ABONADO_OCASIONAL, 10) || 0;
+  const totalUsos = parseInt(row.TOTAL_USOS, 10) || 0;
 
-    // Validar valores mínimos
-    if (horasTotalesUsosBicicletas < 0 ||
-        horasTotalesDisponibilidadBicicletasEnAnclajes < 0 ||
-        totalHorasServicioBicicletas < 0 ||
-        mediaBicicletasDisponibles < 0) {
-      throw new Error('Valores numéricos no pueden ser negativos');
-    }
-
-    return {
-      dia,
-      horasTotalesUsosBicicletas,
-      horasTotalesDisponibilidadBicicletasEnAnclajes,
-      totalHorasServicioBicicletas,
-      mediaBicicletasDisponibles,
-      usosAbonadoAnual,
-      usosAbonadoOcasional,
-      totalUsos
-    };
-
-  } catch (error) {
-    throw new Error(`Error en fila ${rowIndex}: ${error.message}`);
+  // Validar valores no negativos
+  if (horasTotalesUsosBicicletas < 0 ||
+      horasTotalesDisponibilidadBicicletasEnAnclajes < 0 ||
+      totalHorasServicioBicicletas < 0 ||
+      mediaBicicletasDisponibles < 0) {
+    const valoresNegativos = [];
+    if (horasTotalesUsosBicicletas < 0) {valoresNegativos.push(`horasTotalesUsosBicicletas=${horasTotalesUsosBicicletas}`);}
+    if (horasTotalesDisponibilidadBicicletasEnAnclajes < 0) {valoresNegativos.push(`horasDisponibilidad=${horasTotalesDisponibilidadBicicletasEnAnclajes}`);}
+    if (totalHorasServicioBicicletas < 0) {valoresNegativos.push(`totalHorasServicio=${totalHorasServicioBicicletas}`);}
+    if (mediaBicicletasDisponibles < 0) {valoresNegativos.push(`mediaBicicletasDisponibles=${mediaBicicletasDisponibles}`);}
+    throw new Error(`${REJECTION_REASONS.NEGATIVE_VALUES}: ${valoresNegativos.join(', ')}`);
   }
+
+  // Validar coherencia de usos (modelo valida que totalUsos = anual + ocasional)
+  const sumUsos = usosAbonadoAnual + usosAbonadoOcasional;
+  if (totalUsos !== sumUsos && totalUsos !== 0) {
+    importLogger.debug(
+      { rowIndex, totalUsos, sumUsos },
+      'Discrepancia en suma de usos, usando valor calculado'
+    );
+  }
+
+  return {
+    dia,
+    horasTotalesUsosBicicletas,
+    horasTotalesDisponibilidadBicicletasEnAnclajes,
+    totalHorasServicioBicicletas,
+    mediaBicicletasDisponibles,
+    usosAbonadoAnual,
+    usosAbonadoOcasional,
+    totalUsos: sumUsos || totalUsos
+  };
 }
 
 /**
- * Verificar duplicados antes de insertar
+ * Verificar duplicados en base de datos
+ * @param {Array<Date>} dates - Array de fechas a verificar
+ * @returns {Promise<Set<string>>} Set con fechas existentes en formato ISO
  */
 async function checkDuplicates(dates) {
-  const existingDates = await BikeAvailability.find({
+  const existingDocs = await BikeAvailability.find({
     dia: { $in: dates }
-  }).select('dia').lean();
+  })
+    .select('dia')
+    .lean()
+    .maxTimeMS(10000);
 
-  return new Set(existingDates.map(doc => doc.dia.toISOString()));
+  return new Set(existingDocs.map(doc => doc.dia.toISOString()));
+}
+
+/**
+ * Procesar lote de registros con bulkWrite
+ * @param {Array<Object>} batch - Lote de registros a insertar
+ * @param {Object} options - Opciones de procesamiento
+ * @returns {Promise<Object>} Resultado de la operacion
+ */
+async function processBatch(batch, options) {
+  const result = { inserted: 0, skipped: 0, errors: 0 };
+
+  if (batch.length === 0) {return result;}
+
+  if (options.skipExisting) {
+    // Insertar solo nuevos registros
+    try {
+      const insertResult = await BikeAvailability.insertMany(batch, {
+        ordered: false,
+        lean: true
+      });
+      result.inserted = insertResult.length;
+    } catch (error) {
+      if (error.code === 11000) {
+        // Error de duplicado parcial - contar insertados exitosos
+        const insertedCount = error.insertedDocs?.length || 0;
+        result.inserted = insertedCount;
+        result.skipped = batch.length - insertedCount;
+
+        // Loguear cada duplicado individual
+        if (error.writeErrors) {
+          error.writeErrors.forEach(writeErr => {
+            if (writeErr.code === 11000) {
+              const duplicateDoc = batch[writeErr.index];
+              importLogger.warn(
+                {
+                  fecha: duplicateDoc?.dia?.toISOString().split('T')[0],
+                  razon: REJECTION_REASONS.DUPLICATE_KEY,
+                  detalle: 'Clave unica ya existe en BD'
+                },
+                'Registro rechazado - duplicado'
+              );
+            }
+          });
+        }
+      } else {
+        const handledError = handleMongoError(error);
+        importLogger.error({ error: handledError.message }, 'Error en insercion de lote');
+        result.errors = batch.length;
+        throw error;
+      }
+    }
+  } else {
+    // Modo upsert - actualizar si existe
+    const operations = batch.map(record => ({
+      updateOne: {
+        filter: { dia: record.dia },
+        update: { $set: record },
+        upsert: true
+      }
+    }));
+
+    try {
+      const bulkResult = await BikeAvailability.bulkWrite(operations, { ordered: false });
+      result.inserted = (bulkResult.upsertedCount || 0) + (bulkResult.modifiedCount || 0);
+      result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);
+    } catch (error) {
+      const handledError = handleMongoError(error);
+      importLogger.error({ error: handledError.message }, 'Error en bulkWrite');
+      result.errors = batch.length;
+      throw error;
+    }
+  }
+
+  return result;
 }
 
 /**
  * Procesar archivo CSV y cargar datos
+ * @param {Object} options - Opciones de procesamiento
+ * @returns {Promise<void>}
  */
-async function processCSV() {
-  console.log('📂 Procesando archivo de disponibilidad de bicicletas...');
-  console.log(`📍 Archivo: ${DATA_FILE}\n`);
+async function processCSV(options) {
+  importLogger.info(
+    { file: IMPORT_CONFIG.dataFile },
+    'Iniciando procesamiento de archivo CSV'
+  );
 
   return new Promise((resolve, reject) => {
     const records = [];
-    const stream = fs.createReadStream(DATA_FILE)
-      .pipe(csv({ separator: ';' }));
+    const stream = fs.createReadStream(IMPORT_CONFIG.dataFile)
+      .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }));
 
     stream.on('data', (row) => {
+      if (isShuttingDown) {
+        stream.destroy();
+        return;
+      }
+
       totalProcessed++;
 
       try {
         const transformedData = validateAndTransformRow(row, totalProcessed);
         records.push(transformedData);
 
-        // Imprimir progreso cada 50 registros
-        if (totalProcessed % 50 === 0) {
-          process.stdout.write(`\r📊 Procesados: ${totalProcessed} registros`);
+        if (totalProcessed % IMPORT_CONFIG.logInterval === 0) {
+          importLogger.debug(
+            { processed: totalProcessed, valid: records.length },
+            'Progreso de lectura'
+          );
         }
-
       } catch (error) {
         totalErrors++;
-        if (totalErrors <= 5) { // Solo mostrar primeros 5 errores
-          console.error(`\n⚠️  ${error.message}`);
-        }
+        totalRejected++;
+        rejectionTracker.track(error.message.split(':')[0] || 'ERROR_DESCONOCIDO');
+        importLogger.warn(
+          {
+            fila: totalProcessed,
+            razon: error.message,
+            datosOriginales: {
+              DIA: row.DIA,
+              TOTAL_USOS: row.TOTAL_USOS,
+              USOS_ABONADO_ANUAL: row.USOS_ABONADO_ANUAL
+            }
+          },
+          'Fila rechazada - no insertada en BD'
+        );
       }
     });
 
     stream.on('end', async () => {
-      console.log(`\n\n✅ Lectura completada: ${totalProcessed} registros procesados`);
-      console.log(`📝 Registros válidos: ${records.length}`);
-      console.log(`❌ Errores: ${totalErrors}\n`);
+      importLogger.info(
+        { totalProcessed: totalProcessed, validRecords: records.length, errors: totalErrors },
+        'Lectura de CSV completada'
+      );
 
       if (records.length === 0) {
-        console.log('⚠️  No hay registros válidos para insertar');
+        importLogger.warn('No hay registros validos para insertar');
         return resolve();
       }
 
-      // Verificar duplicados
-      console.log('🔍 Verificando duplicados...');
-      const dates = records.map(r => r.dia);
-      const existingDatesSet = await checkDuplicates(dates);
+      // Verificar duplicados si skipExisting
+      let recordsToInsert = records;
 
-      // Filtrar registros que ya existen
-      const newRecords = records.filter(record => {
-        const isDuplicate = existingDatesSet.has(record.dia.toISOString());
-        if (isDuplicate) {totalSkipped++;}
-        return !isDuplicate;
-      });
+      if (options.skipExisting) {
+        importLogger.info('Verificando duplicados en base de datos...');
+        const dates = records.map(r => r.dia);
+        const existingDatesSet = await checkDuplicates(dates);
 
-      if (newRecords.length === 0) {
-        console.log('✅ Todos los registros ya existen en la base de datos');
-        return resolve();
+        recordsToInsert = records.filter(record => {
+          const isDuplicate = existingDatesSet.has(record.dia.toISOString());
+          if (isDuplicate) {
+            totalSkipped++;
+            importLogger.debug(
+              { fecha: record.dia.toISOString().split('T')[0], razon: REJECTION_REASONS.DUPLICATE_IN_DB },
+              'Registro omitido - duplicado en BD'
+            );
+          }
+          return !isDuplicate;
+        });
+
+        importLogger.info(
+          { newRecords: recordsToInsert.length, duplicates: totalSkipped },
+          'Verificacion de duplicados completada'
+        );
       }
 
-      console.log(`✅ Registros nuevos a insertar: ${newRecords.length}`);
-      console.log(`⏭️  Registros duplicados omitidos: ${totalSkipped}\n`);
+      if (recordsToInsert.length === 0) {
+        importLogger.info('Todos los registros ya existen en la base de datos');
+        return resolve();
+      }
 
       // Insertar en lotes
-      console.log('💾 Insertando datos en la base de datos...');
+      importLogger.info(
+        { totalRecords: recordsToInsert.length, batchSize: options.batchSize },
+        'Iniciando insercion en base de datos'
+      );
 
       try {
-        for (let i = 0; i < newRecords.length; i += BATCH_SIZE) {
-          const batch = newRecords.slice(i, i + BATCH_SIZE);
+        for (let i = 0; i < recordsToInsert.length && !isShuttingDown; i += options.batchSize) {
+          const batch = recordsToInsert.slice(i, i + options.batchSize);
+          const result = await processBatch(batch, options);
 
-          await BikeAvailability.insertMany(batch, {
-            ordered: false,
-            rawResult: false
-          });
+          totalInserted += result.inserted;
+          totalSkipped += result.skipped;
 
-          totalInserted += batch.length;
-
-          const progress = Math.round((totalInserted / newRecords.length) * 100);
-          process.stdout.write(`\r💾 Insertados: ${totalInserted}/${newRecords.length} (${progress}%)`);
+          const progress = Math.round(((i + batch.length) / recordsToInsert.length) * 100);
+          importLogger.debug(
+            { inserted: totalInserted, progress: `${progress}%` },
+            'Progreso de insercion'
+          );
         }
 
-        console.log('\n');
         resolve();
-
       } catch (error) {
-        if (error.code === 11000) {
-          // Error de duplicado - contar cuántos se insertaron exitosamente
-          const insertedCount = error.result?.nInserted || 0;
-          totalInserted += insertedCount;
-          console.log(`\n⚠️  Algunos duplicados encontrados durante la inserción`);
-          resolve();
-        } else {
-          console.error('\n❌ Error durante la inserción:', error.message);
-          reject(error);
-        }
+        importLogger.error({ error: error.message }, 'Error durante insercion');
+        reject(error);
       }
     });
 
     stream.on('error', (error) => {
-      console.error('❌ Error leyendo archivo CSV:', error.message);
+      importLogger.error({ error: error.message }, 'Error leyendo archivo CSV');
       reject(error);
     });
   });
 }
 
 /**
- * Mostrar estadísticas finales
+ * Mostrar estadisticas finales
+ * @returns {Promise<void>}
  */
 async function showStatistics() {
-  console.log('\n📊 ESTADÍSTICAS FINALES:');
-  console.log('═'.repeat(50));
-  console.log(`📥 Total procesados:        ${totalProcessed}`);
-  console.log(`✅ Total insertados:        ${totalInserted}`);
-  console.log(`⏭️  Total omitidos:          ${totalSkipped}`);
-  console.log(`❌ Total errores:           ${totalErrors}`);
-  console.log('═'.repeat(50));
+  const durationMs = Date.now() - startTime;
 
-  // Estadísticas de la base de datos
-  const totalInDB = await BikeAvailability.countDocuments();
-  const minDate = await BikeAvailability.findOne().sort({ dia: 1 }).select('dia');
-  const maxDate = await BikeAvailability.findOne().sort({ dia: -1 }).select('dia');
+  // Estadisticas de la base de datos
+  const [totalInDB, minDateDoc, maxDateDoc] = await Promise.all([
+    BikeAvailability.countDocuments().maxTimeMS(5000),
+    BikeAvailability.findOne().sort({ dia: 1 }).select('dia').lean().maxTimeMS(5000),
+    BikeAvailability.findOne().sort({ dia: -1 }).select('dia').lean().maxTimeMS(5000)
+  ]);
 
-  console.log('\n📚 ESTADO DE LA BASE DE DATOS:');
-  console.log('═'.repeat(50));
-  console.log(`📝 Total registros en DB:   ${totalInDB}`);
-  if (minDate && maxDate) {
-    console.log(`📅 Fecha más antigua:       ${minDate.dia.toISOString().split('T')[0]}`);
-    console.log(`📅 Fecha más reciente:      ${maxDate.dia.toISOString().split('T')[0]}`);
+  importLogger.info({
+    duracion: formatDuration(durationMs),
+    velocidad: calculateProcessingSpeed(totalProcessed, durationMs),
+    filasProcesadas: totalProcessed,
+    registrosInsertados: totalInserted,
+    registrosOmitidos: totalSkipped,
+    registrosRechazados: totalRejected,
+    errores: totalErrors,
+    totalEnBD: totalInDB,
+    fechaMinima: minDateDoc?.dia?.toISOString().split('T')[0] || 'N/A',
+    fechaMaxima: maxDateDoc?.dia?.toISOString().split('T')[0] || 'N/A'
+  }, 'Importacion de disponibilidad de bicicletas completada');
+
+  // Resumen de rechazos por tipo
+  const rejectionSummary = rejectionTracker.getSortedSummary();
+  if (rejectionSummary.length > 0) {
+    importLogger.info({
+      totalRechazos: rejectionTracker.totalRejected,
+      desglose: rejectionSummary
+    }, 'Resumen de rechazos por tipo');
   }
-  console.log('═'.repeat(50) + '\n');
 }
 
 /**
- * Función principal
+ * Funcion principal
  */
 async function main() {
-  console.log('\n' + '═'.repeat(60));
-  console.log('  🚲 IMPORTACIÓN DE DISPONIBILIDAD DE BICICLETAS');
-  console.log('═'.repeat(60) + '\n');
+  startTime = Date.now();
 
-  const startTime = Date.now();
+  // Registrar manejadores de senales
+  registerSignalHandlers();
+
+  // Parsear argumentos
+  const options = parseArguments();
+
+  importLogger.info({
+    skipExisting: options.skipExisting,
+    batchSize: options.batchSize,
+    dataFile: IMPORT_CONFIG.dataFile
+  }, 'Iniciando importacion de disponibilidad de bicicletas');
 
   try {
-    // Conectar a la base de datos
-    const connected = await connectDatabase();
-    if (!connected) {
-      throw new Error('No se pudo conectar a la base de datos');
+    // Verificar que el archivo existe
+    if (!fs.existsSync(IMPORT_CONFIG.dataFile)) {
+      throw new Error(`Archivo no encontrado: ${IMPORT_CONFIG.dataFile}`);
     }
 
-    // Verificar que el archivo existe
-    if (!fs.existsSync(DATA_FILE)) {
-      throw new Error(`Archivo no encontrado: ${DATA_FILE}`);
-    }
+    // Conectar a la base de datos
+    importLogger.info('Conectando a MongoDB...');
+    await connectDB();
+    importLogger.info('Conexion a MongoDB establecida');
+
+    // Verificar estado inicial
+    const initialCount = await BikeAvailability.countDocuments().maxTimeMS(5000);
+    importLogger.info({ registrosActuales: initialCount }, 'Estado inicial de la coleccion');
 
     // Procesar CSV
-    await processCSV();
+    await processCSV(options);
 
-    // Mostrar estadísticas
+    // Mostrar estadisticas finales
     await showStatistics();
 
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    console.log(`✅ Importación completada en ${duration} segundos\n`);
-
   } catch (error) {
-    console.error('\n❌ ERROR FATAL:', error.message);
-    console.error(error.stack);
-    process.exit(1);
+    const handledError = handleMongoError(error);
+    importLogger.error({
+      error: handledError.message,
+      stack: error.stack
+    }, 'Error fatal durante la importacion');
+    process.exitCode = 1;
   } finally {
-    // Cerrar conexión
-    console.log('🔌 Cerrando conexión a MongoDB...');
-    await mongoose.connection.close();
-    console.log('✅ Conexión cerrada correctamente\n');
+    // Cerrar conexion
+    if (mongoose.connection.readyState === 1) {
+      importLogger.info('Cerrando conexion a MongoDB...');
+      try {
+        await mongoose.connection.close();
+        importLogger.info('Conexion cerrada correctamente');
+      } catch (error) {
+        importLogger.error({ error: error.message }, 'Error al cerrar conexion');
+      }
+    }
   }
 }
 
-// Ejecutar script
-main();
+// Ejecutar si es llamado directamente
+if (require.main === module) {
+  main().catch(error => {
+    importLogger.error({ error: error.message }, 'Error fatal en script de importacion');
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  parseSpanishNumber,
+  parseDate,
+  validateAndTransformRow,
+  REJECTION_REASONS
+};

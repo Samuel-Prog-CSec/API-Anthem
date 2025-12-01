@@ -18,7 +18,7 @@ export default [
     },
     rules: {
       // === Errores comunes ===
-      "no-console": "warn", // Advertir uso de console (debe usar Pino logger)
+      "no-console": "warn", // Advertir uso de console (usar Pino logger)
       "no-unused-vars": [
         "warn",
         {

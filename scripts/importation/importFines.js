@@ -12,97 +12,235 @@ const csv = require('csv-parser');
 const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 const { connectDB } = require('../../src/config/database');
-const config = require('../../src/config/config');
 const Fine = require('../../src/models/Fine');
+const { logger } = require('../../src/config/logger');
+const { handleMongoError } = require('../../src/utils/errorUtils');
+const { VALIDATION_LIMITS, SEVERITY_LEVELS } = require('../../src/constants');
+const {
+  extractDateFromFileName,
+  RejectionTracker,
+  formatDuration,
+  calculateProcessingSpeed
+} = require('./helpers/importHelpers');
 
-/**
- * Configuración del importador
- */
+// Logger específico para importación
+const importLogger = logger.child({ component: 'import-fines' });
+
+// ============================================================================
+// CONFIGURACIÓN
+// ============================================================================
+
 const IMPORT_CONFIG = {
   dataDirectory: path.join(__dirname, '..', '..', 'datos_hpe', 'Multas'),
-  batchSize: 2000, // Optimizado para archivos grandes
+  batchSize: 2000,
   skipExisting: true,
-  logInterval: 50000, // Logs menos frecuentes
-  maxParallel: 3 // Procesamiento paralelo máximo
+  logInterval: 50000,
+  maxParallel: 3
 };
+
+// ============================================================================
+// RAZONES DE RECHAZO
+// ============================================================================
+
+/**
+ * Razones de rechazo para filas que no se insertan en la BD
+ * @constant {Object}
+ */
+const REJECTION_REASONS = {
+  // Campos obligatorios faltantes
+  ARCHIVO_SIN_FECHA: 'No se pudo extraer mes/año del nombre del archivo',
+
+  // Validación de campos
+  CALIFICACION_INVALIDA: 'Calificacion de multa invalida (esperado: LEVE, GRAVE, MUY GRAVE)',
+  IMPORTE_NEGATIVO: 'Importe del boletin negativo',
+  PUNTOS_FUERA_RANGO: 'Puntos detraidos fuera de rango (0-12)',
+  COORDENADA_X_INVALIDA: 'Coordenada X invalida o fuera de rango',
+  COORDENADA_Y_INVALIDA: 'Coordenada Y invalida o fuera de rango',
+  VELOCIDAD_LIMITE_INVALIDA: 'Velocidad limite invalida',
+  VELOCIDAD_CIRCULACION_INVALIDA: 'Velocidad de circulacion invalida',
+
+  // Errores de procesamiento
+  ERROR_PROCESAMIENTO_FILA: 'Error durante el procesamiento de la fila',
+  ERROR_VALIDACION_MONGOOSE: 'Error de validacion de esquema Mongoose',
+  ERROR_INSERCION_BD: 'Error al insertar en base de datos',
+  ERROR_DUPLICADO: 'Registro duplicado en base de datos'
+};
+
+// ============================================================================
+// CONTADORES GLOBALES
+// ============================================================================
+
+let totalProcessed = 0;
+let totalInserted = 0;
+let totalSkipped = 0;
+let totalRejected = 0;
+let totalErrors = 0;
+let isShuttingDown = false;
+
+// Tracker de rechazos por tipo
+const rejectionTracker = new RejectionTracker();
+
+// ============================================================================
+// FUNCIONES DE PARSEO
+// ============================================================================
 
 /**
  * Parsear datos de una fila CSV de multas
  * @param {Object} row - Fila del CSV
  * @param {string} sourceFile - Archivo origen
- * @returns {Object} - Datos procesados para la multa
+ * @param {number} rowIndex - Índice de fila para logging
+ * @returns {Object|null} - Datos procesados para la multa o null si se rechaza
  */
-function parseMultaRow(row, sourceFile) {
-  try {
-    // Extraer mes y año del nombre del archivo (formato: Anthem_CTC_Multas_MMAAAA.csv)
-    const fileMatch = sourceFile.match(/(\d{2})(\d{4})/);
-    const mes = fileMatch ? parseInt(fileMatch[1]) : 1;
-    const año = fileMatch ? parseInt(fileMatch[2]) : new Date().getFullYear();
-
-    // Crear fecha basada en mes y año
-    const fecha = new Date(año, mes - 1, 1);
-
-    // Procesar coordenadas
-    const coordenadas = {};
-    if (row.COORDENADA_X && row.COORDENADA_X.trim() !== '') {
-      const coordX = parseFloat(row.COORDENADA_X.replace(',', '.'));
-      if (!isNaN(coordX)) {coordenadas.x = coordX;}
-    }
-    if (row.COORDENADA_Y && row.COORDENADA_Y.trim() !== '') {
-      const coordY = parseFloat(row.COORDENADA_Y.replace(',', '.'));
-      if (!isNaN(coordY)) {coordenadas.y = coordY;}
-    }
-
-    // Procesar datos de velocidad
-    const datosVelocidad = {};
-    if (row.VEL_LIMITE && row.VEL_LIMITE.trim() !== '') {
-      const velLimite = parseInt(row.VEL_LIMITE);
-      if (!isNaN(velLimite)) {datosVelocidad.velocidadLimite = velLimite;}
-    }
-    if (row.VEL_CIRCULA && row.VEL_CIRCULA.trim() !== '') {
-      const velCircula = parseInt(row.VEL_CIRCULA);
-      if (!isNaN(velCircula)) {datosVelocidad.velocidadCirculacion = velCircula;}
-    }
-
-    // Procesar importe
-    const importeStr = row.IMP_BOL ? row.IMP_BOL.replace(',', '.').trim() : '0';
-    const importe = parseFloat(importeStr) || 0;
-
-    // Procesar puntos
-    const puntos = parseInt(row.PUNTOS) || 0;
-
-    // Procesar descuento
-    const tieneDescuento = row.DESCUENTO &&
-      (row.DESCUENTO.toLowerCase().includes('si') || row.DESCUENTO.toLowerCase().includes('sí'));
-
-    // Crear objeto de multa
-    const multa = {
-      fecha,
-      mes,
-      año,
-      hora: row.HORA || '00.00',
-      calificacion: (row.CALIFICACION || 'LEVE').toUpperCase().trim(),
-      lugar: (row.LUGAR || 'NO ESPECIFICADO').trim(),
-      coordenadas: Object.keys(coordenadas).length > 0 ? coordenadas : undefined,
-      importeBoletín: importe,
-      tieneDescuento,
-      puntosDetraídos: puntos,
-      denunciante: (row.DENUNCIANTE || 'NO ESPECIFICADO').trim(),
-      descripcionInfraccion: (row['HECHO-BOL'] || '').trim(),
-      datosVelocidad: Object.keys(datosVelocidad).length > 0 ? datosVelocidad : undefined,
-      procesamiento: {
-        archivoOrigen: sourceFile
-      }
-    };
-
-    return multa;
-
-  } catch (error) {
-    console.error(`Error procesando fila del archivo ${sourceFile}:`, error);
-    console.error('Datos de la fila:', row);
+function parseMultaRow(row, sourceFile, rowIndex) {
+  // Extraer mes y año del nombre del archivo usando helper
+  const dateInfo = extractDateFromFileName(sourceFile);
+  if (!dateInfo) {
+    rejectionTracker.track(REJECTION_REASONS.ARCHIVO_SIN_FECHA);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.ARCHIVO_SIN_FECHA,
+      datosOriginales: { archivo: sourceFile }
+    }, 'Fila rechazada: no se pudo extraer fecha del archivo');
     return null;
   }
+
+  const { mes, año } = dateInfo;
+
+  // Crear fecha basada en mes y año
+  const fecha = new Date(año, mes - 1, 1);
+
+  // Procesar coordenadas
+  const coordenadas = {};
+  if (row.COORDENADA_X && row.COORDENADA_X.trim() !== '') {
+    const coordX = parseFloat(row.COORDENADA_X.replace(',', '.'));
+    if (!isNaN(coordX)) {
+      if (coordX >= VALIDATION_LIMITS.UTM_X_MIN && coordX <= VALIDATION_LIMITS.UTM_X_MAX) {
+        coordenadas.x = coordX;
+      } else {
+        rejectionTracker.track(REJECTION_REASONS.COORDENADA_X_INVALIDA);
+        importLogger.warn({
+          fila: rowIndex,
+          razon: REJECTION_REASONS.COORDENADA_X_INVALIDA,
+          datosOriginales: { coordenadaX: row.COORDENADA_X, valor: coordX }
+        }, 'Coordenada X fuera de rango - se omite');
+      }
+    }
+  }
+
+  if (row.COORDENADA_Y && row.COORDENADA_Y.trim() !== '') {
+    const coordY = parseFloat(row.COORDENADA_Y.replace(',', '.'));
+    if (!isNaN(coordY)) {
+      if (coordY >= VALIDATION_LIMITS.UTM_Y_MIN && coordY <= VALIDATION_LIMITS.UTM_Y_MAX) {
+        coordenadas.y = coordY;
+      } else {
+        rejectionTracker.track(REJECTION_REASONS.COORDENADA_Y_INVALIDA);
+        importLogger.warn({
+          fila: rowIndex,
+          razon: REJECTION_REASONS.COORDENADA_Y_INVALIDA,
+          datosOriginales: { coordenadaY: row.COORDENADA_Y, valor: coordY }
+        }, 'Coordenada Y fuera de rango - se omite');
+      }
+    }
+  }
+
+  // Procesar datos de velocidad
+  const datosVelocidad = {};
+  if (row.VEL_LIMITE && row.VEL_LIMITE.trim() !== '') {
+    const velLimite = parseInt(row.VEL_LIMITE);
+    if (!isNaN(velLimite) && velLimite >= VALIDATION_LIMITS.SPEED_MIN && velLimite <= VALIDATION_LIMITS.SPEED_MAX) {
+      datosVelocidad.velocidadLimite = velLimite;
+    } else if (!isNaN(velLimite)) {
+      rejectionTracker.track(REJECTION_REASONS.VELOCIDAD_LIMITE_INVALIDA);
+      importLogger.warn({
+        fila: rowIndex,
+        razon: REJECTION_REASONS.VELOCIDAD_LIMITE_INVALIDA,
+        datosOriginales: { velocidadLimite: row.VEL_LIMITE, valor: velLimite }
+      }, 'Velocidad limite fuera de rango - se omite');
+    }
+  }
+
+  if (row.VEL_CIRCULA && row.VEL_CIRCULA.trim() !== '') {
+    const velCircula = parseInt(row.VEL_CIRCULA);
+    if (!isNaN(velCircula) && velCircula >= VALIDATION_LIMITS.SPEED_MIN && velCircula <= VALIDATION_LIMITS.SPEED_MAX) {
+      datosVelocidad.velocidadCirculacion = velCircula;
+    } else if (!isNaN(velCircula)) {
+      rejectionTracker.track(REJECTION_REASONS.VELOCIDAD_CIRCULACION_INVALIDA);
+      importLogger.warn({
+        fila: rowIndex,
+        razon: REJECTION_REASONS.VELOCIDAD_CIRCULACION_INVALIDA,
+        datosOriginales: { velocidadCirculacion: row.VEL_CIRCULA, valor: velCircula }
+      }, 'Velocidad de circulacion fuera de rango - se omite');
+    }
+  }
+
+  // Procesar importe
+  const importeStr = row.IMP_BOL ? row.IMP_BOL.replace(',', '.').trim() : '0';
+  const importe = parseFloat(importeStr) || 0;
+
+  if (importe < 0) {
+    rejectionTracker.track(REJECTION_REASONS.IMPORTE_NEGATIVO);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.IMPORTE_NEGATIVO,
+      datosOriginales: { importe: row.IMP_BOL, valor: importe }
+    }, 'Importe negativo - se convierte a 0');
+  }
+
+  // Procesar puntos
+  const puntos = parseInt(row.PUNTOS) || 0;
+  if (puntos < VALIDATION_LIMITS.DRIVER_POINTS_MIN || puntos > VALIDATION_LIMITS.DRIVER_POINTS_MAX) {
+    rejectionTracker.track(REJECTION_REASONS.PUNTOS_FUERA_RANGO);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.PUNTOS_FUERA_RANGO,
+      datosOriginales: { puntos: row.PUNTOS, valor: puntos }
+    }, 'Puntos fuera de rango (0-12) - se usa valor original');
+  }
+
+  // Procesar descuento
+  const tieneDescuento = row.DESCUENTO &&
+    (row.DESCUENTO.toLowerCase().includes('si') || row.DESCUENTO.toLowerCase().includes('sí'));
+
+  // Validar calificación
+  const calificacionRaw = (row.CALIFICACION || SEVERITY_LEVELS.FINE.LEVE).toUpperCase().trim();
+  const calificacionesValidas = [SEVERITY_LEVELS.FINE.LEVE, SEVERITY_LEVELS.FINE.GRAVE, SEVERITY_LEVELS.FINE.MUY_GRAVE];
+  const calificacion = calificacionesValidas.includes(calificacionRaw) ? calificacionRaw : SEVERITY_LEVELS.FINE.LEVE;
+
+  if (!calificacionesValidas.includes(calificacionRaw) && calificacionRaw !== SEVERITY_LEVELS.FINE.LEVE) {
+    rejectionTracker.track(REJECTION_REASONS.CALIFICACION_INVALIDA);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.CALIFICACION_INVALIDA,
+      datosOriginales: { calificacion: row.CALIFICACION, valorUsado: SEVERITY_LEVELS.FINE.LEVE }
+    }, 'Calificacion invalida - se usa LEVE por defecto');
+  }
+
+  // Crear objeto de multa
+  const multa = {
+    fecha,
+    mes,
+    año,
+    hora: row.HORA || '00.00',
+    calificacion,
+    lugar: (row.LUGAR || 'NO ESPECIFICADO').trim(),
+    coordenadas: Object.keys(coordenadas).length > 0 ? coordenadas : undefined,
+    importeBoletín: Math.max(0, importe),
+    tieneDescuento,
+    puntosDetraídos: Math.max(0, Math.min(puntos, VALIDATION_LIMITS.DRIVER_POINTS_MAX)),
+    denunciante: (row.DENUNCIANTE || 'NO ESPECIFICADO').trim(),
+    descripcionInfraccion: (row['HECHO-BOL'] || '').trim(),
+    datosVelocidad: Object.keys(datosVelocidad).length > 0 ? datosVelocidad : undefined,
+    procesamiento: {
+      archivoOrigen: sourceFile
+    }
+  };
+
+  return multa;
 }
+
+// ============================================================================
+// FUNCIONES DE PROCESAMIENTO DE ARCHIVOS
+// ============================================================================
 
 /**
  * Procesar un archivo CSV de multas
@@ -112,7 +250,7 @@ function parseMultaRow(row, sourceFile) {
  */
 async function processMultasFile(filePath, options = {}) {
   const fileName = path.basename(filePath);
-  console.log(`\n📂 Procesando archivo: ${fileName}`);
+  importLogger.info({ archivo: fileName }, 'Iniciando procesamiento de archivo');
 
   return new Promise((resolve, reject) => {
     const stats = {
@@ -122,63 +260,92 @@ async function processMultasFile(filePath, options = {}) {
       errorRows: 0,
       insertedRecords: 0,
       skippedRecords: 0,
+      rejectedRecords: 0,
       errors: []
     };
 
     const batch = [];
+    let rowIndex = 0;
+
     const stream = createReadStream(filePath)
       .pipe(csv({ separator: ';' }))
       .on('data', async (row) => {
+        if (isShuttingDown) {
+          stream.destroy();
+          return;
+        }
+
         stats.totalRows++;
+        rowIndex++;
 
         try {
-          const multaData = parseMultaRow(row, fileName);
+          const multaData = parseMultaRow(row, fileName, rowIndex);
 
           if (multaData) {
             batch.push(multaData);
             stats.processedRows++;
 
-            // Procesar lote cuando alcance el tamaño configurado
+            // Procesar lote cuando alcance el tamano configurado
             if (batch.length >= options.batchSize) {
               stream.pause();
               await processBatch(batch, options, stats);
-              batch.length = 0; // Limpiar array
+              batch.length = 0;
               stream.resume();
             }
           } else {
-            stats.errorRows++;
+            stats.rejectedRecords++;
           }
 
-          // Log de progreso menos frecuente
-          if (stats.totalRows % (options.logInterval || 50000) === 0) {
-            console.log(`   📊 Procesadas ${stats.totalRows.toLocaleString()} filas...`);
+          // Log de progreso
+          if (stats.totalRows % (options.logInterval || IMPORT_CONFIG.logInterval) === 0) {
+            importLogger.info({
+              archivo: fileName,
+              filasProcesadas: stats.totalRows,
+              insertadas: stats.insertedRecords,
+              rechazadas: stats.rejectedRecords
+            }, 'Progreso de procesamiento');
           }
 
         } catch (error) {
           stats.errorRows++;
-          stats.errors.push({
-            row: stats.totalRows,
+          totalErrors++;
+          importLogger.error({
+            fila: rowIndex,
+            archivo: fileName,
+            razon: REJECTION_REASONS.ERROR_PROCESAMIENTO_FILA,
             error: error.message
-          });
+          }, 'Error procesando fila');
 
-          if (stats.errors.length > 100) { // Limitar errores almacenados
-            stats.errors = stats.errors.slice(-50);
+          if (stats.errors.length < 100) {
+            stats.errors.push({
+              row: stats.totalRows,
+              error: error.message
+            });
           }
         }
       })
       .on('end', async () => {
         try {
           // Procesar lote restante
-          if (batch.length > 0) {
+          if (batch.length > 0 && !isShuttingDown) {
             await processBatch(batch, options, stats);
           }
 
-          console.log(`✅ Archivo completado: ${fileName}`);
-          console.log(`   📊 Total filas: ${stats.totalRows}`);
-          console.log(`   ✅ Procesadas: ${stats.processedRows}`);
-          console.log(`   ❌ Errores: ${stats.errorRows}`);
-          console.log(`   💾 Insertadas: ${stats.insertedRecords}`);
-          console.log(`   ⏭️  Omitidas: ${stats.skippedRecords}`);
+          // Actualizar contadores globales
+          totalProcessed += stats.totalRows;
+          totalInserted += stats.insertedRecords;
+          totalSkipped += stats.skippedRecords;
+          totalRejected += stats.rejectedRecords;
+
+          importLogger.info({
+            archivo: fileName,
+            totalFilas: stats.totalRows,
+            procesadas: stats.processedRows,
+            insertadas: stats.insertedRecords,
+            omitidas: stats.skippedRecords,
+            rechazadas: stats.rejectedRecords,
+            errores: stats.errorRows
+          }, 'Archivo completado');
 
           resolve(stats);
         } catch (error) {
@@ -186,14 +353,134 @@ async function processMultasFile(filePath, options = {}) {
         }
       })
       .on('error', (error) => {
-        console.error(`❌ Error leyendo archivo ${fileName}:`, error);
+        importLogger.error({
+          archivo: fileName,
+          error: error.message
+        }, 'Error leyendo archivo CSV');
         reject(error);
       });
   });
 }
 
+// ============================================================================
+// FUNCIONES DE PROCESAMIENTO DE LOTES
+// ============================================================================
+
 /**
- * Procesar un lote de multas con menos logging
+ * Procesar un error individual de escritura de bulk
+ * @param {Object} writeError - Error de escritura
+ * @param {Object} failedDoc - Documento que fallo
+ * @param {Object} stats - Estadisticas de procesamiento
+ */
+function handleWriteError(writeError, failedDoc, stats) {
+  const errorCode = writeError.err?.code || writeError.code;
+
+  if (errorCode === 11000) {
+    stats.skippedRecords++;
+    // No logueamos duplicados como advertencia por volumen
+  } else {
+    stats.errorRows++;
+    const errorInfo = handleMongoError(writeError.err || writeError);
+    importLogger.warn({
+      fila: writeError.index,
+      razon: REJECTION_REASONS.ERROR_INSERCION_BD,
+      datosOriginales: {
+        lugar: failedDoc?.lugar,
+        fecha: failedDoc?.fecha,
+        hora: failedDoc?.hora
+      },
+      errorMongo: errorInfo
+    }, 'Error en insercion de multa');
+  }
+}
+
+/**
+ * Procesar errores de bulk write
+ * @param {Object} bulkError - Error de bulk write
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} stats - Estadisticas de procesamiento
+ */
+function processBulkWriteErrors(bulkError, batch, stats) {
+  if (!bulkError.writeErrors) {
+    return;
+  }
+
+  for (const writeError of bulkError.writeErrors) {
+    const operationIndex = writeError.index;
+    const failedDoc = batch[operationIndex];
+    handleWriteError(writeError, failedDoc, stats);
+  }
+}
+
+/**
+ * Procesar lote con insercion (skip existing)
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} stats - Estadisticas de procesamiento
+ * @returns {Promise<void>}
+ */
+async function processBatchInsert(batch, stats) {
+  const operations = batch.map(multaData => ({
+    insertOne: { document: multaData }
+  }));
+
+  try {
+    const result = await Fine.bulkWrite(operations, {
+      ordered: false,
+      bypassDocumentValidation: false
+    });
+    stats.insertedRecords += result.insertedCount || 0;
+  } catch (bulkError) {
+    processBulkWriteErrors(bulkError, batch, stats);
+
+    // Contar inserciones exitosas del bulkWrite
+    if (bulkError.result) {
+      stats.insertedRecords += bulkError.result.nInserted || 0;
+    }
+  }
+}
+
+/**
+ * Procesar lote con upsert (force mode)
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} stats - Estadisticas de procesamiento
+ * @returns {Promise<void>}
+ */
+async function processBatchUpsert(batch, stats) {
+  const operations = batch.map(multaData => ({
+    updateOne: {
+      filter: {
+        lugar: multaData.lugar,
+        fecha: multaData.fecha,
+        hora: multaData.hora,
+        importeBoletín: multaData.importeBoletín
+      },
+      update: { $set: multaData },
+      upsert: true
+    }
+  }));
+
+  try {
+    const result = await Fine.bulkWrite(operations, { ordered: false });
+    stats.insertedRecords += (result.upsertedCount || 0);
+    stats.insertedRecords += (result.modifiedCount || 0);
+    stats.skippedRecords += (result.matchedCount || 0) - (result.modifiedCount || 0);
+  } catch (bulkError) {
+    const errorInfo = handleMongoError(bulkError);
+    importLogger.error({
+      razon: REJECTION_REASONS.ERROR_INSERCION_BD,
+      errorMongo: errorInfo
+    }, 'Error en operacion upsert de lote');
+
+    // Contar resultados parciales
+    if (bulkError.result) {
+      stats.insertedRecords += bulkError.result.nUpserted || 0;
+      stats.insertedRecords += bulkError.result.nModified || 0;
+    }
+  }
+}
+
+/**
+ * Procesar un lote de multas con manejo de errores detallado
  * @param {Array} batch - Lote de datos de multas
  * @param {Object} options - Opciones de procesamiento
  * @param {Object} stats - Estadísticas de procesamiento
@@ -201,83 +488,48 @@ async function processMultasFile(filePath, options = {}) {
 async function processBatch(batch, options, stats) {
   try {
     if (options.skipExisting) {
-      // Usar bulkWrite para mejor rendimiento
-      const operations = batch.map(multaData => ({
-        insertOne: {
-          document: multaData
-        }
-      }));
-
-      try {
-        const result = await Fine.bulkWrite(operations, {
-          ordered: false,
-          bypassDocumentValidation: false
-        });
-        stats.insertedRecords += result.insertedCount || 0;
-      } catch (error) {
-        // Manejar duplicados individualmente si es necesario
-        for (const multaData of batch) {
-          try {
-            const multa = new Fine(multaData);
-            await multa.save();
-            stats.insertedRecords++;
-          } catch (err) {
-            if (err.code === 11000) {
-              stats.skippedRecords++;
-            } else {
-              stats.errorRows++;
-            }
-          }
-        }
-      }
+      await processBatchInsert(batch, stats);
     } else {
-      // Usar upsert para sobrescribir existentes
-      const operations = batch.map(multaData => ({
-        updateOne: {
-          filter: {
-            lugar: multaData.lugar,
-            fecha: multaData.fecha,
-            hora: multaData.hora,
-            importeBoletín: multaData.importeBoletín
-          },
-          update: { $set: multaData },
-          upsert: true
-        }
-      }));
-
-      const result = await Fine.bulkWrite(operations, { ordered: false });
-      stats.insertedRecords += result.upsertedCount;
-      stats.insertedRecords += result.modifiedCount;
-      stats.skippedRecords += result.matchedCount - result.modifiedCount;
+      await processBatchUpsert(batch, stats);
     }
-
   } catch (error) {
-    console.error('Error procesando lote:', error.message);
+    const errorInfo = handleMongoError(error);
+    importLogger.error({
+      razon: REJECTION_REASONS.ERROR_INSERCION_BD,
+      loteSize: batch.length,
+      errorMongo: errorInfo
+    }, 'Error procesando lote de multas');
     throw error;
   }
 }
 
+// ============================================================================
+// FUNCION DE IMPORTACION PRINCIPAL
+// ============================================================================
+
 /**
  * Importar todos los archivos de multas con procesamiento paralelo optimizado
- * @param {Object} options - Opciones de importación
- * @returns {Promise<Object>} - Estadísticas finales
+ * @param {Object} options - Opciones de importacion
+ * @returns {Promise<Object>} - Estadisticas finales
  */
 async function importMultasData(options = {}) {
-  const config = { ...IMPORT_CONFIG, ...options };
+  const importConfig = { ...IMPORT_CONFIG, ...options };
 
-  console.log('🚗 Iniciando importación de datos de multas...');
-  console.log(`📁 Directorio: ${config.dataDirectory}`);
-  console.log(`🔄 Procesamiento paralelo: ${config.maxParallel || 3} archivos simultáneos`);
+  importLogger.info({
+    directorio: importConfig.dataDirectory,
+    batchSize: importConfig.batchSize,
+    maxParallel: importConfig.maxParallel
+  }, 'Iniciando importacion de datos de multas');
 
   try {
     // Verificar que existe el directorio
-    const dirStats = await fs.stat(config.dataDirectory);
+    const dirStats = await fs.stat(importConfig.dataDirectory);
     if (!dirStats.isDirectory()) {
-      throw new Error(`No se encontró el directorio: ${config.dataDirectory}`);
+      throw new Error(`No se encontro el directorio: ${importConfig.dataDirectory}`);
     }
 
     // Obtener lista de archivos CSV
-    const files = await fs.readdir(config.dataDirectory);
+    const files = await fs.readdir(importConfig.dataDirectory);
     const csvFiles = files
       .filter(file => file.endsWith('.csv') && file.includes('Multas'))
       .sort();
@@ -286,8 +538,7 @@ async function importMultasData(options = {}) {
       throw new Error('No se encontraron archivos CSV de multas');
     }
 
-    console.log(`📄 Archivos encontrados: ${csvFiles.length}`);
-    csvFiles.forEach(file => console.log(`   - ${file}`));
+    importLogger.info({ archivosEncontrados: csvFiles.length, archivos: csvFiles }, 'Archivos CSV detectados');
 
     const globalStats = {
       startTime: new Date(),
@@ -298,17 +549,35 @@ async function importMultasData(options = {}) {
       errorRows: 0,
       insertedRecords: 0,
       skippedRecords: 0,
+      rejectedRecords: 0,
       fileStats: []
     };
 
     // Procesar archivos en paralelo
-    const maxParallel = config.maxParallel || 3;
+    const maxParallel = importConfig.maxParallel || IMPORT_CONFIG.maxParallel;
+
     const processFile = async (file) => {
-      const filePath = path.join(config.dataDirectory, file);
+      if (isShuttingDown) {
+        return {
+          fileName: file,
+          totalRows: 0,
+          processedRows: 0,
+          errorRows: 0,
+          insertedRecords: 0,
+          skippedRecords: 0,
+          rejectedRecords: 0,
+          errors: ['Proceso interrumpido']
+        };
+      }
+
+      const filePath = path.join(importConfig.dataDirectory, file);
       try {
-        return await processMultasFile(filePath, config);
+        return await processMultasFile(filePath, importConfig);
       } catch (error) {
-        console.error(`❌ Error procesando archivo ${file}:`, error.message);
+        importLogger.error({
+          archivo: file,
+          error: error.message
+        }, 'Error procesando archivo de multas');
         return {
           fileName: file,
           totalRows: 0,
@@ -316,20 +585,28 @@ async function importMultasData(options = {}) {
           errorRows: 1,
           insertedRecords: 0,
           skippedRecords: 0,
+          rejectedRecords: 0,
           errors: [error.message]
         };
       }
     };
 
     // Procesar en lotes paralelos
-    for (let i = 0; i < csvFiles.length; i += maxParallel) {
+    for (let i = 0; i < csvFiles.length && !isShuttingDown; i += maxParallel) {
       const batch = csvFiles.slice(i, i + maxParallel);
-      console.log(`\n🔄 Procesando lote ${Math.floor(i/maxParallel) + 1}/${Math.ceil(csvFiles.length/maxParallel)}: ${batch.join(', ')}`);
+      const loteNum = Math.floor(i / maxParallel) + 1;
+      const totalLotes = Math.ceil(csvFiles.length / maxParallel);
+
+      importLogger.info({
+        lote: loteNum,
+        totalLotes,
+        archivos: batch
+      }, 'Procesando lote de archivos');
 
       const promises = batch.map(file => processFile(file));
       const batchResults = await Promise.all(promises);
 
-      // Acumular estadísticas
+      // Acumular estadisticas
       batchResults.forEach(fileStats => {
         globalStats.fileStats.push(fileStats);
         globalStats.completedFiles++;
@@ -338,9 +615,14 @@ async function importMultasData(options = {}) {
         globalStats.errorRows += fileStats.errorRows;
         globalStats.insertedRecords += fileStats.insertedRecords;
         globalStats.skippedRecords += fileStats.skippedRecords;
+        globalStats.rejectedRecords += fileStats.rejectedRecords || 0;
       });
 
-      console.log(`✅ Lote ${Math.floor(i/maxParallel) + 1} completado. Progreso: ${globalStats.completedFiles}/${csvFiles.length}`);
+      importLogger.info({
+        lote: loteNum,
+        progreso: `${globalStats.completedFiles}/${csvFiles.length}`,
+        insertadasAcumuladas: globalStats.insertedRecords
+      }, 'Lote completado');
     }
 
     globalStats.endTime = new Date();
@@ -349,84 +631,153 @@ async function importMultasData(options = {}) {
     return globalStats;
 
   } catch (error) {
-    console.error('❌ Error en importación de multas:', error);
+    importLogger.error({ error: error.message }, 'Error en importacion de multas');
     throw error;
   }
 }
 
+// ============================================================================
+// MANEJO DE SENALES DE TERMINACION
+// ============================================================================
+
 /**
- * Función principal del script
+ * Manejador de cierre graceful
+ * @param {string} signal - Senal recibida
+ */
+async function handleShutdown(signal) {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
+
+  importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando gracefully...');
+
+  // Resumen parcial
+  importLogger.info({
+    procesadas: totalProcessed,
+    insertadas: totalInserted,
+    omitidas: totalSkipped,
+    rechazadas: totalRejected,
+    errores: totalErrors
+  }, 'Resumen parcial de importacion (interrumpida)');
+
+  try {
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.close();
+      importLogger.info('Conexion a MongoDB cerrada correctamente');
+    }
+  } catch (error) {
+    importLogger.error({ error: error.message }, 'Error cerrando conexion a MongoDB');
+  }
+
+  process.exit(0);
+}
+
+// Registrar manejadores de senales
+process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+
+process.on('uncaughtException', (error) => {
+  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  process.exit(1);
+});
+
+// ============================================================================
+// FUNCION PRINCIPAL
+// ============================================================================
+
+/**
+ * Funcion principal del script
  */
 async function main() {
   const args = process.argv.slice(2);
   const options = {
     skipExisting: !args.includes('--force'),
-    batchSize: args.find(arg => arg.startsWith('--batch='))?.split('=')[1] || IMPORT_CONFIG.batchSize
+    batchSize: parseInt(args.find(arg => arg.startsWith('--batch='))?.split('=')[1]) || IMPORT_CONFIG.batchSize
   };
 
-  console.log('🚗 Script de Importación de Multas');
-  console.log('📊 Configuración:');
-  console.log(`   - Omitir existentes: ${options.skipExisting ? 'Sí' : 'No'}`);
-  console.log(`   - Tamaño de lote: ${options.batchSize}`);
-
-  let connection;
+  importLogger.info({
+    omitirExistentes: options.skipExisting,
+    tamanoLote: options.batchSize
+  }, 'Iniciando script de importacion de multas');
 
   try {
-    // Conectar a MongoDB
-    console.log('\n🔄 Conectando a MongoDB...');
-    connection = await connectDB(config.database.uri);
-    console.log('✅ Conectado a la base de datos');
+    // Conectar a MongoDB usando connectDB centralizado
+    importLogger.info('Conectando a MongoDB...');
+    await connectDB();
+    importLogger.info('Conexion establecida con MongoDB');
 
-    // Verificar que el modelo de multas esté disponible
-    console.log('🔄 Verificando modelo de multas...');
-    const finesCount = await Fine.countDocuments();
-    console.log(`📊 Registros actuales de multas: ${finesCount.toLocaleString()}`);
+    // Verificar modelo de multas
+    const finesCount = await Fine.countDocuments().maxTimeMS(10000);
+    importLogger.info({ registrosActuales: finesCount }, 'Estado actual de la coleccion de multas');
 
-    // Ejecutar importación
+    // Ejecutar importacion
     const result = await importMultasData(options);
 
     // Mostrar resultados finales
-    console.log('\n🎉 Importación de multas completada!');
-    console.log(`⏱️  Tiempo total: ${(result.duration / 1000).toFixed(2)} segundos`);
-    console.log(`📁 Archivos procesados: ${result.completedFiles}/${result.totalFiles}`);
-    console.log(`📊 Total filas procesadas: ${result.totalRows.toLocaleString()}`);
-    console.log(`✅ Registros insertados: ${result.insertedRecords.toLocaleString()}`);
-    console.log(`⏭️  Registros omitidos: ${result.skippedRecords.toLocaleString()}`);
-    console.log(`❌ Errores: ${result.errorRows.toLocaleString()}`);
+    importLogger.info({
+      duracion: formatDuration(result.duration),
+      velocidad: calculateProcessingSpeed(result.totalRows, result.duration),
+      archivosProcesados: result.completedFiles,
+      totalArchivos: result.totalFiles,
+      filasTotales: result.totalRows,
+      registrosInsertados: result.insertedRecords,
+      registrosOmitidos: result.skippedRecords,
+      registrosRechazados: result.rejectedRecords,
+      errores: result.errorRows
+    }, 'Importacion de multas completada');
 
-    // Estadísticas finales de la base de datos
-    const finalCount = await Fine.countDocuments();
-    console.log(`\n📈 Total de multas en la base de datos: ${finalCount.toLocaleString()}`);
+    // Estadisticas finales de la base de datos
+    const finalCount = await Fine.countDocuments().maxTimeMS(10000);
+    importLogger.info({ totalMultasBD: finalCount }, 'Total de multas en la base de datos');
+
+    // Resumen de rechazos por tipo
+    const rejectionSummary = rejectionTracker.getSortedSummary();
+    if (rejectionSummary.length > 0) {
+      importLogger.info({
+        totalRechazos: rejectionTracker.totalRejected,
+        desglose: rejectionSummary.slice(0, 10) // Top 10 razones
+      }, 'Resumen de rechazos por tipo');
+    }
 
   } catch (error) {
-    console.error('\n❌ Error durante la importación:');
-    console.error(`   Mensaje: ${error.message}`);
+    const errorInfo = handleMongoError(error);
+    importLogger.error({
+      mensaje: error.message,
+      errorInfo
+    }, 'Error durante la importacion');
     process.exit(1);
 
   } finally {
-    if (connection) {
-      console.log('\n🔄 Cerrando conexión...');
+    if (!isShuttingDown && mongoose.connection.readyState === 1) {
+      importLogger.info('Cerrando conexion a MongoDB...');
       try {
         await mongoose.connection.close();
-        console.log('✅ Conexión cerrada');
+        importLogger.info('Conexion cerrada correctamente');
       } catch (error) {
-        console.error('⚠️  Error cerrando conexión:', error.message);
+        importLogger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
   }
 
-  console.log('\n👋 Script completado');
+  importLogger.info('Script de importacion finalizado');
 }
 
 // Ejecutar si es llamado directamente
 if (require.main === module) {
   main().catch(error => {
-    console.error('❌ Error fatal:', error);
+    importLogger.error({ error: error.message }, 'Error fatal en script de importacion');
     process.exit(1);
   });
 }
 
 module.exports = {
   importMultasData,
-  parseMultaRow
+  parseMultaRow,
+  REJECTION_REASONS
 };
