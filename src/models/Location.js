@@ -1,6 +1,13 @@
 const mongoose = require('mongoose');
 const { coordinatesUTMSchema } = require('./schemas/commonSchemas');
-const { LOCATION_TYPES, GEOMETRY_TYPES, UTM_ZONES, TRAFFIC_ELEMENT_TYPES } = require('../constants');
+const {
+  LOCATION_TYPES,
+  GEOMETRY_TYPES,
+  UTM_ZONES,
+  TRAFFIC_ELEMENT_TYPES,
+  SPEED_LIMIT_ZONES,
+  VALIDATION_LIMITS
+} = require('../constants');
 /**
  * Esquema para las ubicaciones de infraestructura y puntos de medición
  * Modelo mejorado con validaciones y métodos geoespaciales
@@ -9,7 +16,7 @@ const locationSchema = new mongoose.Schema({
   // Identificación
   tipo: {
     type: String,
-    enum: LOCATION_TYPES,
+    enum: Object.values(LOCATION_TYPES),
     required: true,
     uppercase: true,
     index: true
@@ -22,7 +29,7 @@ const locationSchema = new mongoose.Schema({
     sparse: true,
     validate: {
       validator: function(v) {
-        return this.tipo !== 'estacion_acustica' || (v && v.length > 0);
+        return this.tipo !== LOCATION_TYPES.ESTACION_ACUSTICA || (v && v.length > 0);
       },
       message: 'Las estaciones acústicas requieren nmt'
     }
@@ -40,7 +47,7 @@ const locationSchema = new mongoose.Schema({
     sparse: true,
     validate: {
       validator: function(v) {
-        return this.tipo !== 'punto_trafico' || (v && v.length > 0);
+        return this.tipo !== LOCATION_TYPES.PUNTO_TRAFICO || (v && v.length > 0);
       },
       message: 'Los puntos de tráfico requieren id_punto'
     }
@@ -99,34 +106,35 @@ const locationSchema = new mongoose.Schema({
   zonaUTM: {
     type: Number,
     enum: UTM_ZONES,
-    default: 30 // La mayoría de Madrid está en zona 30
+    default: SPEED_LIMIT_ZONES.DEFAULT // La mayoría de Madrid está en zona 30
   },
 
   // Para análisis geoespacial con GeoJSON
   geometry: {
     type: {
       type: String,
-      enum: GEOMETRY_TYPES,
-      default: 'Point'
+      enum: Object.values(GEOMETRY_TYPES),
+      default: GEOMETRY_TYPES.POINT
     },
     coordinates: {
       type: [Number], // [longitude, latitude] para Point, array de arrays para LineString
       required: true,
       validate: {
         validator: function(coords) {
-          const geomType = this.geometry?.type || 'Point';
+          const geomType = this.geometry?.type || GEOMETRY_TYPES.POINT;
 
-          if (geomType === 'Point') {
+          if (geomType === GEOMETRY_TYPES.POINT) {
             // Point requiere exactamente 2 coordenadas [lng, lat]
             if (!Array.isArray(coords) || coords.length !== 2) {
               return false;
             }
             // Validar rangos: lng entre -180 y 180, lat entre -90 y 90
             const [lng, lat] = coords;
-            return lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90;
+            return lng >= VALIDATION_LIMITS.LONGITUDE_MIN && lng <= VALIDATION_LIMITS.LONGITUDE_MAX &&
+                   lat >= VALIDATION_LIMITS.LATITUDE_MIN && lat <= VALIDATION_LIMITS.LATITUDE_MAX;
           }
 
-          if (geomType === 'LineString') {
+          if (geomType === GEOMETRY_TYPES.LINE_STRING) {
             // LineString requiere array de arrays, mínimo 2 puntos
             if (!Array.isArray(coords) || coords.length < 2) {
               return false;
@@ -135,7 +143,8 @@ const locationSchema = new mongoose.Schema({
             return coords.every(point => {
               if (!Array.isArray(point) || point.length !== 2) {return false;}
               const [lng, lat] = point;
-              return lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90;
+              return lng >= VALIDATION_LIMITS.LONGITUDE_MIN && lng <= VALIDATION_LIMITS.LONGITUDE_MAX &&
+                     lat >= VALIDATION_LIMITS.LATITUDE_MIN && lat <= VALIDATION_LIMITS.LATITUDE_MAX;
             });
           }
 
@@ -284,7 +293,7 @@ locationSchema.statics.findWithOptions = async function(options) {
     finalFilters.geometry = {
       $near: {
         $geometry: {
-          type: 'Point',
+          type: GEOMETRY_TYPES.POINT,
           coordinates: geoQuery.coordinates // [longitude, latitude]
         },
         $maxDistance: geoQuery.maxDistance || 1000

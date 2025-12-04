@@ -8,7 +8,14 @@
 
 const mongoose = require('mongoose');
 const { coordinatesUTMSchema } = require('./schemas/commonSchemas');
-const { CONTAINER_TYPES, CONTAINER_LOTES, AGGREGATION_LIMITS, GEOMETRY_TYPES } = require('../constants');
+const {
+  CONTAINER_TYPES,
+  CONTAINER_LOTES,
+  GEOMETRY_TYPES,
+  VALIDATION_LIMITS,
+  DEFAULT_VALUES,
+  MONGODB_TIMEOUTS
+} = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -21,15 +28,17 @@ const containerSchema = new mongoose.Schema({
   // Código de identificación del situado/punto de aportación
   codigoInternoSituado: {
     type: String,
+    trim: true,
     required: true
   },
 
   // Tipo de residuo que recoge el contenedor
   tipoContenedor: {
     type: String,
+    trim: true,
     required: true,
     uppercase: true,
-    enum: CONTAINER_TYPES
+    enum: Object.values(CONTAINER_TYPES)
   },
 
   // Modelo del contenedor (código interno)
@@ -49,7 +58,7 @@ const containerSchema = new mongoose.Schema({
     type: Number,
     required: true,
     default: 1,
-    min: [1, 'La cantidad debe ser al menos 1']
+    min: [VALIDATION_LIMITS.QUANTITY_POSITIVE_MIN, 'La cantidad debe ser al menos 1']
   },
 
   // Lote al que pertenece (1, 2 o 3)
@@ -71,7 +80,7 @@ const containerSchema = new mongoose.Schema({
     type: String,
     required: false, // Opcional - algunos registros no tienen barrio especificado
     trim: true,
-    default: 'SIN ESPECIFICAR'
+    default: DEFAULT_VALUES.UNSPECIFIED
   },
 
   // Dirección del contenedor
@@ -103,8 +112,8 @@ const containerSchema = new mongoose.Schema({
   location: {
     type: {
       type: String,
-      enum: GEOMETRY_TYPES,
-      default: 'Point'
+      enum: Object.values(GEOMETRY_TYPES),
+      default: GEOMETRY_TYPES.POINT
     },
     coordinates: {
       type: [Number],
@@ -179,6 +188,7 @@ containerSchema.index({
   codigoInternoSituado: 1,
   tipoContenedor: 1
 }, {
+  unique: true,
   name: 'idx_containers_unique_code_type',
   background: true
 });
@@ -300,7 +310,7 @@ containerSchema.statics.findNearby = function(longitude, latitude, maxDistance =
     location: {
       $near: {
         $geometry: {
-          type: 'Point',
+          type: GEOMETRY_TYPES.POINT,
           coordinates: [longitude, latitude]
         },
         $maxDistance: maxDistance
@@ -355,7 +365,7 @@ containerSchema.statics.getStatsByDistrict = function(distrito = null) {
     {
       $sort: { distrito: 1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -404,7 +414,7 @@ containerSchema.statics.getStatsByNeighborhood = function(distrito, barrio = nul
     {
       $sort: { barrio: 1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -414,7 +424,7 @@ containerSchema.statics.getStatsByNeighborhood = function(distrito, barrio = nul
  */
 containerSchema.statics.getGeneralSummary = function() {
   return this.aggregate([
-    { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos
+    // NO usar $limit antes de $group - necesitamos TODOS los documentos para estadísticas correctas
     {
       $group: {
         _id: '$tipoContenedor',
@@ -436,7 +446,7 @@ containerSchema.statics.getGeneralSummary = function() {
         totalUbicaciones: { $sum: '$totalUbicaciones' }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**

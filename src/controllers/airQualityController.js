@@ -5,13 +5,12 @@
  * Incluye filtrado avanzado, agregaciones y análisis estadístico para el dashboard.
  */
 
-const { validationResult } = require('express-validator');
 const AirQuality = require('../models/AirQuality');
-const { AppError, createValidationError, createInternalError, createNotFoundError } = require('../utils/errorUtils');
+const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange, TRANSFORMS, parseNumericParams } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, VALIDATION_CODES, MONGODB_TIMEOUTS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, SORT_FIELDS, DATE_RANGE_LIMITS, VALIDATION_CODES } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -20,19 +19,13 @@ const logger = require('../config/logger');
  */
 const getAirQualityData = async (req, res, next) => {
   try {
-    // Verificar errores de validación
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     // Configuración de filtros usando queryHelper
     const filterConfig = [
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
       { field: 'provincia', type: 'numeric', param: 'provincia' },
       { field: 'municipio', type: 'numeric', param: 'municipio' },
       { field: 'estacion', type: 'numeric', param: 'estacion' },
-      { field: 'magnitud', type: 'in', param: 'magnitud', transform: v => Array.isArray(v) ? v.map(m => parseInt(m)) : [parseInt(v)] },
+      { field: 'magnitud', type: 'in', param: 'magnitud', transform: TRANSFORMS.toIntArray },
       { field: 'puntoMuestreo', type: 'exact', param: 'puntoMuestreo' }
     ];
 
@@ -45,9 +38,9 @@ const getAirQualityData = async (req, res, next) => {
 
     // Validar rango de fechas usando queryHelper
     const { startDate, endDate } = req.query;
-    const dateValidation = validateDateRange(startDate, endDate, 730);
+    const dateValidation = validateDateRange(startDate, endDate, DATE_RANGE_LIMITS.AIR_QUALITY_MAX_DAYS);
     if (!dateValidation.isValid) {
-      return next(new AppError(dateValidation.error, HTTP_STATUS.BAD_REQUEST));
+      return next(createBadRequestError(dateValidation.error));
     }
 
     // Configurar ordenamiento y paginación usando queryHelper
@@ -145,7 +138,7 @@ const getAirQualityById = async (req, res, next) => {
 
     if (data.medicionesHorarias) {
       for (const [hora, medicion] of Object.entries(data.medicionesHorarias)) {
-        const horaNum = parseInt(hora.substring(1));
+        const horaNum = parseInt(hora.substring(1), 10);
         const esValido = medicion.validationCode === VALIDATION_CODES.VALID;
         medicionesArray.push({
           hora: horaNum,
@@ -196,11 +189,6 @@ const getAirQualityById = async (req, res, next) => {
  */
 const getAirQualityStatistics = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const { groupBy = 'day' } = req.query;
 
     // Construir filtros usando buildFilters de queryHelper
@@ -243,18 +231,12 @@ const getAirQualityStatistics = async (req, res, next) => {
  */
 const getAirQualityTrends = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
+    const { provincia, municipio, magnitud, startDate, endDate } = req.query;
 
-    const {
-      startDate,
-      endDate,
-      provincia = 28, // Madrid por defecto
-      municipio = 79, // Madrid ciudad por defecto
-      magnitud = 10 // PM10 por defecto
-    } = req.query;
+    // Validar que se proporcionen los parámetros requeridos
+    if (!provincia || !municipio || !magnitud) {
+      return next(createBadRequestError('Se requieren provincia, municipio y magnitud para calcular tendencias'));
+    }
 
     // Llamar al método optimizado del modelo
     const result = await AirQuality.getTrendsOptimized(
@@ -265,15 +247,21 @@ const getAirQualityTrends = async (req, res, next) => {
       endDate
     );
 
+    // Parsear parámetros numéricos para la respuesta
+    const { provincia: provNum, municipio: munNum, magnitud: magNum } = parseNumericParams(
+      req.query,
+      ['provincia', 'municipio', 'magnitud'],
+      {}
+    );
+
     const responseData = {
-      message: 'Tendencias de calidad de aire obtenidas exitosamente',
       data: {
         ...result,
-        parametros: {
-          provincia: parseInt(provincia),
-          municipio: parseInt(municipio),
-          magnitud: parseInt(magnitud),
-          magnitudDescripcion: AirQuality.getMagnitudes()[parseInt(magnitud)]
+        filtros: {
+          provincia: provNum,
+          municipio: munNum,
+          magnitud: magNum,
+          magnitudDescripcion: AirQuality.getMagnitudes()[magNum]
         }
       }
     };
@@ -297,4 +285,3 @@ module.exports = {
   getAirQualityStatistics,
   getAirQualityTrends
 };
-

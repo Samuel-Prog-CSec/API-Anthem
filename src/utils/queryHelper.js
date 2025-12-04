@@ -7,6 +7,93 @@
  */
 
 /**
+ * Transformadores predefinidos para filtros
+ * Elimina código repetitivo en configuración de filtros
+ */
+const TRANSFORMS = {
+  /** Convierte valor a mayúsculas */
+  toUpperCase: v => v.toUpperCase(),
+
+  /** Convierte valor a minúsculas */
+  toLowerCase: v => v.toLowerCase(),
+
+  /** Convierte valor o array de valores a array de enteros */
+  toIntArray: v => Array.isArray(v) ? v.map(m => parseInt(m, 10)) : [parseInt(v, 10)],
+
+  /** Convierte valor o array de valores a array de mayúsculas */
+  toUpperCaseArray: v => Array.isArray(v) ? v.map(c => c.toUpperCase()) : [v.toUpperCase()],
+
+  /** Convierte a entero */
+  toInt: v => parseInt(v, 10),
+
+  /** Convierte a float */
+  toFloat: v => parseFloat(v),
+
+  /** Convierte string 'true'/'false' a boolean */
+  toBoolean: v => v === 'true' || v === true
+};
+
+/**
+ * Parsea parámetros numéricos de query de una sola vez
+ * Evita múltiples parseInt redundantes en el código
+ *
+ * @param {Object} queryParams - Query parameters de la request
+ * @param {Array<string>} numericFields - Campos a convertir a número
+ * @param {Object} defaults - Valores por defecto para cada campo
+ * @returns {Object} Objeto con valores parseados
+ *
+ * @example
+ * const { año, mes, distrito, limit } = parseNumericParams(
+ *   req.query,
+ *   ['año', 'mes', 'distrito', 'limit'],
+ *   { año: 2051, limit: 10 }
+ * );
+ */
+const parseNumericParams = (queryParams, numericFields, defaults = {}) => {
+  const result = {};
+  numericFields.forEach(field => {
+    const value = queryParams[field];
+    if (value !== undefined && value !== null && value !== '') {
+      const parsed = parseInt(value, 10);
+      result[field] = isNaN(parsed) ? defaults[field] : parsed;
+    } else {
+      result[field] = defaults[field] !== undefined ? defaults[field] : null;
+    }
+  });
+  return result;
+};
+
+/**
+ * Construye objeto de metadatos/configuración para respuestas
+ * Evita duplicación de patrones de metadatos en controllers
+ *
+ * @param {Object} params - Parámetros a incluir en metadatos
+ * @param {Object} options - Opciones adicionales
+ * @returns {Object} Objeto de metadatos formateado
+ *
+ * @example
+ * const config = buildResponseMetadata({
+ *   año: añoNum,
+ *   mes: mesNum,
+ *   distrito: distritoNum
+ * }, { nullLabel: 'Todos' });
+ */
+const buildResponseMetadata = (params, options = {}) => {
+  const { nullLabel = null, includeTimestamp = false } = options;
+  const metadata = {};
+
+  Object.entries(params).forEach(([key, value]) => {
+    metadata[key] = value !== null && value !== undefined ? value : nullLabel;
+  });
+
+  if (includeTimestamp) {
+    metadata.fechaConsulta = new Date().toISOString();
+  }
+
+  return metadata;
+};
+
+/**
  * Escapa caracteres especiales de regex para prevenir ataques ReDoS
  *
  * @param {string} str - String a escapar
@@ -285,8 +372,8 @@ const buildPaginationOptions = (queryParams, options = {}) => {
     maxPage = 1000
   } = options;
 
-  let page = parseInt(queryParams.page) || 1;
-  let limit = parseInt(queryParams.limit) || defaultLimit;
+  let page = parseInt(queryParams.page, 10) || 1;
+  let limit = parseInt(queryParams.limit, 10) || defaultLimit;
 
   // Validar límites
   if (limit > maxLimit) {
@@ -311,6 +398,9 @@ const buildPaginationOptions = (queryParams, options = {}) => {
 };
 
 module.exports = {
+  TRANSFORMS,
+  parseNumericParams,
+  buildResponseMetadata,
   escapeRegex,
   buildFilters,
   buildSortOptions,

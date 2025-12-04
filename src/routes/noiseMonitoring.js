@@ -89,9 +89,9 @@ const noiseQueryValidation = [
     .optional()
     .custom((value) => {
       if (Array.isArray(value)) {
-        return value.every(v => Number.isInteger(parseInt(v)) && parseInt(v) > 0);
+        return value.every(v => Number.isInteger(parseInt(v, 10)) && parseInt(v, 10) > 0);
       }
-      return Number.isInteger(parseInt(value)) && parseInt(value) > 0;
+      return Number.isInteger(parseInt(value, 10)) && parseInt(value, 10) > 0;
     })
     .withMessage('nmt debe ser un número entero positivo o array de números'),
 

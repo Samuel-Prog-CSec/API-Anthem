@@ -72,7 +72,7 @@ const parseDateRangeFilter = (startDate, endDate, fieldName = 'fecha') => {
  */
 const buildPaginationOptions = (query = {}) => {
   // Parsear y validar limit
-  let limit = parseInt(query.limit) || PAGINATION.DEFAULT_LIMIT;
+  let limit = parseInt(query.limit, 10) || PAGINATION.DEFAULT_LIMIT;
 
   // Validar límite mínimo
   if (limit < PAGINATION.MIN_LIMIT) {
@@ -85,7 +85,7 @@ const buildPaginationOptions = (query = {}) => {
   }
 
   // Parsear y validar page
-  let page = parseInt(query.page) || PAGINATION.DEFAULT_PAGE;
+  let page = parseInt(query.page, 10) || PAGINATION.DEFAULT_PAGE;
 
   // Validar página mínima
   if (page < PAGINATION.DEFAULT_PAGE) {

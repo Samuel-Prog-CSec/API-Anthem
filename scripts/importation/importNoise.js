@@ -1,11 +1,21 @@
 /**
- * Script de Importación de Contaminación Acústica
+ * Script de Importacion de Contaminacion Acustica
  *
- * Script especializado para importar datos CSV de contaminación acústica
- * a la base de datos MongoDB. Procesa el archivo datos_hpe/Anthem_CTC_ContaminacionAcustica.csv
+ * Procesa y carga datos de contaminacion acustica desde CSV a MongoDB.
+ * Incluye mediciones de niveles sonoros (Ld, Le, Ln, LAeq24) y percentiles.
  *
- * Uso:
- *   node scripts/importNoise.js [--force] [--batch=N] [--station=NMT] [--help]
+ * Uso: node scripts/importation/importNoise.js [opciones]
+ *
+ * Opciones:
+ *   --force         Sobrescribir datos existentes (upsert)
+ *   --batch=N       Tamano del lote para insercion (default: 50)
+ *   --station=NMT   Importar solo una estacion especifica
+ *   --year=YYYY     Importar solo un ano especifico
+ *   --month=MM      Importar solo un mes especifico (01-12)
+ *   --validate      Solo validar archivo sin importar
+ *   --help          Mostrar ayuda
+ *
+ * @module scripts/importation/importNoise
  */
 
 const fs = require('fs').promises;
@@ -13,49 +23,171 @@ const path = require('path');
 const csv = require('csv-parser');
 const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
+
+// Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
-const config = require('../../src/config/config');
+const { logger } = require('../../src/config/logger');
+const { handleMongoError } = require('../../src/utils/errorUtils');
+const {
+  NOISE_LIMITS,
+  VALIDATION_LIMITS,
+  DATASET_YEARS
+} = require('../../src/constants');
+const {
+  RejectionTracker,
+  formatDuration,
+  calculateProcessingSpeed
+} = require('./helpers/importHelpers');
+
+// Logger especifico para importacion
+const importLogger = logger.child({ component: 'import-noise' });
+
+// Modelo
 const NoiseMonitoring = require('../../src/models/NoiseMonitoring');
 
 /**
- * Configuración del importador de contaminación acústica
+ * Codigos de razon de rechazo para trazabilidad
+ * @constant {Object}
+ */
+const REJECTION_REASONS = {
+  EMPTY_DATE: 'FECHA_VACIA',
+  INVALID_MONTH: 'MES_INVALIDO',
+  INVALID_YEAR: 'ANO_INVALIDO',
+  INVALID_NMT: 'NMT_INVALIDO',
+  INVALID_DATE: 'FECHA_INVALIDA',
+  NO_VALID_DATA: 'SIN_DATOS_VALIDOS',
+  NOISE_OUT_OF_RANGE: 'NIVEL_RUIDO_FUERA_RANGO',
+  DUPLICATE_KEY: 'CLAVE_DUPLICADA',
+  VALIDATION_ERROR: 'ERROR_VALIDACION'
+};
+
+/**
+ * Configuracion del importador de contaminacion acustica
+ * @constant {Object}
  */
 const IMPORT_CONFIG = {
   dataDirectory: path.join(__dirname, '..', '..', 'datos_hpe'),
   fileName: 'Anthem_CTC_ContaminacionAcustica.csv',
   batchSize: 50,
   skipExisting: true,
-  logInterval: 500
+  logInterval: 100,
+  csvSeparator: ';'
 };
+
+/**
+ * Mapeo de meses en espanol a numeros
+ * @constant {Object}
+ */
+const MONTH_MAP = {
+  'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6,
+  'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12
+};
+
+/**
+ * Estadisticas de importacion
+ * @type {Object}
+ */
+const stats = {
+  totalRows: 0,
+  processedRows: 0,
+  errorRows: 0,
+  emptyRows: 0,
+  insertedRecords: 0,
+  skippedRecords: 0,
+  startTime: null,
+  errors: []
+};
+
+// Tracker de rechazos por tipo
+const rejectionTracker = new RejectionTracker();
+
+/** Flag para controlar cierre graceful */
+let isShuttingDown = false;
+
+/**
+ * Registrar manejadores de senales para cierre graceful
+ */
+function registerSignalHandlers() {
+  const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+
+  signals.forEach(signal => {
+    process.on(signal, async () => {
+      if (isShuttingDown) {return;}
+      isShuttingDown = true;
+
+      importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando conexiones...');
+
+      try {
+        if (mongoose.connection.readyState === 1) {
+          await mongoose.connection.close();
+          importLogger.info('Conexion a MongoDB cerrada correctamente');
+        }
+      } catch (error) {
+        importLogger.error({ error: error.message }, 'Error al cerrar conexion');
+      }
+
+      process.exit(0);
+    });
+  });
+
+  process.on('uncaughtException', async (error) => {
+    importLogger.fatal({ error: error.message, stack: error.stack }, 'Excepcion no capturada');
+
+    try {
+      if (mongoose.connection.readyState === 1) {
+        await mongoose.connection.close();
+      }
+    } catch (closeError) {
+      importLogger.error({ error: closeError.message }, 'Error al cerrar conexion tras excepcion');
+    }
+
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', async (reason) => {
+    importLogger.fatal({ reason: String(reason) }, 'Promesa rechazada no manejada');
+
+    try {
+      if (mongoose.connection.readyState === 1) {
+        await mongoose.connection.close();
+      }
+    } catch (closeError) {
+      importLogger.error({ error: closeError.message }, 'Error al cerrar conexion tras rechazo');
+    }
+
+    process.exit(1);
+  });
+}
 
 /**
  * Mostrar ayuda del script
  */
 function showHelp() {
-  console.log(`
-🔊 Script de Importación de Contaminación Acústica
+  importLogger.info(`
+Script de Importacion de Contaminacion Acustica
 
-Uso: node scripts/importNoise.js [opciones]
+Uso: node scripts/importation/importNoise.js [opciones]
 
 Opciones:
   --force         Sobrescribir datos existentes (upsert)
-  --batch=N       Tamaño del lote para inserción (por defecto: 50)
-  --station=NMT   Importar solo una estación específica (NMT)
-  --year=YYYY     Importar solo un año específico
-  --month=MM      Importar solo un mes específico (01-12)
+  --batch=N       Tamano del lote para insercion (default: 50)
+  --station=NMT   Importar solo una estacion especifica (NMT)
+  --year=YYYY     Importar solo un ano especifico
+  --month=MM      Importar solo un mes especifico (01-12)
   --validate      Solo validar archivo sin importar
   --help          Mostrar esta ayuda
 
 Ejemplos:
-  node scripts/importNoise.js                    # Importar todos los datos
-  node scripts/importNoise.js --station=1        # Solo estación NMT 1
-  node scripts/importNoise.js --force            # Con sobreescritura
-  node scripts/importNoise.js --validate         # Solo validar datos
+  node scripts/importation/importNoise.js                    # Importar todos los datos
+  node scripts/importation/importNoise.js --station=1        # Solo estacion NMT 1
+  node scripts/importation/importNoise.js --force            # Con sobreescritura
+  node scripts/importation/importNoise.js --validate         # Solo validar datos
   `);
 }
 
 /**
- * Parsear argumentos de línea de comandos
+ * Parsear argumentos de linea de comandos
+ * @returns {Object} Opciones parseadas
  */
 function parseArguments() {
   const args = process.argv.slice(2);
@@ -66,7 +198,8 @@ function parseArguments() {
     targetYear: null,
     targetMonth: null,
     validateOnly: false,
-    showHelp: false
+    showHelp: false,
+    logInterval: IMPORT_CONFIG.logInterval
   };
 
   for (const arg of args) {
@@ -77,23 +210,23 @@ function parseArguments() {
     } else if (arg === '--validate') {
       options.validateOnly = true;
     } else if (arg.startsWith('--batch=')) {
-      const batchValue = parseInt(arg.split('=')[1]);
+      const batchValue = parseInt(arg.split('=')[1], 10);
       if (!isNaN(batchValue) && batchValue > 0) {
         options.batchSize = batchValue;
       }
     } else if (arg.startsWith('--station=')) {
-      const stationValue = parseInt(arg.split('=')[1]);
+      const stationValue = parseInt(arg.split('=')[1], 10);
       if (!isNaN(stationValue) && stationValue > 0) {
         options.targetStation = stationValue;
       }
     } else if (arg.startsWith('--year=')) {
-      const yearValue = parseInt(arg.split('=')[1]);
-      if (!isNaN(yearValue) && yearValue >= 2000 && yearValue <= 3000) {
+      const yearValue = parseInt(arg.split('=')[1], 10);
+      if (!isNaN(yearValue) && yearValue >= DATASET_YEARS.VALIDATION_MIN && yearValue <= DATASET_YEARS.VALIDATION_MAX) {
         options.targetYear = yearValue;
       }
     } else if (arg.startsWith('--month=')) {
-      const monthValue = parseInt(arg.split('=')[1]);
-      if (!isNaN(monthValue) && monthValue >= 1 && monthValue <= 12) {
+      const monthValue = parseInt(arg.split('=')[1], 10);
+      if (!isNaN(monthValue) && monthValue >= VALIDATION_LIMITS.MONTH_MIN && monthValue <= VALIDATION_LIMITS.MONTH_MAX) {
         options.targetMonth = monthValue;
       }
     }
@@ -103,331 +236,318 @@ function parseArguments() {
 }
 
 /**
- * Parsear datos de una fila CSV de contaminación acústica
- * @param {Object} row - Fila del CSV
- * @param {string} sourceFile - Archivo origen
- * @returns {Object|null} - Datos procesados o null si es inválido
+ * Parsear nivel de ruido con validacion
+ * @param {string|number} value - Valor a parsear
+ * @returns {number|null} Nivel de ruido validado o null
  */
-function parseNoiseRow(row, sourceFile) {
-  try {
-    // Parsear fecha en formato "ene-51", "feb-51", etc.
-    const fechaStr = row.Fecha;
-    if (!fechaStr) {return null;}
-
-    // Mapeo de meses en español
-    const meses = {
-      'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6,
-      'jul': 7, 'ago': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dic': 12
-    };
-
-    const [mesStr, añoStr] = fechaStr.split('-');
-    const mes = meses[mesStr.toLowerCase()];
-    const año = parseInt('20' + añoStr); // "51" -> 2051
-
-    if (!mes || !año) {return null;}
-
-    // Parsear NMT
-    const nmt = parseInt(row.NMT);
-    if (isNaN(nmt)) {return null;}
-
-    // Crear fecha (primer día del mes)
-    const fecha = new Date(año, mes - 1, 1);
-    if (isNaN(fecha.getTime())) {return null;}
-
-    // Obtener nombre de la estación
-    const nombre = (row.Nombre || `Estación ${nmt}`).toString().trim();
-
-    // Función para parsear valores con coma como decimal y manejar N/D
-    const parseNoiseLevel = (value) => {
-      if (!value || value.toString().trim() === '' || value.toString().trim() === 'N/D') {return null;}
-      const parsed = parseFloat(value.toString().replace(',', '.'));
-      return (isNaN(parsed) || parsed < 0 || parsed > 150) ? null : parsed;
-    };
-
-    const nivelDiurno = parseNoiseLevel(row.Ld);
-    const nivelVespertino = parseNoiseLevel(row.Le);
-    const nivelNocturno = parseNoiseLevel(row.Ln);
-    const laeq24 = parseNoiseLevel(row.LAeq24);
-
-    // Parsear percentiles
-    const percentiles = {
-      las01: parseNoiseLevel(row.LAS01),
-      las10: parseNoiseLevel(row.LAS10),
-      las50: parseNoiseLevel(row.LAS50),
-      las90: parseNoiseLevel(row.LAS90),
-      las99: parseNoiseLevel(row.LAS99)
-    };
-
-    // Verificar que hay al menos un nivel válido
-    const hasValidData = nivelDiurno !== null || nivelVespertino !== null ||
-                        nivelNocturno !== null || laeq24 !== null;
-
-    if (!hasValidData) {
-      return null;
-    }
-
-    return {
-      fecha,
-      mes,
-      año,
-      nmt,
-      nombre,
-      nivelDiurno,
-      nivelVespertino,
-      nivelNocturno,
-      laeq24,
-      percentiles,
-      processingInfo: {
-        sourceFile
-      }
-    };
-
-  } catch (error) {
-    console.error(`Error procesando fila de ${sourceFile}:`, error);
+function parseNoiseLevel(value) {
+  if (value === null || value === undefined || value === '' ||
+      value.toString().trim() === '' || value.toString().trim() === 'N/D') {
     return null;
   }
+
+  const parsed = parseFloat(value.toString().replace(',', '.'));
+
+  // Validar rango usando constantes
+  if (isNaN(parsed) ||
+      parsed < VALIDATION_LIMITS.NOISE_MIN ||
+      parsed > VALIDATION_LIMITS.NOISE_MAX) {
+    return null;
+  }
+
+  return parsed;
 }
 
 /**
- * Procesar el archivo CSV de contaminación acústica
+ * Parsear datos de una fila CSV de contaminacion acustica
+ * @param {Object} row - Fila del CSV
+ * @param {string} sourceFile - Archivo origen
+ * @param {number} rowIndex - Indice de la fila para logging
+ * @returns {Object} Datos procesados
+ * @throws {Error} Si la validacion falla con razon especifica
+ */
+function parseNoiseRow(row, sourceFile, _rowIndex) {
+  // Parsear fecha en formato "ene-51", "feb-51", etc.
+  const fechaStr = row.Fecha;
+  if (!fechaStr) {
+    throw new Error(`${REJECTION_REASONS.EMPTY_DATE}: columna='Fecha' vacia`);
+  }
+
+  const [mesStr, añoStr] = fechaStr.split('-');
+  const mes = MONTH_MAP[mesStr.toLowerCase()];
+  const año = parseInt('20' + añoStr, 10);
+
+  if (!mes) {
+    throw new Error(`${REJECTION_REASONS.INVALID_MONTH}: valor='${mesStr}', permitidos=[${Object.keys(MONTH_MAP).join(', ')}]`);
+  }
+  if (!año || isNaN(año)) {
+    throw new Error(`${REJECTION_REASONS.INVALID_YEAR}: valor='${añoStr}'`);
+  }
+
+  // Parsear NMT
+  const nmt = parseInt(row.NMT, 10);
+  if (isNaN(nmt)) {
+    throw new Error(`${REJECTION_REASONS.INVALID_NMT}: valor='${row.NMT}'`);
+  }
+
+  // Crear fecha (primer dia del mes)
+  const fecha = new Date(año, mes - 1, 1);
+  if (isNaN(fecha.getTime())) {
+    throw new Error(`${REJECTION_REASONS.INVALID_DATE}: ano=${año}, mes=${mes}`);
+  }
+
+  // Obtener nombre de la estacion
+  const nombre = (row.Nombre || `Estacion ${nmt}`).toString().trim();
+
+  // Parsear niveles de ruido
+  const nivelDiurno = parseNoiseLevel(row.Ld);
+  const nivelVespertino = parseNoiseLevel(row.Le);
+  const nivelNocturno = parseNoiseLevel(row.Ln);
+  const laeq24 = parseNoiseLevel(row.LAeq24);
+
+  // Parsear percentiles
+  const percentiles = {
+    las01: parseNoiseLevel(row.LAS01),
+    las10: parseNoiseLevel(row.LAS10),
+    las50: parseNoiseLevel(row.LAS50),
+    las90: parseNoiseLevel(row.LAS90),
+    las99: parseNoiseLevel(row.LAS99)
+  };
+
+  // Verificar que hay al menos un nivel valido
+  const hasValidData = nivelDiurno !== null || nivelVespertino !== null ||
+                      nivelNocturno !== null || laeq24 !== null;
+
+  if (!hasValidData) {
+    throw new Error(`${REJECTION_REASONS.NO_VALID_DATA}: Ld='${row.Ld}', Le='${row.Le}', Ln='${row.Ln}', LAeq24='${row.LAeq24}'`);
+  }
+
+  return {
+    fecha,
+    mes,
+    año,
+    nmt,
+    nombre,
+    nivelDiurno,
+    nivelVespertino,
+    nivelNocturno,
+    laeq24,
+    percentiles,
+    processingInfo: {
+      sourceFile
+    }
+  };
+}
+
+/**
+ * Procesar el archivo CSV de contaminacion acustica
  * @param {string} filePath - Ruta al archivo CSV
  * @param {Object} options - Opciones de procesamiento
- * @returns {Promise<Object>} - Estadísticas de procesamiento
+ * @returns {Promise<void>}
  */
 async function processNoiseFile(filePath, options = {}) {
   const fileName = path.basename(filePath);
-  console.log(`\n🔊 Procesando archivo: ${fileName}`);
+  importLogger.info({ fileName }, 'Procesando archivo de contaminacion acustica');
 
   return new Promise((resolve, reject) => {
-    const stats = {
-      fileName,
-      totalRows: 0,
-      processedRows: 0,
-      errorRows: 0,
-      emptyRows: 0,
-      insertedRecords: 0,
-      skippedRecords: 0,
-      errors: []
-    };
-
     const batch = [];
     let isProcessing = false;
 
     const stream = createReadStream(filePath)
-      .pipe(csv({ separator: ';' }))
+      .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }))
       .on('data', async (row) => {
-        if (isProcessing) {return;}
+        if (isProcessing || isShuttingDown) {return;}
 
         stats.totalRows++;
 
         try {
-          const noiseData = parseNoiseRow(row, fileName);
+          const noiseData = parseNoiseRow(row, fileName, stats.totalRows);
 
-          if (noiseData) {
-            // Aplicar filtros opcionales
-            if (options.targetStation && noiseData.nmt !== options.targetStation) {
-              return;
-            }
-            if (options.targetYear && noiseData.año !== options.targetYear) {
-              return;
-            }
-            if (options.targetMonth && noiseData.mes !== options.targetMonth) {
-              return;
-            }
+          // Aplicar filtros opcionales
+          if (options.targetStation && noiseData.nmt !== options.targetStation) {
+            return;
+          }
+          if (options.targetYear && noiseData.año !== options.targetYear) {
+            return;
+          }
+          if (options.targetMonth && noiseData.mes !== options.targetMonth) {
+            return;
+          }
 
-            if (!options.validateOnly) {
-              batch.push(noiseData);
-              stats.processedRows++;
+          if (!options.validateOnly) {
+            batch.push(noiseData);
+            stats.processedRows++;
 
-              // Procesar lote cuando alcance el tamaño configurado
-              if (batch.length >= options.batchSize) {
-                stream.pause();
-                isProcessing = true;
+            // Procesar lote cuando alcance el tamano configurado
+            if (batch.length >= options.batchSize) {
+              stream.pause();
+              isProcessing = true;
 
-                try {
-                  await processBatch(batch, options, stats);
-                  batch.length = 0;
-                } catch (error) {
-                  console.error('Error procesando lote:', error);
-                  stats.errorRows++;
-                } finally {
-                  isProcessing = false;
-                  stream.resume();
-                }
+              try {
+                const result = await processBatch(batch, options);
+                stats.insertedRecords += result.inserted;
+                stats.skippedRecords += result.skipped;
+                stats.errorRows += result.errors;
+                batch.length = 0;
+              } catch (error) {
+                importLogger.error({ error: error.message }, 'Error procesando lote');
+                stats.errorRows++;
+              } finally {
+                isProcessing = false;
+                stream.resume();
               }
-            } else {
-              stats.processedRows++;
             }
           } else {
-            stats.emptyRows++;
+            stats.processedRows++;
           }
 
           // Log de progreso
           if (stats.totalRows % options.logInterval === 0) {
-            console.log(`   📊 Procesadas ${stats.totalRows} filas, ${stats.processedRows} válidas...`);
+            importLogger.debug({
+              totalRows: stats.totalRows,
+              validRows: stats.processedRows
+            }, 'Progreso de lectura');
           }
-
         } catch (error) {
           stats.errorRows++;
-          stats.errors.push({
-            row: stats.totalRows,
-            error: error.message
-          });
+          stats.emptyRows++;
+          if (stats.errors.length < 100) {
+            stats.errors.push({ row: stats.totalRows, error: error.message });
+          }
+          importLogger.warn(
+            {
+              fila: stats.totalRows,
+              razon: error.message,
+              datosOriginales: {
+                Fecha: row.Fecha,
+                NMT: row.NMT,
+                Nombre: row.Nombre,
+                Ld: row.Ld,
+                Le: row.Le,
+                Ln: row.Ln
+              }
+            },
+            'Fila rechazada - no insertada en BD'
+          );
         }
       })
       .on('end', async () => {
         try {
           // Procesar lote restante
           if (batch.length > 0 && !options.validateOnly) {
-            await processBatch(batch, options, stats);
+            const result = await processBatch(batch, options);
+            stats.insertedRecords += result.inserted;
+            stats.skippedRecords += result.skipped;
+            stats.errorRows += result.errors;
           }
 
-          console.log(`✅ Archivo completado: ${fileName}`);
-          console.log(`   📊 Total filas: ${stats.totalRows}`);
-          console.log(`   ✅ Procesadas: ${stats.processedRows}`);
-          console.log(`   🈳 Vacías: ${stats.emptyRows}`);
-          console.log(`   ❌ Errores: ${stats.errorRows}`);
-          if (!options.validateOnly) {
-            console.log(`   💾 Insertadas: ${stats.insertedRecords}`);
-            console.log(`   ⏭️  Omitidas: ${stats.skippedRecords}`);
-          }
+          importLogger.info({
+            fileName,
+            totalRows: stats.totalRows,
+            processedRows: stats.processedRows,
+            emptyRows: stats.emptyRows,
+            errorRows: stats.errorRows,
+            insertedRecords: stats.insertedRecords,
+            skippedRecords: stats.skippedRecords
+          }, 'Archivo completado');
 
-          resolve(stats);
+          resolve();
         } catch (error) {
           reject(error);
         }
       })
       .on('error', (error) => {
-        console.error(`❌ Error leyendo archivo ${fileName}:`, error);
+        importLogger.error({ fileName, error: error.message }, 'Error leyendo archivo');
         reject(error);
       });
   });
 }
 
 /**
- * Procesar un lote de datos de contaminación acústica
+ * Procesar un lote de datos de contaminacion acustica
  * @param {Array} batch - Lote de datos
  * @param {Object} options - Opciones de procesamiento
- * @param {Object} stats - Estadísticas de procesamiento
+ * @returns {Promise<Object>} Resultado de la operacion
  */
-async function processBatch(batch, options, stats) {
-  try {
-    if (options.skipExisting) {
-      // Insertar solo si no existen registros duplicados
-      for (const noiseData of batch) {
-        try {
-          const noiseMonitoring = new NoiseMonitoring(noiseData);
-          await noiseMonitoring.save();
-          stats.insertedRecords++;
-        } catch (error) {
-          if (error.code === 11000) {
-            // Registro duplicado
-            stats.skippedRecords++;
-          } else {
-            console.error(`Error insertando registro de contaminación acústica:`, error.message);
-            stats.errorRows++;
-          }
+async function processBatch(batch, options) {
+  const result = { inserted: 0, skipped: 0, errors: 0 };
+
+  if (batch.length === 0) {return result;}
+
+  if (options.skipExisting) {
+    // Insertar solo si no existen
+    for (const noiseData of batch) {
+      try {
+        const noiseMonitoring = new NoiseMonitoring(noiseData);
+        await noiseMonitoring.save();
+        result.inserted++;
+      } catch (error) {
+        if (error.code === 11000) {
+          result.skipped++;
+          importLogger.debug(
+            {
+              razon: REJECTION_REASONS.DUPLICATE_KEY,
+              nmt: noiseData.nmt,
+              ano: noiseData.año,
+              mes: noiseData.mes,
+              detalle: 'Combinacion NMT+ano+mes ya existe'
+            },
+            'Registro omitido - duplicado'
+          );
+        } else {
+          const handledError = handleMongoError(error);
+          importLogger.warn(
+            {
+              razon: REJECTION_REASONS.VALIDATION_ERROR,
+              nmt: noiseData.nmt,
+              error: handledError.message
+            },
+            'Registro rechazado - error de validacion'
+          );
+          result.errors++;
         }
       }
-    } else {
-      // Usar upsert para sobrescribir existentes
-      const operations = batch.map(noiseData => ({
-        updateOne: {
-          filter: {
-            nmt: noiseData.nmt,
-            año: noiseData.año,
-            mes: noiseData.mes
-          },
-          update: { $set: noiseData },
-          upsert: true
-        }
-      }));
-
-      const result = await NoiseMonitoring.bulkWrite(operations, { ordered: false });
-      stats.insertedRecords += result.upsertedCount + result.modifiedCount;
-      stats.skippedRecords += result.matchedCount - result.modifiedCount;
     }
+  } else {
+    // Usar upsert para sobrescribir existentes
+    const operations = batch.map(noiseData => ({
+      updateOne: {
+        filter: {
+          nmt: noiseData.nmt,
+          año: noiseData.año,
+          mes: noiseData.mes
+        },
+        update: { $set: noiseData },
+        upsert: true
+      }
+    }));
 
-  } catch (error) {
-    console.error('Error procesando lote de contaminación acústica:', error);
-    throw error;
+    try {
+      const bulkResult = await NoiseMonitoring.bulkWrite(operations, { ordered: false });
+      result.inserted = (bulkResult.upsertedCount || 0) + (bulkResult.modifiedCount || 0);
+      result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);
+    } catch (error) {
+      const handledError = handleMongoError(error);
+      importLogger.error({ error: handledError.message }, 'Error en bulkWrite');
+      result.errors = batch.length;
+      throw error;
+    }
   }
+
+  return result;
 }
 
 /**
- * Importar datos de contaminación acústica
- * @param {Object} options - Opciones de importación
- * @returns {Promise<Object>} - Estadísticas finales
- */
-async function importNoiseData(options = {}) {
-  const config = { ...IMPORT_CONFIG, ...options };
-
-  console.log('🔊 Iniciando importación de datos de contaminación acústica...');
-
-  try {
-    const filePath = path.join(config.dataDirectory, config.fileName);
-
-    // Verificar que existe el archivo
-    try {
-      await fs.stat(filePath);
-    } catch (error) {
-      throw new Error(`No se encontró el archivo: ${filePath}`);
-    }
-
-    console.log(`📄 Archivo encontrado: ${config.fileName}`);
-
-    const globalStats = {
-      startTime: new Date(),
-      totalFiles: 1,
-      completedFiles: 0,
-      totalRows: 0,
-      processedRows: 0,
-      emptyRows: 0,
-      errorRows: 0,
-      insertedRecords: 0,
-      skippedRecords: 0,
-      fileStats: []
-    };
-
-    // Procesar archivo
-    try {
-      const fileStats = await processNoiseFile(filePath, config);
-      globalStats.fileStats.push(fileStats);
-      globalStats.completedFiles++;
-      globalStats.totalRows += fileStats.totalRows;
-      globalStats.processedRows += fileStats.processedRows;
-      globalStats.emptyRows += fileStats.emptyRows;
-      globalStats.errorRows += fileStats.errorRows;
-      globalStats.insertedRecords += fileStats.insertedRecords;
-      globalStats.skippedRecords += fileStats.skippedRecords;
-
-    } catch (error) {
-      console.error(`❌ Error procesando archivo ${config.fileName}:`, error);
-      globalStats.errorRows++;
-    }
-
-    globalStats.endTime = new Date();
-    globalStats.duration = globalStats.endTime - globalStats.startTime;
-
-    return globalStats;
-
-  } catch (error) {
-    console.error('❌ Error en importación de contaminación acústica:', error);
-    throw error;
-  }
-}
-
-/**
- * Generar resumen estadístico post-importación
+ * Generar resumen estadistico post-importacion
+ * @returns {Promise<void>}
  */
 async function generatePostImportSummary() {
-  console.log('\n📈 Generando resumen estadístico...');
+  importLogger.info('Generando resumen estadistico...');
 
   try {
-    const totalRecords = await NoiseMonitoring.countDocuments();
-    console.log(`📊 Total de registros de contaminación acústica: ${totalRecords.toLocaleString()}`);
+    const totalRecords = await NoiseMonitoring.countDocuments().maxTimeMS(10000);
 
-    // Distribución por año
+    // Distribucion por ano
     const yearDistribution = await NoiseMonitoring.aggregate([
       {
         $group: {
@@ -436,15 +556,11 @@ async function generatePostImportSummary() {
           estacionesUnicas: { $addToSet: '$nmt' }
         }
       },
-      { $sort: { _id: 1 } }
-    ]);
+      { $sort: { _id: 1 } },
+      { $limit: 10 }
+    ]).maxTimeMS(10000);
 
-    console.log('\n📅 Distribución por año:');
-    yearDistribution.forEach(year => {
-      console.log(`   ${year._id}: ${year.totalRegistros.toLocaleString()} registros, ${year.estacionesUnicas.length} estaciones`);
-    });
-
-    // Distribución por estación
+    // Distribucion por estacion
     const stationDistribution = await NoiseMonitoring.aggregate([
       {
         $group: {
@@ -453,22 +569,14 @@ async function generatePostImportSummary() {
             nombre: '$nombre'
           },
           totalRegistros: { $sum: 1 },
-          promedioLaeq24: { $avg: '$laeq24' },
-          promedioCalidad: { $avg: '$dataQuality.qualityScore' }
+          promedioLaeq24: { $avg: '$laeq24' }
         }
       },
       { $sort: { totalRegistros: -1 } },
       { $limit: 10 }
-    ]);
+    ]).maxTimeMS(10000);
 
-    console.log('\n🏭 Top 10 estaciones con más registros:');
-    stationDistribution.forEach((station, index) => {
-      const avgNoise = station.promedioLaeq24 ? station.promedioLaeq24.toFixed(1) : 'N/A';
-      const quality = station.promedioCalidad ? (station.promedioCalidad * 100).toFixed(1) : 'N/A';
-      console.log(`   ${index + 1}. ${station._id.nombre} (NMT ${station._id.nmt}): ${station.totalRegistros.toLocaleString()} registros, ${avgNoise} dB promedio, ${quality}% calidad`);
-    });
-
-    // Análisis de cumplimiento normativo
+    // Analisis de cumplimiento normativo
     const complianceAnalysis = await NoiseMonitoring.aggregate([
       {
         $match: {
@@ -486,53 +594,71 @@ async function generatePostImportSummary() {
             $sum: { $cond: [{ $ne: ['$nivelDiurno', null] }, 1, 0] }
           },
           excesoDiurno: {
-            $sum: { $cond: [{ $gt: ['$nivelDiurno', 65] }, 1, 0] }
+            $sum: { $cond: [{ $gt: ['$nivelDiurno', NOISE_LIMITS.DIURNO] }, 1, 0] }
           },
           registrosConVespertino: {
             $sum: { $cond: [{ $ne: ['$nivelVespertino', null] }, 1, 0] }
           },
           excesoVespertino: {
-            $sum: { $cond: [{ $gt: ['$nivelVespertino', 65] }, 1, 0] }
+            $sum: { $cond: [{ $gt: ['$nivelVespertino', NOISE_LIMITS.VESPERTINO] }, 1, 0] }
           },
           registrosConNocturno: {
             $sum: { $cond: [{ $ne: ['$nivelNocturno', null] }, 1, 0] }
           },
           excesoNocturno: {
-            $sum: { $cond: [{ $gt: ['$nivelNocturno', 55] }, 1, 0] }
+            $sum: { $cond: [{ $gt: ['$nivelNocturno', NOISE_LIMITS.NOCTURNO] }, 1, 0] }
           }
         }
       }
-    ]);
+    ]).maxTimeMS(10000);
 
-    if (complianceAnalysis[0]) {
-      const compliance = complianceAnalysis[0];
-      console.log('\n🎯 Análisis de cumplimiento normativo (límites ejemplo):');
-
-      if (compliance.registrosConDiurno > 0) {
-        const pctExceso = (compliance.excesoDiurno / compliance.registrosConDiurno * 100).toFixed(1);
-        console.log(`   Periodo diurno: ${compliance.excesoDiurno}/${compliance.registrosConDiurno} (${pctExceso}%) superan 65 dB`);
-      }
-
-      if (compliance.registrosConVespertino > 0) {
-        const pctExceso = (compliance.excesoVespertino / compliance.registrosConVespertino * 100).toFixed(1);
-        console.log(`   Periodo vespertino: ${compliance.excesoVespertino}/${compliance.registrosConVespertino} (${pctExceso}%) superan 65 dB`);
-      }
-
-      if (compliance.registrosConNocturno > 0) {
-        const pctExceso = (compliance.excesoNocturno / compliance.registrosConNocturno * 100).toFixed(1);
-        console.log(`   Periodo nocturno: ${compliance.excesoNocturno}/${compliance.registrosConNocturno} (${pctExceso}%) superan 55 dB`);
-      }
-    }
+    importLogger.info({
+      totalRegistros: totalRecords,
+      distribucionPorAno: yearDistribution.map(y => ({
+        año: y._id,
+        registros: y.totalRegistros,
+        estaciones: y.estacionesUnicas.length
+      })),
+      topEstaciones: stationDistribution.map(s => ({
+        nmt: s._id.nmt,
+        nombre: s._id.nombre,
+        registros: s.totalRegistros,
+        promedioLaeq24: s.promedioLaeq24?.toFixed(1) || 'N/A'
+      })),
+      cumplimientoNormativo: complianceAnalysis[0] ? {
+        diurno: {
+          total: complianceAnalysis[0].registrosConDiurno,
+          exceden: complianceAnalysis[0].excesoDiurno,
+          limite: NOISE_LIMITS.DIURNO
+        },
+        vespertino: {
+          total: complianceAnalysis[0].registrosConVespertino,
+          exceden: complianceAnalysis[0].excesoVespertino,
+          limite: NOISE_LIMITS.VESPERTINO
+        },
+        nocturno: {
+          total: complianceAnalysis[0].registrosConNocturno,
+          exceden: complianceAnalysis[0].excesoNocturno,
+          limite: NOISE_LIMITS.NOCTURNO
+        }
+      } : null
+    }, 'Resumen estadistico de contaminacion acustica');
 
   } catch (error) {
-    console.error('❌ Error generando resumen estadístico:', error);
+    importLogger.error({ error: error.message }, 'Error generando resumen estadistico');
   }
 }
 
 /**
- * Función principal del script
+ * Funcion principal del script
  */
 async function main() {
+  stats.startTime = Date.now();
+
+  // Registrar manejadores de senales
+  registerSignalHandlers();
+
+  // Parsear argumentos
   const options = parseArguments();
 
   if (options.showHelp) {
@@ -540,80 +666,98 @@ async function main() {
     return;
   }
 
-  console.log('🔊 Script de Importación de Contaminación Acústica');
-  console.log('📊 Configuración:');
-  console.log(`   - Omitir existentes: ${options.skipExisting ? 'Sí' : 'No'}`);
-  console.log(`   - Tamaño de lote: ${options.batchSize}`);
-  console.log(`   - Solo validación: ${options.validateOnly ? 'Sí' : 'No'}`);
-  if (options.targetStation) {console.log(`   - Estación específica: NMT ${options.targetStation}`);}
-  if (options.targetYear) {console.log(`   - Año específico: ${options.targetYear}`);}
-  if (options.targetMonth) {console.log(`   - Mes específico: ${options.targetMonth}`);}
-
-  let connection;
+  importLogger.info({
+    skipExisting: options.skipExisting,
+    batchSize: options.batchSize,
+    validateOnly: options.validateOnly,
+    targetStation: options.targetStation,
+    targetYear: options.targetYear,
+    targetMonth: options.targetMonth
+  }, 'Iniciando importacion de contaminacion acustica');
 
   try {
+    const filePath = path.join(IMPORT_CONFIG.dataDirectory, IMPORT_CONFIG.fileName);
+
+    // Verificar que existe el archivo
+    try {
+      await fs.stat(filePath);
+    } catch {
+      throw new Error(`Archivo no encontrado: ${filePath}`);
+    }
+
     if (!options.validateOnly) {
       // Conectar a MongoDB
-      console.log('\n🔄 Conectando a MongoDB...');
-      connection = await connectDB(config.database.uri);
-      console.log('✅ Conectado a la base de datos');
+      importLogger.info('Conectando a MongoDB...');
+      await connectDB();
+      importLogger.info('Conexion a MongoDB establecida');
 
-      const noiseCount = await NoiseMonitoring.countDocuments();
-      console.log(`📊 Registros actuales de contaminación acústica: ${noiseCount.toLocaleString()}`);
+      const initialCount = await NoiseMonitoring.countDocuments().maxTimeMS(5000);
+      importLogger.info({ registrosActuales: initialCount }, 'Estado inicial de la coleccion');
     } else {
-      console.log('\n🔍 Modo validación: solo se verificarán los datos sin importar');
+      importLogger.info('Modo validacion: solo se verificaran los datos sin importar');
     }
 
-    // Ejecutar importación
-    const result = await importNoiseData(options);
+    // Procesar archivo
+    await processNoiseFile(filePath, options);
 
     // Mostrar resultados finales
-    console.log(`\n🎉 ${options.validateOnly ? 'Validación' : 'Importación'} de contaminación acústica completada!`);
-    console.log(`⏱️  Tiempo total: ${(result.duration / 1000).toFixed(2)} segundos`);
-    console.log(`📁 Archivos procesados: ${result.completedFiles}/${result.totalFiles}`);
-    console.log(`📊 Total filas procesadas: ${result.totalRows.toLocaleString()}`);
-    console.log(`✅ Registros válidos: ${result.processedRows.toLocaleString()}`);
-    if (!options.validateOnly) {
-      console.log(`💾 Registros insertados: ${result.insertedRecords.toLocaleString()}`);
-      console.log(`⏭️  Registros omitidos: ${result.skippedRecords.toLocaleString()}`);
-    }
-    console.log(`🈳 Filas vacías: ${result.emptyRows.toLocaleString()}`);
-    console.log(`❌ Errores: ${result.errorRows.toLocaleString()}`);
+    const durationMs = Date.now() - stats.startTime;
 
-    // Generar resumen estadístico
+    importLogger.info({
+      duracion: formatDuration(durationMs),
+      velocidad: calculateProcessingSpeed(stats.totalRows, durationMs),
+      filasTotales: stats.totalRows,
+      filasProcesadas: stats.processedRows,
+      filasVacias: stats.emptyRows,
+      errores: stats.errorRows,
+      registrosInsertados: stats.insertedRecords,
+      registrosOmitidos: stats.skippedRecords
+    }, options.validateOnly ? 'Validacion completada' : 'Importacion de contaminacion acustica completada');
+
+    // Resumen de rechazos por tipo
+    const rejectionSummary = rejectionTracker.getSortedSummary();
+    if (rejectionSummary.length > 0) {
+      importLogger.info({
+        totalRechazos: rejectionTracker.totalRejected,
+        desglose: rejectionSummary
+      }, 'Resumen de rechazos por tipo');
+    }
+
+    // Generar resumen estadistico adicional
     if (!options.validateOnly) {
       await generatePostImportSummary();
     }
 
   } catch (error) {
-    console.error('\n❌ Error durante la importación:');
-    console.error(`   Mensaje: ${error.message}`);
-    process.exit(1);
-
+    const handledError = handleMongoError(error);
+    importLogger.error({
+      error: handledError.message,
+      stack: error.stack
+    }, 'Error durante la importacion');
+    process.exitCode = 1;
   } finally {
-    if (connection) {
-      console.log('\n🔄 Cerrando conexión...');
+    if (mongoose.connection.readyState === 1) {
+      importLogger.info('Cerrando conexion a MongoDB...');
       try {
         await mongoose.connection.close();
-        console.log('✅ Conexión cerrada');
+        importLogger.info('Conexion cerrada correctamente');
       } catch (error) {
-        console.error('⚠️  Error cerrando conexión:', error.message);
+        importLogger.error({ error: error.message }, 'Error al cerrar conexion');
       }
     }
   }
-
-  console.log('\n👋 Script completado');
 }
 
 // Ejecutar si es llamado directamente
 if (require.main === module) {
   main().catch(error => {
-    console.error('❌ Error fatal:', error);
+    importLogger.fatal({ error: error.message }, 'Error fatal');
     process.exit(1);
   });
 }
 
 module.exports = {
-  importNoiseData,
-  parseNoiseRow
+  parseNoiseRow,
+  parseNoiseLevel,
+  REJECTION_REASONS
 };

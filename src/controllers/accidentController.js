@@ -9,9 +9,9 @@
 const Accident = require('../models/Accident');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, INJURY_SEVERITY_MAPPING, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, MONGODB_TIMEOUTS, TIME_CONSTANTS, DAYS_OF_WEEK } = require('../constants');
 const logger = require('../config/logger');
 
 
@@ -29,10 +29,10 @@ const getAllAccidents = async (req, res, next) => {
     // Configuración de filtros usando queryHelper
     const filterConfig = [
       { field: 'ubicacion.nombreDistrito', type: 'regex', param: 'distrito' },
-      { field: 'circunstancias.tipoAccidente', type: 'exact', param: 'tipoAccidente', transform: v => v.toUpperCase() },
-      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: v => v.toUpperCase() },
-      { field: 'vehiculo.tipo', type: 'exact', param: 'tipoVehiculo', transform: v => v.toUpperCase() },
-      { field: 'personaAfectada.tipoLesion', type: 'exact', param: 'tipoLesion', transform: v => v.toUpperCase() },
+      { field: 'circunstancias.tipoAccidente', type: 'exact', param: 'tipoAccidente', transform: TRANSFORMS.toUpperCase },
+      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: TRANSFORMS.toUpperCase },
+      { field: 'vehiculo.tipo', type: 'exact', param: 'tipoVehiculo', transform: TRANSFORMS.toUpperCase },
+      { field: 'personaAfectada.tipoLesion', type: 'exact', param: 'tipoLesion', transform: TRANSFORMS.toUpperCase },
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
     ];
 
@@ -40,10 +40,10 @@ const getAllAccidents = async (req, res, next) => {
 
     // Filtros booleanos especiales
     const { conAlcohol, conDrogas } = req.query;
-    if (conAlcohol === 'true') { filters['personaAfectada.positivaAlcohol'] = 'S'; }
-    if (conAlcohol === 'false') { filters['personaAfectada.positivaAlcohol'] = 'N'; }
-    if (conDrogas === 'true') { filters['personaAfectada.positivaDroga'] = 'S'; }
-    if (conDrogas === 'false') { filters['personaAfectada.positivaDroga'] = 'N'; }
+    if (conAlcohol === 'true') { filters['personaAfectada.positivaAlcohol'] = BINARY_INDICATORS.YES; }
+    if (conAlcohol === 'false') { filters['personaAfectada.positivaAlcohol'] = BINARY_INDICATORS.NO; }
+    if (conDrogas === 'true') { filters['personaAfectada.positivaDroga'] = BINARY_INDICATORS.NUMERIC_TRUE; }
+    if (conDrogas === 'false') { filters['personaAfectada.positivaDroga'] = BINARY_INDICATORS.NUMERIC_FALSE; }
 
     // Configurar ordenamiento y paginación usando queryHelper
     const sortOptions = buildSortOptions(
@@ -93,7 +93,7 @@ const getAllAccidents = async (req, res, next) => {
       Accident.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS), // Timeout de 5 segundos para count
       Accident.aggregate([
         { $match: filters },
-        { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos para estadísticas
+        // NO usar $limit antes de $group - corrompe las estadísticas globales
         {
           $group: {
             _id: null,
@@ -121,8 +121,8 @@ const getAllAccidents = async (req, res, next) => {
         applied: filters,
         available: {
           gravedad: Object.values(SEVERITY_LEVELS.ACCIDENT),
-          tipoAccidente: ACCIDENT_TYPES,
-          tipoVehiculo: VEHICLE_TYPES,
+          tipoAccidente: Object.values(ACCIDENT_TYPES),
+          tipoVehiculo: Object.values(VEHICLE_TYPES),
           tipoLesion: Object.values(INJURY_TYPES)
         }
       },
@@ -190,8 +190,8 @@ const getAccidentByFileNumber = async (req, res, next) => {
 
     const summary = personasAfectadas.reduce((acc, persona) => {
       if (persona.tipoPersona === PERSON_TYPES.CONDUCTOR) { acc.conductores++; }
-      if (persona.tipoPersona === PERSON_TYPES.PEATON) { acc.peatones++; }
-      if ([INJURY_TYPES.GRAVE, INJURY_TYPES.FALLECIDO].includes(persona.tipoLesion)) { acc.personasGraves++; }
+      if (persona.tipoPersona === PERSON_TYPES.PEATÓN) { acc.peatones++; }
+      if (INJURY_SEVERITY_MAPPING.GRAVES.includes(persona.tipoLesion)) { acc.personasGraves++; }
       if (persona.positivaAlcohol === BINARY_INDICATORS.YES) { acc.conAlcohol++; }
       return acc;
     }, { totalPersonas: accidentData.length, conductores: 0, peatones: 0, personasGraves: 0, conAlcohol: 0 });
@@ -243,7 +243,7 @@ const getAccidentStats = async (req, res, next) => {
 
     // Estadísticas generales
     const generalStats = await Accident.getStatisticsByPeriod(
-      filters.fecha?.$gte || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+      filters.fecha?.$gte || new Date(Date.now() - 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY),
       filters.fecha?.$lte || new Date()
     );
 
@@ -276,7 +276,7 @@ const getAccidentStats = async (req, res, next) => {
         patronesHorarios: hourlyPatterns,
         patronesSemanales: weeklyPatterns.map(p => ({
           ...p,
-          diaNombre: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][p._id]
+          diaNombre: DAYS_OF_WEEK[p._id]
         })),
         distribucionDistritos: districtDistribution,
         factoresRiesgo: riskFactorsAnalysis,
@@ -312,7 +312,7 @@ const getAccidentHeatmap = async (req, res, next) => {
     // Construir filtros usando queryHelper
     const filterConfig = [
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: v => v.toUpperCase() }
+      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: TRANSFORMS.toUpperCase }
     ];
     const filters = buildFilters(req.query, filterConfig);
 

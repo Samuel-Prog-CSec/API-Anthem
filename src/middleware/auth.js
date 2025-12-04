@@ -11,6 +11,7 @@ const { verifyToken, extractToken } = require('../utils/tokenHelper');
 const { createUnauthorizedResponse } = require('../utils/responseHelper');
 const { authLogger } = require('../config/logger');
 const { logTokenValidation } = require('../utils/securityLogger');
+const { HTTP_STATUS } = require('../constants');
 
 /**
  * Middleware de autenticación
@@ -31,13 +32,13 @@ const authenticate = async (req, res, next) => {
       token = extractToken(req);
     } catch (error) {
       // Token en query string bloqueado en producción
-      return res.status(401).json(
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
         createUnauthorizedResponse(error.message)
       );
     }
 
     if (!token) {
-      return res.status(401).json(
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
         createUnauthorizedResponse('Se requiere un token de acceso')
       );
     }
@@ -61,7 +62,7 @@ const authenticate = async (req, res, next) => {
         userAgent: req.get('user-agent')
       });
 
-      return res.status(401).json(
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
         createUnauthorizedResponse(`Validación de token fallida: ${error.message}`)
       );
     }
@@ -70,22 +71,29 @@ const authenticate = async (req, res, next) => {
     const user = await User.findById(decoded.id).select('-password');
 
     if (!user) {
-      return res.status(401).json(
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
         createUnauthorizedResponse('Usuario no encontrado')
       );
     }
 
     // Verificar si la cuenta de usuario está activa
     if (!user.isActive) {
-      return res.status(403).json(
+      return res.status(HTTP_STATUS.FORBIDDEN).json(
         createUnauthorizedResponse('La cuenta está desactivada')
       );
     }
 
     // Verificar si la cuenta está bloqueada
     if (user.isLocked) {
-      return res.status(423).json(
+      return res.status(HTTP_STATUS.LOCKED).json(
         createUnauthorizedResponse('La cuenta está temporalmente bloqueada')
+      );
+    }
+
+    // Verificar si el usuario cambió la contraseña después de emitir el token
+    if (user.changedPasswordAfter(decoded.iat)) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
+        createUnauthorizedResponse('El usuario cambió la contraseña recientemente. Por favor inicie sesión nuevamente.')
       );
     }
 
@@ -103,7 +111,7 @@ const authenticate = async (req, res, next) => {
       method: req.method,
       ip: req.ip
     }, 'Error en middleware de autenticación');
-    return res.status(500).json(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
       createUnauthorizedResponse('Error de autenticación')
     );
   }

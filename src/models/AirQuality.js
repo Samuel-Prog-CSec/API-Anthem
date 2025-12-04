@@ -7,13 +7,14 @@
  */
 
 const mongoose = require('mongoose');
-const { validateNotFutureDate } = require('./schemas/commonSchemas');
+const { validateDatasetDate } = require('./schemas/commonSchemas');
 const {
   MAGNITUDES_PERMITIDAS,
   AIR_QUALITY_MAGNITUDES,
   VALIDATION_CODES,
   AGGREGATION_LIMITS,
-  TIME_CONSTANTS
+  TIME_CONSTANTS,
+  MONGODB_TIMEOUTS
 } = require('../constants');
 
 /**
@@ -92,8 +93,8 @@ const airQualitySchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateNotFutureDate,
-      message: 'La fecha de medición no puede ser futura'
+      validator: validateDatasetDate,
+      message: 'La fecha de medición debe estar dentro del rango del dataset (2050-2052)'
     }
   },
 
@@ -113,7 +114,7 @@ const airQualitySchema = new mongoose.Schema({
       {
         validator: function(v) {
           // Validar que haya al menos 1 medición válida (validationCode = 'V')
-          const validas = Array.from(v.values()).filter(m => m.validationCode === 'V');
+          const validas = Array.from(v.values()).filter(m => m.validationCode === VALIDATION_CODES.VALID);
           return validas.length > 0;
         },
         message: 'Debe haber al menos una medición válida (validationCode=V) en el día'
@@ -139,7 +140,8 @@ const airQualitySchema = new mongoose.Schema({
 
 }, {
   timestamps: true,
-  versionKey: false
+  versionKey: false,
+  collection: 'air_quality'
 });
 
 /**
@@ -349,7 +351,7 @@ airQualitySchema.statics.getStatisticsOptimized = async function(filters = {}, g
                 $cond: [
                   {
                     $and: [
-                      { $eq: ['$$medicion.v.validationCode', 'V'] },
+                      { $eq: ['$$medicion.v.validationCode', VALIDATION_CODES.VALID] },
                       { $ne: ['$$medicion.v.value', null] }
                     ]
                   },
@@ -395,8 +397,8 @@ airQualitySchema.statics.getStatisticsOptimized = async function(filters = {}, g
 
   // Ejecutar ambas agregaciones en paralelo
   const [estadisticas, resumenArray] = await Promise.all([
-    this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000),
-    this.aggregate(resumenPipeline).allowDiskUse(true).maxTimeMS(10000)
+    this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
+    this.aggregate(resumenPipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
   ]);
 
   const resumen = resumenArray[0] ? {
@@ -454,7 +456,7 @@ airQualitySchema.statics.getTrendsOptimized = async function(provincia, municipi
                 $cond: [
                   {
                     $and: [
-                      { $eq: ['$$medicion.v.validationCode', 'V'] },
+                      { $eq: ['$$medicion.v.validationCode', VALIDATION_CODES.VALID] },
                       { $ne: ['$$medicion.v.value', null] }
                     ]
                   },
@@ -485,7 +487,7 @@ airQualitySchema.statics.getTrendsOptimized = async function(provincia, municipi
     },
     { $sort: { '_id.fecha': 1 } },
     { $limit: TIME_CONSTANTS.DAYS_PER_YEAR }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   // Calcular estadísticas de la tendencia
   const valores = tendenciaDiaria

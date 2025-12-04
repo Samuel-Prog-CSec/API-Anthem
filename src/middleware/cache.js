@@ -8,10 +8,10 @@
 const NodeCache = require('node-cache');
 const logger = require('../config/logger');
 const { cacheLogger } = logger;
+const { HTTP_STATUS } = require('../constants');
 
 /**
- * Diferentes instancias de caché según el tipo de datos
- * Cada una con TTL (Time To Live) apropiado
+ * Middleware de caché para optimización de consultas frecuentes
  */
 const caches = {
   // Datos demográficos (cambian raramente) - 1 hora
@@ -79,8 +79,6 @@ const caches = {
   })
 };
 
-// Mantener caché legacy para compatibilidad
-const cache = caches.traffic;
 const statsCache = caches.statistics;
 
 /**
@@ -106,7 +104,7 @@ const cacheMiddleware = (cacheType = 'traffic', keyGenerator = null) => {
         // Cache HIT - retornar datos cacheados
         const cacheAge = Math.floor((Date.now() - (cached.timestamp || Date.now())) / 1000);
 
-        return res.status(200)
+        return res.status(HTTP_STATUS.OK)
           .set('X-Cache-Status', 'HIT')
           .set('X-Cache-Type', cacheType)
           .set('X-Cache-Age', `${cacheAge}s`)
@@ -161,7 +159,7 @@ const statsCacheMiddleware = () => {
       if (cachedData) {
         res.set('X-Cache', 'HIT');
         res.set('X-Cache-Type', 'STATS');
-        return res.status(200).json(cachedData);
+        return res.status(HTTP_STATUS.OK).json(cachedData);
       }
 
       const originalSend = res.json;

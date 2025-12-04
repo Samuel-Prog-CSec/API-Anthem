@@ -7,6 +7,10 @@
 
 const mongoose = require('mongoose');
 const { validateUTMCoordinates } = require('../../utils/dataValidator');
+const {
+  VALIDATION_LIMITS,
+  DATASET_YEARS
+} = require('../../constants');
 
 /**
  * Sub-esquema para coordenadas UTM (Universal Transverse Mercator)
@@ -20,8 +24,8 @@ const coordinatesUTMSchema = new mongoose.Schema({
   x: {
     type: Number,
     required: false,
-    min: [100000, 'Coordenada X UTM fuera de rango válido para España (100,000 - 1,000,000 m)'],
-    max: [1000000, 'Coordenada X UTM fuera de rango válido para España (100,000 - 1,000,000 m)'],
+    min: [VALIDATION_LIMITS.UTM_X_MIN, `Coordenada X UTM fuera de rango válido para España (${VALIDATION_LIMITS.UTM_X_MIN} - ${VALIDATION_LIMITS.UTM_X_MAX} m)`],
+    max: [VALIDATION_LIMITS.UTM_X_MAX, `Coordenada X UTM fuera de rango válido para España (${VALIDATION_LIMITS.UTM_X_MIN} - ${VALIDATION_LIMITS.UTM_X_MAX} m)`],
     validate: {
       validator: function(v) {
         // Solo validar si está definida
@@ -36,8 +40,8 @@ const coordinatesUTMSchema = new mongoose.Schema({
   y: {
     type: Number,
     required: false,
-    min: [3000000, 'Coordenada Y UTM fuera de rango válido para España (3,000,000 - 5,000,000 m)'],
-    max: [5000000, 'Coordenada Y UTM fuera de rango válido para España (3,000,000 - 5,000,000 m)'],
+    min: [VALIDATION_LIMITS.UTM_Y_MIN, `Coordenada Y UTM fuera de rango válido para España (${VALIDATION_LIMITS.UTM_Y_MIN} - ${VALIDATION_LIMITS.UTM_Y_MAX} m)`],
+    max: [VALIDATION_LIMITS.UTM_Y_MAX, `Coordenada Y UTM fuera de rango válido para España (${VALIDATION_LIMITS.UTM_Y_MIN} - ${VALIDATION_LIMITS.UTM_Y_MAX} m)`],
     validate: {
       validator: function(v) {
         // Solo validar si está definida
@@ -53,7 +57,8 @@ const coordinatesUTMSchema = new mongoose.Schema({
 
 /**
  * Sub-esquema para rango de fechas con validación
- * Asegura que las fechas no sean futuras y tengan formato válido
+ * IMPORTANTE: Valida contra rango del dataset (2050-2052), NO contra fecha actual
+ * El dataset de Anthem Smart City contiene datos proyectados del año 2051
  */
 const dateRangeSchema = new mongoose.Schema({
   inicio: {
@@ -61,9 +66,10 @@ const dateRangeSchema = new mongoose.Schema({
     required: true,
     validate: {
       validator: function(v) {
-        return v <= new Date();
+        const year = v.getFullYear();
+        return year >= DATASET_YEARS.MIN_YEAR && year <= DATASET_YEARS.MAX_YEAR;
       },
-      message: 'Fecha de inicio no puede ser futura'
+      message: `Fecha de inicio debe estar entre ${DATASET_YEARS.MIN_YEAR} y ${DATASET_YEARS.MAX_YEAR} (rango del dataset)`
     }
   },
   fin: {
@@ -72,9 +78,10 @@ const dateRangeSchema = new mongoose.Schema({
     validate: [
       {
         validator: function(v) {
-          return v <= new Date();
+          const year = v.getFullYear();
+          return year >= DATASET_YEARS.MIN_YEAR && year <= DATASET_YEARS.MAX_YEAR;
         },
-        message: 'Fecha de fin no puede ser futura'
+        message: `Fecha de fin debe estar entre ${DATASET_YEARS.MIN_YEAR} y ${DATASET_YEARS.MAX_YEAR} (rango del dataset)`
       },
       {
         validator: function(v) {
@@ -98,14 +105,20 @@ function validateTimeFormat(time) {
 }
 
 /**
- * Validador personalizado para fechas no futuras
+ * Validador personalizado para fechas del dataset
+ * IMPORTANTE: Valida que la fecha esté en el rango del dataset (2050-2052), NO contra fecha actual
+ * El dataset de Anthem Smart City contiene datos proyectados del año 2051
+ *
  * @param {Date} date - Fecha a validar
- * @returns {Boolean} - True si no es futura
+ * @returns {Boolean} - True si está en rango del dataset
  */
-function validateNotFutureDate(date) {
+function validateDatasetDate(date) {
   if (!date) {return false;}
   const dateObj = date instanceof Date ? date : new Date(date);
-  return !isNaN(dateObj.getTime()) && dateObj <= new Date();
+  if (isNaN(dateObj.getTime())) {return false;}
+
+  const year = dateObj.getFullYear();
+  return year >= DATASET_YEARS.MIN_YEAR && year <= DATASET_YEARS.MAX_YEAR;
 }
 
 /**
@@ -116,9 +129,9 @@ function validateNotFutureDate(date) {
  */
 function validateGeoCoordinate(valor, tipo) {
   if (tipo === 'latitud') {
-    return valor >= -90 && valor <= 90;
+    return valor >= VALIDATION_LIMITS.LATITUDE_MIN && valor <= VALIDATION_LIMITS.LATITUDE_MAX;
   } if (tipo === 'longitud') {
-    return valor >= -180 && valor <= 180;
+    return valor >= VALIDATION_LIMITS.LONGITUDE_MIN && valor <= VALIDATION_LIMITS.LONGITUDE_MAX;
   }
   return false;
 }
@@ -129,7 +142,7 @@ function validateGeoCoordinate(valor, tipo) {
  * @returns {Boolean} - True si está en rango
  */
 function validatePercentage(value) {
-  return typeof value === 'number' && value >= 0 && value <= 100;
+  return typeof value === 'number' && value >= VALIDATION_LIMITS.PERCENTAGE_MIN && value <= VALIDATION_LIMITS.PERCENTAGE_MAX;
 }
 
 /**
@@ -151,7 +164,7 @@ function validateAmount(amount) {
  */
 function validateAge(age) {
   if (age === null || age === undefined) {return true;} // Opcional
-  return Number.isInteger(age) && age >= 0 && age <= 120;
+  return Number.isInteger(age) && age >= VALIDATION_LIMITS.AGE_MIN && age <= VALIDATION_LIMITS.AGE_MAX;
 }
 
 /**
@@ -160,7 +173,7 @@ function validateAge(age) {
  * @returns {Boolean} - True si es válido
  */
 function validateMonth(month) {
-  return Number.isInteger(month) && month >= 1 && month <= 12;
+  return Number.isInteger(month) && month >= VALIDATION_LIMITS.MONTH_MIN && month <= VALIDATION_LIMITS.MONTH_MAX;
 }
 
 /**
@@ -169,7 +182,7 @@ function validateMonth(month) {
  * @returns {Boolean} - True si es válido
  */
 function validateYear(year) {
-  return Number.isInteger(year) && year >= 2000 && year <= 3000;
+  return Number.isInteger(year) && year >= VALIDATION_LIMITS.YEAR_MIN && year <= VALIDATION_LIMITS.YEAR_MAX;
 }
 
 /**
@@ -179,7 +192,7 @@ function validateYear(year) {
  */
 function validateSpeed(speed) {
   if (speed === null || speed === undefined) {return true;} // Opcional
-  return typeof speed === 'number' && speed >= 0 && speed <= 300;
+  return typeof speed === 'number' && speed >= VALIDATION_LIMITS.SPEED_MIN && speed <= VALIDATION_LIMITS.SPEED_MAX;
 }
 
 /**
@@ -189,7 +202,7 @@ function validateSpeed(speed) {
  */
 function validateNoiseLevel(level) {
   if (level === null || level === undefined) {return true;} // Opcional
-  return typeof level === 'number' && level >= 0 && level <= 150;
+  return typeof level === 'number' && level >= VALIDATION_LIMITS.NOISE_MIN && level <= VALIDATION_LIMITS.NOISE_MAX;
 }
 
 /**
@@ -199,7 +212,7 @@ function validateNoiseLevel(level) {
  */
 function validateLicensePoints(points) {
   if (points === null || points === undefined) {return true;} // Opcional
-  return Number.isInteger(points) && points >= 0 && points <= 12;
+  return Number.isInteger(points) && points >= VALIDATION_LIMITS.DRIVER_POINTS_MIN && points <= VALIDATION_LIMITS.DRIVER_POINTS_MAX;
 }
 
 // Exportar esquemas y validadores
@@ -210,7 +223,7 @@ module.exports = {
 
   // Validadores
   validateTimeFormat,
-  validateNotFutureDate,
+  validateDatasetDate,
   validateGeoCoordinate,
   validatePercentage,
   validateAmount,

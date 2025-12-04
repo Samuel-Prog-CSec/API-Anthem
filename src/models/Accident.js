@@ -7,12 +7,13 @@
  */
 
 const mongoose = require('mongoose');
-const { coordinatesUTMSchema, validateTimeFormat, validateNotFutureDate } = require('./schemas/commonSchemas');
+const { coordinatesUTMSchema, validateTimeFormat, validateDatasetDate } = require('./schemas/commonSchemas');
 const {
   ACCIDENT_TYPES,
   VEHICLE_TYPES,
   PERSON_TYPES,
   INJURY_TYPES,
+  INJURY_SEVERITY_MAPPING,
   WEATHER_CONDITIONS,
   DAY_PERIODS,
   WORKDAY_TYPES,
@@ -20,7 +21,9 @@ const {
   SEVERITY_LEVELS,
   GENDERS,
   BINARY_INDICATORS,
-  AGGREGATION_LIMITS
+  DATASET_YEARS,
+  VALIDATION_LIMITS,
+  MONGODB_TIMEOUTS
 } = require('../constants');
 
 /**
@@ -126,11 +129,22 @@ const personaAfectadaSchema = new mongoose.Schema({
  * - coordenadas: Ubicación geográfica exacta
  */
 const accidentSchema = new mongoose.Schema({
-  // Identificación del expediente
+  /**
+   * Numero de expediente del accidente
+   *
+   * IMPORTANTE: NO es unico. Un mismo expediente puede tener multiples documentos
+   * (uno por cada persona afectada: conductor, pasajero, peaton, etc.)
+   *
+   * Para contar accidentes unicos, agrupar por numeroExpediente.
+   * Para contar personas afectadas, contar documentos.
+   *
+   * @type {String}
+   * @example "EXP-2051-001" (3 documentos: conductor, pasajero, peaton)
+   */
   numeroExpediente: {
     type: String,
     required: true,
-    unique: false,
+    unique: false, // Explicitamente NO unico - ver documentacion arriba
     index: true,
     trim: true
   },
@@ -141,8 +155,8 @@ const accidentSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateNotFutureDate,
-      message: 'La fecha del accidente no puede ser futura'
+      validator: validateDatasetDate,
+      message: 'La fecha del accidente debe estar dentro del rango del dataset (2050-2052)'
     }
   },
 
@@ -150,23 +164,34 @@ const accidentSchema = new mongoose.Schema({
     type: Number,
     required: true,
     index: true,
-    min: [2000, 'Año debe ser 2000 o posterior'],
-    max: [new Date().getFullYear(), 'Año no puede ser futuro']
+    min: [DATASET_YEARS.VALIDATION_MIN, 'Año debe ser 2000 o posterior'],
+    // IMPORTANTE: Validación dinámica para soportar datos históricos y futuros
+    // Los datos del proyecto corresponden al año 2051 (dataset Anthem)
+    // No usar max estático porque se evalúa al cargar el módulo
+    validate: {
+      validator: function(value) {
+        // Permitir años históricos (2000-2099) para análisis de datos
+        // El dataset actual contiene datos de 2051
+        return value >= DATASET_YEARS.VALIDATION_MIN && value <= DATASET_YEARS.VALIDATION_MAX;
+      },
+      message: 'Año debe estar entre $<DATASET_YEARS.VALIDATION_MIN> y $<DATASET_YEARS.VALIDATION_MAX>'
+    },
+    default: DATASET_YEARS.DEFAULT_YEAR
   },
 
   mes: {
     type: Number,
     required: true,
     index: true,
-    min: [1, 'Mes debe estar entre 1 y 12'],
-    max: [12, 'Mes debe estar entre 1 y 12']
+    min: [VALIDATION_LIMITS.MONTH_MIN, `Mes debe estar entre ${VALIDATION_LIMITS.MONTH_MIN} y ${VALIDATION_LIMITS.MONTH_MAX}`],
+    max: [VALIDATION_LIMITS.MONTH_MAX, `Mes debe estar entre ${VALIDATION_LIMITS.MONTH_MIN} y ${VALIDATION_LIMITS.MONTH_MAX}`]
   },
 
   dia: {
     type: Number,
     required: true,
-    min: [1, 'Día debe estar entre 1 y 31'],
-    max: [31, 'Día debe estar entre 1 y 31']
+    min: [VALIDATION_LIMITS.DAY_MIN, `Día debe estar entre ${VALIDATION_LIMITS.DAY_MIN} y ${VALIDATION_LIMITS.DAY_MAX}`],
+    max: [VALIDATION_LIMITS.DAY_MAX, `Día debe estar entre ${VALIDATION_LIMITS.DAY_MIN} y ${VALIDATION_LIMITS.DAY_MAX}`]
   },
 
   // Hora en formato de rango (ej: "1:15:00")
@@ -231,9 +256,9 @@ const accidentSchema = new mongoose.Schema({
       type: String,
       required: true,
       trim: true,
-      enum: ACCIDENT_TYPES,
+      enum: Object.values(ACCIDENT_TYPES),
       index: true,
-      default: 'OTRO'
+      default: ACCIDENT_TYPES.OTRO
     },
 
     // Campo temporal para procesar
@@ -266,10 +291,10 @@ const accidentSchema = new mongoose.Schema({
       type: String,
       required: true,
       trim: true,
-      enum: VEHICLE_TYPES,
+      enum: Object.values(VEHICLE_TYPES),
       uppercase: true,
       index: true,
-      default: 'SIN_ESPECIFICAR'
+      default: VEHICLE_TYPES.SIN_ESPECIFICAR
     },
 
     tipoVehiculoOriginal: {
@@ -342,7 +367,8 @@ const accidentSchema = new mongoose.Schema({
 
 }, {
   timestamps: true,
-  versionKey: false
+  versionKey: false,
+  collection: 'accidents'
 });
 
 /**
@@ -443,8 +469,8 @@ accidentSchema.index({ 'vehiculo.tipo': 1, fecha: -1 });
 // ========================================
 
 // Índice para tipo de persona afectada
-// Usado en: GET /api/accidents?tipoPersona=PEATON
-// Tipos: CONDUCTOR, PASAJERO, PEATON
+// Usado en: GET /api/accidents?tipoPersona=PEATÓN
+// Tipos: CONDUCTOR, PASAJERO, PEATÓN, TESTIGO, VIAJERO
 accidentSchema.index({ 'personaAfectada.tipoPersona': 1, fecha: -1 });
 
 // Índice para tipo de lesión
@@ -516,7 +542,7 @@ accidentSchema.pre('save', function(next) {
 
   // Calcular franja horaria
   if (this.hora && !this.franjaHoraria) {
-    this.franjaHoraria = parseInt(this.hora.split(':')[0]);
+    this.franjaHoraria = parseInt(this.hora.split(':')[0], 10);
   }
 
   next();
@@ -542,27 +568,27 @@ accidentSchema.statics.getStatisticsByPeriod = function(startDate, endDate) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         accidentesMortales: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.gravedad', 'MORTAL'] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0]
           }
         },
         atropellos: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', 'ATROPELLO_PERSONA'] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.tipoAccidente', ACCIDENT_TYPES.ATROPELLO_A_PERSONA] }, 1, 0]
           }
         },
         accidentesConAlcohol: {
           $sum: {
-            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', 'S'] }, 1, 0]
+            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0]
           }
         }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -586,7 +612,7 @@ accidentSchema.statics.getAccidentBlackSpots = function(limit = 10, startDate = 
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         tiposAccidente: { $addToSet: '$circunstancias.tipoAccidente' },
@@ -602,7 +628,7 @@ accidentSchema.statics.getAccidentBlackSpots = function(limit = 10, startDate = 
     },
     { $sort: { indiceGravedad: -1, totalAccidentes: -1 } },
     { $limit: limit }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -623,7 +649,7 @@ accidentSchema.statics.getVehicleTypeAnalysis = function(startDate = null, endDa
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
@@ -640,7 +666,7 @@ accidentSchema.statics.getVehicleTypeAnalysis = function(startDate = null, endDa
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -658,13 +684,13 @@ accidentSchema.statics.getTemporalPatterns = function(groupBy = 'hora') {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         }
       }
     },
     { $sort: { _id: 1 } }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -681,38 +707,38 @@ accidentSchema.statics.getDistrictComparisonData = function(filters = {}) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         accidentesMortales: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.gravedad', 'MORTAL'] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0]
           }
         },
         atropellos: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', 'ATROPELLO_PERSONA'] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.tipoAccidente', ACCIDENT_TYPES.ATROPELLO_A_PERSONA] }, 1, 0]
           }
         },
         accidentesAlcohol: {
           $sum: {
-            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', 'S'] }, 1, 0]
+            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0]
           }
         },
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' },
         turismos: {
           $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', 'TURISMO'] }, 1, 0]
+            $cond: [{ $eq: ['$vehiculo.tipo', VEHICLE_TYPES.TURISMO] }, 1, 0]
           }
         },
         motocicletas: {
           $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', 'MOTOCICLETA'] }, 1, 0]
+            $cond: [{ $eq: ['$vehiculo.tipo', VEHICLE_TYPES.MOTOCICLETA_MAS_125CC] }, 1, 0]
           }
         },
         bicicletas: {
           $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', 'BICICLETA'] }, 1, 0]
+            $cond: [{ $eq: ['$vehiculo.tipo', VEHICLE_TYPES.BICICLETA] }, 1, 0]
           }
         }
       }
@@ -747,7 +773,7 @@ accidentSchema.statics.getDistrictComparisonData = function(filters = {}) {
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -768,17 +794,17 @@ accidentSchema.statics.getStreetSafetyAnalysis = function(filters = {}, limit = 
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         atropellos: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', 'ATROPELLO_PERSONA'] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.tipoAccidente', ACCIDENT_TYPES.ATROPELLO_A_PERSONA] }, 1, 0]
           }
         },
         accidentesAlcohol: {
           $sum: {
-            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', 'S'] }, 1, 0]
+            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0]
           }
         },
         indiceSeveridad: { $avg: '$analisis.puntuacionGravedad' }
@@ -798,7 +824,7 @@ accidentSchema.statics.getStreetSafetyAnalysis = function(filters = {}, limit = 
     },
     { $sort: { indiceRiesgo: -1 } },
     { $limit: limit }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -818,13 +844,13 @@ accidentSchema.statics.getTrendAnalysis = function(filters = {}) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         }
       }
     },
     { $sort: { '_id.año': 1, '_id.mes': 1 } }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -841,7 +867,7 @@ accidentSchema.statics.getWeatherCorrelation = function(filters = {}) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         }
       }
@@ -857,7 +883,7 @@ accidentSchema.statics.getWeatherCorrelation = function(filters = {}) {
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -875,7 +901,7 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', ['GRAVE', 'MORTAL']] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
           }
         },
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
@@ -883,7 +909,7 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
     },
     { $sort: { totalAccidentes: -1 } },
     { $limit: limit }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -894,7 +920,7 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
 accidentSchema.statics.getRiskFactorsAnalysis = function(filters = {}) {
   return this.aggregate([
     { $match: filters },
-    { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos
+    // NO usar $limit antes de $unwind/$group - corrompe las estadísticas
     { $unwind: { path: '$analisis.factoresRiesgo', preserveNullAndEmptyArrays: true } },
     {
       $group: {
@@ -905,7 +931,7 @@ accidentSchema.statics.getRiskFactorsAnalysis = function(filters = {}) {
     { $sort: { cantidad: -1 } }
   ])
     .allowDiskUse(true)
-    .maxTimeMS(10000);
+    .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -933,7 +959,7 @@ accidentSchema.statics.getHeatmapDataOptimized = async function(filters = {}, li
       'personaAfectada.tipoLesion': 1,
       fecha: 1
     })
-    .limit(parseInt(limite))
+    .limit(parseInt(limite, 10))
     .lean();
 
   // Agrupar puntos cercanos para reducir ruido en el mapa
@@ -957,7 +983,7 @@ accidentSchema.statics.getHeatmapDataOptimized = async function(filters = {}, li
     groupedPoints[key].accidentes.push(accident);
     groupedPoints[key].totalAccidentes++;
 
-    if (['GRAVE', 'MORTAL'].includes(accident.circunstancias.gravedad)) {
+    if (INJURY_SEVERITY_MAPPING.GRAVES.includes(accident.circunstancias.gravedad)) {
       groupedPoints[key].accidentesGraves++;
     }
 

@@ -8,6 +8,7 @@
 const { formatErrorResponse, handleMongoError, handleJWTError } = require('../utils/errorUtils');
 const config = require('../config/config');
 const logger = require('../config/logger');
+const { HTTP_STATUS } = require('../constants');
 
 /**
  * Middleware para manejo centralizado de errores
@@ -40,7 +41,7 @@ const globalErrorHandler = (err, req, res, _next) => {
     config.NODE_ENV === 'development'
   );
 
-  res.status(err.statusCode || 500).json(errorResponse);
+  res.status(err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR).json(errorResponse);
 };
 
 /**
@@ -60,7 +61,7 @@ const notFoundHandler = (req, res, _next) => {
     userAgent: req.get('User-Agent')
   }, 'Ruta no encontrada');
 
-  res.status(404).json({
+  res.status(HTTP_STATUS.NOT_FOUND).json({
     success: false,
     status: 'fail',
     message: error.message,
@@ -113,7 +114,7 @@ const timeoutHandler = (timeout = 30000) => {
         ip: req.ip
       }, 'Request timeout');
 
-      res.status(408).json({
+      res.status(HTTP_STATUS.REQUEST_TIMEOUT).json({
         success: false,
         status: 'error',
         message: 'Request timeout',

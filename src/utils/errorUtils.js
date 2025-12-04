@@ -4,6 +4,8 @@
  * Clases y funciones para manejar errores de manera consistente en la API.
  */
 
+const { HTTP_STATUS } = require('../constants');
+
 /**
  * Clase de Error Personalizada para la Aplicación
  */
@@ -27,7 +29,7 @@ class AppError extends Error {
  * @returns {AppError} Error de validación
  */
 const createValidationError = (message, validationErrors = []) => {
-  return new AppError(message, 400, {
+  return new AppError(message, HTTP_STATUS.BAD_REQUEST, {
     type: 'validation_error',
     errors: validationErrors
   });
@@ -39,7 +41,7 @@ const createValidationError = (message, validationErrors = []) => {
  * @returns {AppError} Error 401
  */
 const createAuthError = (message = 'No autorizado') => {
-  return new AppError(message, 401, {
+  return new AppError(message, HTTP_STATUS.UNAUTHORIZED, {
     type: 'auth_error'
   });
 };
@@ -51,7 +53,7 @@ const createAuthError = (message = 'No autorizado') => {
  * @returns {AppError} Error 500
  */
 const createInternalError = (message = 'Error interno del servidor', originalError = null) => {
-  return new AppError(message, 500, {
+  return new AppError(message, HTTP_STATUS.INTERNAL_SERVER_ERROR, {
     type: 'internal_error',
     originalError: originalError?.message
   });
@@ -64,7 +66,7 @@ const createInternalError = (message = 'Error interno del servidor', originalErr
  * @returns {AppError} Error 409
  */
 const createConflictError = (message, conflictData = null) => {
-  return new AppError(message, 409, {
+  return new AppError(message, HTTP_STATUS.CONFLICT, {
     type: 'conflict_error',
     conflict: conflictData
   });
@@ -95,7 +97,7 @@ const handleMongoError = (error) => {
   }
 
   if (error.name === 'CastError') {
-    return new AppError(`Formato inválido para ${error.path}: ${error.value}`, 400);
+    return new AppError(`Formato inválido para ${error.path}: ${error.value}`, HTTP_STATUS.BAD_REQUEST);
   }
 
   return createInternalError('Error de base de datos', error);
@@ -129,7 +131,7 @@ const createNotFoundError = (resource, identifier = null) => {
     ? `${resource} con identificador '${identifier}' no encontrado`
     : `${resource} no encontrado`;
 
-  return new AppError(message, 404, {
+  return new AppError(message, HTTP_STATUS.NOT_FOUND, {
     type: 'not_found_error',
     resource,
     identifier
@@ -143,7 +145,7 @@ const createNotFoundError = (resource, identifier = null) => {
  * @returns {AppError} Error 400
  */
 const createBadRequestError = (message, details = null) => {
-  return new AppError(message, 400, {
+  return new AppError(message, HTTP_STATUS.BAD_REQUEST, {
     type: 'bad_request_error',
     details
   });
@@ -156,7 +158,7 @@ const createBadRequestError = (message, details = null) => {
  * @returns {AppError} Error 403
  */
 const createForbiddenError = (message = 'Acceso denegado', details = null) => {
-  return new AppError(message, 403, {
+  return new AppError(message, HTTP_STATUS.FORBIDDEN, {
     type: 'forbidden_error',
     details
   });
@@ -173,7 +175,7 @@ const formatErrorResponse = (error, includeStack = false) => {
     success: false,
     status: error.status || 'error',
     message: error.message,
-    statusCode: error.statusCode || 500
+    statusCode: error.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR
   };
 
   if (error.details) {

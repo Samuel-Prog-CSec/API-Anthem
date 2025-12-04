@@ -8,6 +8,7 @@
 
 const { body, param, query, validationResult } = require('express-validator');
 const {
+  HTTP_STATUS,
   SEVERITY_LEVELS,
   ACCIDENT_TYPES,
   VEHICLE_TYPES,
@@ -136,7 +137,7 @@ const validateRequest = (req, res, next) => {
       value: error.value
     }));
 
-    return res.status(400).json({
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
       success: false,
       message: 'Errores de validación',
       errors: formattedErrors
@@ -304,7 +305,7 @@ const validateAccidentFilters = [
   query('tipoAccidente')
     .optional()
     .trim()
-    .isIn(ACCIDENT_TYPES)
+    .isIn(Object.values(ACCIDENT_TYPES))
     .withMessage('Tipo de accidente no válido')
     .escape(), // Sanitización XSS
 
@@ -318,7 +319,7 @@ const validateAccidentFilters = [
   query('tipoVehiculo')
     .optional()
     .trim()
-    .isIn(VEHICLE_TYPES)
+    .isIn(Object.values(VEHICLE_TYPES))
     .withMessage('Tipo de vehículo no válido')
     .escape(), // Sanitización XSS
 
@@ -369,8 +370,8 @@ const validateFileNumber = [
 const validateTrafficFilters = [
   query('tipoElemento')
     .optional()
-    .isIn([...Object.values(TRAFFIC_ELEMENT_TYPES), 'urb', 'm-30']) // Incluir variantes en minúsculas
-    .withMessage('Tipo de elemento debe ser URB o M-30'),
+    .isIn(Object.values(TRAFFIC_ELEMENT_TYPES))
+    .withMessage(`Tipo de elemento debe ser ${Object.values(TRAFFIC_ELEMENT_TYPES).join(' o ')}`),
 
   query('nivelCongestion')
     .optional()
@@ -494,4 +495,3 @@ module.exports = {
   validateCoordinates,
   validateBikeFilters
 };
-

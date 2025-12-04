@@ -7,494 +7,574 @@
  * Uso: node scripts/importation/importAccidentData.js
  */
 
-const fs = require('fs').promises;
 const path = require('path');
 const csv = require('csv-parser');
 const { createReadStream } = require('fs');
+const fs = require('fs').promises;
 const mongoose = require('mongoose');
 
-// Importar modelos y configuración
+// Importar modelos, configuración y utilidades
 const Accident = require('../../src/models/Accident');
-const config = require('../../src/config/config');
+const { connectDB } = require('../../src/config/database');
+const { logger } = require('../../src/config/logger');
+const { handleMongoError } = require('../../src/utils/errorUtils');
+const {
+  VALIDATION_LIMITS,
+  GENDERS,
+  WEATHER_CONDITIONS,
+  BINARY_INDICATORS,
+  ACCIDENT_TYPES,
+  VEHICLE_TYPES,
+  PERSON_TYPES,
+  INJURY_TYPES
+} = require('../../src/constants');
+const {
+  RejectionTracker,
+  formatDuration,
+  calculateProcessingSpeed
+} = require('./helpers/importHelpers');
 
-// Configuraciones
+// Logger específico para importación
+const importLogger = logger.child({ component: 'import-accidents' });
+
+// ============================================================================
+// CONFIGURACIÓN
+// ============================================================================
+
 const DATA_FILE = path.join(__dirname, '../../datos_hpe/Anthem_CTC_Accidentalidad.csv');
 const BATCH_SIZE = 1000;
+const LOG_INTERVAL = 50000;
 
-// Contadores globales
+// ============================================================================
+// RAZONES DE RECHAZO
+// ============================================================================
+
+/**
+ * Razones de rechazo para filas que no se insertan en la BD
+ * @constant {Object}
+ */
+const REJECTION_REASONS = {
+  // Campos obligatorios faltantes
+  NUMERO_EXPEDIENTE_FALTANTE: 'Numero de expediente faltante o vacio',
+  NUMERO_EXPEDIENTE_FORMATO_INVALIDO: 'Formato de numero de expediente invalido (esperado: YYYYSNNNNNN)',
+  FECHA_FALTANTE: 'Fecha faltante o vacia',
+  FECHA_FORMATO_INVALIDO: 'Formato de fecha invalido (esperado: DD/MM/YYYY)',
+  FECHA_COMPONENTES_INVALIDOS: 'Componentes de fecha invalidos (dia, mes o año no numericos)',
+  FECHA_FUERA_RANGO: 'Fecha fuera de rango valido',
+  HORA_FALTANTE: 'Hora faltante o vacia',
+  HORA_FORMATO_INVALIDO: 'Formato de hora invalido (esperado: HH:MM:SS)',
+  LOCALIZACION_FALTANTE: 'Localizacion (calle) faltante',
+  DISTRITO_INCOMPLETO: 'Datos de distrito incompletos (codigo o nombre)',
+
+  // Coordenadas
+  COORDENADAS_FORMATO_INVALIDO: 'Coordenadas con formato invalido (no numerico)',
+  COORDENADAS_FUERA_RANGO_UTM: 'Coordenadas fuera de rango UTM valido para España',
+
+  // Errores de procesamiento
+  ERROR_TRANSFORMACION: 'Error durante la transformacion de datos',
+  ERROR_VALIDACION_MONGOOSE: 'Error de validacion de esquema Mongoose',
+  ERROR_INSERCION_BD: 'Error al insertar en base de datos'
+};
+
+// ============================================================================
+// CONTADORES GLOBALES
+// ============================================================================
+
 let totalProcessed = 0;
 let totalInserted = 0;
-let totalSkipped = 0;
+let totalUpdated = 0;
+let totalRejected = 0;
 let totalErrors = 0;
+let isShuttingDown = false;
 
-// Mapas de normalización
+// Tracker de rechazos por tipo
+const rejectionTracker = new RejectionTracker();
+
+// ============================================================================
+// MAPAS DE NORMALIZACIÓN
+// ============================================================================
+
+/**
+ * Mapa de normalización de tipos de accidente
+ * Mapea valores del CSV a valores del enum del modelo (usando constantes centralizadas)
+ */
 const TIPO_ACCIDENTE_MAP = {
-  'alcance': 'ALCANCE',
-  'atropello a animal': 'ATROPELLO_ANIMAL',
-  'atropello a persona': 'ATROPELLO_PERSONA',
-  'caída': 'CAIDA',
-  'choque contra obstáculo fijo': 'CHOQUE_OBSTACULO_FIJO',
-  'colisión frontal': 'COLISION_FRONTAL',
-  'colisión fronto-lateral': 'COLISION_FRONTO_LATERAL',
-  'colisión lateral': 'COLISION_LATERAL',
-  'colisión múltiple': 'COLISION_MULTIPLE',
-  'despeñamiento': 'DESPENAMIENTO',
-  'otro': 'OTRO',
-  'solo salida de la vía': 'SOLO_SALIDA_VIA',
-  'vuelco': 'VUELCO'
+  'alcance': ACCIDENT_TYPES.ALCANCE,
+  'atropello a animal': ACCIDENT_TYPES.ATROPELLO_A_ANIMAL,
+  'atropello a persona': ACCIDENT_TYPES.ATROPELLO_A_PERSONA,
+  'caída': ACCIDENT_TYPES.CAIDA,
+  'caida': ACCIDENT_TYPES.CAIDA,
+  'choque contra obstáculo fijo': ACCIDENT_TYPES.CHOQUE_CONTRA_OBSTACULO_FIJO,
+  'choque contra obstaculo fijo': ACCIDENT_TYPES.CHOQUE_CONTRA_OBSTACULO_FIJO,
+  'colisión frontal': ACCIDENT_TYPES.COLISION_FRONTAL,
+  'colision frontal': ACCIDENT_TYPES.COLISION_FRONTAL,
+  'colisión fronto-lateral': ACCIDENT_TYPES.COLISION_FRONTO_LATERAL,
+  'colision fronto-lateral': ACCIDENT_TYPES.COLISION_FRONTO_LATERAL,
+  'colisión lateral': ACCIDENT_TYPES.COLISION_LATERAL,
+  'colision lateral': ACCIDENT_TYPES.COLISION_LATERAL,
+  'colisión múltiple': ACCIDENT_TYPES.COLISION_MULTIPLE,
+  'colision multiple': ACCIDENT_TYPES.COLISION_MULTIPLE,
+  'despeñamiento': ACCIDENT_TYPES.DESPEÑAMIENTO,
+  'despenamiento': ACCIDENT_TYPES.DESPEÑAMIENTO,
+  'otro': ACCIDENT_TYPES.OTRO,
+  'solo salida de la vía': ACCIDENT_TYPES.SOLO_SALIDA_DE_LA_VIA,
+  'solo salida de la via': ACCIDENT_TYPES.SOLO_SALIDA_DE_LA_VIA,
+  'vuelco': ACCIDENT_TYPES.VUELCO
 };
 
+/**
+ * Mapa de normalización de tipos de vehiculo
+ * Mapea valores del CSV a valores del enum del modelo (usando constantes centralizadas)
+ */
 const TIPO_VEHICULO_MAP = {
-  'ambulancia samur': 'AMBULANCIA',
-  'autobús': 'AUTOBUS',
-  'autobus': 'AUTOBUS',
-  'autobús articulado': 'AUTOBUS_ARTICULADO',
-  'autobus articulado': 'AUTOBUS_ARTICULADO',
-  'autobús articulado emt': 'AUTOBUS_ARTICULADO_EMT',
-  'autobus articulado emt': 'AUTOBUS_ARTICULADO_EMT',
-  'autobus emt': 'AUTOBUS_EMT',
-  'autocaravana': 'AUTOCARAVANA',
-  'bicicleta': 'BICICLETA',
-  'bicicleta epac (pedaleo asistido)': 'BICICLETA_EPAC',
-  'camión de bomberos': 'CAMION_BOMBEROS',
-  'camion de bomberos': 'CAMION_BOMBEROS',
-  'camión rígido': 'CAMION_RIGIDO',
-  'camion rígido': 'CAMION_RIGIDO',
-  'camion rigido': 'CAMION_RIGIDO',
-  'ciclo': 'CICLO',
-  'ciclomotor': 'CICLOMOTOR',
-  'ciclomotor de dos ruedas l1e-b': 'CICLOMOTOR_DOS_RUEDAS_L1EB',
-  'ciclomotor de tres ruedas': 'CICLOMOTOR_TRES_RUEDAS',
-  'cuadriciclo ligero': 'CUADRICICLO_LIGERO',
-  'cuadriciclo no ligero': 'CUADRICICLO_NO_LIGERO',
-  'furgoneta': 'FURGONETA',
-  'maquinaria agrícola': 'MAQUINARIA_AGRICOLA',
-  'maquinaria agricola': 'MAQUINARIA_AGRICOLA',
-  'maquinaria de obras': 'MAQUINARIA_OBRAS',
-  'motocicleta hasta 125cc': 'MOTOCICLETA_HASTA_125CC',
-  'motocicleta > 125cc': 'MOTOCICLETA_MAS_125CC',
-  'moto de tres ruedas hasta 125cc': 'MOTO_TRES_RUEDAS_HASTA_125CC',
-  'moto de tres ruedas > 125cc': 'MOTO_TRES_RUEDAS_MAS_125CC',
-  'otros vehículos con motor': 'OTROS_CON_MOTOR',
-  'otros vehiculos con motor': 'OTROS_CON_MOTOR',
-  'otros vehículos sin motor': 'OTROS_SIN_MOTOR',
-  'otros vehiculos sin motor': 'OTROS_SIN_MOTOR',
-  'patinete': 'PATINETE',
-  'remolque': 'REMOLQUE',
-  'semiremolque': 'SEMIREMOLQUE',
-  'sin especificar': 'SIN_ESPECIFICAR',
-  'taxi': 'TAXI',
-  'todo terreno': 'TODO_TERRENO',
-  'tractocamión': 'TRACTOCAMION',
-  'tractocamion': 'TRACTOCAMION',
-  'tren/metro': 'TREN_METRO',
-  'turismo': 'TURISMO',
-  'vehículo articulado': 'VEHICULO_ARTICULADO',
-  'vehiculo articulado': 'VEHICULO_ARTICULADO',
-  'vmu eléctrico': 'VMU_ELECTRICO',
-  'vmu electrico': 'VMU_ELECTRICO',
-  'null': 'SIN_ESPECIFICAR'
+  'ambulancia samur': VEHICLE_TYPES.AMBULANCIA_SAMUR,
+  'autobús': VEHICLE_TYPES.AUTOBUS,
+  'autobus': VEHICLE_TYPES.AUTOBUS,
+  'autobús articulado': VEHICLE_TYPES.AUTOBUS_ARTICULADO,
+  'autobus articulado': VEHICLE_TYPES.AUTOBUS_ARTICULADO,
+  'autobús articulado emt': VEHICLE_TYPES.AUTOBUS_ARTICULADO_EMT,
+  'autobus articulado emt': VEHICLE_TYPES.AUTOBUS_ARTICULADO_EMT,
+  'autobus emt': VEHICLE_TYPES.AUTOBUS_EMT,
+  'autocaravana': VEHICLE_TYPES.AUTOCARAVANA,
+  'bicicleta': VEHICLE_TYPES.BICICLETA,
+  'bicicleta epac (pedaleo asistido)': VEHICLE_TYPES.BICICLETA_EPAC,
+  'camión de bomberos': VEHICLE_TYPES.CAMION_DE_BOMBEROS,
+  'camion de bomberos': VEHICLE_TYPES.CAMION_DE_BOMBEROS,
+  'camión rígido': VEHICLE_TYPES.CAMION_RIGIDO,
+  'camion rígido': VEHICLE_TYPES.CAMION_RIGIDO,
+  'camion rigido': VEHICLE_TYPES.CAMION_RIGIDO,
+  'ciclo': VEHICLE_TYPES.CICLO,
+  'ciclomotor': VEHICLE_TYPES.CICLOMOTOR,
+  'ciclomotor de dos ruedas l1e-b': VEHICLE_TYPES.CICLOMOTOR_DOS_RUEDAS,
+  'ciclomotor de tres ruedas': VEHICLE_TYPES.CICLOMOTOR_TRES_RUEDAS,
+  'cuadriciclo ligero': VEHICLE_TYPES.CUADRICICLO_LIGERO,
+  'cuadriciclo no ligero': VEHICLE_TYPES.CUADRICICLO_NO_LIGERO,
+  'furgoneta': VEHICLE_TYPES.FURGONETA,
+  'maquinaria agrícola': VEHICLE_TYPES.MAQUINARIA_AGRICOLA,
+  'maquinaria agricola': VEHICLE_TYPES.MAQUINARIA_AGRICOLA,
+  'maquinaria de obras': VEHICLE_TYPES.MAQUINARIA_DE_OBRAS,
+  'motocicleta hasta 125cc': VEHICLE_TYPES.MOTOCICLETA_HASTA_125CC,
+  'motocicleta > 125cc': VEHICLE_TYPES.MOTOCICLETA_MAS_125CC,
+  'moto de tres ruedas hasta 125cc': VEHICLE_TYPES.MOTO_TRES_RUEDAS_HASTA_125CC,
+  'moto de tres ruedas > 125cc': VEHICLE_TYPES.MOTO_TRES_RUEDAS_MAS_125CC,
+  'otros vehículos con motor': VEHICLE_TYPES.OTROS_VEHICULOS_CON_MOTOR,
+  'otros vehiculos con motor': VEHICLE_TYPES.OTROS_VEHICULOS_CON_MOTOR,
+  'otros vehículos sin motor': VEHICLE_TYPES.OTROS_VEHICULOS_SIN_MOTOR,
+  'otros vehiculos sin motor': VEHICLE_TYPES.OTROS_VEHICULOS_SIN_MOTOR,
+  'patinete': VEHICLE_TYPES.PATINETE,
+  'remolque': VEHICLE_TYPES.REMOLQUE,
+  'semiremolque': VEHICLE_TYPES.SEMIREMOLQUE,
+  'sin especificar': VEHICLE_TYPES.SIN_ESPECIFICAR,
+  'taxi': VEHICLE_TYPES.TAXI,
+  'todo terreno': VEHICLE_TYPES.TODO_TERRENO,
+  'tractocamión': VEHICLE_TYPES.TRACTOCAMION,
+  'tractocamion': VEHICLE_TYPES.TRACTOCAMION,
+  'tren/metro': VEHICLE_TYPES.TREN_METRO,
+  'turismo': VEHICLE_TYPES.TURISMO,
+  'vehículo articulado': VEHICLE_TYPES.VEHICULO_ARTICULADO,
+  'vehiculo articulado': VEHICLE_TYPES.VEHICULO_ARTICULADO,
+  'vmu eléctrico': VEHICLE_TYPES.VMU_ELECTRICO,
+  'vmu electrico': VEHICLE_TYPES.VMU_ELECTRICO,
+  'null': VEHICLE_TYPES.SIN_ESPECIFICAR
 };
 
+/**
+ * Mapa de normalización de tipos de persona
+ * Mapea valores del CSV a valores del enum del modelo (usando constantes centralizadas)
+ */
 const TIPO_PERSONA_MAP = {
-  'conductor': 'CONDUCTOR',
-  'peatón': 'PEATON',
-  'peaton': 'PEATON',
-  'testigo': 'TESTIGO',
-  'viajero': 'VIAJERO',
-  'pasajero': 'PASAJERO'
+  'conductor': PERSON_TYPES.CONDUCTOR,
+  'peatón': PERSON_TYPES.PEATÓN,
+  'peaton': PERSON_TYPES.PEATÓN,
+  'testigo': PERSON_TYPES.TESTIGO,
+  'viajero': PERSON_TYPES.VIAJERO,
+  'pasajero': PERSON_TYPES.PASAJERO
 };
 
+/**
+ * Mapa de normalización de estados meteorológicos
+ */
 const ESTADO_METEOROLOGICO_MAP = {
-  'despejado': 'DESPEJADO',
-  'nublado': 'NUBLADO',
-  'lluvia': 'LLUVIA_LIGERA',
-  'lluvia ligera': 'LLUVIA_LIGERA',
-  'lluvia intensa': 'LLUVIA_INTENSA',
-  'niebla': 'NIEBLA',
-  'viento fuerte': 'VIENTO_FUERTE',
-  'granizo': 'GRANIZO',
-  'nieve': 'NIEVE',
-  'null': 'NULL',
-  '': 'DESCONOCIDO'
+  'despejado': WEATHER_CONDITIONS.DESPEJADO,
+  'nublado': WEATHER_CONDITIONS.NUBLADO,
+  'lluvia débil': WEATHER_CONDITIONS.LLUVIA_DEBIL,
+  'lluvia debil': WEATHER_CONDITIONS.LLUVIA_DEBIL,
+  'lluvia': WEATHER_CONDITIONS.LLUVIA_DEBIL,
+  'lluvia ligera': WEATHER_CONDITIONS.LLUVIA_DEBIL,
+  'lluvia intensa': WEATHER_CONDITIONS.LLUVIA_INTENSA,
+  'niebla': WEATHER_CONDITIONS.NIEBLA,
+  'viento fuerte': WEATHER_CONDITIONS.VIENTO_FUERTE,
+  'granizando': WEATHER_CONDITIONS.GRANIZANDO,
+  'granizo': WEATHER_CONDITIONS.GRANIZANDO,
+  'nevando': WEATHER_CONDITIONS.NEVANDO,
+  'nieve': WEATHER_CONDITIONS.NEVANDO,
+  'se desconoce': WEATHER_CONDITIONS.SE_DESCONOCE,
+  'null': WEATHER_CONDITIONS.NULL,
+  '': WEATHER_CONDITIONS.SE_DESCONOCE
 };
 
-/**
- * Conectar a la base de datos
- */
-async function connectDatabase() {
-  try {
-    await mongoose.connect(config.database.uri);
-    console.log('✓ Conexión a MongoDB establecida');
-    return true;
-  } catch (error) {
-    console.log('✗ Error conectando a MongoDB:', error.message);
-    return false;
-  }
-}
-
-/**
- * Limpiar datos existentes si se solicita (función de utilidad, no usada actualmente)
- */
-async function _cleanExistingData() {
-  console.log('🧹 Limpiando datos existentes...');
-  const result = await Accident.deleteMany({});
-  console.log(`  ✓ Eliminados ${result.deletedCount} registros existentes`);
-}
+// ============================================================================
+// FUNCIONES DE NORMALIZACIÓN
+// ============================================================================
 
 /**
  * Normalizar tipo de accidente
+ * @param {string} tipo - Tipo de accidente original del CSV
+ * @returns {string} - Tipo normalizado
  */
 function normalizeAccidentType(tipo) {
-  if (!tipo || tipo.trim() === '') {return 'OTRO';}
-
+  if (!tipo || tipo.trim() === '') {
+    return ACCIDENT_TYPES.OTRO;
+  }
   const normalized = tipo.toLowerCase().trim();
-  return TIPO_ACCIDENTE_MAP[normalized] || 'OTRO';
+  return TIPO_ACCIDENTE_MAP[normalized] || ACCIDENT_TYPES.OTRO;
 }
 
 /**
  * Normalizar tipo de vehículo
+ * @param {string} tipo - Tipo de vehículo original del CSV
+ * @returns {string} - Tipo normalizado
  */
 function normalizeVehicleType(tipo) {
   if (!tipo || tipo.trim() === '' || tipo.toLowerCase() === 'null') {
-    return 'SIN_ESPECIFICAR';
+    return VEHICLE_TYPES.SIN_ESPECIFICAR;
   }
-
   const normalized = tipo.toLowerCase().trim();
-  return TIPO_VEHICULO_MAP[normalized] || 'SIN_ESPECIFICAR';
+  return TIPO_VEHICULO_MAP[normalized] || VEHICLE_TYPES.SIN_ESPECIFICAR;
 }
 
 /**
  * Normalizar tipo de persona
+ * @param {string} tipo - Tipo de persona original del CSV
+ * @returns {string} - Tipo normalizado
  */
 function normalizePersonType(tipo) {
-  if (!tipo || tipo.trim() === '') {return 'CONDUCTOR';}
-
+  if (!tipo || tipo.trim() === '') {
+    return PERSON_TYPES.CONDUCTOR;
+  }
   const normalized = tipo.toLowerCase().trim();
-  return TIPO_PERSONA_MAP[normalized] || 'CONDUCTOR';
+  return TIPO_PERSONA_MAP[normalized] || PERSON_TYPES.CONDUCTOR;
 }
 
 /**
  * Normalizar estado meteorológico
+ * @param {string} estado - Estado meteorológico original del CSV
+ * @returns {string} - Estado normalizado
  */
 function normalizeWeatherState(estado) {
-  if (!estado || estado.trim() === '') {return 'DESCONOCIDO';}
-
+  if (!estado || estado.trim() === '') {
+    return WEATHER_CONDITIONS.SE_DESCONOCE;
+  }
   const normalized = estado.toLowerCase().trim();
-  return ESTADO_METEOROLOGICO_MAP[normalized] || 'DESCONOCIDO';
+  return ESTADO_METEOROLOGICO_MAP[normalized] || WEATHER_CONDITIONS.SE_DESCONOCE;
 }
 
 /**
- * Parsear y validar coordenadas
+ * Parsear y validar coordenadas UTM
+ * @param {string} xStr - Coordenada X
+ * @param {string} yStr - Coordenada Y
+ * @param {number} rowIndex - Índice de fila para logging
+ * @returns {Object|null} - Coordenadas {x, y} o null si inválidas
  */
-function parseCoordinates(xStr, yStr) {
-  try {
-    if (!xStr || !yStr || xStr.trim() === '' || yStr.trim() === '') {
-      return null;
-    }
-
-    // Reemplazar comas por puntos para decimales
-    const x = parseFloat(xStr.replace(',', '.'));
-    const y = parseFloat(yStr.replace(',', '.'));
-
-    if (isNaN(x) || isNaN(y)) {
-      return null;
-    }
-
-    // Validar rangos para coordenadas UTM de España
-    if (x < 100000 || x > 1000000 || y < 3000000 || y > 5000000) {
-      console.log(`Coordenadas fuera de rango: (${x}, ${y})`);
-      return null;
-    }
-
-    return { x, y };
-
-  } catch (error) {
-    console.log(`Error parseando coordenadas (${xStr}, ${yStr}):`, error.message);
+function parseCoordinates(xStr, yStr, rowIndex) {
+  if (!xStr || !yStr || xStr.trim() === '' || yStr.trim() === '') {
     return null;
   }
+
+  // Reemplazar comas por puntos para decimales
+  const x = parseFloat(xStr.replace(',', '.'));
+  const y = parseFloat(yStr.replace(',', '.'));
+
+  if (isNaN(x) || isNaN(y)) {
+    rejectionTracker.track(REJECTION_REASONS.COORDENADAS_FORMATO_INVALIDO);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.COORDENADAS_FORMATO_INVALIDO,
+      datosOriginales: { coordenadaX: xStr, coordenadaY: yStr }
+    }, 'Coordenadas con formato no numerico - se asigna null');
+    return null;
+  }
+
+  // Validar rangos para coordenadas UTM de España
+  if (x < VALIDATION_LIMITS.UTM_X_MIN || x > VALIDATION_LIMITS.UTM_X_MAX ||
+      y < VALIDATION_LIMITS.UTM_Y_MIN || y > VALIDATION_LIMITS.UTM_Y_MAX) {
+    rejectionTracker.track(REJECTION_REASONS.COORDENADAS_FUERA_RANGO_UTM);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.COORDENADAS_FUERA_RANGO_UTM,
+      datosOriginales: { x, y },
+      limitesValidos: {
+        x: { min: VALIDATION_LIMITS.UTM_X_MIN, max: VALIDATION_LIMITS.UTM_X_MAX },
+        y: { min: VALIDATION_LIMITS.UTM_Y_MIN, max: VALIDATION_LIMITS.UTM_Y_MAX }
+      }
+    }, 'Coordenadas fuera de rango UTM - se asigna null');
+    return null;
+  }
+
+  return { x, y };
 }
 
 /**
  * Parsear fecha del formato DD/MM/YYYY
+ * @param {string} fechaStr - Fecha en formato string
+ * @param {number} rowIndex - Índice de fila para logging
+ * @returns {Date} - Objeto Date
+ * @throws {Error} - Si la fecha es inválida
  */
-function parseDate(fechaStr) {
-  try {
-    if (!fechaStr || fechaStr.trim() === '') {
-      throw new Error('Fecha vacía');
-    }
-
-    const parts = fechaStr.trim().split('/');
-    if (parts.length !== 3) {
-      throw new Error(`Formato de fecha inválido: ${fechaStr}`);
-    }
-
-    const [day, month, year] = parts.map(p => parseInt(p));
-
-    if (isNaN(day) || isNaN(month) || isNaN(year)) {
-      throw new Error(`Componentes de fecha inválidos: ${fechaStr}`);
-    }
-
-    if (day < 1 || day > 31 || month < 1 || month > 12 || year < 2000 || year > 3000) {
-      throw new Error(`Fecha fuera de rango: ${fechaStr}`);
-    }
-
-    const date = new Date(year, month - 1, day); // month es 0-based en Date
-
-    if (isNaN(date.getTime())) {
-      throw new Error(`Fecha inválida: ${fechaStr}`);
-    }
-
-    return date;
-
-  } catch (error) {
-    throw new Error(`Error parseando fecha "${fechaStr}": ${error.message}`);
+function parseDate(fechaStr, rowIndex) {
+  if (!fechaStr || fechaStr.trim() === '') {
+    rejectionTracker.track(REJECTION_REASONS.FECHA_FALTANTE);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.FECHA_FALTANTE,
+      datosOriginales: { fecha: fechaStr }
+    }, 'Fila rechazada: fecha vacia');
+    throw new Error(REJECTION_REASONS.FECHA_FALTANTE);
   }
+
+  const parts = fechaStr.trim().split('/');
+  if (parts.length !== 3) {
+    rejectionTracker.track(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.FECHA_FORMATO_INVALIDO,
+      datosOriginales: { fecha: fechaStr, formatoEsperado: 'DD/MM/YYYY' }
+    }, 'Fila rechazada: formato de fecha invalido');
+    throw new Error(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
+  }
+
+  const [day, month, year] = parts.map(p => parseInt(p));
+
+  if (isNaN(day) || isNaN(month) || isNaN(year)) {
+    rejectionTracker.track(REJECTION_REASONS.FECHA_COMPONENTES_INVALIDOS);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.FECHA_COMPONENTES_INVALIDOS,
+      datosOriginales: { fecha: fechaStr, dia: day, mes: month, año: year }
+    }, 'Fila rechazada: componentes de fecha no numericos');
+    throw new Error(REJECTION_REASONS.FECHA_COMPONENTES_INVALIDOS);
+  }
+
+  if (day < VALIDATION_LIMITS.DAY_MIN || day > VALIDATION_LIMITS.DAY_MAX ||
+      month < VALIDATION_LIMITS.MONTH_MIN || month > VALIDATION_LIMITS.MONTH_MAX ||
+      year < VALIDATION_LIMITS.YEAR_MIN || year > VALIDATION_LIMITS.YEAR_MAX) {
+    rejectionTracker.track(REJECTION_REASONS.FECHA_FUERA_RANGO);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.FECHA_FUERA_RANGO,
+      datosOriginales: { fecha: fechaStr, dia: day, mes: month, año: year }
+    }, 'Fila rechazada: fecha fuera de rango');
+    throw new Error(REJECTION_REASONS.FECHA_FUERA_RANGO);
+  }
+
+  const date = new Date(year, month - 1, day);
+
+  if (isNaN(date.getTime())) {
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.FECHA_FORMATO_INVALIDO,
+      datosOriginales: { fecha: fechaStr }
+    }, 'Fila rechazada: fecha invalida');
+    throw new Error(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
+  }
+
+  return date;
 }
+
+// ============================================================================
+// VALIDACIÓN Y TRANSFORMACIÓN
+// ============================================================================
 
 /**
  * Validar y transformar una fila de datos de accidente
+ * @param {Object} row - Fila del CSV
+ * @param {number} rowIndex - Índice de fila
+ * @returns {Object} - Datos transformados para insertar
+ * @throws {Error} - Si los datos son inválidos
  */
 function validateAndTransformRow(row, rowIndex) {
-  try {
-    // Acceder a los campos por índice
-    // 0: num_expediente, 1: fecha, 2: hora, 3: localizacion, 4: numero
-    // 5: cod_distrito, 6: distrito, 7: tipo_accidente, 8: estado_meteorológico, 9: tipo_vehiculo
-    // 10: tipo_persona, 11: rango_edad, 12: sexo, 13: cod_lesividad, 14: lesividad
-    // 15: coordenada_x_utm, 16: coordenada_y_utm, 17: positiva_alcohol, 18: positiva_droga
+  // Campos por índice del CSV:
+  // 0: num_expediente, 1: fecha, 2: hora, 3: localizacion, 4: numero
+  // 5: cod_distrito, 6: distrito, 7: tipo_accidente, 8: estado_meteorológico, 9: tipo_vehiculo
+  // 10: tipo_persona, 11: rango_edad, 12: sexo, 13: cod_lesividad, 14: lesividad
+  // 15: coordenada_x_utm, 16: coordenada_y_utm, 17: positiva_alcohol, 18: positiva_droga
 
-    const numeroExpediente = row['0']?.toString().trim();
-    if (!numeroExpediente || !/^\d{4}S\d{6}$/.test(numeroExpediente)) {
-      throw new Error(`Número de expediente inválido: ${numeroExpediente}`);
-    }
-
-    // Parsear fecha
-    const fechaStr = row['1']?.toString().trim();
-    const fecha = parseDate(fechaStr);
-
-    // Parsear hora
-    const hora = row['2']?.toString().trim();
-    if (!hora || !/^\d{1,2}:\d{2}:\d{2}$/.test(hora)) {
-      throw new Error(`Formato de hora inválido: ${hora}`);
-    }
-
-    // Datos de ubicación
-    const calle = row['3']?.toString().trim();
-    if (!calle) {
-      throw new Error('Localización faltante');
-    }
-
-    const numero = row['4']?.toString().trim() || null;
-    const codigoDistrito = row['5']?.toString().trim();
-    const nombreDistrito = row['6']?.toString().trim().toUpperCase();
-
-    if (!codigoDistrito || !nombreDistrito) {
-      throw new Error('Datos de distrito incompletos');
-    }
-
-    // Parsear coordenadas
-    const coordenadas = parseCoordinates(row['15'], row['16']);
-
-    // Datos del accidente
-    const tipoAccidenteOriginal = row['7']?.toString().trim();
-    const tipoAccidente = normalizeAccidentType(tipoAccidenteOriginal);
-
-    const estadoMeteorologico = normalizeWeatherState(row['8']?.toString().trim());
-
-    // Datos del vehículo
-    const tipoVehiculoOriginal = row['9']?.toString().trim();
-    const tipoVehiculo = normalizeVehicleType(tipoVehiculoOriginal);
-
-    // Datos de la persona afectada
-    const tipoPersona = normalizePersonType(row['10']?.toString().trim());
-    const rangoEdad = row['11']?.toString().trim() || 'Desconocido';
-    const sexoRaw = row['12']?.toString().trim().toUpperCase();
-    const sexo = (sexoRaw === 'MUJER') ? 'MUJER' : (sexoRaw === 'HOMBRE') ? 'HOMBRE' : 'DESCONOCIDO';
-
-    // Datos de lesividad
-    const codigoLesividad = row['13']?.toString().trim();
-    const lesividad = row['14']?.toString().trim();
-
-    // Mapear tipo de lesión basado en código o descripción
-    let tipoLesion = 'DESCONOCIDO';
-    if (codigoLesividad && codigoLesividad !== 'NULL') {
-      const codigoMap = {
-        '01': 'LEVE', '02': 'LEVE', '05': 'LEVE', '06': 'LEVE', '07': 'LEVE',
-        '03': 'GRAVE',
-        '04': 'FALLECIDO',
-        '14': 'SIN_ASISTENCIA',
-        '77': 'DESCONOCIDO'
-      };
-      tipoLesion = codigoMap[codigoLesividad] || 'DESCONOCIDO';
-    } else if (lesividad && lesividad !== 'NULL') {
-      if (lesividad.toLowerCase().includes('fallec')) {tipoLesion = 'FALLECIDO';}
-      else if (lesividad.toLowerCase().includes('grave')) {tipoLesion = 'GRAVE';}
-      else if (lesividad.toLowerCase().includes('leve')) {tipoLesion = 'LEVE';}
-    }
-
-    // Datos de sustancias
-    const alcoholRaw = row['17']?.toString().trim().toUpperCase();
-    const positivaAlcohol = (alcoholRaw === 'S') ? 'S' : (alcoholRaw === 'N') ? 'N' : 'NULL';
-
-    const drogaRaw = row['18']?.toString().trim().toUpperCase();
-    const positivaDroga = (drogaRaw === 'S') ? 'S' : (drogaRaw === 'N') ? 'N' : 'NULL';
-
-    // Construir objeto de accidente
-    const accidentData = {
-      numeroExpediente,
-      fecha,
-      hora,
-
-      ubicacion: {
-        calle,
-        numero,
-        codigoDistrito,
-        nombreDistrito,
-        coordenadas
-      },
-
-      circunstancias: {
-        tipoAccidenteOriginal,
-        tipoAccidente,
-        estadoMeteorologico
-      },
-
-      vehiculo: {
-        tipoVehiculoOriginal,
-        tipo: tipoVehiculo
-      },
-
-      personaAfectada: {
-        tipoPersona,
-        rangoEdad,
-        sexo,
-        codigoLesividad,
-        tipoLesion,
-        positivaAlcohol,
-        positivaDroga
-      },
-
-      procesamiento: {
-        archivoOrigen: 'Anthem_CTC_Accidentalidad.csv',
-        importadoEn: new Date()
-      }
-    };
-
-    return accidentData;
-
-  } catch (error) {
-    throw new Error(`Fila ${rowIndex}: ${error.message}`);
+  const numeroExpediente = row['0']?.toString().trim();
+  if (!numeroExpediente) {
+    rejectionTracker.track(REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE,
+      datosOriginales: { numeroExpediente: row['0'] }
+    }, 'Fila rechazada: numero de expediente faltante');
+    throw new Error(REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE);
   }
+
+  if (!/^\d{4}S\d{6}$/.test(numeroExpediente)) {
+    rejectionTracker.track(REJECTION_REASONS.NUMERO_EXPEDIENTE_FORMATO_INVALIDO);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.NUMERO_EXPEDIENTE_FORMATO_INVALIDO,
+      datosOriginales: { numeroExpediente, formatoEsperado: 'YYYYSNNNNNN' }
+    }, 'Fila rechazada: formato de expediente invalido');
+    throw new Error(REJECTION_REASONS.NUMERO_EXPEDIENTE_FORMATO_INVALIDO);
+  }
+
+  // Parsear fecha
+  const fechaStr = row['1']?.toString().trim();
+  const fecha = parseDate(fechaStr, rowIndex);
+
+  // Parsear hora
+  const hora = row['2']?.toString().trim();
+  if (!hora || !/^\d{1,2}:\d{2}:\d{2}$/.test(hora)) {
+    rejectionTracker.track(REJECTION_REASONS.HORA_FORMATO_INVALIDO);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.HORA_FORMATO_INVALIDO,
+      datosOriginales: { hora, formatoEsperado: 'HH:MM:SS' }
+    }, 'Fila rechazada: formato de hora invalido');
+    throw new Error(REJECTION_REASONS.HORA_FORMATO_INVALIDO);
+  }
+
+  // Datos de ubicación
+  const calle = row['3']?.toString().trim();
+  if (!calle) {
+    rejectionTracker.track(REJECTION_REASONS.LOCALIZACION_FALTANTE);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.LOCALIZACION_FALTANTE,
+      datosOriginales: { localizacion: row['3'] }
+    }, 'Fila rechazada: localizacion faltante');
+    throw new Error(REJECTION_REASONS.LOCALIZACION_FALTANTE);
+  }
+
+  const numero = row['4']?.toString().trim() || null;
+  const codigoDistrito = row['5']?.toString().trim();
+  const nombreDistrito = row['6']?.toString().trim().toUpperCase();
+
+  if (!codigoDistrito || !nombreDistrito) {
+    rejectionTracker.track(REJECTION_REASONS.DISTRITO_INCOMPLETO);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.DISTRITO_INCOMPLETO,
+      datosOriginales: { codigoDistrito, nombreDistrito }
+    }, 'Fila rechazada: datos de distrito incompletos');
+    throw new Error(REJECTION_REASONS.DISTRITO_INCOMPLETO);
+  }
+
+  // Parsear coordenadas (no críticas, pueden ser null)
+  const coordenadas = parseCoordinates(row['15'], row['16'], rowIndex);
+
+  // Datos del accidente
+  const tipoAccidenteOriginal = row['7']?.toString().trim();
+  const tipoAccidente = normalizeAccidentType(tipoAccidenteOriginal);
+  const estadoMeteorologico = normalizeWeatherState(row['8']?.toString().trim());
+
+  // Datos del vehículo
+  const tipoVehiculoOriginal = row['9']?.toString().trim();
+  const tipoVehiculo = normalizeVehicleType(tipoVehiculoOriginal);
+
+  // Datos de la persona afectada
+  const tipoPersona = normalizePersonType(row['10']?.toString().trim());
+  const rangoEdad = row['11']?.toString().trim() || 'Desconocido';
+  const sexoRaw = row['12']?.toString().trim().toUpperCase();
+  const sexo = (sexoRaw === 'MUJER') ? GENDERS.MUJER :
+    (sexoRaw === 'HOMBRE') ? GENDERS.HOMBRE : GENDERS.DESCONOCIDO;
+
+  // Datos de lesividad
+  const codigoLesividad = row['13']?.toString().trim();
+  const lesividad = row['14']?.toString().trim();
+
+  // Mapear tipo de lesion basado en codigo o descripcion (usando constantes centralizadas)
+  let tipoLesion = INJURY_TYPES.SE_DESCONOCE;
+  if (codigoLesividad && codigoLesividad !== 'NULL') {
+    const codigoMap = {
+      '01': INJURY_TYPES.ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD,
+      '02': INJURY_TYPES.ASISTENCIA_SANITARIA_INMEDIATA_EN_CENTRO_DE_SALUD_O_MUTUA,
+      '05': INJURY_TYPES.ATENCIÓN_EN_URGENCIAS_SIN_POSTERIOR_INGRESO,
+      '06': INJURY_TYPES.INGRESO_INFERIOR_O_IGUAL_A_24_HORAS,
+      '07': INJURY_TYPES.ASISTENCIA_SANITARIA_SÓLO_EN_EL_LUGAR_DEL_ACCIDENTE,
+      '03': INJURY_TYPES.INGRESO_SUPERIOR_A_24_HORAS,
+      '04': INJURY_TYPES.FALLECIDO_24_HORAS,
+      '14': INJURY_TYPES.SIN_ASISTENCIA_SANITARIA,
+      '77': INJURY_TYPES.SE_DESCONOCE
+    };
+    tipoLesion = codigoMap[codigoLesividad] || INJURY_TYPES.SE_DESCONOCE;
+  } else if (lesividad && lesividad !== 'NULL') {
+    if (lesividad.toLowerCase().includes('fallec')) {
+      tipoLesion = INJURY_TYPES.FALLECIDO_24_HORAS;
+    } else if (lesividad.toLowerCase().includes('grave') || lesividad.toLowerCase().includes('ingreso')) {
+      tipoLesion = INJURY_TYPES.INGRESO_SUPERIOR_A_24_HORAS;
+    } else if (lesividad.toLowerCase().includes('leve') || lesividad.toLowerCase().includes('ambulat')) {
+      tipoLesion = INJURY_TYPES.ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD;
+    }
+  }
+
+  // Datos de sustancias
+  const alcoholRaw = row['17']?.toString().trim().toUpperCase();
+  const positivaAlcohol = (alcoholRaw === 'S') ? BINARY_INDICATORS.YES :
+    (alcoholRaw === 'N') ? BINARY_INDICATORS.NO : BINARY_INDICATORS.NULL;
+
+  const drogaRaw = row['18']?.toString().trim().toUpperCase();
+  const positivaDroga = (drogaRaw === 'S' || drogaRaw === '1') ? BINARY_INDICATORS.YES :
+    (drogaRaw === 'N' || drogaRaw === '0') ? BINARY_INDICATORS.NO : BINARY_INDICATORS.NULL;
+
+  // Construir objeto de accidente
+  return {
+    numeroExpediente,
+    fecha,
+    hora,
+
+    ubicacion: {
+      calle,
+      numero,
+      codigoDistrito,
+      nombreDistrito,
+      coordenadas
+    },
+
+    circunstancias: {
+      tipoAccidenteOriginal,
+      tipoAccidente,
+      estadoMeteorologico
+    },
+
+    vehiculo: {
+      tipoVehiculoOriginal,
+      tipo: tipoVehiculo
+    },
+
+    personaAfectada: {
+      tipoPersona,
+      rangoEdad,
+      sexo,
+      codigoLesividad,
+      tipoLesion,
+      positivaAlcohol,
+      positivaDroga
+    },
+
+    procesamiento: {
+      archivoOrigen: 'Anthem_CTC_Accidentalidad.csv',
+      importadoEn: new Date()
+    }
+  };
 }
 
-/**
- * Procesar el archivo CSV de accidentes
- */
-async function processAccidentFile() {
-  return new Promise((resolve, reject) => {
-    const batch = [];
-    const errors = [];
-    let rowCount = 0;
-    let processedCount = 0;
-
-    console.log(`Procesando archivo: ${path.basename(DATA_FILE)}`);
-
-    const stream = createReadStream(DATA_FILE, { encoding: 'utf8' })
-      .pipe(csv({
-        separator: ';',
-        skipEmptyLines: true,
-        headers: false, // No usar header automático
-        strict: false,
-        quote: '"',
-        escape: '"'
-      }))
-      .on('data', (row) => {
-        rowCount++;
-        totalProcessed++;
-
-        // Saltar la primera fila (header)
-        if (rowCount === 1) {
-          return;
-        }
-
-        try {
-          // Validar y transformar datos
-          const accidentData = validateAndTransformRow(row, rowCount);
-
-          batch.push(accidentData);
-          processedCount++;
-
-          // Procesar lote cuando alcance el tamaño configurado
-          if (batch.length >= BATCH_SIZE) {
-            stream.pause(); // Pausar lectura mientras procesamos
-            processBatch(batch.splice(0))
-              .then(() => stream.resume())
-              .catch((error) => {
-                errors.push(`Error en lote: ${error.message}`);
-                stream.resume();
-              });
-          }
-
-          // Mostrar progreso cada 100.000 registros
-          if (processedCount % 100000 === 0) {
-            console.log(`📊 Procesadas ${processedCount.toLocaleString()} filas...`);
-          }
-
-        } catch (error) {
-          errors.push(error.message);
-          totalErrors++;
-
-          // Mostrar algunos errores como ejemplo
-          if (errors.length <= 10) {
-            console.log('Error de validación:', error.message);
-          }
-
-          // Abortar si hay demasiados errores
-          if (errors.length > 100) {
-            stream.destroy();
-            return reject(new Error(`Demasiados errores (${errors.length}). Proceso abortado.`));
-          }
-        }
-      })
-      .on('end', async () => {
-        try {
-          // Procesar lote final
-          if (batch.length > 0) {
-            await processBatch(batch);
-          }
-
-          console.log(`\n✓ Archivo completado:`);
-          console.log(`  Filas leídas: ${rowCount.toLocaleString()}`);
-          console.log(`  Registros procesados: ${processedCount.toLocaleString()}`);
-          console.log(`  Errores encontrados: ${errors.length}`);
-
-          if (errors.length > 0 && errors.length <= 20) {
-            console.log('\nPrimeros errores encontrados:');
-            errors.slice(0, 20).forEach((error, index) => {
-              console.log(`  ${index + 1}. ${error}`);
-            });
-          }
-
-          resolve({
-            totalRows: rowCount,
-            processed: processedCount,
-            errors: errors.length
-          });
-
-        } catch (error) {
-          reject(error);
-        }
-      })
-      .on('error', (error) => {
-        reject(new Error(`Error leyendo archivo: ${error.message}`));
-      });
-  });
-}
+// ============================================================================
+// PROCESAMIENTO
+// ============================================================================
 
 /**
  * Procesar un lote de datos de accidentes
+ * @param {Array} batch - Lote de datos de accidentes
+ * @returns {Promise<Object>} - Resultados del procesamiento
  */
 async function processBatch(batch) {
+  if (batch.length === 0) {
+    return { nuevos: 0, actualizados: 0, errores: 0 };
+  }
+
   try {
     const bulkOps = batch.map(accidentData => ({
       updateOne: {
@@ -506,22 +586,145 @@ async function processBatch(batch) {
 
     const result = await Accident.bulkWrite(bulkOps, { ordered: false });
 
-    const newCount = result.upsertedCount || 0;
-    const modifiedCount = result.modifiedCount || 0;
+    const nuevos = result.upsertedCount || 0;
+    const actualizados = result.modifiedCount || 0;
 
-    totalInserted += newCount;
-    totalSkipped += modifiedCount;
+    totalInserted += nuevos;
+    totalUpdated += actualizados;
 
-    console.log(`   ✅ Lote: ${newCount} nuevos, ${modifiedCount} actualizados`);
+    if (nuevos > 0 || actualizados > 0) {
+      importLogger.debug({
+        lote: { nuevos, actualizados, total: batch.length }
+      }, 'Lote procesado correctamente');
+    }
+
+    return { nuevos, actualizados, errores: 0 };
 
   } catch (error) {
+    const mongoError = handleMongoError(error);
     totalErrors += batch.length;
-    console.log(`   ❌ Error insertando lote: ${error.message}`);
+
+    importLogger.error({
+      error: mongoError.message,
+      tipo: mongoError.type,
+      loteSize: batch.length
+    }, 'Error procesando lote de accidentes');
+
+    return { nuevos: 0, actualizados: 0, errores: batch.length };
   }
 }
 
 /**
- * Verificar que el archivo existe
+ * Procesar el archivo CSV de accidentes
+ * @returns {Promise<Object>} - Estadísticas de procesamiento
+ */
+async function processAccidentFile() {
+  return new Promise((resolve, reject) => {
+    const batch = [];
+    let rowCount = 0;
+    let processedCount = 0;
+    let errorCount = 0;
+
+    importLogger.info({
+      archivo: path.basename(DATA_FILE),
+      batchSize: BATCH_SIZE
+    }, 'Iniciando procesamiento de archivo de accidentes');
+
+    const stream = createReadStream(DATA_FILE, { encoding: 'utf8' })
+      .pipe(csv({
+        separator: ';',
+        skipEmptyLines: true,
+        headers: false,
+        strict: false,
+        quote: '"',
+        escape: '"'
+      }))
+      .on('data', (row) => {
+        if (isShuttingDown) {
+          stream.destroy();
+          return;
+        }
+
+        rowCount++;
+        totalProcessed++;
+
+        // Saltar la primera fila (header)
+        if (rowCount === 1) {
+          return;
+        }
+
+        try {
+          const accidentData = validateAndTransformRow(row, rowCount);
+          batch.push(accidentData);
+          processedCount++;
+
+          // Procesar lote cuando alcance el tamaño configurado
+          if (batch.length >= BATCH_SIZE) {
+            stream.pause();
+            processBatch(batch.splice(0))
+              .then(() => {
+                if (!isShuttingDown) {
+                  stream.resume();
+                }
+              })
+              .catch((error) => {
+                importLogger.error({ error: error.message }, 'Error en lote');
+                if (!isShuttingDown) {
+                  stream.resume();
+                }
+              });
+          }
+
+          // Mostrar progreso
+          if (processedCount % LOG_INTERVAL === 0) {
+            importLogger.info({
+              procesadas: processedCount.toLocaleString(),
+              errores: errorCount,
+              insertadas: totalInserted,
+              actualizadas: totalUpdated
+            }, 'Progreso de importacion');
+          }
+
+        } catch (_error) {
+          errorCount++;
+          totalRejected++;
+          // El error ya fue loggeado en validateAndTransformRow o parseDate
+        }
+      })
+      .on('end', async () => {
+        try {
+          // Procesar lote final
+          if (batch.length > 0 && !isShuttingDown) {
+            await processBatch(batch);
+          }
+
+          importLogger.info({
+            archivo: path.basename(DATA_FILE),
+            filasLeidas: rowCount.toLocaleString(),
+            registrosProcesados: processedCount.toLocaleString(),
+            errores: errorCount
+          }, 'Archivo completado');
+
+          resolve({
+            totalRows: rowCount,
+            processed: processedCount,
+            errors: errorCount
+          });
+
+        } catch (error) {
+          reject(error);
+        }
+      })
+      .on('error', (error) => {
+        importLogger.error({ error: error.message }, 'Error leyendo archivo CSV');
+        reject(new Error(`Error leyendo archivo: ${error.message}`));
+      });
+  });
+}
+
+/**
+ * Verificar que el archivo de datos existe
+ * @returns {Promise<boolean>}
  */
 async function checkDataFile() {
   try {
@@ -534,88 +737,152 @@ async function checkDataFile() {
 
 /**
  * Mostrar resumen final
+ * @param {number} startTime - Tiempo de inicio en ms
  */
-function showSummary(startTime, _result) {
+function showSummary(startTime) {
   const endTime = Date.now();
-  const duration = ((endTime - startTime) / 1000).toFixed(2);
+  const durationMs = endTime - startTime;
 
-  console.log('\n' + '='.repeat(60));
-  console.log('RESUMEN DE IMPORTACIÓN DE ACCIDENTALIDAD');
-  console.log('='.repeat(60));
-  console.log(`Tiempo total: ${duration} segundos`);
-  console.log(`Registros procesados: ${totalProcessed.toLocaleString()}`);
-  console.log(`Registros insertados: ${totalInserted.toLocaleString()}`);
-  console.log(`Registros duplicados: ${totalSkipped.toLocaleString()}`);
-  console.log(`Errores encontrados: ${totalErrors.toLocaleString()}`);
+  importLogger.info({
+    resumen: {
+      duracion: formatDuration(durationMs),
+      velocidad: calculateProcessingSpeed(totalProcessed, durationMs),
+      registrosProcesados: totalProcessed.toLocaleString(),
+      registrosInsertados: totalInserted.toLocaleString(),
+      registrosActualizados: totalUpdated.toLocaleString(),
+      registrosRechazados: totalRejected.toLocaleString(),
+      errores: totalErrors.toLocaleString(),
+      tasaExito: totalProcessed > 0 ?
+        `${((totalInserted + totalUpdated) / totalProcessed * 100).toFixed(2)}%` : '0%'
+    }
+  }, 'Importacion de accidentes completada');
 
-  if (totalProcessed > 0) {
-    console.log(`Tasa de éxito: ${((totalInserted / totalProcessed) * 100).toFixed(2)}%`);
-    console.log(`Velocidad: ${(totalProcessed / parseFloat(duration)).toFixed(0)} registros/seg`);
-  }
-
-  console.log('='.repeat(60));
-
-  // Información adicional
-  if (totalInserted > 0) {
-    console.log('\n📊 Para verificar los datos importados, puede ejecutar:');
-    console.log('  - Total accidentes: db.accidents.countDocuments()');
-    console.log('  - Por distrito: db.accidents.aggregate([{$group:{_id:"$ubicacion.nombreDistrito", total:{$sum:1}}}, {$sort:{total:-1}}])');
-    console.log('  - Por gravedad: db.accidents.aggregate([{$group:{_id:"$circunstancias.gravedad", total:{$sum:1}}}])');
+  // Resumen de rechazos por tipo
+  const rejectionSummary = rejectionTracker.getSortedSummary();
+  if (rejectionSummary.length > 0) {
+    importLogger.info({
+      totalRechazos: rejectionTracker.totalRejected,
+      desglose: rejectionSummary
+    }, 'Resumen de rechazos por tipo');
   }
 }
 
+// ============================================================================
+// FUNCIÓN PRINCIPAL
+// ============================================================================
+
 /**
- * Función principal
+ * Función principal del script
  */
 async function main() {
   const startTime = Date.now();
 
+  importLogger.info('Iniciando importacion de datos de accidentalidad');
+
   try {
-    console.log('🚨 Iniciando importación de accidentalidad...');
-
+    // Verificar archivo de datos
     await checkDataFile();
+    importLogger.info({ archivo: DATA_FILE }, 'Archivo de datos verificado');
 
-    if (!await connectDatabase()) {
-      process.exit(1);
-    }
+    // Conectar a MongoDB
+    importLogger.info('Conectando a MongoDB...');
+    await connectDB();
+    importLogger.info('Conexion a MongoDB establecida');
 
-    const result = await processAccidentFile();
-    showSummary(startTime, result);
+    // Verificar modelo
+    const countAntes = await Accident.countDocuments().maxTimeMS(10000);
+    importLogger.info({
+      registrosExistentes: countAntes.toLocaleString()
+    }, 'Modelo de accidentes verificado');
+
+    // Procesar archivo
+    await processAccidentFile();
+
+    // Mostrar resumen
+    showSummary(startTime);
+
+    // Contar registros finales
+    const countDespues = await Accident.countDocuments().maxTimeMS(10000);
+    importLogger.info({
+      registrosFinales: countDespues.toLocaleString(),
+      incremento: (countDespues - countAntes).toLocaleString()
+    }, 'Estadisticas finales de la base de datos');
 
   } catch (error) {
-    console.error('❌ Error crítico:', error.message);
+    importLogger.error({
+      error: error.message,
+      stack: error.stack
+    }, 'Error critico durante la importacion');
     process.exit(1);
+
   } finally {
-    // Cerrar conexión de forma segura
+    // Cerrar conexión
     if (mongoose.connection.readyState === 1) {
       try {
         await mongoose.connection.close();
-        console.log('✅ Conexión a base de datos cerrada');
+        importLogger.info('Conexion a MongoDB cerrada');
       } catch (error) {
-        console.error('⚠️  Error cerrando conexión:', error.message);
+        importLogger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
   }
 }
 
-// Manejo de señales del sistema
-process.on('SIGINT', async () => {
-  console.log('\n\n🛑 Interrupción recibida. Cerrando conexiones...');
-  if (mongoose.connection.readyState === 1) {
-    await mongoose.connection.close();
+// ============================================================================
+// MANEJO DE SEÑALES
+// ============================================================================
+
+/**
+ * Manejador de señales de terminación
+ * @param {string} signal - Señal recibida
+ */
+async function handleShutdown(signal) {
+  if (isShuttingDown) {
+    return;
   }
+  isShuttingDown = true;
+
+  importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando...');
+
+  if (mongoose.connection.readyState === 1) {
+    try {
+      await mongoose.connection.close();
+      importLogger.info('Conexion cerrada por senal de terminacion');
+    } catch (error) {
+      importLogger.error({ error: error.message }, 'Error cerrando conexion');
+    }
+  }
+
   process.exit(0);
-});
+}
+
+process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
-  console.error('Error no capturado:', error);
-  console.error('Error no capturado:', error.message);
+  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
-// Ejecutar script si es llamado directamente
+process.on('unhandledRejection', (reason, promise) => {
+  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  process.exit(1);
+});
+
+// ============================================================================
+// EJECUCIÓN
+// ============================================================================
+
 if (require.main === module) {
-  main().catch(console.error);
+  main().catch(error => {
+    importLogger.fatal({ error: error.message }, 'Error fatal ejecutando script');
+    process.exit(1);
+  });
 }
 
-module.exports = { main, processAccidentFile, validateAndTransformRow };
+module.exports = {
+  main,
+  processAccidentFile,
+  validateAndTransformRow,
+  REJECTION_REASONS
+};
