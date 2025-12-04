@@ -268,7 +268,8 @@ const trafficSchema = new mongoose.Schema({
 
 }, {
   timestamps: true,
-  versionKey: false
+  versionKey: false,
+  collection: 'traffic_measurements'
 });
 
 /**

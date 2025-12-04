@@ -140,7 +140,8 @@ const airQualitySchema = new mongoose.Schema({
 
 }, {
   timestamps: true,
-  versionKey: false
+  versionKey: false,
+  collection: 'air_quality'
 });
 
 /**

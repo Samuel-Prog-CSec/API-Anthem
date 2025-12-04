@@ -279,8 +279,8 @@ userSchema.statics.findByEmailOrUsername = function (identifier) {
 // Soporta: Búsquedas por email, username, o ambos
 // Usado en: authController.js:54,141 - findByEmailOrUsername()
 // Usado en: authController.js:299,309 - Verificaciones de unicidad
-// ✅ Leftmost prefix permite queries solo con email
-// ✅ Unique constraint ya garantizado a nivel de campo
+// Leftmost prefix permite queries solo con email
+// Unique constraint ya garantizado a nivel de campo
 userSchema.index(
   { email: 1, username: 1 },
   {
@@ -313,7 +313,7 @@ userSchema.index(
   {
     name: 'idx_user_last_login',
     background: true,
-    sparse: true, // ✅ SPARSE: lastLogin puede ser null para usuarios que nunca han iniciado sesión
+    sparse: true, // SPARSE: lastLogin puede ser null para usuarios que nunca han iniciado sesión
   }
 );
 

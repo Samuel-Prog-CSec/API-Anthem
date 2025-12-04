@@ -48,7 +48,8 @@ const tokenBlacklistSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true,
-  versionKey: false
+  versionKey: false,
+  collection: 'token_blacklist'
 });
 
 /**

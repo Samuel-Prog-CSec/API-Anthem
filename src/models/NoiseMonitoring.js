@@ -215,7 +215,8 @@ const noiseMonitoringSchema = new mongoose.Schema({
 
 }, {
   timestamps: true,
-  versionKey: false
+  versionKey: false,
+  collection: 'noise_monitoring'
 });
 
 /**

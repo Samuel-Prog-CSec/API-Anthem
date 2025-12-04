@@ -233,7 +233,8 @@ const scooterAssignmentSchema = new mongoose.Schema({
 
 }, {
   timestamps: true,
-  versionKey: false
+  versionKey: false,
+  collection: 'scooter_assignments'
 });
 
 /**
