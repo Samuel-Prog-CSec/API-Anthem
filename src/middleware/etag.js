@@ -15,6 +15,7 @@
  * @see https://developer.mozilla.org/es/docs/Web/HTTP/Status/304
  */
 
+const { HTTP_STATUS } = require('../constants');
 const crypto = require('crypto');
 const logger = require('../config/logger');
 const { cacheLogger } = logger;
@@ -97,7 +98,7 @@ const etagMiddleware = (req, res, next) => {
       res.set('X-Cache-Validation', 'HIT');
 
       // Enviar 304 sin contenido
-      return res.status(304).end();
+      return res.status(HTTP_STATUS.NOT_MODIFIED).end();
     }
 
     // ETags NO coinciden o cliente no envió ETag: enviar contenido completo

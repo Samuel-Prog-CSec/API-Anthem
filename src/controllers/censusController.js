@@ -5,13 +5,12 @@
  * Incluye análisis poblacional, distribución geográfica, pirámides poblacionales
  */
 
-const { validationResult } = require('express-validator');
 const Census = require('../models/Census');
-const { createValidationError, createInternalError } = require('../utils/errorUtils');
+const { createInternalError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildSortOptions, buildPaginationOptions, buildFilters } = require('../utils/queryHelper');
+const { buildSortOptions, buildPaginationOptions, buildFilters, TRANSFORMS, parseNumericParams, buildResponseMetadata } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS, CENSUS_DEFAULTS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -20,22 +19,16 @@ const logger = require('../config/logger');
  */
 const getCensusData = async (req, res, next) => {
   try {
-    // Verificar errores de validación
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const {
       distrito,
       barrio,
       grupoEdad,
       soloProductivos,
       soloTerceraEdad,
-      page = 1,
-      limit = 50,
-      sortBy = 'totalPoblacion',
-      sortOrder = 'desc',
+      page = PAGINATION.DEFAULT_PAGE,
+      limit = PAGINATION.DEFAULT_LIMIT,
+      sortBy = SORT_FIELDS.CENSUS.DEFAULT_SORT_BY,
+      sortOrder = SORT_FIELDS.DEFAULT_SORT_ORDER,
       includeEstadisticas = true
     } = req.query;
 
@@ -44,22 +37,16 @@ const getCensusData = async (req, res, next) => {
       { field: 'fechaCenso', type: 'dateRange', params: ['startDate', 'endDate'] }
     ]);
 
-    // Filtros geográficos
+    // Filtros geográficos usando TRANSFORMS
     const filters = { ...baseFilters };
     if (distrito) {
-      if (Array.isArray(distrito)) {
-        filters['distrito.codigo'] = { $in: distrito.map(d => parseInt(d)) };
-      } else {
-        filters['distrito.codigo'] = parseInt(distrito);
-      }
+      const distritoValues = TRANSFORMS.toIntArray(distrito);
+      filters['distrito.codigo'] = distritoValues.length === 1 ? distritoValues[0] : { $in: distritoValues };
     }
 
     if (barrio) {
-      if (Array.isArray(barrio)) {
-        filters['barrio.codigo'] = { $in: barrio.map(b => parseInt(b)) };
-      } else {
-        filters['barrio.codigo'] = parseInt(barrio);
-      }
+      const barrioValues = TRANSFORMS.toIntArray(barrio);
+      filters['barrio.codigo'] = barrioValues.length === 1 ? barrioValues[0] : { $in: barrioValues };
     }
 
     // Filtros demográficos
@@ -204,15 +191,20 @@ const getCensusData = async (req, res, next) => {
 const getPopulationPyramid = async (req, res, next) => {
   try {
     const {
-      distrito,
-      año = 2051,
       incluirExtranjeros = true
     } = req.query;
 
+    // Parsear parámetros numéricos de una vez
+    const { año, distrito } = parseNumericParams(
+      req.query,
+      ['año', 'distrito'],
+      { año: DATASET_YEARS.DEFAULT_YEAR }
+    );
+
     // Llamar al método optimizado del modelo
     const result = await Census.getOptimizedPopulationPyramid({
-      año: parseInt(año),
-      distrito: distrito ? parseInt(distrito) : null,
+      año,
+      distrito,
       incluirExtranjeros: incluirExtranjeros === 'true'
     });
 
@@ -223,11 +215,11 @@ const getPopulationPyramid = async (req, res, next) => {
         piramideSimplificada: result.piramideSimplificada,
         totales: result.totales
       },
-      configuracion: {
-        distrito: distrito ? parseInt(distrito) : 'TODOS',
-        año: parseInt(año),
+      configuracion: buildResponseMetadata({
+        distrito,
+        año,
         incluirExtranjeros: incluirExtranjeros === 'true'
-      }
+      }, { nullLabel: CENSUS_DEFAULTS.DISTRICT_LABEL })
     };
 
     res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Pirámide poblacional obtenida exitosamente'));
@@ -249,19 +241,22 @@ const getPopulationPyramid = async (req, res, next) => {
  */
 const getDistrictStatistics = async (req, res, next) => {
   try {
-    const {
-      año = 2051,
-      mes,
-      incluirBarrios = false
-    } = req.query;
+    const { incluirBarrios = false } = req.query;
 
-    const matchCondition = { año: parseInt(año) };
-    if (mes) {matchCondition.mes = parseInt(mes);}
+    // Parsear parámetros numéricos de una vez
+    const { año, mes } = parseNumericParams(
+      req.query,
+      ['año', 'mes'],
+      { año: DATASET_YEARS.DEFAULT_YEAR }
+    );
 
-    // Estadísticas por distrito con límite
+    const matchCondition = { año };
+    if (mes) { matchCondition.mes = mes; }
+
+    // Estadísticas por distrito
     const districtStatistics = await Census.aggregate([
       { $match: matchCondition },
-      { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos
+      // NO usar $limit antes de $group - corrompe las estadísticas globales
       {
         $group: {
           _id: {
@@ -340,11 +335,11 @@ const getDistrictStatistics = async (req, res, next) => {
 
     let neighborhoodStatistics = null;
 
-    // Si se solicita información de barrios, obtenerla con límite
+    // Si se solicita información de barrios, obtenerla
     if (incluirBarrios === 'true') {
       neighborhoodStatistics = await Census.aggregate([
         { $match: matchCondition },
-        { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos
+        // NO usar $limit antes de $group - corrompe las estadísticas
         {
           $group: {
             _id: {
@@ -374,20 +369,20 @@ const getDistrictStatistics = async (req, res, next) => {
           }
         },
         { $sort: { poblacionTotal: -1 } },
-        { $limit: AGGREGATION_LIMITS.TOP_RESULTS } // Top 50 barrios
+        { $limit: AGGREGATION_LIMITS.TOP_RESULTS } // Top 50 barrios DESPUÉS de agrupar
       ])
         .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
     }
 
     // Ranking de distritos por diferentes métricas
     const rankings = {
-      masHabitados: districtStatistics.slice(0, 10),
+      masHabitados: districtStatistics.slice(0, AGGREGATION_LIMITS.TOP_RESULTS),
       masDiversos: [...districtStatistics]
         .sort((a, b) => b.porcentajes.extranjeros - a.porcentajes.extranjeros)
-        .slice(0, 10),
+        .slice(0, AGGREGATION_LIMITS.TOP_RESULTS),
       masProductivos: [...districtStatistics]
         .sort((a, b) => b.porcentajes.poblacionProductiva - a.porcentajes.poblacionProductiva)
-        .slice(0, 10)
+        .slice(0, AGGREGATION_LIMITS.TOP_RESULTS)
     };
 
     const responseData = {
@@ -403,11 +398,11 @@ const getDistrictStatistics = async (req, res, next) => {
             Math.round(districtStatistics.reduce((acc, d) => acc + d.poblacion.total, 0) / districtStatistics.length) : 0
         }
       },
-      configuracion: {
-        año: parseInt(año),
-        mes: mes ? parseInt(mes) : null,
+      configuracion: buildResponseMetadata({
+        año,
+        mes,
         incluirBarrios: incluirBarrios === 'true'
-      }
+      })
     };
 
     res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas de distritos obtenidas exitosamente'));
@@ -433,17 +428,18 @@ const getDistrictStatistics = async (req, res, next) => {
  */
 const getDemographicAnalysis = async (req, res, next) => {
   try {
-    const {
-      distrito,
-      año = 2051,
-      mes
-    } = req.query;
+    // Parsear parámetros numéricos de una vez
+    const { año, mes, distrito } = parseNumericParams(
+      req.query,
+      ['año', 'mes', 'distrito'],
+      { año: DATASET_YEARS.DEFAULT_YEAR }
+    );
 
     // Llamar al método optimizado del modelo
     const result = await Census.getOptimizedDemographicAnalysis({
-      año: parseInt(año),
-      mes: mes ? parseInt(mes) : null,
-      distrito: distrito ? parseInt(distrito) : null
+      año,
+      mes,
+      distrito
     });
 
     const responseData = {
@@ -481,19 +477,21 @@ const getDemographicAnalysis = async (req, res, next) => {
  */
 const getDemographicEvolution = async (req, res, next) => {
   try {
-    const {
-      distrito,
-      startYear = 2051,
-      endYear = 2051,
-      metrica = 'poblacionTotal' // poblacionTotal, extranjeros, productiva
-    } = req.query;
+    const { metrica = 'poblacionTotal' } = req.query; // poblacionTotal, extranjeros, productiva
+
+    // Parsear parámetros numéricos de una vez
+    const { distrito, startYear, endYear } = parseNumericParams(
+      req.query,
+      ['distrito', 'startYear', 'endYear'],
+      { startYear: CENSUS_DEFAULTS.START_YEAR, endYear: CENSUS_DEFAULTS.END_YEAR }
+    );
 
     const matchFilters = {
-      año: { $gte: parseInt(startYear), $lte: parseInt(endYear) }
+      año: { $gte: startYear, $lte: endYear }
     };
 
     if (distrito) {
-      matchFilters['distrito.codigo'] = parseInt(distrito);
+      matchFilters['distrito.codigo'] = distrito;
     }
 
     // Configurar métricas según el parámetro
@@ -594,14 +592,11 @@ const getDemographicEvolution = async (req, res, next) => {
           valorMinimo: Math.min(...evolucion.map(e => e.valor))
         }
       },
-      configuracion: {
-        distrito: distrito ? parseInt(distrito) : 'TODOS',
-        periodoAnalisis: {
-          inicio: parseInt(startYear),
-          fin: parseInt(endYear)
-        },
+      configuracion: buildResponseMetadata({
+        distrito,
+        periodoAnalisis: { inicio: startYear, fin: endYear },
         metrica
-      }
+      }, { nullLabel: CENSUS_DEFAULTS.DISTRICT_LABEL })
     };
 
     res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Evolución demográfica obtenida exitosamente'));
@@ -623,13 +618,15 @@ const getDemographicEvolution = async (req, res, next) => {
  */
 const getDemographicDashboard = async (req, res, next) => {
   try {
-    const {
-      año = 2051,
-      distrito
-    } = req.query;
+    // Parsear parámetros numéricos de una vez
+    const { año, distrito } = parseNumericParams(
+      req.query,
+      ['año', 'distrito'],
+      { año: DATASET_YEARS.DEFAULT_YEAR }
+    );
 
-    const matchFilters = { año: parseInt(año) };
-    if (distrito) {matchFilters['distrito.codigo'] = parseInt(distrito);}
+    const matchFilters = { año };
+    if (distrito) { matchFilters['distrito.codigo'] = distrito; }
 
     // Métricas principales
     const [metricas] = await Census.aggregate([
@@ -755,10 +752,10 @@ const getDemographicDashboard = async (req, res, next) => {
           }
         ]
       },
-      configuracion: {
-        año: parseInt(año),
-        distrito: distrito ? parseInt(distrito) : 'TODOS'
-      }
+      configuracion: buildResponseMetadata({
+        año,
+        distrito
+      }, { nullLabel: CENSUS_DEFAULTS.DISTRICT_LABEL })
     };
 
     res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Dashboard demográfico obtenido exitosamente'));

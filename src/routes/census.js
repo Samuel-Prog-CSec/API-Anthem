@@ -87,7 +87,7 @@ const geographicValidation = [
     .optional()
     .custom((value) => {
       const values = Array.isArray(value) ? value : [value];
-      return values.every(v => Number.isInteger(parseInt(v)) && parseInt(v) > 0);
+      return values.every(v => Number.isInteger(parseInt(v, 10)) && parseInt(v, 10) > 0);
     })
     .withMessage('Código de distrito debe ser un número entero positivo'),
 
@@ -95,7 +95,7 @@ const geographicValidation = [
     .optional()
     .custom((value) => {
       const values = Array.isArray(value) ? value : [value];
-      return values.every(v => Number.isInteger(parseInt(v)) && parseInt(v) > 0);
+      return values.every(v => Number.isInteger(parseInt(v, 10)) && parseInt(v, 10) > 0);
     })
     .withMessage('Código de barrio debe ser un número entero positivo')
 ];

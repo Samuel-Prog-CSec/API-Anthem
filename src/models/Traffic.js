@@ -1,14 +1,28 @@
 /**
  * Modelo de Tráfico
  *
- * Esquema de Mongoose para almacenar y gestionar datos de intensidad del tráfico
+ * Esquema de Mon  fecha: {
+    type: Date,
+    required: true,
+    index: true,
+    validate: {
+      validator: validateDatasetDate,
+      message: 'La fecha debe estar dentro del rango del dataset (2050-2052)'
+    }
+  },a almacenar y gestionar datos de intensidad del tráfico
  * provenientes de los sensores distribuidos por la ciudad.
  * Incluye validaciones, índices optimizados para consultas frecuentes,
  * y métodos para análisis de congestión y calidad de datos.
  */
 
 const mongoose = require('mongoose');
-const { validateSpeed, validatePercentage, validateNotFutureDate, validateMonth, validateYear } = require('./schemas/commonSchemas');
+const {
+  validateSpeed,
+  validatePercentage,
+  validateDatasetDate,
+  validateMonth,
+  validateYear
+} = require('./schemas/commonSchemas');
 const {
   CONGESTION_LEVELS,
   DATA_QUALITY_LEVELS,
@@ -16,7 +30,12 @@ const {
   TRAFFIC_INTENSITY_LEVELS,
   TRAFFIC_ERROR_CODES,
   DAY_PERIODS,
-  WORKDAY_TYPES
+  WORKDAY_TYPES,
+  VALIDATION_LIMITS,
+  TRAFFIC_THRESHOLDS,
+  BINARY_INDICATORS,
+  LOCATION_TYPES,
+  MONGODB_TIMEOUTS
 } = require('../constants');
 
 /**
@@ -49,8 +68,8 @@ const trafficSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateNotFutureDate,
-      message: 'La fecha de medición no puede ser futura'
+      validator: validateDatasetDate,
+      message: 'La fecha de medición debe estar dentro del rango del dataset (2050-2052)'
     }
   },
 
@@ -78,23 +97,23 @@ const trafficSchema = new mongoose.Schema({
   dia: {
     type: Number,
     required: true,
-    min: [1, 'Día debe estar entre 1 y 31'],
-    max: [31, 'Día debe estar entre 1 y 31']
+    min: [VALIDATION_LIMITS.DAY_MIN, `Día debe estar entre ${VALIDATION_LIMITS.DAY_MIN} y ${VALIDATION_LIMITS.DAY_MAX}`],
+    max: [VALIDATION_LIMITS.DAY_MAX, `Día debe estar entre ${VALIDATION_LIMITS.DAY_MIN} y ${VALIDATION_LIMITS.DAY_MAX}`]
   },
 
   hora: {
     type: Number,
     required: true,
     index: true,
-    min: [0, 'Hora debe estar entre 0 y 23'],
-    max: [23, 'Hora debe estar entre 0 y 23']
+    min: [VALIDATION_LIMITS.HOUR_MIN, `Hora debe estar entre ${VALIDATION_LIMITS.HOUR_MIN} y ${VALIDATION_LIMITS.HOUR_MAX}`],
+    max: [VALIDATION_LIMITS.HOUR_MAX, `Hora debe estar entre ${VALIDATION_LIMITS.HOUR_MIN} y ${VALIDATION_LIMITS.HOUR_MAX}`]
   },
 
   minutos: {
     type: Number,
     required: true,
-    min: [0, 'Minutos deben estar entre 0 y 59'],
-    max: [59, 'Minutos deben estar entre 0 y 59']
+    min: [VALIDATION_LIMITS.MINUTE_MIN, `Minutos deben estar entre ${VALIDATION_LIMITS.MINUTE_MIN} y ${VALIDATION_LIMITS.MINUTE_MAX}`],
+    max: [VALIDATION_LIMITS.MINUTE_MAX, `Minutos deben estar entre ${VALIDATION_LIMITS.MINUTE_MIN} y ${VALIDATION_LIMITS.MINUTE_MAX}`]
   },
 
   // Clasificación del punto de medida
@@ -116,9 +135,9 @@ const trafficSchema = new mongoose.Schema({
       validate: {
         validator: function(v) {
           // Validación mejorada: límite superior realista (máximo físico ~10000 veh/h por carril)
-          return v >= 0 && v <= 10000;
+          return v >= VALIDATION_LIMITS.TRAFFIC_INTENSITY_MIN && v <= VALIDATION_LIMITS.TRAFFIC_INTENSITY_MAX;
         },
-        message: 'Intensidad debe estar entre 0 y 10000 veh/h (límite físico razonable)'
+        message: `Intensidad debe estar entre ${VALIDATION_LIMITS.TRAFFIC_INTENSITY_MIN} y ${VALIDATION_LIMITS.TRAFFIC_INTENSITY_MAX} veh/h (límite físico razonable)`
       }
     },
 
@@ -175,7 +194,7 @@ const trafficSchema = new mongoose.Schema({
       type: String,
       required: true,
       enum: TRAFFIC_ERROR_CODES,
-      default: 'N'
+      default: BINARY_INDICATORS.NO
     },
 
     // Número de muestras integradas
@@ -249,7 +268,8 @@ const trafficSchema = new mongoose.Schema({
 
 }, {
   timestamps: true,
-  versionKey: false
+  versionKey: false,
+  collection: 'traffic_measurements'
 });
 
 /**
@@ -312,7 +332,7 @@ trafficSchema.index({ 'metricas.velocidadMedia': -1, fecha: -1 }, {
   sparse: true, // SPARSE: Solo indexa docs con velocidadMedia != null
   partialFilterExpression: {
     'metricas.velocidadMedia': { $ne: null },
-    tipoElemento: 'M-30' // Solo M-30 tiene velocidad
+    tipoElemento: TRAFFIC_ELEMENT_TYPES.M30 // Solo M30 tiene velocidad
   }
 });
 
@@ -382,11 +402,11 @@ trafficSchema.methods.calculateCongestionLevel = function() {
   }
 
   // Clasificación basada en ocupación y carga
-  if (ocupacion >= 80 || carga >= 90) {
+  if (ocupacion >= TRAFFIC_THRESHOLDS.CONGESTION_CRITICAL_OCCUPANCY || carga >= TRAFFIC_THRESHOLDS.CONGESTION_CRITICAL_LOAD) {
     this.analisis.nivelCongestion = CONGESTION_LEVELS.COLAPSADO;
-  } else if (ocupacion >= 60 || carga >= 70) {
+  } else if (ocupacion >= TRAFFIC_THRESHOLDS.CONGESTION_HIGH_OCCUPANCY || carga >= TRAFFIC_THRESHOLDS.CONGESTION_HIGH_LOAD) {
     this.analisis.nivelCongestion = CONGESTION_LEVELS.CONGESTIONADO;
-  } else if (ocupacion >= 40 || carga >= 50) {
+  } else if (ocupacion >= TRAFFIC_THRESHOLDS.CONGESTION_MEDIUM_OCCUPANCY || carga >= TRAFFIC_THRESHOLDS.CONGESTION_MEDIUM_LOAD) {
     this.analisis.nivelCongestion = CONGESTION_LEVELS.DENSO;
   } else {
     this.analisis.nivelCongestion = CONGESTION_LEVELS.FLUIDO;
@@ -407,13 +427,13 @@ trafficSchema.methods.calculateIntensityClassification = function() {
   }
 
   // Clasificación basada en intensidad (vehículos/hora)
-  if (intensidad >= 4000) {
+  if (intensidad >= TRAFFIC_THRESHOLDS.INTENSITY_VERY_HIGH) {
     this.analisis.clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.MUY_ALTA;
-  } else if (intensidad >= 3000) {
+  } else if (intensidad >= TRAFFIC_THRESHOLDS.INTENSITY_HIGH) {
     this.analisis.clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.ALTA;
-  } else if (intensidad >= 2000) {
+  } else if (intensidad >= TRAFFIC_THRESHOLDS.INTENSITY_MEDIUM) {
     this.analisis.clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.MEDIA;
-  } else if (intensidad >= 1000) {
+  } else if (intensidad >= TRAFFIC_THRESHOLDS.INTENSITY_LOW) {
     this.analisis.clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.BAJA;
   } else {
     this.analisis.clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.MUY_BAJA;
@@ -429,11 +449,11 @@ trafficSchema.methods.calculateOverallQuality = function() {
   const periodoIntegracion = this.calidadDatos.periodoIntegracion || 0;
 
   // Clasificación de calidad
-  if (error === TRAFFIC_ERROR_CODES.NO_ERROR && periodoIntegracion >= 3) {
+  if (error === TRAFFIC_ERROR_CODES.NO_ERROR && periodoIntegracion >= TRAFFIC_THRESHOLDS.DATA_QUALITY_EXCELLENT_PERIOD) {
     this.calidadDatos.calidadGeneral = DATA_QUALITY_LEVELS.ALTA;
-  } else if (error === TRAFFIC_ERROR_CODES.SIN_DATOS && periodoIntegracion >= 2) {
+  } else if (error === TRAFFIC_ERROR_CODES.SIN_DATOS && periodoIntegracion >= TRAFFIC_THRESHOLDS.DATA_QUALITY_GOOD_PERIOD) {
     this.calidadDatos.calidadGeneral = DATA_QUALITY_LEVELS.MEDIA;
-  } else if (periodoIntegracion >= 1) {
+  } else if (periodoIntegracion >= TRAFFIC_THRESHOLDS.DATA_QUALITY_ACCEPTABLE_PERIOD) {
     this.calidadDatos.calidadGeneral = DATA_QUALITY_LEVELS.BAJA;
   } else {
     this.calidadDatos.calidadGeneral = DATA_QUALITY_LEVELS.SIN_DATOS;
@@ -504,7 +524,7 @@ trafficSchema.statics.getCongestionAnalysisOptimized = async function(filters = 
               $match: {
                 $expr: {
                   $and: [
-                    { $eq: ['$tipo', 'punto_trafico'] },
+                    { $eq: ['$tipo', LOCATION_TYPES.PUNTO_TRAFICO] },
                     { $eq: ['$id_punto', '$$puntoId'] }
                   ]
                 }
@@ -542,16 +562,16 @@ trafficSchema.statics.getCongestionAnalysisOptimized = async function(filters = 
           }
         },
         medicionesFluidas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', 'FLUIDO'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.FLUIDO] }, 1, 0] }
         },
         medicionesDensas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', 'DENSO'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.DENSO] }, 1, 0] }
         },
         medicionesCongestionadas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', 'CONGESTIONADO'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.CONGESTIONADO] }, 1, 0] }
         },
         medicionesColapsadas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', 'COLAPSADO'] }, 1, 0] }
+          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.COLAPSADO] }, 1, 0] }
         }
       }
     },
@@ -609,7 +629,7 @@ trafficSchema.statics.getCongestionAnalysisOptimized = async function(filters = 
     { $sort: { porcentajeCongestion: -1 } }
   );
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -775,7 +795,7 @@ trafficSchema.statics.getHistoricalDataOptimized = async function(filters = {}, 
     { $sort: sortFields }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -878,7 +898,7 @@ trafficSchema.statics.getTrafficStatisticsOptimized = async function(filters = {
         }
       },
       { $sort: { cantidad: -1 } }
-    ]).allowDiskUse(true).maxTimeMS(10000),
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
 
     // Distribución horaria
     this.aggregate([
@@ -917,7 +937,7 @@ trafficSchema.statics.getTrafficStatisticsOptimized = async function(filters = {
           periodo: 1
         }
       }
-    ]).allowDiskUse(true).maxTimeMS(10000)
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
   ]);
 
   return {

@@ -1,9 +1,8 @@
 /**
- * Colección de Middleware de Seguridad
- *
  * Middleware de seguridad integral para proteger la API contra
  * vulnerabilidades y ataques comunes.
- *
+ * Previene el abuso limitando el número de peticiones desde una única IP.
+ * Diferentes límites para diferentes tipos de endpoints.
  */
 
 const rateLimit = require('express-rate-limit');
@@ -11,16 +10,9 @@ const helmet = require('helmet');
 const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss');
 const config = require('../config/config');
-const { RATE_LIMITS } = require('../constants');
+const { RATE_LIMITS, HPP_ARRAY_PARAMS_WHITELIST, HTTP_STATUS } = require('../constants');
 const { createRateLimitResponse, createErrorResponse } = require('../utils/responseHelper');
 const { securityLogger: pinoSecurityLogger } = require('../config/logger');
-
-/**
- * Configuración de limitación de tasa
- *
- * Previene el abuso limitando el número de peticiones desde una única IP.
- * Diferentes límites para diferentes tipos de endpoints.
- */
 
 // Limitador de tasa general de API
 const generalLimiter = rateLimit({
@@ -31,7 +23,7 @@ const generalLimiter = rateLimit({
   legacyHeaders: false, // Deshabilitar headers legacy
   handler: (req, res) => {
     pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa excedido');
-    res.status(429).json(createRateLimitResponse(Math.ceil(config.security.rateLimitWindowMs / 1000)));
+    res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json(createRateLimitResponse(Math.ceil(config.security.rateLimitWindowMs / 1000)));
   }
 });
 
@@ -43,7 +35,7 @@ const authLimiter = rateLimit({
   skipSuccessfulRequests: true, // No contar peticiones exitosas
   handler: (req, res) => {
     pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa de autenticación excedido');
-    res.status(429).json(createRateLimitResponse(RATE_LIMITS.AUTH.RETRY_AFTER));
+    res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json(createRateLimitResponse(RATE_LIMITS.AUTH.RETRY_AFTER));
   }
 });
 
@@ -56,7 +48,7 @@ const heavyQueryLimiter = rateLimit({
   legacyHeaders: false,
   handler: (req, res) => {
     pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa de consulta pesada excedido');
-    res.status(429).json(createRateLimitResponse(RATE_LIMITS.HEAVY_QUERY.RETRY_AFTER));
+    res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json(createRateLimitResponse(RATE_LIMITS.HEAVY_QUERY.RETRY_AFTER));
   }
 });
 
@@ -212,9 +204,9 @@ const validateRequest = (req, res, next) => {
   const maxSize = 1024 * 1024; // 1MB
   const contentLength = req.get('Content-Length');
 
-  if (contentLength && parseInt(contentLength) > maxSize) {
+  if (contentLength && parseInt(contentLength, 10) > maxSize) {
     pinoSecurityLogger.warn({ contentLength, ip: req.ip }, 'Petición grande detectada - posible intento de DoS');
-    return res.status(413).json(
+    return res.status(HTTP_STATUS.PAYLOAD_TOO_LARGE).json(
       createErrorResponse('Entidad de petición demasiado grande')
     );
   }
@@ -223,7 +215,7 @@ const validateRequest = (req, res, next) => {
   if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
     const contentType = req.get('Content-Type');
     if (contentType && !contentType.includes('application/json')) {
-      return res.status(415).json(
+      return res.status(HTTP_STATUS.UNSUPPORTED_MEDIA_TYPE).json(
         createErrorResponse('Tipo de medio no soportado. Se esperaba application/json')
       );
     }
@@ -231,14 +223,21 @@ const validateRequest = (req, res, next) => {
 
   // Prevenir HTTP Parameter Pollution (HPP)
   // Detectar parámetros duplicados en query string
+  // Whitelist de parámetros que legítimamente pueden ser arrays (importada desde constants)
   if (req.query) {
     for (const [key, value] of Object.entries(req.query)) {
       if (Array.isArray(value)) {
+        // Si el parámetro está en la whitelist, permitir el array
+        if (HPP_ARRAY_PARAMS_WHITELIST.includes(key)) {
+          // Mantener el array tal cual para filtros legítimos
+          continue;
+        }
+
+        // Si no está en whitelist, es potencial HPP - tomar solo primer valor
         pinoSecurityLogger.warn(
           { key, valueCount: value.length, ip: req.ip },
-          'Parámetro duplicado detectado - posible HTTP Parameter Pollution'
+          'Parámetro duplicado detectado fuera de whitelist - posible HTTP Parameter Pollution'
         );
-        // Tomar solo el primer valor para prevenir HPP
         req.query[key] = value[0];
       }
     }

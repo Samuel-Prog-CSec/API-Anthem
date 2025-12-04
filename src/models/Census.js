@@ -7,7 +7,7 @@
  */
 
 const mongoose = require('mongoose');
-const { validateMonth, validateYear, validateNotFutureDate } = require('./schemas/commonSchemas');
+const { validateMonth, validateYear, validateDatasetDate } = require('./schemas/commonSchemas');
 const {
   WORKING_AGE,
   ELDERLY_AGE,
@@ -16,7 +16,10 @@ const {
   POPULATION_DENSITY_LEVELS,
   CULTURAL_DIVERSITY_LEVELS,
   CULTURAL_DIVERSITY_THRESHOLDS,
-  CENSUS_FIELD_TYPES
+  CENSUS_FIELD_TYPES,
+  DATASET_YEARS,
+  VALIDATION_LIMITS,
+  MONGODB_TIMEOUTS
 } = require('../constants');
 
 /**
@@ -27,24 +30,24 @@ const populationDataSchema = new mongoose.Schema({
     hombres: {
       type: Number,
       required: true,
-      min: [0, 'Población de hombres españoles no puede ser negativa']
+      min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Población de hombres españoles no puede ser negativa']
     },
     mujeres: {
       type: Number,
       required: true,
-      min: [0, 'Población de mujeres españolas no puede ser negativa']
+      min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Población de mujeres españolas no puede ser negativa']
     }
   },
   extranjeros: {
     hombres: {
       type: Number,
       required: true,
-      min: [0, 'Población de hombres extranjeros no puede ser negativa']
+      min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Población de hombres extranjeros no puede ser negativa']
     },
     mujeres: {
       type: Number,
       required: true,
-      min: [0, 'Población de mujeres extranjeras no puede ser negativa']
+      min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Población de mujeres extranjeras no puede ser negativa']
     }
   }
 }, { _id: false });
@@ -70,8 +73,8 @@ const censusSchema = new mongoose.Schema({
     required: true,
     index: true,
     validate: {
-      validator: validateNotFutureDate,
-      message: 'La fecha del censo no puede ser futura'
+      validator: validateDatasetDate,
+      message: 'La fecha del censo debe estar dentro del rango del dataset (2050-2052)'
     }
   },
 
@@ -181,7 +184,7 @@ const censusSchema = new mongoose.Schema({
   estadisticas: {
     totalEspañoles: {
       type: Number,
-      min: [0, 'Total españoles no puede ser negativo'],
+      min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Total españoles no puede ser negativo'],
       validate: {
         validator: function(v) {
           // Coherencia: debe coincidir con la suma de españoles hombres + mujeres
@@ -194,7 +197,7 @@ const censusSchema = new mongoose.Schema({
     },
     totalExtranjeros: {
       type: Number,
-      min: [0, 'Total extranjeros no puede ser negativo'],
+      min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Total extranjeros no puede ser negativo'],
       validate: {
         validator: function(v) {
           // Coherencia: debe coincidir con la suma de extranjeros hombres + mujeres
@@ -207,16 +210,16 @@ const censusSchema = new mongoose.Schema({
     },
     totalHombres: {
       type: Number,
-      min: [0, 'Total hombres no puede ser negativo']
+      min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Total hombres no puede ser negativo']
     },
     totalMujeres: {
       type: Number,
-      min: [0, 'Total mujeres no puede ser negativo']
+      min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Total mujeres no puede ser negativo']
     },
     totalPoblacion: {
       type: Number,
       index: true,
-      min: [0, 'Total población no puede ser negativo'],
+      min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Total población no puede ser negativo'],
       validate: {
         validator: function(v) {
           // Coherencia: debe coincidir con totalEspañoles + totalExtranjeros
@@ -229,12 +232,12 @@ const censusSchema = new mongoose.Schema({
     },
     porcentajeExtranjeros: {
       type: Number,
-      min: [0, 'Porcentaje de extranjeros no puede ser negativo'],
-      max: [100, 'Porcentaje de extranjeros no puede exceder 100%']
+      min: [VALIDATION_LIMITS.PERCENTAGE_MIN, 'Porcentaje de extranjeros no puede ser negativo'],
+      max: [VALIDATION_LIMITS.PERCENTAGE_MAX, 'Porcentaje de extranjeros no puede exceder 100%']
     },
     ratioGenero: {
       type: Number,
-      min: [0, 'Ratio de género no puede ser negativo']
+      min: [VALIDATION_LIMITS.RATIO_MIN, 'Ratio de género no puede ser negativo']
     }
   },
 
@@ -259,16 +262,16 @@ const censusSchema = new mongoose.Schema({
   metadatos: {
     densidadPoblacional: {
       type: String,
-      enum: POPULATION_DENSITY_LEVELS,
-      default: 'MEDIA'
+      enum: Object.values(POPULATION_DENSITY_LEVELS),
+      default: CULTURAL_DIVERSITY_LEVELS.MEDIA
     },
     diversidadCultural: {
       type: String,
-      enum: CULTURAL_DIVERSITY_LEVELS,
+      enum: Object.values(CULTURAL_DIVERSITY_LEVELS),
       default: function() {
-        if (this.estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.HIGH) {return 'ALTA';}
-        if (this.estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.MEDIUM) {return 'MEDIA';}
-        return 'BAJA';
+        if (this.estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.HIGH) {return CULTURAL_DIVERSITY_LEVELS.ALTA;}
+        if (this.estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.MEDIUM) {return CULTURAL_DIVERSITY_LEVELS.MEDIA;}
+        return CULTURAL_DIVERSITY_LEVELS.BAJA;
       }
     },
     calidadDatos: {
@@ -278,12 +281,12 @@ const censusSchema = new mongoose.Schema({
       },
       camposFaltantes: [{
         type: String,
-        enum: CENSUS_FIELD_TYPES
+        enum: Object.values(CENSUS_FIELD_TYPES)
       }],
       puntuacionCalidad: {
         type: Number,
-        min: [0, 'Puntuación no puede ser negativa'],
-        max: [1, 'Puntuación no puede exceder 1'],
+        min: [VALIDATION_LIMITS.SCORE_MIN, 'Puntuación no puede ser negativa'],
+        max: [VALIDATION_LIMITS.SCORE_MAX, 'Puntuación no puede exceder 1'],
         default: 1
       }
     }
@@ -307,7 +310,8 @@ const censusSchema = new mongoose.Schema({
 
 }, {
   timestamps: true,
-  versionKey: false
+  versionKey: false,
+  collection: 'census'
 });
 
 /**
@@ -688,17 +692,17 @@ censusSchema.methods.getDemographicDistribution = function() {
  * Combina múltiples aggregations en una sola query
  *
  * @param {Object} options - Opciones de filtrado
- * @param {number} options.año - Año del censo
+ * @param {number} options.año - Año del censo (default: 2051 - año del dataset Anthem)
  * @param {number} options.distrito - Código del distrito (opcional)
  * @param {boolean} options.incluirExtranjeros - Incluir población extranjera
  * @returns {Promise<Object>} Pirámide poblacional detallada y simplificada
  */
 censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
-  const { año = 2051, distrito = null, incluirExtranjeros = true } = options;
+  const { año = DATASET_YEARS.DEFAULT_YEAR, distrito = null, incluirExtranjeros = true } = options;
 
-  const matchFilters = { año: parseInt(año) };
+  const matchFilters = { año: parseInt(año, 10) };
   if (distrito) {
-    matchFilters['distrito.codigo'] = parseInt(distrito);
+    matchFilters['distrito.codigo'] = parseInt(distrito, 10);
   }
 
   // Estrategia: Ejecutar 2 agregaciones simples en paralelo (en lugar de 1 $facet complejo)
@@ -745,7 +749,7 @@ censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
         }
       },
       { $sort: { edad: 1 } }
-    ]).allowDiskUse(true).maxTimeMS(10000),
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
 
     // Agregación 2: Totales y simplificada
     this.aggregate([
@@ -782,7 +786,7 @@ censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
         }
       },
       { $sort: { 'rangoEdad.minima': 1 } }
-    ]).allowDiskUse(true).maxTimeMS(10000)
+    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
   ]);
 
   // Calcular totales desde piramide simplificada
@@ -822,17 +826,17 @@ censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
  * Obtener análisis demográfico completo optimizado
  *
  * @param {Object} options - Opciones de filtrado
- * @param {number} options.año - Año del censo
+ * @param {number} options.año - Año del censo (default: 2051 - año del dataset Anthem)
  * @param {number} options.mes - Mes del censo (opcional)
  * @param {number} options.distrito - Código del distrito (opcional)
  * @returns {Promise<Object>} Análisis demográfico comprehensivo
  */
 censusSchema.statics.getOptimizedDemographicAnalysis = async function(options) {
-  const { año = 2051, mes = null, distrito = null } = options;
+  const { año = DATASET_YEARS.DEFAULT_YEAR, mes = null, distrito = null } = options;
 
-  const matchFilters = { año: parseInt(año) };
-  if (mes) {matchFilters.mes = parseInt(mes);}
-  if (distrito) {matchFilters['distrito.codigo'] = parseInt(distrito);}
+  const matchFilters = { año: parseInt(año, 10) };
+  if (mes) {matchFilters.mes = parseInt(mes, 10);}
+  if (distrito) {matchFilters['distrito.codigo'] = parseInt(distrito, 10);}
 
   // Usar $facet para ejecutar 2 agregaciones en paralelo (eliminando porDistrito para mejorar rendimiento)
   const results = await this.aggregate([
@@ -927,7 +931,7 @@ censusSchema.statics.getOptimizedDemographicAnalysis = async function(options) {
         ]
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   return {
     distribuciones: {
@@ -935,9 +939,9 @@ censusSchema.statics.getOptimizedDemographicAnalysis = async function(options) {
     },
     indicadores: results[0].indicadores[0] || {},
     metadatos: {
-      año: parseInt(año),
-      mes: mes ? parseInt(mes) : null,
-      distrito: distrito ? parseInt(distrito) : null,
+      año: parseInt(año, 10),
+      mes: mes ? parseInt(mes, 10) : null,
+      distrito: distrito ? parseInt(distrito, 10) : null,
       fechaAnalisis: new Date()
     }
   };
@@ -987,7 +991,7 @@ censusSchema.statics.findWithOptions = async function(options) {
     .sort(sort)
     .skip(pagination.skip)
     .limit(pagination.limit)
-    .maxTimeMS(10000);
+    .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   // Aplicar .lean() si se solicita (default true para performance)
   if (lean) {
@@ -1027,7 +1031,7 @@ censusSchema.statics.findWithOptions = async function(options) {
             barriosUnicos: { $addToSet: '$barrio.codigo' }
           }
         }
-      ]).allowDiskUse(true).maxTimeMS(10000)
+      ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
     );
   }
 

@@ -709,6 +709,53 @@ Usuario legítimo: Intenta usar token viejo → ❌ RECHAZADO
 - Permite detectar uso malicioso
 - Fuerza re-autenticación si hay actividad sospechosa
 
+- Fuerza re-autenticación si hay actividad sospechosa
+
+### Invalidación por Cambio de Contraseña
+
+**¿Qué es?**
+Cuando un usuario cambia su contraseña, todos los tokens (Access y Refresh) emitidos anteriormente se invalidan automáticamente.
+
+**Implementación:**
+1. **Timestamp en Usuario**: Se añade `passwordChangedAt` al modelo de usuario.
+2. **Verificación en Middleware**: Cada vez que se usa un token (access o refresh), se compara su fecha de emisión (`iat`) con `passwordChangedAt`.
+3. **Rechazo**: Si `iat < passwordChangedAt`, el token es rechazado inmediatamente.
+
+**Código de Verificación en Access Tokens:**
+```javascript
+// En src/middleware/auth.js
+if (user.passwordChangedAt) {
+  const changedTimestamp = parseInt(user.passwordChangedAt.getTime() / 1000, 10);
+  if (decoded.iat < changedTimestamp) {
+    return res.status(401).json(
+      createUnauthorizedResponse('Token inválido - cambio de contraseña')
+    );
+  }
+}
+```
+
+**Código de Verificación en Refresh Tokens:**
+```javascript
+// En src/controllers/authController.js - refreshAccessToken
+if (user.passwordChangedAt) {
+  const changedTimestamp = parseInt(user.passwordChangedAt.getTime() / 1000, 10);
+  const tokenIssuedAt = decoded.iat;
+
+  if (tokenIssuedAt < changedTimestamp) {
+    authLogger.warn({
+      userId: user._id,
+      ip: req.ip,
+      tokenIat: tokenIssuedAt,
+      passwordChangedAt: changedTimestamp
+    }, 'Intento de usar refresh token emitido antes de cambio de contraseña');
+    return next(createAuthError('Token inválido o expirado'));
+  }
+}
+```
+
+**Beneficio de Seguridad:**
+Si una cuenta es comprometida, el usuario legítimo puede recuperar el control total simplemente cambiando su contraseña, expulsando al atacante de **TODAS** las sesiones activas (access y refresh tokens) instantáneamente. Esta es una mejora crítica implementada en noviembre de 2025 que cierra la ventana de 30 días que existía anteriormente.
+
 ---
 
 ## Blacklist de Tokens
@@ -1285,6 +1332,295 @@ Nuestro sistema cumple con:
 - ✅ Principios de defensa en profundidad
 
 La implementación está lista para producción y puede escalar horizontalmente sin problemas de sincronización de sesiones.
+
+---
+
+## Actualizaciones de Seguridad (Noviembre 2025)
+
+### Mejoras Implementadas
+
+#### 1. **Invalidación Completa de Tokens en Cambio de Contraseña** ✅
+
+**Problema Identificado:**
+Anteriormente, cuando un usuario cambiaba su contraseña, solo los Access Tokens se invalidaban mediante la verificación de `passwordChangedAt`. Sin embargo, los Refresh Tokens (válidos por 30 días) NO verificaban este campo, permitiendo que un atacante con un Refresh Token robado pudiera seguir generando nuevos Access Tokens durante 30 días.
+
+**Solución Implementada:**
+Se añadió verificación de `passwordChangedAt` en el endpoint `refreshAccessToken`:
+
+```javascript
+// src/controllers/authController.js - líneas 390-410
+if (user.passwordChangedAt) {
+  const changedTimestamp = parseInt(user.passwordChangedAt.getTime() / 1000, 10);
+  const tokenIssuedAt = decoded.iat;
+
+  if (tokenIssuedAt < changedTimestamp) {
+    authLogger.warn({
+      userId: user._id,
+      ip: req.ip,
+      tokenIat: tokenIssuedAt,
+      passwordChangedAt: changedTimestamp
+    }, 'Intento de usar refresh token emitido antes de cambio de contraseña');
+    return next(createAuthError('Token inválido o expirado'));
+  }
+}
+```
+
+**Impacto:**
+- ✅ Cierra completamente la ventana de 30 días de vulnerabilidad
+- ✅ Un atacante es expulsado INMEDIATAMENTE al cambiar la contraseña
+- ✅ Tanto Access como Refresh Tokens se invalidan instantáneamente
+
+#### 2. **Expiración de Refresh Token Configurable** ✅
+
+**Problema Identificado:**
+La expiración del Refresh Token estaba hardcodeada a `'30d'` en el código, imposibilitando cambios sin modificar el código fuente.
+
+**Solución Implementada:**
+Se externalizó a variables de entorno:
+
+```javascript
+// src/config/config.js
+jwt: {
+  secret: process.env.JWT_SECRET,
+  expiresIn: process.env.JWT_EXPIRE || '15m',
+  refreshExpiresIn: process.env.JWT_REFRESH_EXPIRE || '30d', // NUEVO
+  algorithm: 'HS256'
+}
+
+// src/utils/tokenHelper.js
+const generateRefreshToken = (payload) => {
+  return jwt.sign(
+    payload,
+    config.jwt.secret,
+    {
+      expiresIn: config.jwt.refreshExpiresIn, // Usa config en lugar de hardcode
+      algorithm: config.jwt.algorithm,
+      issuer: 'api-rest-auth',
+      audience: 'api-rest-auth-refresh'
+    }
+  );
+};
+```
+
+**Impacto:**
+- ✅ Permite configurar diferentes políticas por entorno (dev: 7d, prod: 30d, testing: 1d)
+- ✅ Cambios de política sin modificar código
+- ✅ Variable `JWT_REFRESH_EXPIRE` añadida a `.env.example`
+
+#### 3. **JWT_SECRET Fuerte Obligatorio en Producción** ✅
+
+**Problema Identificado:**
+Aunque se emitía una advertencia si `JWT_SECRET` < 32 caracteres, el servidor seguía iniciándose en producción con un secreto débil, comprometiendo toda la seguridad.
+
+**Solución Implementada:**
+```javascript
+// src/config/config.js - líneas 27-37
+if (process.env.JWT_SECRET.length < 32) {
+  const errorMessage = 'SEGURIDAD CRÍTICA: JWT_SECRET debe tener al menos 32 caracteres para mayor seguridad';
+
+  // En producción, detener el servidor
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(errorMessage);
+  }
+
+  // En desarrollo, solo advertir
+  console.warn(`ADVERTENCIA: ${errorMessage}`);
+}
+```
+
+**Impacto:**
+- ✅ Imposible iniciar servidor en producción con secreto débil
+- ✅ Fuerza buenas prácticas de seguridad desde configuración
+- ✅ Previene despliegues inseguros
+
+#### 4. **Health Check Excluido del Rate Limiting** ✅
+
+**Problema Identificado:**
+El endpoint `/health` estaba después del `generalLimiter`, causando que los health checks de load balancers consumieran el rate limit y potencialmente marcaran el servicio como caído.
+
+**Solución Implementada:**
+```javascript
+// src/server.js - Health check movido ANTES del rate limiter
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// Rate limiter aplicado DESPUÉS
+app.use(generalLimiter);
+```
+
+**Impacto:**
+- ✅ Health checks ilimitados
+- ✅ Previene falsos positivos de servicio caído
+- ✅ Compatible con infraestructura de producción (K8s, AWS ELB, etc.)
+
+#### 5. **Protección HPP con Whitelist** ✅
+
+**Problema Identificado:**
+La protección contra HTTP Parameter Pollution convertía TODOS los arrays en valor único, rompiendo filtros legítimos como `?ids=1&ids=2` o `?status=active&status=pending`.
+
+**Solución Implementada:**
+```javascript
+// src/middleware/security.js - líneas 232-265
+const arrayParamsWhitelist = [
+  'ids', 'status', 'distrito', 'barrio', 'magnitud', 'tipo',
+  'tipoContenedor', 'tipoAccidente', 'tipoVehiculo',
+  'calificacion', 'gravedad'
+];
+
+if (req.query) {
+  for (const [key, value] of Object.entries(req.query)) {
+    if (Array.isArray(value)) {
+      // Si está en whitelist, permitir el array
+      if (arrayParamsWhitelist.includes(key)) {
+        continue;
+      }
+
+      // Si no, es potencial HPP - tomar solo primer valor
+      pinoSecurityLogger.warn(
+        { key, valueCount: value.length, ip: req.ip },
+        'Parámetro duplicado detectado fuera de whitelist'
+      );
+      req.query[key] = value[0];
+    }
+  }
+}
+```
+
+**Impacto:**
+- ✅ Filtros múltiples funcionan correctamente
+- ✅ Protección HPP mantiene efectividad contra ataques reales
+- ✅ Balance entre seguridad y funcionalidad
+
+#### 6. **Eliminación de $limit Antes de $group en Agregaciones** ✅
+
+**Problema Identificado:**
+CRÍTICO: Múltiples controladores aplicaban `$limit` (10,000 o 50,000 documentos) **ANTES** de `$group` en pipelines de agregación, resultando en estadísticas completamente incorrectas cuando había más documentos que el límite.
+
+**Archivos Corregidos:**
+- `src/controllers/accidentController.js` (1 ocurrencia)
+- `src/controllers/fineController.js` (3 ocurrencias)
+- `src/controllers/trafficController.js` (2 ocurrencias)
+- `src/controllers/censusController.js` (2 ocurrencias)
+- `src/controllers/locationController.js` (1 ocurrencia)
+
+**Ejemplo de Corrección:**
+```javascript
+// ANTES (INCORRECTO):
+Census.aggregate([
+  { $match: filters },
+  { $limit: 10000 }, // ❌ Limita ANTES de agrupar
+  { $group: {
+      _id: null,
+      totalPoblacion: { $sum: '$estadisticas.totalPoblacion' }
+    }
+  }
+])
+
+// DESPUÉS (CORRECTO):
+Census.aggregate([
+  { $match: filters },
+  // NO limitar antes de $group - necesitamos TODOS los docs
+  { $group: {
+      _id: null,
+      totalPoblacion: { $sum: '$estadisticas.totalPoblacion' }
+    }
+  },
+  // $limit se aplica DESPUÉS si es necesario (ej: top N results)
+  { $limit: 10 }
+])
+```
+
+**Impacto:**
+- ✅ Estadísticas ahora son CORRECTAS incluso con millones de registros
+- ✅ Sumas, promedios y conteos reflejan la realidad
+- ✅ Decisiones de negocio basadas en datos precisos
+
+#### 7. **Índice Único Faltante en Container** ✅
+
+**Problema Identificado:**
+El índice compuesto `idx_containers_unique_code_type` tenía documentación que decía "Garantiza que no haya contenedores duplicados" pero NO tenía `unique: true`, permitiendo duplicados reales.
+
+**Solución Implementada:**
+```javascript
+// src/models/Container.js - línea 178-184
+containerSchema.index({
+  codigoInternoSituado: 1,
+  tipoContenedor: 1
+}, {
+  unique: true, // ✅ AÑADIDO
+  name: 'idx_containers_unique_code_type',
+  background: true
+});
+```
+
+**Impacto:**
+- ✅ MongoDB rechaza duplicados a nivel de base de datos
+- ✅ Integridad referencial garantizada
+- ✅ Scripts de importación fallarán rápidamente si hay duplicados
+
+### Estado Actual del Sistema JWT (Post-Mejoras)
+
+#### Flujo de Invalidación Completo
+
+```
+ESCENARIO: Atacante roba Refresh Token
+─────────────────────────────────────────
+
+Día 1: Token robado (válido 30 días)
+  ↓
+Día 2: Usuario detecta actividad sospechosa
+  ↓
+Día 2: Usuario cambia contraseña
+  ↓
+  [passwordChangedAt = 2051-11-25 14:30:00]
+  ↓
+Día 2 (14:31): Atacante intenta POST /auth/refresh
+  ↓
+  Sistema verifica:
+  1. ✅ Token no expirado (29 días restantes)
+  2. ✅ Token no en blacklist
+  3. ✅ Usuario existe
+  4. ❌ tokenIssuedAt (Día 1) < passwordChangedAt (Día 2)
+  ↓
+  RESULTADO: ❌ 401 Token inválido o expirado
+  ↓
+Atacante EXPULSADO - No puede generar nuevos Access Tokens
+```
+
+#### Puntos de Verificación de Seguridad
+
+| Verificación | Access Token | Refresh Token | Resultado |
+|--------------|--------------|---------------|-----------|
+| Firma válida (HMAC) | ✅ | ✅ | Criptográfico |
+| No expirado | ✅ (15min) | ✅ (30d) | Temporal |
+| Issuer correcto | ✅ | ✅ | Anti-falsificación |
+| Audience correcto | ✅ | ✅ | Anti-reuso |
+| Usuario existe | ✅ | ✅ | Base de datos |
+| Cuenta activa | ✅ | ✅ | Estado |
+| No bloqueada | ✅ | ✅ | Anti-abuso |
+| No en blacklist | ✅ | ✅ | Revocación manual |
+| **passwordChangedAt** | ✅ | ✅ | **NUEVA VERIFICACIÓN** |
+
+### Métricas de Seguridad Mejoradas
+
+#### Antes de las Mejoras
+- ⚠️ Ventana de ataque post-cambio de contraseña: **30 días**
+- ⚠️ JWT_SECRET débil permitido en producción: **Sí**
+- ⚠️ Estadísticas incorrectas con >10k registros: **Sí**
+- ⚠️ Duplicados en contenedores posibles: **Sí**
+- ⚠️ Health checks consumiendo rate limit: **Sí**
+
+#### Después de las Mejoras
+- ✅ Ventana de ataque post-cambio de contraseña: **0 segundos**
+- ✅ JWT_SECRET débil permitido en producción: **No (servidor no inicia)**
+- ✅ Estadísticas incorrectas con >10k registros: **No**
+- ✅ Duplicados en contenedores posibles: **No (rechazado por DB)**
+- ✅ Health checks consumiendo rate limit: **No (excluidos)**
 
 ---
 

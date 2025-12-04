@@ -6,13 +6,12 @@
  * para el dashboard del frontend.
  */
 
-const { validationResult } = require('express-validator');
 const Fine = require('../models/Fine');
-const { AppError, createValidationError, createInternalError } = require('../utils/errorUtils');
+const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, buildResponseMetadata } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, TIME_CONSTANTS, FINE_CONSTANTS, DASHBOARD_PERIODS, DEFAULT_SORT_FIELDS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -21,27 +20,21 @@ const logger = require('../config/logger');
  */
 const getFines = async (req, res, next) => {
   try {
-    // Verificar errores de validación
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     // Extraer parámetros de consulta
     const {
       conDescuento,
       esGrave,
-      page = 1,
-      limit = 50,
-      sortBy = 'fecha',
-      sortOrder = 'desc',
+      page = PAGINATION.DEFAULT_PAGE,
+      limit = PAGINATION.DEFAULT_LIMIT,
+      sortBy = DEFAULT_SORT_FIELDS.FINE,
+      sortOrder = DEFAULT_SORT_FIELDS.DEFAULT_ORDER,
       includeCoordinates = false
     } = req.query;
 
     // Configuración de filtros usando buildFilters
     const filterConfig = [
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-      { field: 'calificacion', type: 'in', param: 'calificacion', transform: v => Array.isArray(v) ? v.map(c => c.toUpperCase()) : [v.toUpperCase()] },
+      { field: 'calificacion', type: 'in', param: 'calificacion', transform: TRANSFORMS.toUpperCaseArray },
       { field: 'lugar', type: 'regex', param: 'lugar' },
       { field: 'metadatos.tipoInfraccion', type: 'in', param: 'tipoInfraccion' },
       { field: 'denunciante', type: 'regex', param: 'denunciante' },
@@ -117,10 +110,10 @@ const getFines = async (req, res, next) => {
     // Calcular metadatos de paginación usando helper
     const paginationMeta = createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
 
-    // Obtener estadísticas rápidas del conjunto filtrado con límite
+    // Obtener estadísticas rápidas del conjunto filtrado
     const quickStatistics = await Fine.aggregate([
       { $match: filters },
-      { $limit: AGGREGATION_LIMITS.LARGE }, // Límite máximo de documentos para estadísticas
+      // NO usar $limit antes de $group - corrompe las estadísticas globales
       {
         $group: {
           _id: null,
@@ -182,7 +175,7 @@ const getFineById = async (req, res, next) => {
       .lean();
 
     if (!multa) {
-      return next(new AppError('Multa no encontrada', HTTP_STATUS.NOT_FOUND));
+      return next(createNotFoundError('Multa', id));
     }
 
     // Agregar información calculada adicional
@@ -190,7 +183,7 @@ const getFineById = async (req, res, next) => {
       importeOriginal: multa.importeBoletín,
       importeFinal: multa.importeFinal,
       descuentoAplicado: multa.tieneDescuento ? multa.importeBoletín - multa.importeFinal : 0,
-      porcentajeDescuento: multa.tieneDescuento ? 50 : 0
+      porcentajeDescuento: multa.tieneDescuento ? FINE_CONSTANTS.DISCOUNT_PERCENTAGE : 0
     };
 
     const responseData = {
@@ -219,34 +212,35 @@ const getFineById = async (req, res, next) => {
  */
 const getFinesStatistics = async (req, res, next) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return next(createValidationError('Parámetros de consulta inválidos', errors.array()));
-    }
-
     const {
       startDate,
       endDate,
-      groupBy = 'month',
-      limit = 12
+      groupBy = 'month'
     } = req.query;
+
+    // Parsear parámetros numéricos
+    const { limit } = parseNumericParams(
+      req.query,
+      ['limit'],
+      { limit: AGGREGATION_LIMITS.MONTHLY_STATS }
+    );
 
     // Llamar al método optimizado del modelo
     const result = await Fine.getStatisticsOptimized({
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
       groupBy,
-      limit: parseInt(limit)
+      limit
     });
 
     const responseData = {
       estadisticas: result.estadisticas,
       resumen: result.resumen,
-      configuracion: {
+      configuracion: buildResponseMetadata({
         agrupacion: groupBy,
         filtros: startDate || endDate ? { startDate, endDate } : null,
-        limite: parseInt(limit)
-      }
+        limite: limit
+      })
     };
 
     res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas de multas obtenidas exitosamente'));
@@ -271,24 +265,30 @@ const getLocationsRanking = async (req, res, next) => {
     const {
       startDate,
       endDate,
-      limit = 20,
       tipoInfraccion
     } = req.query;
+
+    // Parsear parámetros numéricos
+    const { limit } = parseNumericParams(
+      req.query,
+      ['limit'],
+      { limit: AGGREGATION_LIMITS.TOP_RESULTS }
+    );
 
     // Llamar al método optimizado del modelo
     const ranking = await Fine.getLocationRankingOptimized({
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
       tipoInfraccion,
-      limit: parseInt(limit)
+      limit
     });
 
     const responseData = {
       ranking,
-      configuracion: {
+      configuracion: buildResponseMetadata({
         filtros: startDate || endDate || tipoInfraccion ? { startDate, endDate, tipoInfraccion } : null,
-        limite: parseInt(limit)
-      },
+        limite: limit
+      }),
       metadatos: {
         totalUbicaciones: ranking.length,
         fechaConsulta: new Date()
@@ -330,10 +330,10 @@ const getTemporalAnalysis = async (req, res, next) => {
     const responseData = {
       analisis: result.analisis,
       tendencia: result.tendencia,
-      configuracion: {
+      configuracion: buildResponseMetadata({
         tipoAnalisis,
         filtros: startDate || endDate ? { startDate, endDate } : null
-      },
+      }),
       metadatos: {
         totalPeriodos: result.analisis.length,
         fechaConsulta: new Date()
@@ -369,28 +369,28 @@ const getDashboardMetrics = async (req, res, next) => {
 
     switch (periodo) {
       case '7days':
-        fechaInicio = new Date(ahora.getTime() - 7 * 24 * 60 * 60 * 1000);
+        fechaInicio = new Date(ahora.getTime() - DASHBOARD_PERIODS.DAYS_7 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
         break;
       case '90days':
-        fechaInicio = new Date(ahora.getTime() - 90 * 24 * 60 * 60 * 1000);
+        fechaInicio = new Date(ahora.getTime() - DASHBOARD_PERIODS.DAYS_90 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
         break;
       case 'year':
         fechaInicio = new Date(ahora.getFullYear(), 0, 1);
         break;
       case '30days':
       default:
-        fechaInicio = new Date(ahora.getTime() - 30 * 24 * 60 * 60 * 1000);
+        fechaInicio = new Date(ahora.getTime() - DASHBOARD_PERIODS.DAYS_30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
         break;
     }
 
-    // Métricas generales del periodo con límite
+    // Métricas generales del periodo
     const [metricsGeneral] = await Fine.aggregate([
       {
         $match: {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
-      { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos para agregación
+      // NO usar $limit antes de $group - corrompe las estadísticas globales
       {
         $group: {
           _id: null,
@@ -419,7 +419,7 @@ const getDashboardMetrics = async (req, res, next) => {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
-      { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos
+      // NO usar $limit antes de $group - corrompe las estadísticas
       {
         $group: {
           _id: '$metadatos.tipoInfraccion',
@@ -428,7 +428,7 @@ const getDashboardMetrics = async (req, res, next) => {
         }
       },
       { $sort: { cantidad: -1 } },
-      { $limit: AGGREGATION_LIMITS.PREVIEW }
+      { $limit: AGGREGATION_LIMITS.PREVIEW } // Limitar DESPUÉS de agrupar para obtener top 5 real
     ])
       .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
       .exec();
@@ -440,7 +440,7 @@ const getDashboardMetrics = async (req, res, next) => {
           fecha: { $gte: fechaInicio, $lte: ahora }
         }
       },
-      { $limit: AGGREGATION_LIMITS.XLARGE }, // Límite máximo de documentos
+      // NO usar $limit antes de $group - corrompe las estadísticas
       {
         $group: {
           _id: {

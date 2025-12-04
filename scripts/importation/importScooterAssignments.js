@@ -1,9 +1,18 @@
 /**
- * Script de Importación de Asignación de Patinetes
+ * Script de Importacion de Asignacion de Patinetes
  *
- * Script especializado para importar datos CSV de asignación de patinetes
- * eléctricos a la base de datos MongoDB. Procesa el archivo de asignación
+ * Script especializado para importar datos CSV de asignacion de patinetes
+ * electricos a la base de datos MongoDB. Procesa el archivo de asignacion
  * del directorio datos_hpe/
+ *
+ * Uso: node scripts/importation/importScooterAssignments.js [opciones]
+ *
+ * Opciones:
+ *   --force         Sobrescribir datos existentes (upsert)
+ *   --batch=N       Tamano del lote (default: 100)
+ *   --help          Mostrar ayuda
+ *
+ * @module scripts/importation/importScooterAssignments
  */
 
 const fs = require('fs').promises;
@@ -11,286 +20,721 @@ const path = require('path');
 const csv = require('csv-parser');
 const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
-const { connectDB } = require('../../src/config/database');
-const config = require('../../src/config/config');
-const ScooterAssignment = require('../../src/models/ScooterAssignment');
 
-/**
- * Configuración del importador
- */
+// Configuracion y utilidades
+const { connectDB } = require('../../src/config/database');
+const { logger } = require('../../src/config/logger');
+const { handleMongoError } = require('../../src/utils/errorUtils');
+const ScooterAssignment = require('../../src/models/ScooterAssignment');
+const {
+  RejectionTracker,
+  formatDuration,
+  calculateProcessingSpeed,
+  cleanString
+} = require('./helpers/importHelpers');
+const {
+  SCOOTER_PROVIDERS,
+  DATASET_YEARS
+} = require('../../src/constants');
+
+// Logger especifico para importacion
+const importLogger = logger.child({ component: 'import-scooter-assignments' });
+
+// ============================================================================
+// CONFIGURACION
+// ============================================================================
+
 const IMPORT_CONFIG = {
   dataFile: path.join(__dirname, '..', '..', 'datos_hpe', 'Anthem_CTC_AsignaciónPatinetes.csv'),
   batchSize: 100,
   skipExisting: true,
-  csvOptions: {
-    separator: ';',
-    headers: true,
-    skipEmptyLines: true,
-    skipLinesWithError: true
-  }
+  logInterval: 50,
+  csvSeparator: ';'
 };
 
+// ============================================================================
+// RAZONES DE RECHAZO
+// ============================================================================
+
 /**
- * Mapeo de nombres de proveedores para normalización
+ * Razones de rechazo para filas que no se insertan en la BD
+ * @constant {Object}
+ */
+const REJECTION_REASONS = {
+  // Campos obligatorios faltantes
+  DISTRITO_FALTANTE: 'Distrito faltante o vacio',
+  BARRIO_FALTANTE: 'Barrio faltante o vacio',
+  FILA_TOTAL: 'Fila de totales (no es dato real)',
+  SIN_PROVEEDORES: 'Sin proveedores validos',
+
+  // Errores de procesamiento
+  ERROR_PROCESAMIENTO_FILA: 'Error durante el procesamiento de la fila',
+  ERROR_VALIDACION_MONGOOSE: 'Error de validacion de esquema Mongoose',
+  ERROR_INSERCION_BD: 'Error al insertar en base de datos',
+  ERROR_DUPLICADO: 'Registro duplicado en base de datos'
+};
+
+// ============================================================================
+// MAPEOS Y CONSTANTES
+// ============================================================================
+
+/**
+ * Mapeo de nombres de proveedores para normalizacion
+ * Mapea desde nombres en CSV a valores de constantes SCOOTER_PROVIDERS
+ * @constant {Object}
  */
 const PROVIDER_NAME_MAPPING = {
-  'ACCIONA': 'ACCIONA',
-  'Taxify': 'TAXIFY',
-  'KOKO': 'KOKO',
-  'UFO': 'UFO',
-  'RIDECONGA': 'RIDECONGA',
-  'FLASH': 'FLASH',
-  'LIME': 'LIME',
-  'WIND ': 'WIND', // Nota: hay un espacio extra en el CSV original
-  'WIND': 'WIND',
-  'BIRD': 'BIRD',
-  'REBY RIDES': 'REBY RIDES',
-  'MOVO': 'MOVO',
-  'MYGO': 'MYGO',
-  'JUMP UBER': 'JUMP UBER',
-  'SJV CONSULTING': 'SJV CONSULTING'
+  'ACCIONA': SCOOTER_PROVIDERS.ACCIONA,
+  'Taxify': SCOOTER_PROVIDERS.TAXIFY,
+  'KOKO': SCOOTER_PROVIDERS.KOKO,
+  'UFO': SCOOTER_PROVIDERS.UFO,
+  'RIDECONGA': SCOOTER_PROVIDERS.RIDECONGA,
+  'FLASH': SCOOTER_PROVIDERS.FLASH,
+  'LIME': SCOOTER_PROVIDERS.LIME,
+  'WIND ': SCOOTER_PROVIDERS.WIND,
+  'WIND': SCOOTER_PROVIDERS.WIND,
+  'BIRD': SCOOTER_PROVIDERS.BIRD,
+  'REBY RIDES': SCOOTER_PROVIDERS.REBY_RIDES,
+  'MOVO': SCOOTER_PROVIDERS.MOVO,
+  'MYGO': SCOOTER_PROVIDERS.MYGO,
+  'JUMP UBER': SCOOTER_PROVIDERS.JUMP_UBER,
+  'SJV CONSULTING': SCOOTER_PROVIDERS.SJV_CONSULTING
 };
 
 /**
  * Campos que deben ignorarse (no son proveedores)
+ * @constant {Array}
  */
 const IGNORED_FIELDS = [
   'DISTRITO',
   'BARRIO',
   'TOTAL',
   '',
-  ' ', // Campos vacíos
-  'Total' // Filas de totales
+  ' ',
+  'Total'
 ];
 
+// ============================================================================
+// CONTADORES GLOBALES
+// ============================================================================
+
+let totalProcessed = 0;
+let totalInserted = 0;
+let totalUpdated = 0;
+let totalSkipped = 0;
+let totalRejected = 0;
+let totalErrors = 0;
+let isShuttingDown = false;
+
+// Tracker de rechazos por tipo
+const rejectionTracker = new RejectionTracker();
+
+// ============================================================================
+// FUNCIONES DE PARSEO
+// ============================================================================
+
 /**
- * Parsear datos de una fila CSV de asignación de patinetes
+ * Parsear numero de forma segura
+ * @param {string|number} value - Valor a parsear
+ * @param {number} defaultValue - Valor por defecto
+ * @returns {number}
+ */
+function parseNumber(value, defaultValue = 0) {
+  if (!value || value.toString().trim() === '') {
+    return defaultValue;
+  }
+  const cleaned = value.toString().replace(/['"]/g, '').trim();
+  const parsed = parseInt(cleaned, 10);
+  return isNaN(parsed) ? defaultValue : Math.max(0, parsed);
+}
+
+/**
+ * Parsear datos de una fila CSV de asignacion de patinetes
  * @param {Object} row - Fila del CSV
  * @param {string} sourceFile - Archivo origen
- * @returns {Object|null} - Datos procesados para la asignación o null si es fila inválida
+ * @param {number} rowIndex - Indice de fila para logging
+ * @returns {Object|null} - Datos procesados o null si se rechaza
  */
-function parseScooterAssignmentRow(row, sourceFile) {
-  try {
-    // Debug: mostrar la fila actual cada 20 filas para debug
-    if (Math.random() < 0.1) { // 10% de probabilidad para reducir spam
-      console.log('🔍 Debug fila:', {
-        DISTRITO: row.DISTRITO,
-        BARRIO: row.BARRIO,
-        keysDisponibles: Object.keys(row).slice(0, 5)
-      });
-    }
+function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
+  // Limpiar y validar campos basicos
+  const distrito = cleanString(row.DISTRITO, '').toUpperCase();
+  const barrio = cleanString(row.BARRIO, '');
 
-    // Limpiar y validar campos básicos
-    const cleanString = (value, defaultValue = '') => {
-      if (!value) {return defaultValue;}
-      return value.toString().trim() || defaultValue;
-    };
-
-    const parseNumber = (value, defaultValue = 0) => {
-      if (!value || value.toString().trim() === '') {return defaultValue;}
-      const cleaned = value.toString().replace(/['"]/g, '').trim();
-      const parsed = parseInt(cleaned);
-      return isNaN(parsed) ? defaultValue : Math.max(0, parsed);
-    };
-
-    const distrito = cleanString(row.DISTRITO).toUpperCase();
-    const barrio = cleanString(row.BARRIO);
-
-    // Validar campos obligatorios
-    if (!distrito || !barrio) {
-      console.warn(`⚠️  Fila ignorada - Distrito o barrio vacío: ${distrito} - ${barrio}`);
-      return null;
-    }
-
-    // Ignorar filas de totales
-    if (distrito.includes('TOTAL') || barrio.includes('Total') || barrio.toLowerCase().includes('total')) {
-      console.log(`📊 Fila de total ignorada: ${distrito} - ${barrio}`);
-      return null;
-    }
-
-    // Procesar proveedores
-    const proveedores = [];
-    let totalCalculado = 0;
-
-    // Iterar sobre todas las columnas para encontrar proveedores
-    Object.keys(row).forEach(columnName => {
-      const cleanColumnName = cleanString(columnName);
-
-      // Ignorar campos que no son proveedores
-      if (IGNORED_FIELDS.includes(cleanColumnName) ||
-          IGNORED_FIELDS.includes(columnName) ||
-          cleanColumnName === distrito ||
-          cleanColumnName === barrio) {
-        return;
-      }
-
-      // Mapear nombre del proveedor
-      const proveedorNombre = PROVIDER_NAME_MAPPING[cleanColumnName] ||
-                             PROVIDER_NAME_MAPPING[columnName] ||
-                             cleanColumnName;
-
-      if (proveedorNombre && proveedorNombre.length > 0) {
-        const cantidad = parseNumber(row[columnName]);
-
-        // Solo agregar proveedores que tengan datos válidos
-        if (cantidad >= 0) {
-          proveedores.push({
-            nombre: proveedorNombre,
-            cantidad: cantidad,
-            activo: cantidad > 0
-          });
-          totalCalculado += cantidad;
-        }
-      }
-    });
-
-    // Validar que hay al menos un proveedor
-    if (proveedores.length === 0) {
-      console.warn(`⚠️  Fila ignorada - Sin proveedores válidos: ${distrito} - ${barrio}`);
-      return null;
-    }
-
-    // Verificar total si existe en el CSV
-    const totalCSV = parseNumber(row.TOTAL);
-    if (totalCSV > 0 && totalCalculado !== totalCSV) {
-      console.warn(`⚠️  Discrepancia en total para ${distrito}-${barrio}: Calculado=${totalCalculado}, CSV=${totalCSV}`);
-    }
-
-    // Crear fecha de asignación (usar fecha actual como predeterminada)
-    const fechaAsignacion = new Date();
-
-    const assignmentData = {
-      fechaAsignacion,
-      distrito: {
-        nombre: distrito
-      },
-      barrio: {
-        nombre: barrio
-      },
-      proveedores,
-      estadisticas: {
-        totalPatinetes: totalCalculado
-      },
-      procesamiento: {
-        archivoOrigen: path.basename(sourceFile),
-        importadoEn: new Date(),
-        versionDatos: '1.0'
-      }
-    };
-
-    return assignmentData;
-
-  } catch (error) {
-    console.error(`❌ Error procesando fila: ${JSON.stringify(row)}`, error.message);
+  // Validar campos obligatorios
+  if (!distrito) {
+    rejectionTracker.track(REJECTION_REASONS.DISTRITO_FALTANTE);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.DISTRITO_FALTANTE,
+      datosOriginales: { distrito: row.DISTRITO, barrio: row.BARRIO }
+    }, 'Fila rechazada: distrito faltante');
     return null;
+  }
+
+  if (!barrio) {
+    rejectionTracker.track(REJECTION_REASONS.BARRIO_FALTANTE);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.BARRIO_FALTANTE,
+      datosOriginales: { distrito: row.DISTRITO, barrio: row.BARRIO }
+    }, 'Fila rechazada: barrio faltante');
+    return null;
+  }
+
+  // Ignorar filas de totales
+  if (distrito.includes('TOTAL') || barrio.toLowerCase().includes('total')) {
+    rejectionTracker.track(REJECTION_REASONS.FILA_TOTAL);
+    importLogger.debug({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.FILA_TOTAL,
+      datosOriginales: { distrito, barrio }
+    }, 'Fila ignorada: fila de totales');
+    return null;
+  }
+
+  // Procesar proveedores
+  const proveedores = [];
+  let totalCalculado = 0;
+
+  Object.keys(row).forEach(columnName => {
+    const cleanColumnName = cleanString(columnName, '');
+
+    // Ignorar campos que no son proveedores
+    if (IGNORED_FIELDS.includes(cleanColumnName) ||
+        IGNORED_FIELDS.includes(columnName)) {
+      return;
+    }
+
+    // Mapear nombre del proveedor
+    const proveedorNombre = PROVIDER_NAME_MAPPING[cleanColumnName] ||
+                           PROVIDER_NAME_MAPPING[columnName] ||
+                           cleanColumnName;
+
+    if (proveedorNombre && proveedorNombre.length > 0) {
+      const cantidad = parseNumber(row[columnName]);
+
+      if (cantidad >= 0) {
+        proveedores.push({
+          nombre: proveedorNombre,
+          cantidad: cantidad,
+          activo: cantidad > 0
+        });
+        totalCalculado += cantidad;
+      }
+    }
+  });
+
+  // Validar que hay al menos un proveedor
+  if (proveedores.length === 0) {
+    rejectionTracker.track(REJECTION_REASONS.SIN_PROVEEDORES);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.SIN_PROVEEDORES,
+      datosOriginales: { distrito, barrio }
+    }, 'Fila rechazada: sin proveedores validos');
+    return null;
+  }
+
+  // Verificar discrepancia en total
+  const totalCSV = parseNumber(row.TOTAL);
+  if (totalCSV > 0 && totalCalculado !== totalCSV) {
+    importLogger.debug({
+      fila: rowIndex,
+      distrito,
+      barrio,
+      totalCalculado,
+      totalCSV
+    }, 'Discrepancia en total, usando valor calculado');
+  }
+
+  return {
+    fechaAsignacion: new Date(DATASET_YEARS.DEFAULT_START_DATE),
+    distrito: {
+      nombre: distrito
+    },
+    barrio: {
+      nombre: barrio
+    },
+    proveedores,
+    estadisticas: {
+      totalPatinetes: totalCalculado
+    },
+    procesamiento: {
+      archivoOrigen: path.basename(sourceFile),
+      importadoEn: new Date(),
+      versionDatos: '1.0'
+    }
+  };
+}
+
+// ============================================================================
+// PROCESAMIENTO DE ARCHIVOS
+// ============================================================================
+
+/**
+ * Procesar el archivo CSV de asignacion de patinetes
+ * @param {string} filePath - Ruta al archivo CSV
+ * @param {Object} options - Opciones de procesamiento
+ * @returns {Promise<Object>} - Estadisticas de procesamiento
+ */
+async function processScooterFile(filePath, options = {}) {
+  const fileName = path.basename(filePath);
+  importLogger.info({ archivo: fileName }, 'Procesando archivo de asignacion de patinetes');
+
+  return new Promise((resolve, reject) => {
+    const stats = {
+      fileName,
+      totalRows: 0,
+      processedRows: 0,
+      errorRows: 0,
+      rejectedRows: 0,
+      insertedRecords: 0,
+      updatedRecords: 0,
+      skippedRecords: 0,
+      errors: []
+    };
+
+    const batch = [];
+    let rowIndex = 0;
+
+    const stream = createReadStream(filePath)
+      .pipe(csv({ separator: options.csvSeparator || IMPORT_CONFIG.csvSeparator }))
+      .on('data', async (row) => {
+        if (isShuttingDown) {
+          stream.destroy();
+          return;
+        }
+
+        stats.totalRows++;
+        rowIndex++;
+
+        try {
+          const assignmentData = parseScooterAssignmentRow(row, fileName, rowIndex);
+
+          if (assignmentData) {
+            batch.push(assignmentData);
+            stats.processedRows++;
+
+            // Procesar lote cuando alcance el tamano configurado
+            if (batch.length >= options.batchSize) {
+              stream.pause();
+              const batchResult = await processBatch(batch, options);
+              stats.insertedRecords += batchResult.inserted;
+              stats.updatedRecords += batchResult.updated;
+              stats.skippedRecords += batchResult.skipped;
+              stats.errorRows += batchResult.errors;
+              batch.length = 0;
+              stream.resume();
+            }
+          } else {
+            stats.rejectedRows++;
+          }
+
+          // Log de progreso
+          if (stats.totalRows % (options.logInterval || IMPORT_CONFIG.logInterval) === 0) {
+            importLogger.info({
+              archivo: fileName,
+              filasProcesadas: stats.totalRows,
+              insertadas: stats.insertedRecords,
+              rechazadas: stats.rejectedRows
+            }, 'Progreso de procesamiento');
+          }
+
+        } catch (error) {
+          stats.errorRows++;
+          totalErrors++;
+          rejectionTracker.track(REJECTION_REASONS.ERROR_PROCESAMIENTO_FILA);
+          importLogger.error({
+            fila: rowIndex,
+            archivo: fileName,
+            razon: REJECTION_REASONS.ERROR_PROCESAMIENTO_FILA,
+            error: error.message
+          }, 'Error procesando fila');
+
+          if (stats.errors.length < 100) {
+            stats.errors.push({
+              row: rowIndex,
+              error: error.message
+            });
+          }
+        }
+      })
+      .on('end', async () => {
+        try {
+          // Procesar lote restante
+          if (batch.length > 0 && !isShuttingDown) {
+            const batchResult = await processBatch(batch, options);
+            stats.insertedRecords += batchResult.inserted;
+            stats.updatedRecords += batchResult.updated;
+            stats.skippedRecords += batchResult.skipped;
+            stats.errorRows += batchResult.errors;
+          }
+
+          // Actualizar contadores globales
+          totalProcessed += stats.totalRows;
+          totalInserted += stats.insertedRecords;
+          totalUpdated += stats.updatedRecords;
+          totalSkipped += stats.skippedRecords;
+          totalRejected += stats.rejectedRows;
+
+          importLogger.info({
+            archivo: fileName,
+            totalFilas: stats.totalRows,
+            procesadas: stats.processedRows,
+            insertadas: stats.insertedRecords,
+            actualizadas: stats.updatedRecords,
+            omitidas: stats.skippedRecords,
+            rechazadas: stats.rejectedRows,
+            errores: stats.errorRows
+          }, 'Archivo completado');
+
+          resolve(stats);
+        } catch (error) {
+          reject(error);
+        }
+      })
+      .on('error', (error) => {
+        importLogger.error({
+          archivo: fileName,
+          error: error.message
+        }, 'Error leyendo archivo CSV');
+        reject(error);
+      });
+  });
+}
+
+// ============================================================================
+// PROCESAMIENTO DE LOTES
+// ============================================================================
+
+/**
+ * Procesar un error individual de escritura de bulk
+ * @param {Object} writeError - Error de escritura
+ * @param {Object} failedDoc - Documento que fallo
+ * @param {Object} result - Objeto de resultado para actualizar
+ */
+function handleWriteError(writeError, failedDoc, result) {
+  const errorCode = writeError.err?.code || writeError.code;
+
+  if (errorCode === 11000) {
+    result.skipped++;
+    importLogger.debug({
+      razon: REJECTION_REASONS.ERROR_DUPLICADO,
+      distrito: failedDoc?.distrito?.nombre,
+      barrio: failedDoc?.barrio?.nombre
+    }, 'Registro omitido - duplicado');
+  } else {
+    result.errors++;
+    const errorInfo = handleMongoError(writeError.err || writeError);
+    importLogger.warn({
+      razon: REJECTION_REASONS.ERROR_INSERCION_BD,
+      datosOriginales: {
+        distrito: failedDoc?.distrito?.nombre,
+        barrio: failedDoc?.barrio?.nombre
+      },
+      errorMongo: errorInfo
+    }, 'Error en insercion de asignacion');
   }
 }
 
 /**
- * Función principal de importación
+ * Procesar errores de bulk write
+ * @param {Object} bulkError - Error de bulk write
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} result - Objeto de resultado para actualizar
  */
-async function importScooterAssignments() {
-  console.log('🛴 Iniciando importación de asignación de patinetes...\n');
+function processBulkWriteErrors(bulkError, batch, result) {
+  if (!bulkError.writeErrors) {
+    return;
+  }
 
-  let connection;
+  for (const writeError of bulkError.writeErrors) {
+    const operationIndex = writeError.index;
+    const failedDoc = batch[operationIndex];
+    handleWriteError(writeError, failedDoc, result);
+  }
+}
+
+/**
+ * Procesar un lote de asignaciones con manejo de errores detallado
+ * @param {Array} batch - Lote de datos de asignaciones
+ * @param {Object} options - Opciones de procesamiento
+ * @returns {Promise<Object>} - Resultado del procesamiento
+ */
+async function processBatch(batch, options) {
+  const result = { inserted: 0, updated: 0, skipped: 0, errors: 0 };
+
+  if (batch.length === 0) {
+    return result;
+  }
+
+  if (options.skipExisting) {
+    return processBatchInsert(batch, result);
+  }
+
+  return processBatchUpsert(batch, result);
+}
+
+/**
+ * Procesar lote con insercion (skip existing)
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} result - Objeto de resultado
+ * @returns {Promise<Object>}
+ */
+async function processBatchInsert(batch, result) {
+  const operations = batch.map(assignmentData => ({
+    insertOne: { document: assignmentData }
+  }));
+
   try {
-    // Conectar a la base de datos
-    connection = await connectDB(config.database.uri);
-    console.log('✅ Conexión a MongoDB establecida\n');
+    const bulkResult = await ScooterAssignment.bulkWrite(operations, {
+      ordered: false,
+      bypassDocumentValidation: false
+    });
+    result.inserted = bulkResult.insertedCount || 0;
+  } catch (bulkError) {
+    processBulkWriteErrors(bulkError, batch, result);
 
-    // Verificar que el archivo existe
-    console.log(`📂 Ruta del archivo: ${IMPORT_CONFIG.dataFile}`);
+    // Contar inserciones exitosas del bulkWrite
+    if (bulkError.result) {
+      result.inserted += bulkError.result.nInserted || 0;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Procesar lote con upsert (force mode)
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} result - Objeto de resultado
+ * @returns {Promise<Object>}
+ */
+async function processBatchUpsert(batch, result) {
+  const operations = batch.map(assignmentData => ({
+    updateOne: {
+      filter: {
+        'distrito.nombre': assignmentData.distrito.nombre,
+        'barrio.nombre': assignmentData.barrio.nombre
+      },
+      update: { $set: assignmentData },
+      upsert: true
+    }
+  }));
+
+  try {
+    const bulkResult = await ScooterAssignment.bulkWrite(operations, { ordered: false });
+    result.inserted = bulkResult.upsertedCount || 0;
+    result.updated = bulkResult.modifiedCount || 0;
+    result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);
+  } catch (bulkError) {
+    const errorInfo = handleMongoError(bulkError);
+    importLogger.error({
+      razon: REJECTION_REASONS.ERROR_INSERCION_BD,
+      errorMongo: errorInfo
+    }, 'Error en operacion upsert de lote');
+
+    // Contar resultados parciales
+    if (bulkError.result) {
+      result.inserted += bulkError.result.nUpserted || 0;
+      result.updated += bulkError.result.nModified || 0;
+    }
+  }
+
+  return result;
+}
+
+// ============================================================================
+// FUNCION DE IMPORTACION PRINCIPAL
+// ============================================================================
+
+/**
+ * Importar datos de asignacion de patinetes
+ * @param {Object} options - Opciones de importacion
+ * @returns {Promise<Object>} - Estadisticas finales
+ */
+async function importScooterData(options = {}) {
+  const importConfig = { ...IMPORT_CONFIG, ...options };
+
+  importLogger.info({
+    archivo: importConfig.dataFile,
+    batchSize: importConfig.batchSize,
+    skipExisting: importConfig.skipExisting
+  }, 'Iniciando importacion de datos de asignacion de patinetes');
+
+  try {
+    // Verificar que existe el archivo
     try {
-      await fs.access(IMPORT_CONFIG.dataFile);
-      console.log('✅ Archivo encontrado');
-    } catch (error) {
-      throw new Error(`Archivo no encontrado: ${IMPORT_CONFIG.dataFile}`);
+      await fs.access(importConfig.dataFile);
+    } catch {
+      throw new Error(`Archivo no encontrado: ${importConfig.dataFile}`);
     }
 
-    console.log(`📂 Procesando archivo: ${path.basename(IMPORT_CONFIG.dataFile)}`);
-
-    // Estadísticas de importación
-    const stats = {
-      totalFilas: 0,
-      filasValidas: 0,
-      filasIgnoradas: 0,
-      errores: 0,
-      insertados: 0,
-      duplicados: 0,
-      actualizados: 0
+    const globalStats = {
+      startTime: Date.now(),
+      totalRows: 0,
+      processedRows: 0,
+      errorRows: 0,
+      rejectedRows: 0,
+      insertedRecords: 0,
+      updatedRecords: 0,
+      skippedRecords: 0
     };
 
-    // Crear array para acumular documentos
-    const batch = [];
+    // Procesar archivo
+    const fileStats = await processScooterFile(importConfig.dataFile, importConfig);
 
-    // Crear promesa para procesar el CSV
-    const processCSV = new Promise((resolve, reject) => {
-      const stream = createReadStream(IMPORT_CONFIG.dataFile)
-        .pipe(csv({ separator: ';' })); // Usar configuración simple y consistente
+    // Acumular estadisticas
+    globalStats.totalRows = fileStats.totalRows;
+    globalStats.processedRows = fileStats.processedRows;
+    globalStats.errorRows = fileStats.errorRows;
+    globalStats.rejectedRows = fileStats.rejectedRows;
+    globalStats.insertedRecords = fileStats.insertedRecords;
+    globalStats.updatedRecords = fileStats.updatedRecords;
+    globalStats.skippedRecords = fileStats.skippedRecords;
 
-      stream.on('data', (row) => {
-        stats.totalFilas++;
+    globalStats.endTime = Date.now();
+    globalStats.duration = globalStats.endTime - globalStats.startTime;
 
-        // Procesar fila
-        const assignmentData = parseScooterAssignmentRow(row, IMPORT_CONFIG.dataFile);
+    return globalStats;
 
-        if (assignmentData) {
-          batch.push(assignmentData);
-          stats.filasValidas++;
+  } catch (error) {
+    importLogger.error({ error: error.message }, 'Error en importacion de asignacion de patinetes');
+    throw error;
+  }
+}
 
-          // Procesar batch cuando alcance el tamaño configurado
-          if (batch.length >= IMPORT_CONFIG.batchSize) {
-            // No procesamos aquí para evitar problemas de async
-            // Se procesará al final
-          }
-        } else {
-          stats.filasIgnoradas++;
-        }
+// ============================================================================
+// MANEJO DE SENALES DE TERMINACION
+// ============================================================================
 
-        // Mostrar progreso cada 20 filas
-        if (stats.totalFilas % 20 === 0) {
-          console.log(`📊 Progreso: ${stats.totalFilas} filas procesadas, ${stats.filasValidas} válidas, ${stats.filasIgnoradas} ignoradas`);
-        }
-      });
+/**
+ * Manejador de cierre graceful
+ * @param {string} signal - Senal recibida
+ */
+async function handleShutdown(signal) {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
 
-      stream.on('end', async () => {
-        // Procesar batch final
-        if (batch.length > 0) {
-          await processBatch(batch, stats);
-        }
-        resolve();
-      });
+  importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando gracefully...');
 
-      stream.on('error', (error) => {
-        reject(error);
-      });
-    });
+  // Resumen parcial
+  importLogger.info({
+    procesadas: totalProcessed,
+    insertadas: totalInserted,
+    actualizadas: totalUpdated,
+    omitidas: totalSkipped,
+    rechazadas: totalRejected,
+    errores: totalErrors
+  }, 'Resumen parcial de importacion (interrumpida)');
 
-    // Procesar el archivo CSV
-    await processCSV;
+  try {
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.close();
+      importLogger.info('Conexion a MongoDB cerrada correctamente');
+    }
+  } catch (error) {
+    importLogger.error({ error: error.message }, 'Error cerrando conexion a MongoDB');
+  }
 
-    // Mostrar resumen final
-    console.log('\n📊 RESUMEN DE IMPORTACIÓN:');
-    console.log('================================');
-    console.log(`📄 Total de filas procesadas: ${stats.totalFilas}`);
-    console.log(`✅ Filas válidas: ${stats.filasValidas}`);
-    console.log(`⏭️  Filas ignoradas: ${stats.filasIgnoradas} (incluye ${stats.filasIgnoradas} filas de totales por distrito)`);
-    console.log(`❌ Errores: ${stats.errores}`);
-    console.log(`➕ Registros insertados: ${stats.insertados}`);
-    console.log(`🔄 Registros actualizados: ${stats.actualizados}`);
-    console.log(`🔁 Duplicados encontrados: ${stats.duplicados}`);
+  process.exit(0);
+}
 
-    // Explicar la discrepancia
-    const procesados = stats.insertados + stats.actualizados + stats.duplicados;
-    console.log(`\n🔍 ANÁLISIS DE DISCREPANCIAS:`);
-    console.log(`   📊 Total procesados efectivamente: ${procesados}`);
-    console.log(`   ⚠️  Diferencia con filas válidas: ${stats.filasValidas - procesados} (por errores de BD)`);
-    if (stats.duplicados > 0) {
-      console.log(`   ℹ️  Nota: ${stats.duplicados} duplicados fueron ignorados (configuración actual)`);
+// Registrar manejadores de senales
+process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+
+process.on('uncaughtException', (error) => {
+  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  process.exit(1);
+});
+
+// ============================================================================
+// FUNCION PRINCIPAL
+// ============================================================================
+
+/**
+ * Funcion principal del script
+ */
+async function main() {
+  const args = process.argv.slice(2);
+
+  // Mostrar ayuda
+  if (args.includes('--help') || args.includes('-h')) {
+    importLogger.info(`
+Script de Importacion de Asignacion de Patinetes
+
+Uso: node scripts/importation/importScooterAssignments.js [opciones]
+
+Opciones:
+  --force         Sobrescribir datos existentes (upsert)
+  --batch=N       Tamano del lote (default: ${IMPORT_CONFIG.batchSize})
+  --help, -h      Mostrar esta ayuda
+
+Ejemplos:
+  node scripts/importation/importScooterAssignments.js
+  node scripts/importation/importScooterAssignments.js --force
+  node scripts/importation/importScooterAssignments.js --batch=50
+    `);
+    return;
+  }
+
+  const options = {
+    skipExisting: !args.includes('--force'),
+    batchSize: parseInt(args.find(arg => arg.startsWith('--batch='))?.split('=')[1], 10) || IMPORT_CONFIG.batchSize
+  };
+
+  importLogger.info({
+    omitirExistentes: options.skipExisting,
+    tamanoLote: options.batchSize
+  }, 'Iniciando script de importacion de asignacion de patinetes');
+
+  try {
+    // Conectar a MongoDB
+    importLogger.info('Conectando a MongoDB...');
+    await connectDB();
+    importLogger.info('Conexion establecida con MongoDB');
+
+    // Verificar modelo
+    const assignmentsCount = await ScooterAssignment.countDocuments().maxTimeMS(10000);
+    importLogger.info({ registrosActuales: assignmentsCount }, 'Estado actual de la coleccion de asignaciones');
+
+    // Ejecutar importacion
+    const result = await importScooterData(options);
+
+    // Mostrar resultados finales
+    importLogger.info({
+      duracion: formatDuration(result.duration),
+      velocidad: calculateProcessingSpeed(result.totalRows, result.duration),
+      filasTotales: result.totalRows,
+      registrosInsertados: result.insertedRecords,
+      registrosActualizados: result.updatedRecords,
+      registrosOmitidos: result.skippedRecords,
+      registrosRechazados: result.rejectedRows,
+      errores: result.errorRows
+    }, 'Importacion de asignacion de patinetes completada');
+
+    // Estadisticas finales de la base de datos
+    const finalCount = await ScooterAssignment.countDocuments().maxTimeMS(10000);
+    importLogger.info({ totalAsignacionesBD: finalCount }, 'Total de asignaciones en la base de datos');
+
+    // Resumen de rechazos por tipo
+    const rejectionSummary = rejectionTracker.getSortedSummary();
+    if (rejectionSummary.length > 0) {
+      importLogger.info({
+        totalRechazos: rejectionTracker.totalRejected,
+        desglose: rejectionSummary
+      }, 'Resumen de rechazos por tipo');
     }
 
-    // Obtener estadísticas finales de la base de datos
-    const totalRegistros = await ScooterAssignment.countDocuments();
+    // Estadisticas adicionales
     const totalPatinetes = await ScooterAssignment.aggregate([
       {
         $group: {
@@ -298,217 +742,47 @@ async function importScooterAssignments() {
           total: { $sum: '$estadisticas.totalPatinetes' }
         }
       }
-    ]);
+    ]).maxTimeMS(10000);
 
-    console.log('\n📈 ESTADÍSTICAS DE LA BASE DE DATOS:');
-    console.log('====================================');
-    console.log(`📍 Total de asignaciones en BD: ${totalRegistros}`);
-    console.log(`🛴 Total de patinetes registrados: ${totalPatinetes[0]?.total || 0}`);
-
-    // Mostrar algunos ejemplos de datos importados
-    const ejemplos = await ScooterAssignment.find()
-      .sort({ 'estadisticas.totalPatinetes': -1 })
-      .limit(5)
-      .select('distrito.nombre barrio.nombre estadisticas.totalPatinetes estadisticas.densidadPatinetes');
-
-    if (ejemplos.length > 0) {
-      console.log('\n🏆 TOP 5 ÁREAS CON MÁS PATINETES:');
-      console.log('=================================');
-      ejemplos.forEach((area, index) => {
-        console.log(`${index + 1}. ${area.distrito.nombre} - ${area.barrio.nombre}: ${area.estadisticas.totalPatinetes} patinetes (${area.estadisticas.densidadPatinetes})`);
-      });
+    if (totalPatinetes.length > 0) {
+      importLogger.info({
+        totalPatinetes: totalPatinetes[0].total
+      }, 'Total de patinetes registrados');
     }
 
-    console.log('\n✅ Importación de asignación de patinetes completada exitosamente!');
-
   } catch (error) {
-    console.error('\n❌ Error durante la importación:', error.message);
-    throw error;
+    const errorInfo = handleMongoError(error);
+    importLogger.error({
+      mensaje: error.message,
+      errorInfo
+    }, 'Error durante la importacion');
+    process.exit(1);
+
   } finally {
-    // Cerrar conexión MongoDB
-    if (mongoose.connection.readyState === 1) {
-      await mongoose.connection.close();
-      console.log('\n🔌 Conexión a MongoDB cerrada');
-    }
-  }
-}
-
-/**
- * Procesar un batch de documentos
- * @param {Array} batch - Array de documentos a procesar
- * @param {Object} stats - Objeto de estadísticas
- */
-async function processBatch(batch, stats) {
-  console.log(`\n🔄 Procesando batch de ${batch.length} asignaciones...`);
-
-  try {
-    for (const assignmentData of batch) {
-      try {
-        // Buscar documento existente
-        const existingDoc = await ScooterAssignment.findOne({
-          'distrito.nombre': assignmentData.distrito.nombre,
-          'barrio.nombre': assignmentData.barrio.nombre
-        });
-
-        if (existingDoc) {
-          if (IMPORT_CONFIG.skipExisting) {
-            stats.duplicados++;
-            console.log(`🔁 Duplicado ignorado: ${assignmentData.distrito.nombre} - ${assignmentData.barrio.nombre}`);
-            continue;
-          } else {
-            // Actualizar documento existente
-            await ScooterAssignment.findByIdAndUpdate(
-              existingDoc._id,
-              assignmentData,
-              { new: true, runValidators: true }
-            );
-            stats.actualizados++;
-            console.log(`🔄 Actualizado: ${assignmentData.distrito.nombre} - ${assignmentData.barrio.nombre}`);
-          }
-        } else {
-          // Crear nuevo documento
-          const newAssignment = new ScooterAssignment(assignmentData);
-          await newAssignment.save();
-          stats.insertados++;
-          console.log(`➕ Insertado: ${assignmentData.distrito.nombre} - ${assignmentData.barrio.nombre} (${assignmentData.estadisticas.totalPatinetes} patinetes)`);
-        }
-
-      } catch (error) {
-        stats.errores++;
-        console.error(`❌ Error procesando ${assignmentData.distrito.nombre} - ${assignmentData.barrio.nombre}:`, error.message);
-      }
-    }
-
-  } catch (error) {
-    stats.errores += batch.length;
-    console.error(`❌ Error procesando batch:`, error.message);
-  }
-}
-
-/**
- * Función para validar la estructura del archivo CSV
- */
-async function validateCSVStructure() {
-  console.log('🔍 Validando estructura del archivo CSV...\n');
-
-  return new Promise((resolve, reject) => {
-    const headers = [];
-    let firstRow = null;
-    let rowCount = 0;
-
-    const stream = createReadStream(IMPORT_CONFIG.dataFile)
-      .pipe(csv({ separator: ';', maxRows: 5 }));
-
-    stream.on('headers', (headerList) => {
-      headers.push(...headerList);
-      console.log('📋 Headers detectados:', headerList);
-    });
-
-    stream.on('data', (row) => {
-      rowCount++;
-      if (rowCount === 1) {
-        firstRow = row;
-        console.log('� Primera fila de ejemplo:', row);
-      }
-    });
-
-    stream.on('end', () => {
-      console.log(`� Total de filas de muestra procesadas: ${rowCount}`);
-
-      // Verificar que tiene los campos mínimos esperados
-      const requiredFields = ['DISTRITO', 'BARRIO'];
-      const missingFields = requiredFields.filter(field => !headers.includes(field));
-
-      if (missingFields.length > 0) {
-        reject(new Error(`Campos obligatorios faltantes: ${missingFields.join(', ')}`));
-      } else {
-        console.log('✅ Estructura del CSV válida\n');
-        resolve({ headers, firstRow });
-      }
-    });
-
-    stream.on('error', (error) => {
-      console.error('❌ Error leyendo CSV:', error.message);
-      reject(error);
-    });
-  });
-}
-
-/**
- * Función principal con manejo de argumentos
- */
-async function main() {
-  // Manejo de señales para cerrar conexión limpiamente
-  process.on('SIGINT', async () => {
-    console.log('\n\n🛑 Interrupción recibida. Cerrando conexiones...');
-    if (mongoose.connection.readyState === 1) {
+    if (!isShuttingDown && mongoose.connection.readyState === 1) {
+      importLogger.info('Cerrando conexion a MongoDB...');
       try {
         await mongoose.connection.close();
-        console.log('🔌 Conexión cerrada');
+        importLogger.info('Conexion cerrada correctamente');
       } catch (error) {
-        console.error('Error cerrando conexión:', error.message);
+        importLogger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
-    process.exit(130);
-  });
-
-  try {
-    console.log('🛴 IMPORTADOR DE ASIGNACIÓN DE PATINETES ELÉCTRICOS');
-    console.log('==================================================\n');
-
-    // Validar estructura del archivo
-    await validateCSVStructure();
-
-    // Verificar argumentos de línea de comandos
-    const args = process.argv.slice(2);
-    if (args.includes('--help') || args.includes('-h')) {
-      console.log('💡 USO DEL SCRIPT:');
-      console.log('==================');
-      console.log('node importScooterAssignments.js [opciones]');
-      console.log('');
-      console.log('Opciones:');
-      console.log('  --help, -h              Mostrar esta ayuda');
-      console.log('  --force                 Sobrescribir registros existentes');
-      console.log('  --batch-size <número>   Tamaño del batch (default: 100)');
-      console.log('');
-      console.log('Ejemplos:');
-      console.log('  node importScooterAssignments.js');
-      console.log('  node importScooterAssignments.js --force');
-      console.log('  node importScooterAssignments.js --batch-size 50');
-      return;
-    }
-
-    // Procesar argumentos
-    if (args.includes('--force')) {
-      IMPORT_CONFIG.skipExisting = false;
-      console.log('🔄 Modo forzado activado - Se sobrescribirán registros existentes\n');
-    }
-
-    const batchSizeIndex = args.indexOf('--batch-size');
-    if (batchSizeIndex !== -1 && args[batchSizeIndex + 1]) {
-      const batchSize = parseInt(args[batchSizeIndex + 1]);
-      if (!isNaN(batchSize) && batchSize > 0) {
-        IMPORT_CONFIG.batchSize = batchSize;
-        console.log(`📦 Tamaño de batch personalizado: ${batchSize}\n`);
-      }
-    }
-
-    // Ejecutar importación
-    await importScooterAssignments();
-
-  } catch (error) {
-    console.error('\n💥 Error fatal:', error.message);
-    process.exit(1);
   }
+
+  importLogger.info('Script de importacion finalizado');
 }
 
-// Ejecutar si el script se llama directamente
+// Ejecutar si es llamado directamente
 if (require.main === module) {
-  main();
+  main().catch(error => {
+    importLogger.error({ error: error.message }, 'Error fatal en script de importacion');
+    process.exit(1);
+  });
 }
 
 module.exports = {
-  importScooterAssignments,
+  importScooterData,
   parseScooterAssignmentRow,
-  IMPORT_CONFIG
+  REJECTION_REASONS
 };

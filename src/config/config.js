@@ -25,9 +25,18 @@ const validateEnvironment = () => {
   }
 
   // Validar la fortaleza de JWT_SECRET
-  if (process.env.JWT_SECRET.length < 32) {
+  const MIN_JWT_SECRET_LENGTH = 32;
+  if (process.env.JWT_SECRET.length < MIN_JWT_SECRET_LENGTH) {
+    const errorMessage = `SEGURIDAD CRÍTICA: JWT_SECRET debe tener al menos ${MIN_JWT_SECRET_LENGTH} caracteres para mayor seguridad`;
+
+    // En producción, detener el servidor
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(errorMessage);
+    }
+
+    // En desarrollo, solo advertir (usar console.warn porque logger aún no está inicializado)
     // eslint-disable-next-line no-console
-    console.warn('Advertencia: JWT_SECRET debe tener al menos 32 caracteres para mayor seguridad');
+    console.warn(`⚠️  ADVERTENCIA: ${errorMessage}`);
   }
 };
 
@@ -38,7 +47,7 @@ const validateEnvironment = () => {
 const config = {
   // Configuración del servidor
   server: {
-    port: parseInt(process.env.PORT) || 3000,
+    port: parseInt(process.env.PORT, 10) || 3000,
     env: process.env.NODE_ENV || 'development',
     host: process.env.HOST || 'localhost'
   },
@@ -47,8 +56,8 @@ const config = {
   database: {
     uri: process.env.DATABASE_URI,
     options: {
-      maxPoolSize: parseInt(process.env.DB_MAX_POOL_SIZE) || 15,
-      serverSelectionTimeoutMS: parseInt(process.env.DB_TIMEOUT) || 5000,
+      maxPoolSize: parseInt(process.env.DB_MAX_POOL_SIZE, 10) || 15,
+      serverSelectionTimeoutMS: parseInt(process.env.DB_TIMEOUT, 10) || 5000,
     }
   },
 
@@ -56,14 +65,17 @@ const config = {
   jwt: {
     secret: process.env.JWT_SECRET,
     expiresIn: process.env.JWT_EXPIRE || '15m',
-    algorithm: 'HS256' // Algoritmo recomendado para JWT por su balance entre seguridad y rendimiento
+    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRE || '30d',
+    algorithm: 'HS256', // Algoritmo recomendado para JWT por su balance entre seguridad y rendimiento
+    issuer: 'api-rest-auth',
+    audience: 'api-rest-auth-client'
   },
 
   // Configuración de seguridad
   security: {
-    bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS) || 12,
-    rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutos
-    rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // 100 solicitudes por ventana
+    bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 12,
+    rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000, // 15 minutos
+    rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100, // 100 solicitudes por ventana
     corsOrigins: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['http://localhost:3000'],
   },
 
@@ -71,7 +83,7 @@ const config = {
   api: {
     version: 'v1.0',
     prefix: '/api',
-    timeout: parseInt(process.env.API_TIMEOUT) || 30000 // 30 segundos
+    timeout: parseInt(process.env.API_TIMEOUT, 10) || 30000 // 30 segundos
   }
 };
 

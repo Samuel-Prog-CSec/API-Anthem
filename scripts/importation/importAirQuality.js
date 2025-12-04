@@ -1,16 +1,19 @@
 /**
- * Script de Importación de Calidad del Aire
+ * Script de Importacion de Calidad del Aire
  *
- * Script especializado para importar datos CSV de calidad del aire
- * desde los sensores distribuidos por la ciudad. Procesa todos los archivos
- * del directorio datos_hpe/Aire/ con procesamiento paralelo optimizado.
- *
- * Datos incluyen mediciones horarias de diferentes magnitudes:
- * - Partículas (PM2.5, PM10)
- * - Gases (NO2, SO2, O3, CO)
- * - Hidrocarburos y otros contaminantes
+ * Procesa y carga datos de calidad del aire desde multiples archivos CSV
+ * con procesamiento paralelo optimizado. Incluye mediciones horarias
+ * de diferentes magnitudes (PM2.5, PM10, NO2, SO2, O3, CO, etc.)
  *
  * Uso: node scripts/importation/importAirQuality.js [opciones]
+ *
+ * Opciones:
+ *   --force         Sobrescribir datos existentes (upsert)
+ *   --batch=N       Tamano del lote (default: 500)
+ *   --parallel=N    Archivos en paralelo (default: 4)
+ *   --no-summary    Omitir resumen estadistico
+ *
+ * @module scripts/importation/importAirQuality
  */
 
 const fs = require('fs').promises;
@@ -18,37 +21,82 @@ const path = require('path');
 const csv = require('csv-parser');
 const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
+
+// Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
-const config = require('../../src/config/config');
+const { logger } = require('../../src/config/logger');
+const { handleMongoError } = require('../../src/utils/errorUtils');
+const {
+  MAGNITUDES_PERMITIDAS,
+  AIR_QUALITY_MAGNITUDES,
+  VALIDATION_CODES,
+  DATASET_YEARS,
+  VALIDATION_LIMITS
+} = require('../../src/constants');
+const {
+  RejectionTracker,
+  formatDuration,
+  calculateProcessingSpeed
+} = require('./helpers/importHelpers');
+
+// Logger especifico para importacion
+const importLogger = logger.child({ component: 'import-air-quality' });
+
+// Modelo
 const AirQuality = require('../../src/models/AirQuality');
 
 /**
- * Configuración del importador de calidad del aire
+ * Codigos de razon de rechazo para trazabilidad
+ * @constant {Object}
+ */
+const REJECTION_REASONS = {
+  MISSING_REQUIRED_FIELDS: 'CAMPOS_OBLIGATORIOS_FALTANTES',
+  INVALID_IDENTIFIERS: 'IDENTIFICADORES_INVALIDOS',
+  INVALID_MAGNITUDE: 'MAGNITUD_NO_PERMITIDA',
+  MISSING_PUNTO_MUESTREO: 'PUNTO_MUESTREO_FALTANTE',
+  INVALID_DATE_COMPONENTS: 'COMPONENTES_FECHA_INVALIDOS',
+  DATE_OUT_OF_RANGE: 'FECHA_FUERA_RANGO',
+  INVALID_DATE: 'FECHA_INVALIDA',
+  INCOMPLETE_HOURLY_DATA: 'MEDICIONES_HORARIAS_INCOMPLETAS',
+  DUPLICATE_KEY: 'CLAVE_DUPLICADA',
+  VALIDATION_ERROR: 'ERROR_VALIDACION'
+};
+
+/**
+ * Configuracion del importador de calidad del aire
+ * @constant {Object}
  */
 const IMPORT_CONFIG = {
   dataDirectory: path.join(__dirname, '..', '..', 'datos_hpe', 'Aire'),
-  batchSize: 500, // Optimizado para datos de aire (mediano tamaño)
+  batchSize: 500,
   skipExisting: true,
-  logInterval: 500, // Logs cada 500 registros
-  maxParallel: 4, // Procesamiento paralelo (archivos más pequeños)
+  logInterval: 500,
+  maxParallel: 4,
   maxRetries: 3,
-  retryDelay: 2000
+  retryDelay: 2000,
+  csvSeparator: ';'
 };
 
-// Mapeo de meses en español a números
+/**
+ * Mapeo de meses en espanol a numeros
+ * @constant {Object}
+ */
 const MONTH_MAP = {
   'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4,
   'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8,
   'septiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12
 };
 
-// Validación de códigos de magnitud según documentación
-const VALID_MAGNITUDES = new Set([1, 6, 7, 8, 9, 10, 12, 14, 20, 30, 35, 42, 43, 44]);
+/** Flag para controlar cierre graceful */
+let isShuttingDown = false;
+
+// Tracker de rechazos por tipo
+const rejectionTracker = new RejectionTracker();
 
 /**
  * Extraer mes del nombre del archivo
  * @param {string} fileName - Nombre del archivo (ej: Anthem_CTC_Aire_Enero.csv)
- * @returns {number|null} - Número del mes o null si no se puede determinar
+ * @returns {number|null} Numero del mes o null si no se puede determinar
  */
 function extractMonthFromFileName(fileName) {
   try {
@@ -60,7 +108,7 @@ function extractMonthFromFileName(fileName) {
     }
     return null;
   } catch (error) {
-    console.warn(`⚠️  Error extrayendo mes del archivo ${fileName}:`, error.message);
+    importLogger.warn({ fileName, error: error.message }, 'Error extrayendo mes del archivo');
     return null;
   }
 }
@@ -69,136 +117,138 @@ function extractMonthFromFileName(fileName) {
  * Parsear una fila de datos de calidad del aire
  * @param {Object} row - Fila del CSV
  * @param {string} sourceFile - Archivo origen
- * @returns {Object|null} - Datos procesados para AirQuality o null si es inválido
+ * @param {number} rowIndex - Indice de la fila para logging
+ * @returns {Object} Datos procesados
+ * @throws {Error} Si la validacion falla con razon especifica
  */
-function parseAirQualityRow(row, sourceFile) {
-  try {
-    // Validar campos obligatorios básicos
-    if (!row.PROVINCIA || !row.MUNICIPIO || !row.ESTACION || !row.MAGNITUD) {
-      return null;
-    }
+function parseAirQualityRow(row, _sourceFile, _rowIndex) {
+  // Validar campos obligatorios basicos
+  if (!row.PROVINCIA || !row.MUNICIPIO || !row.ESTACION || !row.MAGNITUD) {
+    const missing = [];
+    if (!row.PROVINCIA) {missing.push('PROVINCIA');}
+    if (!row.MUNICIPIO) {missing.push('MUNICIPIO');}
+    if (!row.ESTACION) {missing.push('ESTACION');}
+    if (!row.MAGNITUD) {missing.push('MAGNITUD');}
+    throw new Error(`${REJECTION_REASONS.MISSING_REQUIRED_FIELDS}: campos=[${missing.join(', ')}]`);
+  }
 
-    // Parsear identificadores
-    const provincia = parseInt(row.PROVINCIA);
-    const municipio = parseInt(row.MUNICIPIO);
-    const estacion = parseInt(row.ESTACION);
-    const magnitud = parseInt(row.MAGNITUD);
+  // Parsear identificadores
+  const provincia = parseInt(row.PROVINCIA, 10);
+  const municipio = parseInt(row.MUNICIPIO, 10);
+  const estacion = parseInt(row.ESTACION, 10);
+  const magnitud = parseInt(row.MAGNITUD, 10);
 
-    if (isNaN(provincia) || isNaN(municipio) || isNaN(estacion) || isNaN(magnitud)) {
-      return null;
-    }
+  if (isNaN(provincia) || isNaN(municipio) || isNaN(estacion) || isNaN(magnitud)) {
+    const invalid = [];
+    if (isNaN(provincia)) {invalid.push(`PROVINCIA='${row.PROVINCIA}'`);}
+    if (isNaN(municipio)) {invalid.push(`MUNICIPIO='${row.MUNICIPIO}'`);}
+    if (isNaN(estacion)) {invalid.push(`ESTACION='${row.ESTACION}'`);}
+    if (isNaN(magnitud)) {invalid.push(`MAGNITUD='${row.MAGNITUD}'`);}
+    throw new Error(`${REJECTION_REASONS.INVALID_IDENTIFIERS}: ${invalid.join(', ')}`);
+  }
 
-    // Validar magnitud
-    if (!VALID_MAGNITUDES.has(magnitud)) {
-      console.warn(`⚠️  Magnitud inválida (${magnitud}) en archivo ${sourceFile}`);
-      return null;
-    }
+  // Validar magnitud usando constantes
+  if (!MAGNITUDES_PERMITIDAS.includes(magnitud)) {
+    throw new Error(`${REJECTION_REASONS.INVALID_MAGNITUDE}: valor=${magnitud}, permitidas=[${MAGNITUDES_PERMITIDAS.slice(0, 5).join(', ')}...]`);
+  }
 
-    // Obtener punto de muestreo
-    const puntoMuestreo = row.PUNTO_MUESTREO?.toString().trim();
-    if (!puntoMuestreo) {
-      return null;
-    }
+  // Obtener punto de muestreo
+  const puntoMuestreo = row.PUNTO_MUESTREO?.toString().trim();
+  if (!puntoMuestreo) {
+    throw new Error(`${REJECTION_REASONS.MISSING_PUNTO_MUESTREO}: columna vacia`);
+  }
 
-    // Parsear fecha
-    const año = parseInt(row.ANO);
-    const mes = parseInt(row.MES);
-    const dia = parseInt(row.DIA);
+  // Parsear fecha
+  const año = parseInt(row.ANO, 10);
+  const mes = parseInt(row.MES, 10);
+  const dia = parseInt(row.DIA, 10);
 
-    if (isNaN(año) || isNaN(mes) || isNaN(dia)) {
-      return null;
-    }
+  if (isNaN(año) || isNaN(mes) || isNaN(dia)) {
+    throw new Error(`${REJECTION_REASONS.INVALID_DATE_COMPONENTS}: ANO='${row.ANO}', MES='${row.MES}', DIA='${row.DIA}'`);
+  }
 
-    // Validar fecha
-    if (año < 2000 || año > 3000 || mes < 1 || mes > 12 || dia < 1 || dia > 31) {
-      return null;
-    }
+  // Validar fecha usando constantes
+  if (año < DATASET_YEARS.VALIDATION_MIN || año > DATASET_YEARS.VALIDATION_MAX ||
+      mes < VALIDATION_LIMITS.MONTH_MIN || mes > VALIDATION_LIMITS.MONTH_MAX ||
+      dia < VALIDATION_LIMITS.DAY_MIN || dia > VALIDATION_LIMITS.DAY_MAX) {
+    throw new Error(`${REJECTION_REASONS.DATE_OUT_OF_RANGE}: ano=${año}, mes=${mes}, dia=${dia}`);
+  }
 
-    // Crear fecha
-    const fecha = new Date(año, mes - 1, dia);
-    if (isNaN(fecha.getTime())) {
-      return null;
-    }
+  // Crear fecha
+  const fecha = new Date(año, mes - 1, dia);
+  if (isNaN(fecha.getTime())) {
+    throw new Error(`${REJECTION_REASONS.INVALID_DATE}: ano=${año}, mes=${mes}, dia=${dia}`);
+  }
 
-    // Procesar mediciones horarias (H01-H24 con V01-V24)
-    const medicionesHorarias = new Map();
-    let validMeasurements = 0;
+  // Procesar mediciones horarias (H01-H24 con V01-V24)
+  const medicionesHorarias = new Map();
+  let validMeasurements = 0;
 
-    for (let hour = 1; hour <= 24; hour++) {
-      const hourKey = `H${hour.toString().padStart(2, '0')}`;
-      const validationKey = `V${hour.toString().padStart(2, '0')}`;
+  for (let hour = 1; hour <= 24; hour++) {
+    const hourKey = `H${hour.toString().padStart(2, '0')}`;
+    const validationKey = `V${hour.toString().padStart(2, '0')}`;
 
-      const hourValue = row[hourKey];
-      const validationCode = row[validationKey];
+    const hourValue = row[hourKey];
+    const validationCode = row[validationKey];
 
-      // Valor por defecto para mediciones faltantes
-      const measurement = {
-        value: null,
-        validationCode: 'N'
-      };
-
-      if (hourValue !== undefined && hourValue !== null && hourValue !== '') {
-        const numericValue = parseFloat(hourValue);
-
-        if (!isNaN(numericValue) && numericValue >= 0) {
-          measurement.value = numericValue;
-        }
-      }
-
-      // Código de validación (V = válido, N = no válido)
-      if (validationCode === 'V' || validationCode === 'N') {
-        measurement.validationCode = validationCode;
-
-        if (validationCode === 'V' && measurement.value !== null) {
-          validMeasurements++;
-        }
-      }
-
-      medicionesHorarias.set(hourKey, measurement);
-    }
-
-    // Verificar que tenemos las 24 mediciones
-    if (medicionesHorarias.size !== 24) {
-      console.warn(`⚠️  Mediciones horarias incompletas en archivo ${sourceFile}`);
-      return null;
-    }
-
-    // Calcular score de calidad de datos
-    const dataQualityScore = validMeasurements / 24;
-
-    // Construir objeto de datos
-    const airQualityData = {
-      provincia,
-      municipio,
-      estacion,
-      magnitud,
-      puntoMuestreo,
-      fecha,
-      medicionesHorarias,
-      processingMetadata: {
-        importedAt: new Date(),
-        validMeasurements,
-        dataQualityScore
-      }
+    // Valor por defecto para mediciones faltantes
+    const measurement = {
+      value: null,
+      validationCode: VALIDATION_CODES.INVALID
     };
 
-    return airQualityData;
+    if (hourValue !== undefined && hourValue !== null && hourValue !== '') {
+      const numericValue = parseFloat(hourValue);
+      if (!isNaN(numericValue) && numericValue >= 0) {
+        measurement.value = numericValue;
+      }
+    }
 
-  } catch (error) {
-    console.error(`Error procesando fila del archivo ${sourceFile}:`, error.message);
-    return null;
+    // Codigo de validacion usando constantes
+    if (validationCode === VALIDATION_CODES.VALID || validationCode === VALIDATION_CODES.INVALID) {
+      measurement.validationCode = validationCode;
+
+      if (validationCode === VALIDATION_CODES.VALID && measurement.value !== null) {
+        validMeasurements++;
+      }
+    }
+
+    medicionesHorarias.set(hourKey, measurement);
   }
+
+  // Verificar que tenemos las 24 mediciones
+  if (medicionesHorarias.size !== 24) {
+    throw new Error(`${REJECTION_REASONS.INCOMPLETE_HOURLY_DATA}: mediciones=${medicionesHorarias.size}/24`);
+  }
+
+  // Calcular score de calidad de datos
+  const dataQualityScore = validMeasurements / 24;
+
+  return {
+    provincia,
+    municipio,
+    estacion,
+    magnitud,
+    puntoMuestreo,
+    fecha,
+    medicionesHorarias,
+    processingMetadata: {
+      importedAt: new Date(),
+      validMeasurements,
+      dataQualityScore
+    }
+  };
 }
 
 /**
  * Procesar un archivo CSV de calidad del aire
  * @param {string} filePath - Ruta al archivo CSV
  * @param {Object} options - Opciones de procesamiento
- * @returns {Promise<Object>} - Estadísticas de procesamiento
+ * @returns {Promise<Object>} Estadisticas de procesamiento
  */
 async function processAirQualityFile(filePath, options = {}) {
   const fileName = path.basename(filePath);
-  console.log(`\n🌬️  Procesando archivo: ${fileName}`);
+  importLogger.info({ fileName }, 'Procesando archivo de calidad del aire');
 
   return new Promise((resolve, reject) => {
     const stats = {
@@ -209,83 +259,96 @@ async function processAirQualityFile(filePath, options = {}) {
       emptyRows: 0,
       insertedRecords: 0,
       skippedRecords: 0,
-      duplicateErrors: 0,
-      errors: []
+      duplicateErrors: 0
     };
 
     const batch = [];
     let isProcessing = false;
 
     const stream = createReadStream(filePath)
-      .pipe(csv({ separator: ';' }))
+      .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }))
       .on('data', async (row) => {
-        if (isProcessing) {return;}
+        if (isProcessing || isShuttingDown) {return;}
 
         stats.totalRows++;
 
         try {
-          const airQualityData = parseAirQualityRow(row, fileName);
+          const airQualityData = parseAirQualityRow(row, fileName, stats.totalRows);
 
-          if (airQualityData) {
-            batch.push(airQualityData);
-            stats.processedRows++;
+          batch.push(airQualityData);
+          stats.processedRows++;
 
-            // Procesar lote cuando alcance el tamaño configurado
-            if (batch.length >= options.batchSize) {
-              stream.pause();
-              isProcessing = true;
+          // Procesar lote cuando alcance el tamano configurado
+          if (batch.length >= options.batchSize) {
+            stream.pause();
+            isProcessing = true;
 
-              try {
-                await processBatch(batch, options, stats);
-                batch.length = 0;
-              } catch (error) {
-                console.error(`   ❌ Error procesando lote:`, error.message);
-                stats.errorRows++;
-              } finally {
-                isProcessing = false;
-                stream.resume();
-              }
+            try {
+              const result = await processBatch(batch, options, stats);
+              stats.insertedRecords += result.inserted;
+              stats.skippedRecords += result.skipped;
+              stats.duplicateErrors += result.duplicates;
+              batch.length = 0;
+            } catch (error) {
+              importLogger.error({ error: error.message }, 'Error procesando lote');
+              stats.errorRows++;
+            } finally {
+              isProcessing = false;
+              stream.resume();
             }
-          } else {
-            stats.emptyRows++;
           }
 
-          // Log de progreso menos frecuente
+          // Log de progreso
           if (stats.totalRows % options.logInterval === 0) {
-            console.log(`   📊 Procesadas ${stats.totalRows.toLocaleString()} filas, ${stats.processedRows.toLocaleString()} válidas...`);
+            importLogger.debug({
+              fileName,
+              totalRows: stats.totalRows,
+              validRows: stats.processedRows
+            }, 'Progreso de lectura');
           }
-
         } catch (error) {
           stats.errorRows++;
-          stats.errors.push({
-            row: stats.totalRows,
-            error: error.message
-          });
-
-          // Limitar errores almacenados
-          if (stats.errors.length > 100) {
-            stats.errors = stats.errors.slice(-50);
-          }
+          stats.emptyRows++;
+          importLogger.warn(
+            {
+              fila: stats.totalRows,
+              archivo: fileName,
+              razon: error.message,
+              datosOriginales: {
+                PROVINCIA: row.PROVINCIA,
+                MUNICIPIO: row.MUNICIPIO,
+                ESTACION: row.ESTACION,
+                MAGNITUD: row.MAGNITUD,
+                ANO: row.ANO,
+                MES: row.MES,
+                DIA: row.DIA
+              }
+            },
+            'Fila rechazada - no insertada en BD'
+          );
         }
       })
       .on('end', async () => {
         try {
           // Procesar lote restante
           if (batch.length > 0) {
-            console.log(`   💾 Procesando lote final de ${batch.length} registros...`);
-            await processBatch(batch, options, stats);
+            importLogger.debug({ fileName, batchSize: batch.length }, 'Procesando lote final');
+            const result = await processBatch(batch, options, stats);
+            stats.insertedRecords += result.inserted;
+            stats.skippedRecords += result.skipped;
+            stats.duplicateErrors += result.duplicates;
           }
 
-          console.log(`✅ Archivo completado: ${fileName}`);
-          console.log(`   📊 Total filas: ${stats.totalRows.toLocaleString()}`);
-          console.log(`   ✅ Procesadas: ${stats.processedRows.toLocaleString()}`);
-          console.log(`   🈳 Vacías/Inválidas: ${stats.emptyRows.toLocaleString()}`);
-          console.log(`   ❌ Errores: ${stats.errorRows.toLocaleString()}`);
-          console.log(`   💾 Insertadas: ${stats.insertedRecords.toLocaleString()}`);
-          console.log(`   ⏭️  Omitidas: ${stats.skippedRecords.toLocaleString()}`);
-          if (stats.duplicateErrors > 0) {
-            console.log(`   🔄 Duplicados: ${stats.duplicateErrors.toLocaleString()}`);
-          }
+          importLogger.info({
+            fileName,
+            totalRows: stats.totalRows,
+            processedRows: stats.processedRows,
+            emptyRows: stats.emptyRows,
+            errorRows: stats.errorRows,
+            insertedRecords: stats.insertedRecords,
+            skippedRecords: stats.skippedRecords,
+            duplicateErrors: stats.duplicateErrors
+          }, 'Archivo completado');
 
           resolve(stats);
         } catch (error) {
@@ -293,125 +356,190 @@ async function processAirQualityFile(filePath, options = {}) {
         }
       })
       .on('error', (error) => {
-        console.error(`❌ Error leyendo archivo ${fileName}:`, error.message);
+        importLogger.error({ fileName, error: error.message }, 'Error leyendo archivo');
         reject(error);
       });
   });
 }
 
 /**
- * Procesar un lote de datos de calidad del aire con bulkWrite optimizado
+ * Procesar un error individual de escritura de bulk
+ * @param {Object} writeError - Error de escritura
+ * @param {Object} failedDoc - Documento que fallo
+ * @param {Object} result - Objeto de resultado para actualizar
+ */
+function handleWriteError(writeError, failedDoc, result) {
+  const errorCode = writeError.err?.code || writeError.code;
+
+  if (errorCode === 11000) {
+    result.skipped++;
+    result.duplicates++;
+    importLogger.debug(
+      {
+        razon: REJECTION_REASONS.DUPLICATE_KEY,
+        estacion: failedDoc?.estacion,
+        magnitud: failedDoc?.magnitud,
+        fecha: failedDoc?.fecha?.toISOString().split('T')[0],
+        detalle: 'Combinacion estacion+magnitud+fecha ya existe'
+      },
+      'Registro omitido - duplicado'
+    );
+  } else {
+    result.errors++;
+    importLogger.warn(
+      {
+        razon: REJECTION_REASONS.VALIDATION_ERROR,
+        error: writeError.errmsg || writeError.err?.errmsg
+      },
+      'Registro rechazado - error de insercion'
+    );
+  }
+}
+
+/**
+ * Procesar errores de bulk write
+ * @param {Object} bulkError - Error de bulk write
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} result - Objeto de resultado para actualizar
+ */
+function processBulkWriteErrors(bulkError, batch, result) {
+  if (!bulkError.writeErrors) {
+    return;
+  }
+
+  for (const writeError of bulkError.writeErrors) {
+    const operationIndex = writeError.index;
+    const failedDoc = batch[operationIndex];
+    handleWriteError(writeError, failedDoc, result);
+  }
+}
+
+/**
+ * Procesar lote con insercion (skip existing)
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} result - Objeto de resultado
+ * @returns {Promise<Object>}
+ */
+async function processBatchInsert(batch, result) {
+  const operations = batch.map(airQualityData => ({
+    insertOne: { document: airQualityData }
+  }));
+
+  try {
+    const bulkResult = await AirQuality.bulkWrite(operations, {
+      ordered: false,
+      bypassDocumentValidation: false
+    });
+    result.inserted = bulkResult.insertedCount || 0;
+  } catch (bulkError) {
+    if (!bulkError.writeErrors) {
+      throw bulkError;
+    }
+    processBulkWriteErrors(bulkError, batch, result);
+
+    // Contar inserciones exitosas del bulkWrite
+    if (bulkError.result) {
+      result.inserted += bulkError.result.nInserted || 0;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Procesar lote con upsert (force mode)
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} result - Objeto de resultado
+ * @returns {Promise<Object>}
+ */
+async function processBatchUpsert(batch, result) {
+  const operations = batch.map(airQualityData => ({
+    updateOne: {
+      filter: {
+        provincia: airQualityData.provincia,
+        municipio: airQualityData.municipio,
+        estacion: airQualityData.estacion,
+        magnitud: airQualityData.magnitud,
+        fecha: airQualityData.fecha
+      },
+      update: { $set: airQualityData },
+      upsert: true
+    }
+  }));
+
+  const bulkResult = await AirQuality.bulkWrite(operations, {
+    ordered: false,
+    bypassDocumentValidation: false
+  });
+
+  result.inserted = (bulkResult.upsertedCount || 0) + (bulkResult.modifiedCount || 0);
+  result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);
+
+  return result;
+}
+
+/**
+ * Procesar un lote de datos con bulkWrite optimizado
  * @param {Array} batch - Lote de datos
  * @param {Object} options - Opciones de procesamiento
- * @param {Object} stats - Estadísticas de procesamiento
+ * @param {Object} stats - Estadisticas de procesamiento
+ * @returns {Promise<Object>} Resultado de la operacion
  */
 async function processBatch(batch, options, stats) {
+  const result = { inserted: 0, skipped: 0, duplicates: 0, errors: 0 };
   let retries = 0;
-  const maxRetries = options.maxRetries || 3;
 
-  while (retries < maxRetries) {
+  while (retries < (options.maxRetries || 3)) {
     try {
       if (options.skipExisting) {
-        // Usar bulkWrite con manejo de duplicados
-        const operations = batch.map(airQualityData => ({
-          insertOne: {
-            document: airQualityData
-          }
-        }));
-
-        try {
-          const result = await AirQuality.bulkWrite(operations, {
-            ordered: false,
-            bypassDocumentValidation: false
-          });
-
-          stats.insertedRecords += result.insertedCount || 0;
-          return; // Éxito, salir del bucle de reintentos
-
-        } catch (bulkError) {
-          // Manejar errores específicos de bulkWrite
-          if (!bulkError.writeErrors) {
-            throw bulkError; // Re-lanzar si no es error de escritura manejable
-          }
-
-          // Contar duplicados y otros errores
-          let duplicates = 0;
-          let otherErrors = 0;
-
-          bulkError.writeErrors.forEach(error => {
-            if (error.code === 11000) { // Duplicate key
-              duplicates++;
-            } else {
-              otherErrors++;
-              console.warn(`   ⚠️  Error inserción: ${error.errmsg}`);
-            }
-          });
-
-          stats.skippedRecords += duplicates;
-          stats.duplicateErrors += duplicates;
-          stats.errorRows += otherErrors;
-          stats.insertedRecords += (batch.length - duplicates - otherErrors);
-        }
+        await processBatchInsert(batch, result);
       } else {
-        // Usar upsert para sobrescribir existentes
-        const operations = batch.map(airQualityData => ({
-          updateOne: {
-            filter: {
-              provincia: airQualityData.provincia,
-              municipio: airQualityData.municipio,
-              estacion: airQualityData.estacion,
-              magnitud: airQualityData.magnitud,
-              fecha: airQualityData.fecha
-            },
-            update: { $set: airQualityData },
-            upsert: true
-          }
-        }));
-
-        const result = await AirQuality.bulkWrite(operations, {
-          ordered: false,
-          bypassDocumentValidation: false
-        });
-
-        stats.insertedRecords += (result.upsertedCount || 0) + (result.modifiedCount || 0);
-        stats.skippedRecords += (result.matchedCount || 0) - (result.modifiedCount || 0);
+        await processBatchUpsert(batch, result);
       }
 
-      return; // Éxito, salir del bucle de reintentos
-
+      // Transferir errores a stats
+      stats.errorRows += result.errors;
+      return result;
     } catch (error) {
       retries++;
-      console.error(`   ❌ Error en lote (intento ${retries}/${maxRetries}):`, error.message);
+      importLogger.warn({
+        attempt: retries,
+        maxRetries: options.maxRetries || 3,
+        error: error.message
+      }, 'Error en lote, reintentando');
 
-      if (retries < maxRetries) {
-        console.log(`   🔄 Reintentando en ${options.retryDelay || 2000}ms...`);
+      if (retries < (options.maxRetries || 3)) {
         await new Promise(resolve => setTimeout(resolve, options.retryDelay || 2000));
       } else {
-        console.error(`   💥 Lote fallido después de ${maxRetries} intentos`);
+        const handledError = handleMongoError(error);
+        importLogger.error({ error: handledError.message }, 'Lote fallido tras reintentos');
         stats.errorRows += batch.length;
         throw error;
       }
     }
   }
+
+  return result;
 }
 
 /**
  * Importar todos los archivos de calidad del aire con procesamiento paralelo
- * @param {Object} options - Opciones de importación
- * @returns {Promise<Object>} - Estadísticas finales
+ * @param {Object} options - Opciones de importacion
+ * @returns {Promise<Object>} Estadisticas finales
  */
 async function importAirQualityData(options = {}) {
   const importConfig = { ...IMPORT_CONFIG, ...options };
 
-  console.log('🌬️  Iniciando importación de datos de calidad del aire...');
-  console.log(`📁 Directorio: ${importConfig.dataDirectory}`);
-  console.log(`🔄 Procesamiento paralelo: ${importConfig.maxParallel} archivos simultáneos`);
+  importLogger.info({
+    dataDirectory: importConfig.dataDirectory,
+    maxParallel: importConfig.maxParallel
+  }, 'Iniciando importacion de datos de calidad del aire');
 
   try {
     // Verificar que existe el directorio
     const dirStats = await fs.stat(importConfig.dataDirectory);
     if (!dirStats.isDirectory()) {
-      throw new Error(`No se encontró el directorio: ${importConfig.dataDirectory}`);
+      throw new Error(`No se encontro el directorio: ${importConfig.dataDirectory}`);
     }
 
     // Obtener lista de archivos CSV
@@ -424,14 +552,13 @@ async function importAirQualityData(options = {}) {
       throw new Error('No se encontraron archivos CSV de calidad del aire');
     }
 
-    console.log(`📄 Archivos encontrados: ${csvFiles.length}`);
-    csvFiles.forEach(file => {
-      const month = extractMonthFromFileName(file);
-      console.log(`   - ${file}${month ? ` (mes ${month})` : ''}`);
-    });
+    importLogger.info({
+      totalFiles: csvFiles.length,
+      files: csvFiles.map(f => ({ name: f, month: extractMonthFromFileName(f) }))
+    }, 'Archivos encontrados');
 
     const globalStats = {
-      startTime: new Date(),
+      startTime: Date.now(),
       totalFiles: csvFiles.length,
       completedFiles: 0,
       totalRows: 0,
@@ -444,44 +571,52 @@ async function importAirQualityData(options = {}) {
       fileStats: []
     };
 
-    // Procesar archivos en paralelo
+    // Procesar archivos en lotes paralelos
     const maxParallel = importConfig.maxParallel;
-    const processFile = async (file, index, total) => {
-      const filePath = path.join(importConfig.dataDirectory, file);
-      console.log(`\n🔄 [${index + 1}/${total}] INICIANDO: ${file}`);
 
-      try {
-        const fileStats = await processAirQualityFile(filePath, config);
-        console.log(`✅ [${index + 1}/${total}] COMPLETADO: ${file} - ${fileStats.insertedRecords.toLocaleString()} registros insertados`);
-        return fileStats;
-      } catch (error) {
-        console.error(`❌ [${index + 1}/${total}] ERROR: ${file} - ${error.message}`);
-        return {
-          fileName: file,
-          totalRows: 0,
-          processedRows: 0,
-          errorRows: 1,
-          emptyRows: 0,
-          insertedRecords: 0,
-          skippedRecords: 0,
-          duplicateErrors: 0,
-          errors: [error.message]
-        };
-      }
-    };
+    for (let i = 0; i < csvFiles.length && !isShuttingDown; i += maxParallel) {
+      const batchFiles = csvFiles.slice(i, i + maxParallel);
+      const batchNumber = Math.floor(i / maxParallel) + 1;
+      const totalBatches = Math.ceil(csvFiles.length / maxParallel);
 
-    // Procesar en lotes paralelos
-    for (let i = 0; i < csvFiles.length; i += maxParallel) {
-      const batch = csvFiles.slice(i, i + maxParallel);
-      console.log(`\n🔄 Procesando lote paralelo ${Math.floor(i/maxParallel) + 1}/${Math.ceil(csvFiles.length/maxParallel)}: ${batch.join(', ')}`);
+      importLogger.info({
+        batchNumber,
+        totalBatches,
+        files: batchFiles
+      }, 'Procesando lote paralelo');
 
-      const promises = batch.map((file, batchIndex) =>
-        processFile(file, i + batchIndex, csvFiles.length)
-      );
+      const promises = batchFiles.map((file, batchIndex) => {
+        const filePath = path.join(importConfig.dataDirectory, file);
+        const fileIndex = i + batchIndex + 1;
+
+        return processAirQualityFile(filePath, importConfig)
+          .then(fileStats => {
+            importLogger.info({
+              file,
+              fileIndex,
+              totalFiles: csvFiles.length,
+              insertedRecords: fileStats.insertedRecords
+            }, 'Archivo procesado');
+            return fileStats;
+          })
+          .catch(error => {
+            importLogger.error({ file, error: error.message }, 'Error procesando archivo');
+            return {
+              fileName: file,
+              totalRows: 0,
+              processedRows: 0,
+              errorRows: 1,
+              emptyRows: 0,
+              insertedRecords: 0,
+              skippedRecords: 0,
+              duplicateErrors: 0
+            };
+          });
+      });
 
       const batchResults = await Promise.all(promises);
 
-      // Acumular estadísticas
+      // Acumular estadisticas
       batchResults.forEach(fileStats => {
         globalStats.fileStats.push(fileStats);
         globalStats.completedFiles++;
@@ -494,37 +629,39 @@ async function importAirQualityData(options = {}) {
         globalStats.duplicateErrors += fileStats.duplicateErrors || 0;
       });
 
-      console.log(`✅ Lote paralelo ${Math.floor(i/maxParallel) + 1} completado. Progreso: ${Math.min(i + maxParallel, csvFiles.length)}/${csvFiles.length}`);
+      importLogger.info({
+        batchNumber,
+        progress: `${Math.min(i + maxParallel, csvFiles.length)}/${csvFiles.length}`
+      }, 'Lote paralelo completado');
 
       // Breve pausa entre lotes para liberar recursos
-      if (i + maxParallel < csvFiles.length) {
-        console.log(`⏸️  Pausa de 3 segundos...`);
+      if (i + maxParallel < csvFiles.length && !isShuttingDown) {
         await new Promise(resolve => setTimeout(resolve, 3000));
       }
     }
 
-    globalStats.endTime = new Date();
+    globalStats.endTime = Date.now();
     globalStats.duration = globalStats.endTime - globalStats.startTime;
 
     return globalStats;
-
   } catch (error) {
-    console.error('❌ Error en importación de calidad del aire:', error.message);
+    const handledError = handleMongoError(error);
+    importLogger.error({ error: handledError.message }, 'Error en importacion de calidad del aire');
     throw error;
   }
 }
 
 /**
- * Generar resumen estadístico post-importación
+ * Generar resumen estadistico post-importacion
+ * @returns {Promise<void>}
  */
 async function generatePostImportSummary() {
-  console.log('\n📈 Generando resumen estadístico de calidad del aire...');
+  importLogger.info('Generando resumen estadistico de calidad del aire...');
 
   try {
-    const totalRecords = await AirQuality.countDocuments();
-    console.log(`📊 Total de registros de calidad del aire: ${totalRecords.toLocaleString()}`);
+    const totalRecords = await AirQuality.countDocuments().maxTimeMS(10000);
 
-    // Distribución por magnitud
+    // Distribucion por magnitud
     const magnitudeDistribution = await AirQuality.aggregate([
       {
         $group: {
@@ -534,19 +671,11 @@ async function generatePostImportSummary() {
           estacionesUnicas: { $addToSet: '$puntoMuestreo' }
         }
       },
-      { $sort: { totalRegistros: -1 } }
-    ]);
+      { $sort: { totalRegistros: -1 } },
+      { $limit: 20 }
+    ]).maxTimeMS(15000);
 
-    const magnitudeNames = AirQuality.getMagnitudes();
-
-    console.log('\n🧪 Distribución por tipo de contaminante:');
-    magnitudeDistribution.forEach(mag => {
-      const name = magnitudeNames[mag._id] || `Magnitud ${mag._id}`;
-      const quality = (mag.promedioCalidad * 100).toFixed(1);
-      console.log(`   ${name}: ${mag.totalRegistros.toLocaleString()} registros, ${mag.estacionesUnicas.length} estaciones, ${quality}% calidad`);
-    });
-
-    // Distribución temporal
+    // Distribucion temporal
     const temporalDistribution = await AirQuality.aggregate([
       {
         $group: {
@@ -558,41 +687,11 @@ async function generatePostImportSummary() {
           magnitudesUnicas: { $addToSet: '$magnitud' }
         }
       },
-      { $sort: { '_id.año': 1, '_id.mes': 1 } }
-    ]);
+      { $sort: { '_id.año': 1, '_id.mes': 1 } },
+      { $limit: 12 }
+    ]).maxTimeMS(15000);
 
-    console.log('\n📅 Distribución temporal:');
-    temporalDistribution.forEach(period => {
-      const monthNames = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-                         'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-      const monthName = monthNames[period._id.mes];
-      console.log(`   ${monthName} ${period._id.año}: ${period.totalRegistros.toLocaleString()} registros, ${period.magnitudesUnicas.length} contaminantes`);
-    });
-
-    // Top estaciones con más datos
-    const topStations = await AirQuality.aggregate([
-      {
-        $group: {
-          _id: {
-            estacion: '$estacion',
-            puntoMuestreo: '$puntoMuestreo'
-          },
-          totalRegistros: { $sum: 1 },
-          magnitudesUnicas: { $addToSet: '$magnitud' },
-          promedioCalidad: { $avg: '$processingMetadata.dataQualityScore' }
-        }
-      },
-      { $sort: { totalRegistros: -1 } },
-      { $limit: 10 }
-    ]);
-
-    console.log('\n🏭 Top 10 estaciones con más datos:');
-    topStations.forEach((station, index) => {
-      const quality = (station.promedioCalidad * 100).toFixed(1);
-      console.log(`   ${index + 1}. Estación ${station._id.estacion} (${station._id.puntoMuestreo}): ${station.totalRegistros.toLocaleString()} registros, ${station.magnitudesUnicas.length} contaminantes, ${quality}% calidad`);
-    });
-
-    // Análisis de calidad de datos
+    // Analisis de calidad de datos
     const qualityAnalysis = await AirQuality.aggregate([
       {
         $group: {
@@ -613,108 +712,190 @@ async function generatePostImportSummary() {
           }
         }
       }
-    ]);
+    ]).maxTimeMS(15000);
 
-    if (qualityAnalysis[0]) {
-      const qa = qualityAnalysis[0];
-      console.log('\n📊 Análisis de calidad de datos:');
-      console.log(`   Promedio de calidad: ${(qa.promedioCalidad * 100).toFixed(1)}%`);
-      console.log(`   Alta calidad (≥80%): ${qa.registrosAltaCalidad.toLocaleString()} (${(qa.registrosAltaCalidad/qa.totalRegistros*100).toFixed(1)}%)`);
-      console.log(`   Media calidad (50-79%): ${qa.registrosMediaCalidad.toLocaleString()} (${(qa.registrosMediaCalidad/qa.totalRegistros*100).toFixed(1)}%)`);
-      console.log(`   Baja calidad (<50%): ${qa.registrosBajaCalidad.toLocaleString()} (${(qa.registrosBajaCalidad/qa.totalRegistros*100).toFixed(1)}%)`);
-    }
+    importLogger.info({
+      totalRegistros: totalRecords,
+      distribucionPorMagnitud: magnitudeDistribution.map(m => ({
+        magnitud: m._id,
+        nombre: AIR_QUALITY_MAGNITUDES[m._id] || `Magnitud ${m._id}`,
+        registros: m.totalRegistros,
+        estaciones: m.estacionesUnicas.length,
+        calidad: (m.promedioCalidad * 100).toFixed(1) + '%'
+      })),
+      distribucionTemporal: temporalDistribution.map(t => ({
+        periodo: `${t._id.año}-${String(t._id.mes).padStart(2, '0')}`,
+        registros: t.totalRegistros,
+        contaminantes: t.magnitudesUnicas.length
+      })),
+      calidadDatos: qualityAnalysis[0] ? {
+        promedioCalidad: (qualityAnalysis[0].promedioCalidad * 100).toFixed(1) + '%',
+        altaCalidad: {
+          total: qualityAnalysis[0].registrosAltaCalidad,
+          porcentaje: ((qualityAnalysis[0].registrosAltaCalidad / qualityAnalysis[0].totalRegistros) * 100).toFixed(1) + '%'
+        },
+        mediaCalidad: {
+          total: qualityAnalysis[0].registrosMediaCalidad,
+          porcentaje: ((qualityAnalysis[0].registrosMediaCalidad / qualityAnalysis[0].totalRegistros) * 100).toFixed(1) + '%'
+        },
+        bajaCalidad: {
+          total: qualityAnalysis[0].registrosBajaCalidad,
+          porcentaje: ((qualityAnalysis[0].registrosBajaCalidad / qualityAnalysis[0].totalRegistros) * 100).toFixed(1) + '%'
+        }
+      } : null
+    }, 'Resumen estadistico de calidad del aire');
 
   } catch (error) {
-    console.error('❌ Error generando resumen estadístico:', error.message);
+    importLogger.error({ error: error.message }, 'Error generando resumen estadistico');
   }
 }
 
 /**
- * Función principal del script
+ * Cerrar conexion de forma segura
+ * @returns {Promise<void>}
+ */
+async function closeConnection() {
+  if (mongoose.connection.readyState !== 0) {
+    importLogger.info('Cerrando conexion a MongoDB...');
+    try {
+      await mongoose.connection.close();
+      importLogger.info('Conexion cerrada correctamente');
+    } catch (error) {
+      importLogger.error({ error: error.message }, 'Error cerrando conexion');
+    }
+  }
+}
+
+/**
+ * Funcion principal del script
+ * @returns {Promise<void>}
  */
 async function main() {
   const args = process.argv.slice(2);
   const options = {
     skipExisting: !args.includes('--force'),
-    batchSize: args.find(arg => arg.startsWith('--batch='))?.split('=')[1] || IMPORT_CONFIG.batchSize,
-    maxParallel: args.find(arg => arg.startsWith('--parallel='))?.split('=')[1] || IMPORT_CONFIG.maxParallel,
+    batchSize: parseInt(args.find(arg => arg.startsWith('--batch='))?.split('=')[1], 10) || IMPORT_CONFIG.batchSize,
+    maxParallel: parseInt(args.find(arg => arg.startsWith('--parallel='))?.split('=')[1], 10) || IMPORT_CONFIG.maxParallel,
     generateSummary: !args.includes('--no-summary')
   };
 
-  console.log('🌬️  Script de Importación de Calidad del Aire');
-  console.log('📊 Configuración:');
-  console.log(`   - Omitir existentes: ${options.skipExisting ? 'Sí' : 'No'}`);
-  console.log(`   - Tamaño de lote: ${options.batchSize}`);
-  console.log(`   - Procesamiento paralelo: ${options.maxParallel} archivos`);
+  importLogger.info({
+    options: {
+      skipExisting: options.skipExisting,
+      batchSize: options.batchSize,
+      maxParallel: options.maxParallel,
+      generateSummary: options.generateSummary
+    }
+  }, 'Script de importacion de calidad del aire iniciado');
 
-  let connection;
+  // Configurar manejadores de senales para cierre graceful
+  const handleSignal = async (signal) => {
+    importLogger.warn({ signal }, 'Senal recibida, cerrando conexiones...');
+    isShuttingDown = true;
+    await closeConnection();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => handleSignal('SIGINT'));
+  process.on('SIGTERM', () => handleSignal('SIGTERM'));
 
   try {
     // Conectar a MongoDB
-    console.log('\n🔄 Conectando a MongoDB...');
-    connection = await connectDB(config.database.uri);
-    console.log('✅ Conectado a la base de datos');
+    importLogger.info('Conectando a MongoDB...');
+    await connectDB();
+    importLogger.info('Conexion establecida');
 
     // Verificar modelo y datos actuales
-    console.log('🔄 Verificando modelo de calidad del aire...');
-    const airQualityCount = await AirQuality.countDocuments();
-    console.log(`📊 Registros actuales: ${airQualityCount.toLocaleString()}`);
+    const airQualityCount = await AirQuality.countDocuments().maxTimeMS(10000);
+    importLogger.info({ registrosActuales: airQualityCount }, 'Estado actual de la base de datos');
 
-    // Ejecutar importación
+    // Ejecutar importacion
     const result = await importAirQualityData(options);
 
-    // Mostrar resultados finales
-    console.log('\n🎉 Importación de calidad del aire completada!');
-    console.log(`⏱️  Tiempo total: ${(result.duration / 1000).toFixed(2)} segundos`);
-    console.log(`📁 Archivos procesados: ${result.completedFiles}/${result.totalFiles}`);
-    console.log(`📊 Total filas procesadas: ${result.totalRows.toLocaleString()}`);
-    console.log(`✅ Registros válidos: ${result.processedRows.toLocaleString()}`);
-    console.log(`💾 Registros insertados: ${result.insertedRecords.toLocaleString()}`);
-    console.log(`⏭️  Registros omitidos: ${result.skippedRecords.toLocaleString()}`);
-    console.log(`🈳 Filas inválidas: ${result.emptyRows.toLocaleString()}`);
-    console.log(`❌ Errores: ${result.errorRows.toLocaleString()}`);
-    if (result.duplicateErrors > 0) {
-      console.log(`🔄 Duplicados: ${result.duplicateErrors.toLocaleString()}`);
-    }
+    if (isShuttingDown) {
+      importLogger.warn('Importacion interrumpida por senal de cierre');
+    } else {
+      // Mostrar resultados finales
+      const finalCount = await AirQuality.countDocuments().maxTimeMS(10000);
 
-    // Estadísticas finales de la base de datos
-    const finalCount = await AirQuality.countDocuments();
-    console.log(`\n📈 Total de registros de calidad del aire: ${finalCount.toLocaleString()}`);
+      importLogger.info({
+        duracion: formatDuration(result.duration),
+        velocidad: calculateProcessingSpeed(result.totalRows, result.duration),
+        archivosProcesados: `${result.completedFiles}/${result.totalFiles}`,
+        filasTotales: result.totalRows,
+        filasValidas: result.processedRows,
+        registrosInsertados: result.insertedRecords,
+        registrosOmitidos: result.skippedRecords,
+        filasInvalidas: result.emptyRows,
+        errores: result.errorRows,
+        duplicados: result.duplicateErrors,
+        totalEnBD: finalCount
+      }, 'Importacion de calidad del aire completada');
 
-    // Generar resumen estadístico
-    if (options.generateSummary) {
-      await generatePostImportSummary();
+      // Resumen de rechazos por tipo
+      const rejectionSummary = rejectionTracker.getSortedSummary();
+      if (rejectionSummary.length > 0) {
+        importLogger.info({
+          totalRechazos: rejectionTracker.totalRejected,
+          desglose: rejectionSummary.slice(0, 10)
+        }, 'Resumen de rechazos por tipo');
+      }
+
+      // Generar resumen estadistico adicional
+      if (options.generateSummary) {
+        await generatePostImportSummary();
+      }
     }
 
   } catch (error) {
-    console.error('\n❌ Error durante la importación:');
-    console.error(`   Mensaje: ${error.message}`);
-    process.exit(1);
+    const handledError = handleMongoError(error);
+    importLogger.error({
+      error: handledError.message,
+      stack: error.stack
+    }, 'Error durante la importacion');
+    process.exitCode = 1;
 
   } finally {
-    if (connection) {
-      console.log('\n🔄 Cerrando conexión...');
-      try {
-        await mongoose.connection.close();
-        console.log('✅ Conexión cerrada');
-      } catch (error) {
-        console.error('⚠️  Error cerrando conexión:', error.message);
-      }
-    }
+    await closeConnection();
   }
 
-  console.log('\n👋 Script completado');
+  importLogger.info('Script completado');
 }
+
+/**
+ * Manejador de cierre graceful
+ * @param {string} signal - Senal recibida
+ */
+function handleShutdown(signal) {
+  importLogger.warn({ signal }, 'Senal recibida, iniciando cierre...');
+  isShuttingDown = true;
+  closeConnection().then(() => process.exit(0));
+}
+
+process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+
+process.on('uncaughtException', (error) => {
+  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  process.exit(1);
+});
 
 // Ejecutar si es llamado directamente
 if (require.main === module) {
   main().catch(error => {
-    console.error('❌ Error fatal:', error);
+    importLogger.fatal({ error: error.message }, 'Error fatal');
     process.exit(1);
   });
 }
 
 module.exports = {
   importAirQualityData,
-  parseAirQualityRow
+  parseAirQualityRow,
+  processAirQualityFile,
+  REJECTION_REASONS
 };

@@ -8,9 +8,9 @@
 const BikeAvailability = require('../models/BikeAvailability');
 const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, parseNumericParams } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS, MONTH_NAMES, BIKE_THRESHOLDS, AGGREGATION_LIMITS } = require('../constants');
 
 /**
  * Obtener todos los registros de disponibilidad con filtros y paginación
@@ -132,8 +132,8 @@ exports.getBikeStats = async (req, res, next) => {
     const { startDate, endDate } = req.query;
 
     // Si no se proporcionan fechas, usar todo el dataset
-    const start = startDate ? new Date(startDate) : new Date('2051-01-01');
-    const end = endDate ? new Date(endDate) : new Date('2051-12-31');
+    const start = startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE);
+    const end = endDate ? new Date(endDate) : new Date(DATASET_YEARS.DEFAULT_END_DATE);
 
     const stats = await BikeAvailability.getStatsByDateRange(start, end);
 
@@ -166,23 +166,22 @@ exports.getBikeStats = async (req, res, next) => {
  */
 exports.getMonthlyTrends = async (req, res, next) => {
   try {
-    const { year = 2051 } = req.query;
+    // Parsear parámetros numéricos
+    const { year } = parseNumericParams(
+      req.query,
+      ['year'],
+      { year: DATASET_YEARS.DEFAULT_YEAR }
+    );
 
-    const trends = await BikeAvailability.getMonthlyTrends(parseInt(year));
+    const trends = await BikeAvailability.getMonthlyTrends(year);
 
     if (!trends || trends.length === 0) {
       return next(createNotFoundError('Tendencias mensuales', `año ${year}`));
     }
 
-    // Mapear números de mes a nombres
-    const monthNames = [
-      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-    ];
-
     const formattedTrends = trends.map(item => ({
       mes: item.mes,
-      nombreMes: monthNames[item.mes - 1],
+      nombreMes: MONTH_NAMES[item.mes - 1],
       totalUsos: item.totalUsos,
       promedioUsosDiarios: Math.round(item.promedioUsosDiarios * 100) / 100,
       promedioBicicletasDisponibles: Math.round(item.promedioBicicletasDisponibles * 100) / 100,
@@ -193,7 +192,7 @@ exports.getMonthlyTrends = async (req, res, next) => {
 
     const responseData = {
       data: {
-        year: parseInt(year),
+        year,
         tendencias: formattedTrends
       }
     };
@@ -213,9 +212,14 @@ exports.getMonthlyTrends = async (req, res, next) => {
  */
 exports.getTopUsageDays = async (req, res, next) => {
   try {
-    const { limit = 10 } = req.query;
+    // Parsear parámetros numéricos
+    const { limit } = parseNumericParams(
+      req.query,
+      ['limit'],
+      { limit: AGGREGATION_LIMITS.TOP_RESULTS }
+    );
 
-    const topDays = await BikeAvailability.getTopUsageDays(parseInt(limit));
+    const topDays = await BikeAvailability.getTopUsageDays(limit);
 
     const responseData = {
       data: {
@@ -242,8 +246,8 @@ exports.getSubscriptionComparison = async (req, res, next) => {
     const { startDate, endDate } = req.query;
 
     // Si no se proporcionan fechas, usar todo el año
-    const start = startDate ? new Date(startDate) : new Date('2051-01-01');
-    const end = endDate ? new Date(endDate) : new Date('2051-12-31');
+    const start = startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE);
+    const end = endDate ? new Date(endDate) : new Date(DATASET_YEARS.DEFAULT_END_DATE);
 
     const comparison = await BikeAvailability.compareSubscriptionTypes(start, end);
 
@@ -382,14 +386,12 @@ exports.getUsageTrendsAnalysis = async (req, res, next) => {
 };
 
 /**
- * Predicción de demanda basada en patrones históricos
- *
  * @route GET /api/bikes/prediction/demand
  * @access Private
  */
 exports.getDemandPredictionAnalysis = async (req, res, next) => {
   try {
-    const { startDate, endDate, threshold = '80' } = req.query;
+    const { startDate, endDate, threshold = BIKE_THRESHOLDS.DEMAND_PREDICTION } = req.query;
 
     const options = {
       startDate: startDate ? new Date(startDate) : undefined,

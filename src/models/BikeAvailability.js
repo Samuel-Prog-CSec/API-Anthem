@@ -6,8 +6,13 @@
  */
 
 const mongoose = require('mongoose');
-const { validateNotFutureDate } = require('./schemas/commonSchemas');
-const { TIME_CONSTANTS, BIKE_USAGE_THRESHOLDS } = require('../constants');
+const { validateDatasetDate } = require('./schemas/commonSchemas');
+const {
+  TIME_CONSTANTS,
+  BIKE_USAGE_THRESHOLDS,
+  VALIDATION_LIMITS,
+  MONGODB_TIMEOUTS
+} = require('../constants');
 
 /**
  * Esquema de Disponibilidad de Bicicletas
@@ -21,8 +26,8 @@ const bikeAvailabilitySchema = new mongoose.Schema({
     type: Date,
     required: true,
     validate: {
-      validator: validateNotFutureDate,
-      message: 'La fecha no puede ser futura'
+      validator: validateDatasetDate,
+      message: 'La fecha debe estar dentro del rango del dataset (2050-2052)'
     }
   },
 
@@ -30,7 +35,7 @@ const bikeAvailabilitySchema = new mongoose.Schema({
   horasTotalesUsosBicicletas: {
     type: Number,
     required: true,
-    min: [0, 'Las horas de uso no pueden ser negativas'],
+    min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Las horas de uso no pueden ser negativas'],
     validate: {
       validator: function(v) {
         // Validación física: las horas de uso no pueden superar 24h * número de bicicletas
@@ -49,21 +54,21 @@ const bikeAvailabilitySchema = new mongoose.Schema({
   horasTotalesDisponibilidadBicicletasEnAnclajes: {
     type: Number,
     required: true,
-    min: [0, 'Las horas de disponibilidad no pueden ser negativas']
+    min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Las horas de disponibilidad no pueden ser negativas']
   },
 
   // Sumatorio de horas de uso y disponibilidad
   totalHorasServicioBicicletas: {
     type: Number,
     required: true,
-    min: [0, 'El total de horas de servicio no puede ser negativo']
+    min: [VALIDATION_LIMITS.QUANTITY_MIN, 'El total de horas de servicio no puede ser negativo']
   },
 
   // Media de bicicletas disponibles (total horas servicio / 24)
   mediaBicicletasDisponibles: {
     type: Number,
     required: true,
-    min: [0, 'La media de bicicletas disponibles no puede ser negativa']
+    min: [VALIDATION_LIMITS.QUANTITY_MIN, 'La media de bicicletas disponibles no puede ser negativa']
   },
 
   // Número de viajes de usuarios con abono anual
@@ -71,7 +76,7 @@ const bikeAvailabilitySchema = new mongoose.Schema({
     type: Number,
     required: true,
     default: 0,
-    min: [0, 'Los usos con abono anual no pueden ser negativos']
+    min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Los usos con abono anual no pueden ser negativos']
   },
 
   // Número de viajes de usuarios con abono ocasional
@@ -79,14 +84,14 @@ const bikeAvailabilitySchema = new mongoose.Schema({
     type: Number,
     required: true,
     default: 0,
-    min: [0, 'Los usos con abono ocasional no pueden ser negativos']
+    min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Los usos con abono ocasional no pueden ser negativos']
   },
 
   // Total de viajes del día
   totalUsos: {
     type: Number,
     required: true,
-    min: [0, 'El total de usos no puede ser negativo'],
+    min: [VALIDATION_LIMITS.QUANTITY_MIN, 'El total de usos no puede ser negativo'],
     validate: {
       validator: function(value) {
         return value === (this.usosAbonadoAnual + this.usosAbonadoOcasional);
@@ -98,7 +103,7 @@ const bikeAvailabilitySchema = new mongoose.Schema({
   // Campos calculados para análisis
   tasaOcupacion: {
     type: Number,
-    max: [100, 'La tasa de ocupación no puede superar el 100%']
+    max: [VALIDATION_LIMITS.PERCENTAGE_MAX, 'La tasa de ocupación no puede superar el 100%']
   },
 
   promedioUsosPorBicicleta: {
@@ -269,7 +274,7 @@ bikeAvailabilitySchema.statics.getStatsByDateRange = function(startDate, endDate
         totalUsosOcasional: { $sum: '$usosAbonadoOcasional' }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -302,7 +307,7 @@ bikeAvailabilitySchema.statics.getMonthlyTrends = function(year) {
     {
       $sort: { mes: 1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -318,14 +323,14 @@ bikeAvailabilitySchema.statics.getTopUsageDays = async function(limit = 10) {
       .limit(limit)
       .select('dia totalUsos mediaBicicletasDisponibles tasaOcupacion')
       .lean()
-      .maxTimeMS(10000),
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
 
     this.find()
       .sort({ totalUsos: 1 })
       .limit(limit)
       .select('dia totalUsos mediaBicicletasDisponibles tasaOcupacion')
       .lean()
-      .maxTimeMS(10000)
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
   ]);
 
   return { topDays, bottomDays };
@@ -379,7 +384,7 @@ bikeAvailabilitySchema.statics.compareSubscriptionTypes = function(startDate, en
         }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -414,7 +419,7 @@ bikeAvailabilitySchema.statics.getEfficiencyAnalysisOptimized = async function(f
         promedioHorasDisponibilidad: { $round: ['$promedioHorasDisponibilidad', 2] }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   return analysis.length > 0 ? analysis[0] : null;
 };
@@ -485,7 +490,7 @@ bikeAvailabilitySchema.statics.getHistoricalDataOptimized = async function(filte
         registros: 1
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   return historicalData;
 };
@@ -600,7 +605,7 @@ bikeAvailabilitySchema.statics.getUsageTrends = function(options) {
     { $sort: sortField }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(10000);
+  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 };
 
 /**
@@ -673,7 +678,7 @@ bikeAvailabilitySchema.statics.getDemandPrediction = async function(options = {}
       }
     },
     { $sort: { probabilidadAltaDemanda: -1 } }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   const globalStats = await this.aggregate([
     ...(Object.keys(matchStage).length > 0 ? [{ $match: matchStage }] : []),
@@ -697,7 +702,7 @@ bikeAvailabilitySchema.statics.getDemandPrediction = async function(options = {}
         promedioTasaOcupacion: { $round: ['$promedioTasaOcupacion', 2] }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(10000);
+  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
   return {
     patrones: patternAnalysis,

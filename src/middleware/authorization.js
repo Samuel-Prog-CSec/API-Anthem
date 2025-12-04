@@ -9,6 +9,7 @@
 const { createForbiddenResponse } = require('../utils/responseHelper');
 const { authLogger } = require('../config/logger');
 const { logPermissionCheck, logUnauthorizedAccess } = require('../utils/securityLogger');
+const { HTTP_STATUS } = require('../constants');
 
 /**
  * Factory de middleware de autorización basada en roles
@@ -23,7 +24,7 @@ const authorize = (...roles) => {
   return (req, res, next) => {
     // Verificar si el usuario está autenticado
     if (!req.user) {
-      return res.status(401).json(
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
         createForbiddenResponse('Se requiere autenticación para este recurso')
       );
     }
@@ -55,7 +56,7 @@ const authorize = (...roles) => {
         `Rol requerido: ${roles.join('|')}, Rol de usuario: ${req.user.role}`
       );
 
-      return res.status(403).json(
+      return res.status(HTTP_STATUS.FORBIDDEN).json(
         createForbiddenResponse('Permisos insuficientes para acceder a este recurso')
       );
     }

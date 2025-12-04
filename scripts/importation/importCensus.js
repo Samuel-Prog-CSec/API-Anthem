@@ -12,115 +12,198 @@ const csv = require('csv-parser');
 const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 const { connectDB } = require('../../src/config/database');
-const config = require('../../src/config/config');
 const Census = require('../../src/models/Census');
+const { logger } = require('../../src/config/logger');
+const { handleMongoError } = require('../../src/utils/errorUtils');
+const { VALIDATION_LIMITS, DEFAULT_VALUES } = require('../../src/constants');
+const {
+  extractDateFromFileName,
+  RejectionTracker,
+  formatDuration,
+  calculateProcessingSpeed,
+  parseInteger,
+  cleanString
+} = require('./helpers/importHelpers');
 
-/**
- * Configuración del importador
- */
+// Logger específico para importación
+const importLogger = logger.child({ component: 'import-census' });
+
+// ============================================================================
+// CONFIGURACIÓN
+// ============================================================================
+
 const IMPORT_CONFIG = {
   dataDirectory: path.join(__dirname, '..', '..', 'datos_hpe', 'Censo'),
   batchSize: 500,
-  skipExisting: true
+  skipExisting: true,
+  logInterval: 10000,
+  maxParallel: 3
 };
+
+// ============================================================================
+// RAZONES DE RECHAZO
+// ============================================================================
+
+/**
+ * Razones de rechazo para filas que no se insertan en la BD
+ * @constant {Object}
+ */
+const REJECTION_REASONS = {
+  // Campos obligatorios faltantes
+  ARCHIVO_SIN_FECHA: 'No se pudo extraer mes/año del nombre del archivo',
+  POBLACION_CERO: 'Registro sin datos de poblacion (todos los campos poblacionales son 0)',
+
+  // Errores de datos
+  CODIGO_DISTRITO_INVALIDO: 'Codigo de distrito invalido o no numerico',
+  CODIGO_BARRIO_INVALIDO: 'Codigo de barrio invalido o no numerico',
+  CODIGO_SECCION_INVALIDO: 'Codigo de seccion censal invalido',
+  EDAD_INVALIDA: 'Edad fuera de rango valido',
+
+  // Errores de procesamiento
+  ERROR_PROCESAMIENTO_FILA: 'Error durante el procesamiento de la fila',
+  ERROR_VALIDACION_MONGOOSE: 'Error de validacion de esquema Mongoose',
+  ERROR_INSERCION_BD: 'Error al insertar en base de datos',
+  ERROR_DUPLICADO: 'Registro duplicado en base de datos'
+};
+
+// ============================================================================
+// CONTADORES GLOBALES
+// ============================================================================
+
+let isShuttingDown = false;
+
+// Tracker de rechazos por tipo
+const rejectionTracker = new RejectionTracker();
+
+// ============================================================================
+// FUNCIONES DE PARSEO
+// ============================================================================
 
 /**
  * Parsear datos de una fila CSV de censo
  * @param {Object} row - Fila del CSV
  * @param {string} sourceFile - Archivo origen
- * @returns {Object} - Datos procesados para el censo
+ * @param {number} rowIndex - Índice de fila para logging
+ * @returns {Object|null} - Datos procesados para el censo o null si se rechaza
  */
-function parseCensusRow(row, sourceFile) {
-  try {
-    // Extraer mes y año del nombre del archivo (formato: Anthem_CTC_Censo_MMAAAA.csv)
-    const fileMatch = sourceFile.match(/(\d{2})(\d{4})/);
-    const mes = fileMatch ? parseInt(fileMatch[1]) : 1;
-    const año = fileMatch ? parseInt(fileMatch[2]) : new Date().getFullYear();
-
-    // Crear fecha del censo
-    const fechaCenso = new Date(año, mes - 1, 1);
-
-    // Limpiar y parsear campos numéricos
-    const parseNumber = (value, defaultValue = 0) => {
-      if (!value || value.trim() === '') {return defaultValue;}
-      const cleaned = value.toString().replace(/['"]/g, '').trim();
-      const parsed = parseInt(cleaned);
-      return isNaN(parsed) ? defaultValue : Math.max(0, parsed);
-    };
-
-    // Limpiar campos de texto
-    const cleanString = (value, defaultValue = '') => {
-      if (!value) {return defaultValue;}
-      return value.toString().replace(/['"]/g, '').trim() || defaultValue;
-    };
-
-    // Extraer datos poblacionales
-    const españolesHombres = parseNumber(row.EspanolesHombres);
-    const españolesMujeres = parseNumber(row.EspanolesMujeres);
-    const extranjerosHombres = parseNumber(row.ExtranjerosHombres);
-    const extranjerosMujeres = parseNumber(row.ExtranjerosMujeres);
-
-    // Validar que al menos hay algún dato poblacional
-    const totalPoblacion = españolesHombres + españolesMujeres + extranjerosHombres + extranjerosMujeres;
-    if (totalPoblacion === 0) {
-      // No crear registro para filas sin población
-      return null;
-    }
-
-    const censusData = {
-      fechaCenso,
-      mes,
-      año,
-
-      // Información del distrito
-      distrito: {
-        codigo: parseNumber(row.COD_DISTRITO, 1),
-        descripcion: cleanString(row.DESC_DISTRITO, 'SIN DESCRIPCION')
-      },
-
-      // Información del barrio
-      barrio: {
-        codigoDistritoBarrio: parseNumber(row.COD_DIST_BARRIO, 1),
-        codigo: parseNumber(row.COD_BARRIO, 1),
-        descripcion: cleanString(row.DESC_BARRIO, 'SIN DESCRIPCION')
-      },
-
-      // Información de la sección censal
-      seccionCensal: {
-        codigoDistritoSeccion: parseNumber(row.COD_DIST_SECCION, 1),
-        codigo: parseNumber(row.COD_SECCION, 1)
-      },
-
-      // Edad del grupo poblacional
-      edad: parseNumber(row.COD_EDAD_INT, 0),
-
-      // Datos poblacionales por género y nacionalidad
-      poblacion: {
-        españoles: {
-          hombres: españolesHombres,
-          mujeres: españolesMujeres
-        },
-        extranjeros: {
-          hombres: extranjerosHombres,
-          mujeres: extranjerosMujeres
-        }
-      },
-
-      // Información de procesamiento
-      procesamiento: {
-        archivoOrigen: sourceFile,
-        versionDatos: '1.0'
-      }
-    };
-
-    return censusData;
-
-  } catch (error) {
-    console.error(`Error procesando fila del archivo ${sourceFile}:`, error);
-    console.error('Datos de la fila:', row);
+function parseCensusRow(row, sourceFile, rowIndex) {
+  // Extraer mes y año del nombre del archivo usando helper
+  const dateInfo = extractDateFromFileName(sourceFile);
+  if (!dateInfo) {
+    rejectionTracker.track(REJECTION_REASONS.ARCHIVO_SIN_FECHA);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.ARCHIVO_SIN_FECHA,
+      datosOriginales: { archivo: sourceFile }
+    }, 'Fila rechazada: no se pudo extraer fecha del archivo');
     return null;
   }
+
+  const { mes, año } = dateInfo;
+
+  // Crear fecha del censo
+  const fechaCenso = new Date(año, mes - 1, 1);
+
+  // Extraer datos poblacionales usando helpers
+  const españolesHombres = parseInteger(row.EspanolesHombres, 0);
+  const españolesMujeres = parseInteger(row.EspanolesMujeres, 0);
+  const extranjerosHombres = parseInteger(row.ExtranjerosHombres, 0);
+  const extranjerosMujeres = parseInteger(row.ExtranjerosMujeres, 0);
+
+  // Validar que al menos hay algún dato poblacional
+  const totalPoblacion = españolesHombres + españolesMujeres + extranjerosHombres + extranjerosMujeres;
+  if (totalPoblacion === 0) {
+    rejectionTracker.track(REJECTION_REASONS.POBLACION_CERO);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.POBLACION_CERO,
+      datosOriginales: {
+        españolesHombres,
+        españolesMujeres,
+        extranjerosHombres,
+        extranjerosMujeres,
+        archivo: sourceFile
+      }
+    }, 'Fila rechazada: registro sin poblacion');
+    return null;
+  }
+
+  // Validar código de distrito
+  const codigoDistrito = parseInteger(row.COD_DISTRITO, 1);
+  if (codigoDistrito < 1 || codigoDistrito > 99) {
+    rejectionTracker.track(REJECTION_REASONS.CODIGO_DISTRITO_INVALIDO);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.CODIGO_DISTRITO_INVALIDO,
+      datosOriginales: { codigoDistrito: row.COD_DISTRITO }
+    }, 'Fila rechazada: codigo de distrito invalido');
+    return null;
+  }
+
+  // Validar edad
+  const edad = parseInteger(row.COD_EDAD_INT, 0);
+  if (edad < VALIDATION_LIMITS.AGE_MIN || edad > VALIDATION_LIMITS.AGE_MAX) {
+    rejectionTracker.track(REJECTION_REASONS.EDAD_INVALIDA);
+    importLogger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.EDAD_INVALIDA,
+      datosOriginales: { edad: row.COD_EDAD_INT }
+    }, 'Fila rechazada: edad fuera de rango');
+    return null;
+  }
+
+  const censusData = {
+    fechaCenso,
+    mes,
+    año,
+
+    // Información del distrito
+    distrito: {
+      codigo: codigoDistrito,
+      descripcion: cleanString(row.DESC_DISTRITO, DEFAULT_VALUES.UNSPECIFIED)
+    },
+
+    // Información del barrio
+    barrio: {
+      codigoDistritoBarrio: parseInteger(row.COD_DIST_BARRIO, 1),
+      codigo: parseInteger(row.COD_BARRIO, 1),
+      descripcion: cleanString(row.DESC_BARRIO, DEFAULT_VALUES.UNSPECIFIED)
+    },
+
+    // Información de la sección censal
+    seccionCensal: {
+      codigoDistritoSeccion: parseInteger(row.COD_DIST_SECCION, 1),
+      codigo: parseInteger(row.COD_SECCION, 1)
+    },
+
+    // Edad del grupo poblacional
+    edad,
+
+    // Datos poblacionales por género y nacionalidad
+    poblacion: {
+      españoles: {
+        hombres: españolesHombres,
+        mujeres: españolesMujeres
+      },
+      extranjeros: {
+        hombres: extranjerosHombres,
+        mujeres: extranjerosMujeres
+      }
+    },
+
+    // Información de procesamiento
+    procesamiento: {
+      archivoOrigen: sourceFile,
+      versionDatos: '1.0'
+    }
+  };
+
+  return censusData;
 }
+
+// ============================================================================
+// PROCESAMIENTO DE ARCHIVOS
+// ============================================================================
 
 /**
  * Procesar un archivo CSV de censo
@@ -130,7 +213,7 @@ function parseCensusRow(row, sourceFile) {
  */
 async function processCensusFile(filePath, options = {}) {
   const fileName = path.basename(filePath);
-  console.log(`\n📂 Procesando archivo: ${fileName}`);
+  importLogger.info({ archivo: fileName }, 'Procesando archivo de censo');
 
   return new Promise((resolve, reject) => {
     const stats = {
@@ -145,13 +228,21 @@ async function processCensusFile(filePath, options = {}) {
     };
 
     const batch = [];
+    let rowIndex = 0;
+
     const stream = createReadStream(filePath)
       .pipe(csv({ separator: ';' }))
       .on('data', async (row) => {
+        if (isShuttingDown) {
+          stream.destroy();
+          return;
+        }
+
         stats.totalRows++;
+        rowIndex++;
 
         try {
-          const censusData = parseCensusRow(row, fileName);
+          const censusData = parseCensusRow(row, fileName, rowIndex);
 
           if (censusData) {
             batch.push(censusData);
@@ -161,44 +252,58 @@ async function processCensusFile(filePath, options = {}) {
             if (batch.length >= options.batchSize) {
               stream.pause();
               await processBatch(batch, options, stats);
-              batch.length = 0; // Limpiar array
-              stream.resume();
+              batch.length = 0;
+              if (!isShuttingDown) {
+                stream.resume();
+              }
             }
           } else {
             stats.emptyRows++;
           }
 
           // Log de progreso
-          if (stats.totalRows % options.logInterval === 0) {
-            console.log(`   📊 Procesadas ${stats.totalRows} filas...`);
+          if (stats.totalRows % (options.logInterval || 10000) === 0) {
+            importLogger.info({
+              archivo: fileName,
+              procesadas: stats.totalRows.toLocaleString(),
+              insertadas: stats.insertedRecords,
+              rechazadas: stats.emptyRows
+            }, 'Progreso de importacion');
           }
 
         } catch (error) {
           stats.errorRows++;
-          stats.errors.push({
-            row: stats.totalRows,
-            error: error.message
-          });
+          importLogger.warn({
+            fila: rowIndex,
+            razon: REJECTION_REASONS.ERROR_PROCESAMIENTO_FILA,
+            error: error.message,
+            archivo: fileName
+          }, 'Error procesando fila de censo');
 
-          if (stats.errors.length > 100) { // Limitar errores almacenados
-            stats.errors = stats.errors.slice(-50);
+          if (stats.errors.length < 100) {
+            stats.errors.push({
+              row: rowIndex,
+              error: error.message
+            });
           }
         }
       })
       .on('end', async () => {
         try {
           // Procesar lote restante
-          if (batch.length > 0) {
+          if (batch.length > 0 && !isShuttingDown) {
             await processBatch(batch, options, stats);
           }
 
-          console.log(`✅ Archivo completado: ${fileName}`);
-          console.log(`   📊 Total filas: ${stats.totalRows}`);
-          console.log(`   ✅ Procesadas: ${stats.processedRows}`);
-          console.log(`   🈳 Vacías: ${stats.emptyRows}`);
-          console.log(`   ❌ Errores: ${stats.errorRows}`);
-          console.log(`   💾 Insertadas: ${stats.insertedRecords}`);
-          console.log(`   ⏭️  Omitidas: ${stats.skippedRecords}`);
+          importLogger.info({
+            archivo: fileName,
+            totalFilas: stats.totalRows,
+            procesadas: stats.processedRows,
+            vacias: stats.emptyRows,
+            errores: stats.errorRows,
+            insertadas: stats.insertedRecords,
+            omitidas: stats.skippedRecords
+          }, 'Archivo de censo completado');
 
           resolve(stats);
         } catch (error) {
@@ -206,10 +311,120 @@ async function processCensusFile(filePath, options = {}) {
         }
       })
       .on('error', (error) => {
-        console.error(`❌ Error leyendo archivo ${fileName}:`, error);
+        importLogger.error({ error: error.message, archivo: fileName }, 'Error leyendo archivo CSV');
         reject(error);
       });
   });
+}
+
+// ============================================================================
+// PROCESAMIENTO DE LOTES
+// ============================================================================
+
+/**
+ * Procesar un error individual de escritura de bulk
+ * @param {Object} writeError - Error de escritura
+ * @param {Object} failedDoc - Documento que fallo
+ * @param {Object} stats - Estadisticas de procesamiento
+ */
+function handleWriteError(writeError, failedDoc, stats) {
+  const errorCode = writeError.err?.code || writeError.code;
+
+  if (errorCode === 11000) {
+    stats.skippedRecords++;
+  } else {
+    const mongoError = handleMongoError(writeError.err || writeError);
+    importLogger.warn({
+      razon: REJECTION_REASONS.ERROR_VALIDACION_MONGOOSE,
+      error: mongoError.message,
+      datosOriginales: {
+        distrito: failedDoc?.distrito?.codigo,
+        barrio: failedDoc?.barrio?.codigo,
+        edad: failedDoc?.edad,
+        mes: failedDoc?.mes,
+        año: failedDoc?.año
+      }
+    }, 'Error insertando registro de censo');
+    stats.errorRows++;
+  }
+}
+
+/**
+ * Procesar errores de bulk write
+ * @param {Object} bulkError - Error de bulk write
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} stats - Estadisticas de procesamiento
+ */
+function processBulkWriteErrors(bulkError, batch, stats) {
+  if (!bulkError.writeErrors) {
+    return;
+  }
+
+  for (const writeError of bulkError.writeErrors) {
+    const operationIndex = writeError.index;
+    const failedDoc = batch[operationIndex];
+    handleWriteError(writeError, failedDoc, stats);
+  }
+}
+
+/**
+ * Procesar lote con insercion (skip existing)
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} stats - Estadisticas de procesamiento
+ * @returns {Promise<void>}
+ */
+async function processBatchInsert(batch, stats) {
+  const operations = batch.map(censusData => ({
+    insertOne: { document: censusData }
+  }));
+
+  try {
+    const result = await Census.bulkWrite(operations, {
+      ordered: false,
+      bypassDocumentValidation: false
+    });
+    stats.insertedRecords += result.insertedCount || 0;
+  } catch (bulkError) {
+    processBulkWriteErrors(bulkError, batch, stats);
+
+    // Contar inserciones exitosas del bulkWrite
+    if (bulkError.result) {
+      stats.insertedRecords += bulkError.result.nInserted || 0;
+    }
+  }
+}
+
+/**
+ * Procesar lote con upsert (force mode)
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} stats - Estadisticas de procesamiento
+ * @returns {Promise<void>}
+ */
+async function processBatchUpsert(batch, stats) {
+  const operations = batch.map(censusData => ({
+    updateOne: {
+      filter: {
+        'distrito.codigo': censusData.distrito.codigo,
+        'barrio.codigo': censusData.barrio.codigo,
+        'seccionCensal.codigo': censusData.seccionCensal.codigo,
+        edad: censusData.edad,
+        año: censusData.año,
+        mes: censusData.mes
+      },
+      update: { $set: censusData },
+      upsert: true
+    }
+  }));
+
+  const result = await Census.bulkWrite(operations, { ordered: false });
+  const nuevos = result.upsertedCount || 0;
+  const actualizados = result.modifiedCount || 0;
+
+  stats.insertedRecords += nuevos + actualizados;
+
+  // Los matched count son registros que ya existían
+  const omitidos = (result.matchedCount || 0) - actualizados;
+  stats.skippedRecords += omitidos;
 }
 
 /**
@@ -217,56 +432,33 @@ async function processCensusFile(filePath, options = {}) {
  * @param {Array} batch - Lote de datos de censo
  * @param {Object} options - Opciones de procesamiento
  * @param {Object} stats - Estadísticas de procesamiento
+ * @returns {Promise<void>}
  */
 async function processBatch(batch, options, stats) {
+  if (batch.length === 0) {
+    return;
+  }
+
   try {
     if (options.skipExisting) {
-      // Insertar solo si no existen registros duplicados
-      for (const censusData of batch) {
-        try {
-          const census = new Census(censusData);
-          await census.save();
-          stats.insertedRecords++;
-        } catch (error) {
-          if (error.code === 11000) {
-            // Registro duplicado
-            stats.skippedRecords++;
-          } else {
-            console.error(`Error insertando registro de censo:`, error.message);
-            stats.errorRows++;
-          }
-        }
-      }
+      await processBatchInsert(batch, stats);
     } else {
-      // Usar upsert para sobrescribir existentes
-      const operations = batch.map(censusData => ({
-        updateOne: {
-          filter: {
-            'distrito.codigo': censusData.distrito.codigo,
-            'barrio.codigo': censusData.barrio.codigo,
-            'seccionCensal.codigo': censusData.seccionCensal.codigo,
-            edad: censusData.edad,
-            año: censusData.año,
-            mes: censusData.mes
-          },
-          update: { $set: censusData },
-          upsert: true
-        }
-      }));
-
-      const result = await Census.bulkWrite(operations, { ordered: false });
-      stats.insertedRecords += result.upsertedCount;
-      stats.insertedRecords += result.modifiedCount;
-
-      // Los matched count son registros que ya existían
-      stats.skippedRecords += result.matchedCount - result.modifiedCount;
+      await processBatchUpsert(batch, stats);
     }
-
   } catch (error) {
-    console.error('Error procesando lote de censo:', error);
-    throw error;
+    const mongoError = handleMongoError(error);
+    importLogger.error({
+      error: mongoError.message,
+      tipo: mongoError.type,
+      loteSize: batch.length
+    }, 'Error procesando lote de censo');
+    stats.errorRows += batch.length;
   }
 }
+
+// ============================================================================
+// IMPORTACIÓN PRINCIPAL
+// ============================================================================
 
 /**
  * Importar todos los archivos de censo
@@ -276,14 +468,17 @@ async function processBatch(batch, options, stats) {
 async function importCensusData(options = {}) {
   const importConfig = { ...IMPORT_CONFIG, ...options };
 
-  console.log('👥 Iniciando importación de datos de censo...');
-  console.log(`📁 Directorio: ${importConfig.dataDirectory}`);
+  importLogger.info({
+    directorio: importConfig.dataDirectory,
+    batchSize: importConfig.batchSize,
+    skipExisting: importConfig.skipExisting
+  }, 'Iniciando importacion de datos de censo');
 
   try {
     // Verificar que existe el directorio
     const dirStats = await fs.stat(importConfig.dataDirectory);
     if (!dirStats.isDirectory()) {
-      throw new Error(`No se encontró el directorio: ${importConfig.dataDirectory}`);
+      throw new Error(`No se encontro el directorio: ${importConfig.dataDirectory}`);
     }
 
     // Obtener lista de archivos CSV
@@ -296,8 +491,10 @@ async function importCensusData(options = {}) {
       throw new Error('No se encontraron archivos CSV de censo');
     }
 
-    console.log(`📄 Archivos encontrados: ${csvFiles.length}`);
-    csvFiles.forEach(file => console.log(`   - ${file}`));
+    importLogger.info({
+      archivosEncontrados: csvFiles.length,
+      archivos: csvFiles
+    }, 'Archivos de censo encontrados');
 
     const globalStats = {
       startTime: new Date(),
@@ -312,12 +509,61 @@ async function importCensusData(options = {}) {
       fileStats: []
     };
 
-    // Procesar cada archivo
-    for (const file of csvFiles) {
-      const filePath = path.join(importConfig.dataDirectory, file);
+    // Procesar archivos en paralelo
+    const maxParallel = importConfig.maxParallel || IMPORT_CONFIG.maxParallel;
 
+    const processFile = async (file) => {
+      if (isShuttingDown) {
+        return {
+          fileName: file,
+          totalRows: 0,
+          processedRows: 0,
+          emptyRows: 0,
+          errorRows: 0,
+          insertedRecords: 0,
+          skippedRecords: 0,
+          errors: ['Proceso interrumpido']
+        };
+      }
+
+      const filePath = path.join(importConfig.dataDirectory, file);
       try {
-        const fileStats = await processCensusFile(filePath, importConfig);
+        return await processCensusFile(filePath, importConfig);
+      } catch (error) {
+        importLogger.error({
+          archivo: file,
+          error: error.message
+        }, 'Error procesando archivo de censo');
+        return {
+          fileName: file,
+          totalRows: 0,
+          processedRows: 0,
+          emptyRows: 0,
+          errorRows: 1,
+          insertedRecords: 0,
+          skippedRecords: 0,
+          errors: [error.message]
+        };
+      }
+    };
+
+    // Procesar en lotes paralelos
+    for (let i = 0; i < csvFiles.length && !isShuttingDown; i += maxParallel) {
+      const batch = csvFiles.slice(i, i + maxParallel);
+      const loteNum = Math.floor(i / maxParallel) + 1;
+      const totalLotes = Math.ceil(csvFiles.length / maxParallel);
+
+      importLogger.info({
+        lote: loteNum,
+        totalLotes,
+        archivos: batch
+      }, 'Procesando lote de archivos');
+
+      const promises = batch.map(file => processFile(file));
+      const batchResults = await Promise.all(promises);
+
+      // Acumular estadisticas
+      batchResults.forEach(fileStats => {
         globalStats.fileStats.push(fileStats);
         globalStats.completedFiles++;
         globalStats.totalRows += fileStats.totalRows;
@@ -326,11 +572,13 @@ async function importCensusData(options = {}) {
         globalStats.errorRows += fileStats.errorRows;
         globalStats.insertedRecords += fileStats.insertedRecords;
         globalStats.skippedRecords += fileStats.skippedRecords;
+      });
 
-      } catch (error) {
-        console.error(`❌ Error procesando archivo ${file}:`, error);
-        globalStats.errorRows++;
-      }
+      importLogger.info({
+        lote: loteNum,
+        progreso: `${globalStats.completedFiles}/${csvFiles.length}`,
+        insertadasAcumuladas: globalStats.insertedRecords
+      }, 'Lote completado');
     }
 
     globalStats.endTime = new Date();
@@ -339,153 +587,139 @@ async function importCensusData(options = {}) {
     return globalStats;
 
   } catch (error) {
-    console.error('❌ Error en importación de censo:', error);
+    importLogger.error({ error: error.message }, 'Error en importacion de censo');
     throw error;
   }
 }
 
-/**
- * Generar resumen estadístico post-importación
- */
-async function generatePostImportSummary() {
-  console.log('\n📈 Generando resumen estadístico...');
-
-  try {
-    // Estadísticas básicas
-    const totalRecords = await Census.countDocuments();
-    console.log(`📊 Total de registros de censo: ${totalRecords.toLocaleString()}`);
-
-    // Distribución por año
-    const yearDistribution = await Census.aggregate([
-      {
-        $group: {
-          _id: '$año',
-          totalRegistros: { $sum: 1 },
-          poblacionTotal: { $sum: '$estadisticas.totalPoblacion' }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
-
-    console.log('\n📅 Distribución por año:');
-    yearDistribution.forEach(year => {
-      console.log(`   ${year._id}: ${year.totalRegistros.toLocaleString()} registros, ${year.poblacionTotal?.toLocaleString() || 0} habitantes`);
-    });
-
-    // Top 10 distritos más poblados
-    const topDistricts = await Census.aggregate([
-      {
-        $group: {
-          _id: {
-            codigo: '$distrito.codigo',
-            nombre: '$distrito.descripcion'
-          },
-          poblacionTotal: { $sum: '$estadisticas.totalPoblacion' }
-        }
-      },
-      { $sort: { poblacionTotal: -1 } },
-      { $limit: 10 }
-    ]);
-
-    console.log('\n🏙️  Top 10 distritos más poblados:');
-    topDistricts.forEach((district, index) => {
-      console.log(`   ${index + 1}. ${district._id.nombre}: ${district.poblacionTotal?.toLocaleString() || 0} habitantes`);
-    });
-
-    // Distribución por grupos de edad
-    const ageGroups = await Census.aggregate([
-      {
-        $group: {
-          _id: '$clasificacionEdad.grupoEdad',
-          poblacionTotal: { $sum: '$estadisticas.totalPoblacion' },
-          totalRegistros: { $sum: 1 }
-        }
-      },
-      { $sort: { poblacionTotal: -1 } }
-    ]);
-
-    console.log('\n👶👨👴 Distribución por grupos de edad:');
-    ageGroups.forEach(group => {
-      console.log(`   ${group._id}: ${group.poblacionTotal?.toLocaleString() || 0} habitantes (${group.totalRegistros.toLocaleString()} registros)`);
-    });
-
-  } catch (error) {
-    console.error('❌ Error generando resumen estadístico:', error);
-  }
-}
+// ============================================================================
+// FUNCIÓN PRINCIPAL
+// ============================================================================
 
 /**
  * Función principal del script
  */
 async function main() {
-  console.log('👥 Script de Importación de Censo');
-  console.log('📊 Configuración:');
-  console.log(`   - Omitir existentes: Sí`);
-  console.log(`   - Tamaño de lote: ${IMPORT_CONFIG.batchSize}`);
-
-  let connection;
+  importLogger.info('Iniciando script de importacion de censo');
 
   try {
     // Conectar a MongoDB
-    console.log('\n🔄 Conectando a MongoDB...');
-    connection = await connectDB(config.database.uri);
-    console.log('✅ Conectado a la base de datos');
+    importLogger.info('Conectando a MongoDB...');
+    await connectDB();
+    importLogger.info('Conexion a MongoDB establecida');
 
     // Verificar que el modelo de censo esté disponible
-    console.log('🔄 Verificando modelo de censo...');
-    const censusCount = await Census.countDocuments();
-    console.log(`📊 Registros actuales de censo: ${censusCount.toLocaleString()}`);
+    const censusCount = await Census.countDocuments().maxTimeMS(10000);
+    importLogger.info({
+      registrosExistentes: censusCount.toLocaleString()
+    }, 'Modelo de censo verificado');
 
     // Ejecutar importación
     const result = await importCensusData();
 
     // Mostrar resultados finales
-    console.log('\n🎉 Importación de censo completada!');
-    console.log(`⏱️  Tiempo total: ${(result.duration / 1000).toFixed(2)} segundos`);
-    console.log(`📁 Archivos procesados: ${result.completedFiles}/${result.totalFiles}`);
-    console.log(`📊 Total filas procesadas: ${result.totalRows.toLocaleString()}`);
-    console.log(`✅ Registros insertados: ${result.insertedRecords.toLocaleString()}`);
-    console.log(`⏭️  Registros omitidos: ${result.skippedRecords.toLocaleString()}`);
-    console.log(`🈳 Filas vacías: ${result.emptyRows.toLocaleString()}`);
-    console.log(`❌ Errores: ${result.errorRows.toLocaleString()}`);
+    importLogger.info({
+      resumen: {
+        duracion: formatDuration(result.duration),
+        velocidad: calculateProcessingSpeed(result.totalRows, result.duration),
+        archivosProcesados: `${result.completedFiles}/${result.totalFiles}`,
+        totalFilasProcesadas: result.totalRows.toLocaleString(),
+        registrosInsertados: result.insertedRecords.toLocaleString(),
+        registrosOmitidos: result.skippedRecords.toLocaleString(),
+        filasVacias: result.emptyRows.toLocaleString(),
+        errores: result.errorRows.toLocaleString()
+      }
+    }, 'Importacion de censo completada');
+
+    // Resumen de rechazos por tipo
+    const rejectionSummary = rejectionTracker.getSortedSummary();
+    if (rejectionSummary.length > 0) {
+      importLogger.info({
+        totalRechazos: rejectionTracker.totalRejected,
+        desglose: rejectionSummary
+      }, 'Resumen de rechazos por tipo');
+    }
 
     // Estadísticas finales de la base de datos
-    const finalCount = await Census.countDocuments();
-    console.log(`\n📈 Total de registros de censo en la base de datos: ${finalCount.toLocaleString()}`);
-
-    // Generar resumen estadístico
-    await generatePostImportSummary();
+    const finalCount = await Census.countDocuments().maxTimeMS(10000);
+    importLogger.info({
+      registrosFinales: finalCount.toLocaleString(),
+      incremento: (finalCount - censusCount).toLocaleString()
+    }, 'Estadisticas finales de la base de datos');
 
   } catch (error) {
-    console.error('\n❌ Error durante la importación:');
-    console.error(`   Mensaje: ${error.message}`);
+    importLogger.error({
+      error: error.message,
+      stack: error.stack
+    }, 'Error durante la importacion');
     process.exit(1);
 
   } finally {
-    if (connection) {
-      console.log('\n🔄 Cerrando conexión...');
+    if (mongoose.connection.readyState === 1) {
       try {
         await mongoose.connection.close();
-        console.log('✅ Conexión cerrada');
+        importLogger.info('Conexion a MongoDB cerrada');
       } catch (error) {
-        console.error('⚠️  Error cerrando conexión:', error.message);
+        importLogger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
   }
-
-  console.log('\n👋 Script completado');
 }
 
+// ============================================================================
+// MANEJO DE SEÑALES
+// ============================================================================
 
-// Ejecutar si es llamado directamente
+/**
+ * Manejador de señales de terminación
+ * @param {string} signal - Señal recibida
+ */
+async function handleShutdown(signal) {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
+
+  importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando...');
+
+  if (mongoose.connection.readyState === 1) {
+    try {
+      await mongoose.connection.close();
+      importLogger.info('Conexion cerrada por senal de terminacion');
+    } catch (error) {
+      importLogger.error({ error: error.message }, 'Error cerrando conexion');
+    }
+  }
+
+  process.exit(0);
+}
+
+process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+
+process.on('uncaughtException', (error) => {
+  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  process.exit(1);
+});
+
+// ============================================================================
+// EJECUCIÓN
+// ============================================================================
+
 if (require.main === module) {
   main().catch(error => {
-    console.error('❌ Error fatal:', error);
+    importLogger.fatal({ error: error.message }, 'Error fatal ejecutando script');
     process.exit(1);
   });
 }
 
 module.exports = {
   importCensusData,
-  parseCensusRow
+  parseCensusRow,
+  REJECTION_REASONS
 };

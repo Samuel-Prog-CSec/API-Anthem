@@ -100,9 +100,9 @@ const airQualityQueryValidation = [
     .custom((value) => {
       const validMagnitudes = [...MAGNITUDES_PERMITIDAS];
       if (Array.isArray(value)) {
-        return value.every(v => validMagnitudes.includes(parseInt(v)));
+        return value.every(v => validMagnitudes.includes(parseInt(v, 10)));
       }
-      return validMagnitudes.includes(parseInt(value));
+      return validMagnitudes.includes(parseInt(value, 10));
     })
     .withMessage('magnitud debe ser un código válido de contaminante'),
 

@@ -31,7 +31,7 @@ const tokenBlacklistSchema = new mongoose.Schema({
 
   reason: {
     type: String,
-    enum: TOKEN_REVOCATION_REASONS,
+    enum: Object.values(TOKEN_REVOCATION_REASONS),
     default: 'rotation'
   },
 
@@ -48,7 +48,8 @@ const tokenBlacklistSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true,
-  versionKey: false
+  versionKey: false,
+  collection: 'token_blacklist'
 });
 
 /**

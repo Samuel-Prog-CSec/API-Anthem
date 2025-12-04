@@ -65,7 +65,7 @@ router.get('/',
       .optional()
       .matches(/^-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*$/)
       .withMessage('El bounding box debe tener formato: minX,minY,maxX,maxY'),
-    query('cerca_de')
+    query('near')
       .optional()
       .matches(/^-?\d+\.?\d*,-?\d+\.?\d*,\d+$/)
       .withMessage('Proximidad debe tener formato: x,y,radio_metros')
@@ -75,16 +75,16 @@ router.get('/',
 );
 
 /**
- * @route   GET /api/v0.1/ubicaciones/puntos-medicion/:tipo_medicion
+ * @route   GET /api/v0.1/ubicaciones/puntos-medicion/:measurementType
  * @desc    Obtener puntos de medición específicos
  * @access  Private (requiere autenticación)
  */
-router.get('/puntos-medicion/:tipo_medicion',
+router.get('/puntos-medicion/:measurementType',
   locationsLimiter, // Rate limiting permisivo para consultas ligeras
   authenticate, // Requiere autenticación
   cacheMiddleware(),
   [
-    param('tipo_medicion')
+    param('measurementType')
       .isIn(['acustica', 'trafico'])
       .withMessage('Tipo de medición debe ser: acustica, trafico')
   ],
@@ -93,16 +93,16 @@ router.get('/puntos-medicion/:tipo_medicion',
 );
 
 /**
- * @route   GET /api/v0.1/ubicaciones/transporte/:tipo_transporte
+ * @route   GET /api/v0.1/ubicaciones/transporte/:transportType
  * @desc    Obtener rutas de transporte público
  * @access  Private (requiere autenticación)
  */
-router.get('/transporte/:tipo_transporte',
+router.get('/transporte/:transportType',
   locationsLimiter, // Rate limiting permisivo para consultas ligeras
   authenticate, // Requiere autenticación
   cacheMiddleware(),
   [
-    param('tipo_transporte')
+    param('transportType')
       .isIn(['todos', 'cercanias', 'autobus', 'interurbano', 'metro', 'metro_ligero', 'taxi'])
       .withMessage('Tipo de transporte no válido')
   ],

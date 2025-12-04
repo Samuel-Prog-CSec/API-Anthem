@@ -115,7 +115,7 @@ async function analyzeAll() {
 
   // 3. Dependencias obsoletas
   console.log('\n═══════════════════════════════════════');
-  console.log('3️⃣  ANÁLISIS DE DEPENDENCIAS');
+  console.log('       ANÁLISIS DE DEPENDENCIAS');
   console.log('═══════════════════════════════════════');
 
   const outdatedResult = await runCommand('npm outdated --json', 'Verificando paquetes obsoletos');
