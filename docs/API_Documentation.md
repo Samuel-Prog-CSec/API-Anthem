@@ -57,11 +57,13 @@ La API utiliza **JWT (JSON Web Tokens)** con sistema de refresh tokens.
    - Duración: 1 hora
    - Uso: Autenticación de requests
    - Header: `Authorization: Bearer <access_token>`
+   - Secreto: JWT_SECRET
 
 2. **Refresh Token**
    - Duración: 7 días
    - Uso: Renovar access token
-   - Almacenamiento: Cookie HTTP-only
+   - Secreto: JWT_REFRESH_SECRET (separado del access token)
+   - Rotación: Se genera nuevo refresh token en cada renovación
 
 #### Headers de Autenticación
 

@@ -15,7 +15,8 @@ require('dotenv').config();
 const validateEnvironment = () => {
   const required = [
     'DATABASE_URI',
-    'JWT_SECRET'
+    'JWT_SECRET',
+    'JWT_REFRESH_SECRET'
   ];
 
   const missing = required.filter(key => !process.env[key]);
@@ -24,9 +25,9 @@ const validateEnvironment = () => {
     throw new Error(`Faltan variables de entorno requeridas: ${missing.join(', ')}`);
   }
 
-  // Validar la fortaleza de JWT_SECRET
+  // Validar la fortaleza de JWT_SECRET y JWT_REFRESH_SECRET
   const MIN_JWT_SECRET_LENGTH = 32;
-  if (process.env.JWT_SECRET.length < MIN_JWT_SECRET_LENGTH) {
+  if (process.env.JWT_SECRET.length < MIN_JWT_SECRET_LENGTH || process.env.JWT_REFRESH_SECRET.length < MIN_JWT_SECRET_LENGTH) {
     const errorMessage = `SEGURIDAD CRÍTICA: JWT_SECRET debe tener al menos ${MIN_JWT_SECRET_LENGTH} caracteres para mayor seguridad`;
 
     // En producción, detener el servidor
@@ -64,6 +65,7 @@ const config = {
   // Configuración de JWT
   jwt: {
     secret: process.env.JWT_SECRET,
+    refreshSecret: process.env.JWT_REFRESH_SECRET,
     expiresIn: process.env.JWT_EXPIRE || '15m',
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRE || '30d',
     algorithm: 'HS256', // Algoritmo recomendado para JWT por su balance entre seguridad y rendimiento

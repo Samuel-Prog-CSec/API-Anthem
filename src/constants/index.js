@@ -390,7 +390,10 @@ const HTTP_STATUS = {
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   NOT_FOUND: 404,
+  REQUEST_TIMEOUT: 408,
   CONFLICT: 409,
+  PAYLOAD_TOO_LARGE: 413,
+  UNSUPPORTED_MEDIA_TYPE: 415,
   UNPROCESSABLE_ENTITY: 422,
   LOCKED: 423,
   TOO_MANY_REQUESTS: 429,
@@ -508,7 +511,7 @@ const TIME_PERIODS = {
  * Días de la semana
  * Usado para mapear índices de día (0-6) a nombres
  */
-const DAYS_OF_WEEK = [
+const _DAYS_OF_WEEK = [
   'Domingo',
   'Lunes',
   'Martes',

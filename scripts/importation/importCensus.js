@@ -6,6 +6,8 @@
  * del directorio datos_hpe/Censo/
  */
 
+process.env.SCRIPT_MODE = 'true';
+
 const fs = require('fs').promises;
 const path = require('path');
 const csv = require('csv-parser');
@@ -14,7 +16,7 @@ const mongoose = require('mongoose');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
 const Census = require('../../src/models/Census');
-const logger = require('../../src/config/logger');
+const { importCensusLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const { VALIDATION_LIMITS, DEFAULT_VALUES } = require('../../src/constants');
 const {
@@ -25,9 +27,6 @@ const {
   parseInteger,
   cleanString
 } = require('./helpers/importHelpers');
-
-// Logger específico para importación
-const importLogger = logger.child({ component: 'import-census' });
 
 // ============================================================================
 // CONFIGURACIÓN
@@ -92,7 +91,7 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   const dateInfo = extractDateFromFileName(sourceFile);
   if (!dateInfo) {
     rejectionTracker.track(REJECTION_REASONS.ARCHIVO_SIN_FECHA);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.ARCHIVO_SIN_FECHA,
       datosOriginales: { archivo: sourceFile }
@@ -115,7 +114,7 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   const totalPoblacion = españolesHombres + españolesMujeres + extranjerosHombres + extranjerosMujeres;
   if (totalPoblacion === 0) {
     rejectionTracker.track(REJECTION_REASONS.POBLACION_CERO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.POBLACION_CERO,
       datosOriginales: {
@@ -133,7 +132,7 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   const codigoDistrito = parseInteger(row.COD_DISTRITO, 1);
   if (codigoDistrito < 1 || codigoDistrito > 99) {
     rejectionTracker.track(REJECTION_REASONS.CODIGO_DISTRITO_INVALIDO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.CODIGO_DISTRITO_INVALIDO,
       datosOriginales: { codigoDistrito: row.COD_DISTRITO }
@@ -145,7 +144,7 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   const edad = parseInteger(row.COD_EDAD_INT, 0);
   if (edad < VALIDATION_LIMITS.AGE_MIN || edad > VALIDATION_LIMITS.AGE_MAX) {
     rejectionTracker.track(REJECTION_REASONS.EDAD_INVALIDA);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.EDAD_INVALIDA,
       datosOriginales: { edad: row.COD_EDAD_INT }
@@ -214,7 +213,7 @@ function parseCensusRow(row, sourceFile, rowIndex) {
  */
 async function processCensusFile(filePath, options = {}) {
   const fileName = path.basename(filePath);
-  importLogger.info({ archivo: fileName }, 'Procesando archivo de censo');
+  logger.info({ archivo: fileName }, 'Procesando archivo de censo');
 
   return new Promise((resolve, reject) => {
     const stats = {
@@ -264,7 +263,7 @@ async function processCensusFile(filePath, options = {}) {
 
           // Log de progreso
           if (stats.totalRows % (options.logInterval || 10000) === 0) {
-            importLogger.info({
+            logger.info({
               archivo: fileName,
               procesadas: stats.totalRows.toLocaleString(),
               insertadas: stats.insertedRecords,
@@ -274,7 +273,7 @@ async function processCensusFile(filePath, options = {}) {
 
         } catch (error) {
           stats.errorRows++;
-          importLogger.warn({
+          logger.warn({
             fila: rowIndex,
             razon: REJECTION_REASONS.ERROR_PROCESAMIENTO_FILA,
             error: error.message,
@@ -296,7 +295,7 @@ async function processCensusFile(filePath, options = {}) {
             await processBatch(batch, options, stats);
           }
 
-          importLogger.info({
+          logger.info({
             archivo: fileName,
             totalFilas: stats.totalRows,
             procesadas: stats.processedRows,
@@ -312,7 +311,7 @@ async function processCensusFile(filePath, options = {}) {
         }
       })
       .on('error', (error) => {
-        importLogger.error({ error: error.message, archivo: fileName }, 'Error leyendo archivo CSV');
+        logger.error({ error: error.message, archivo: fileName }, 'Error leyendo archivo CSV');
         reject(error);
       });
   });
@@ -335,7 +334,7 @@ function handleWriteError(writeError, failedDoc, stats) {
     stats.skippedRecords++;
   } else {
     const mongoError = handleMongoError(writeError.err || writeError);
-    importLogger.warn({
+    logger.warn({
       razon: REJECTION_REASONS.ERROR_VALIDACION_MONGOOSE,
       error: mongoError.message,
       datosOriginales: {
@@ -448,7 +447,7 @@ async function processBatch(batch, options, stats) {
     }
   } catch (error) {
     const mongoError = handleMongoError(error);
-    importLogger.error({
+    logger.error({
       error: mongoError.message,
       tipo: mongoError.type,
       loteSize: batch.length
@@ -469,7 +468,7 @@ async function processBatch(batch, options, stats) {
 async function importCensusData(options = {}) {
   const importConfig = { ...IMPORT_CONFIG, ...options };
 
-  importLogger.info({
+  logger.info({
     directorio: importConfig.dataDirectory,
     batchSize: importConfig.batchSize,
     skipExisting: importConfig.skipExisting
@@ -492,7 +491,7 @@ async function importCensusData(options = {}) {
       throw new Error('No se encontraron archivos CSV de censo');
     }
 
-    importLogger.info({
+    logger.info({
       archivosEncontrados: csvFiles.length,
       archivos: csvFiles
     }, 'Archivos de censo encontrados');
@@ -531,7 +530,7 @@ async function importCensusData(options = {}) {
       try {
         return await processCensusFile(filePath, importConfig);
       } catch (error) {
-        importLogger.error({
+        logger.error({
           archivo: file,
           error: error.message
         }, 'Error procesando archivo de censo');
@@ -554,7 +553,7 @@ async function importCensusData(options = {}) {
       const loteNum = Math.floor(i / maxParallel) + 1;
       const totalLotes = Math.ceil(csvFiles.length / maxParallel);
 
-      importLogger.info({
+      logger.info({
         lote: loteNum,
         totalLotes,
         archivos: batch
@@ -575,7 +574,7 @@ async function importCensusData(options = {}) {
         globalStats.skippedRecords += fileStats.skippedRecords;
       });
 
-      importLogger.info({
+      logger.info({
         lote: loteNum,
         progreso: `${globalStats.completedFiles}/${csvFiles.length}`,
         insertadasAcumuladas: globalStats.insertedRecords
@@ -588,7 +587,7 @@ async function importCensusData(options = {}) {
     return globalStats;
 
   } catch (error) {
-    importLogger.error({ error: error.message }, 'Error en importacion de censo');
+    logger.error({ error: error.message }, 'Error en importacion de censo');
     throw error;
   }
 }
@@ -601,17 +600,17 @@ async function importCensusData(options = {}) {
  * Función principal del script
  */
 async function main() {
-  importLogger.info('Iniciando script de importacion de censo');
+  logger.info('Iniciando script de importacion de censo');
 
   try {
     // Conectar a MongoDB
-    importLogger.info('Conectando a MongoDB...');
+    logger.info('Conectando a MongoDB...');
     await connectDB(config.database.uri);
-    importLogger.info('Conexion a MongoDB establecida');
+    logger.info('Conexion a MongoDB establecida');
 
     // Verificar que el modelo de censo esté disponible
     const censusCount = await Census.countDocuments().maxTimeMS(10000);
-    importLogger.info({
+    logger.info({
       registrosExistentes: censusCount.toLocaleString()
     }, 'Modelo de censo verificado');
 
@@ -619,7 +618,7 @@ async function main() {
     const result = await importCensusData();
 
     // Mostrar resultados finales
-    importLogger.info({
+    logger.info({
       resumen: {
         duracion: formatDuration(result.duration),
         velocidad: calculateProcessingSpeed(result.totalRows, result.duration),
@@ -635,7 +634,7 @@ async function main() {
     // Resumen de rechazos por tipo
     const rejectionSummary = rejectionTracker.getSortedSummary();
     if (rejectionSummary.length > 0) {
-      importLogger.info({
+      logger.info({
         totalRechazos: rejectionTracker.totalRejected,
         desglose: rejectionSummary
       }, 'Resumen de rechazos por tipo');
@@ -643,13 +642,13 @@ async function main() {
 
     // Estadísticas finales de la base de datos
     const finalCount = await Census.countDocuments().maxTimeMS(10000);
-    importLogger.info({
+    logger.info({
       registrosFinales: finalCount.toLocaleString(),
       incremento: (finalCount - censusCount).toLocaleString()
     }, 'Estadisticas finales de la base de datos');
 
   } catch (error) {
-    importLogger.error({
+    logger.error({
       error: error.message,
       stack: error.stack
     }, 'Error durante la importacion');
@@ -659,14 +658,14 @@ async function main() {
     if (mongoose.connection.readyState === 1) {
       try {
         await mongoose.connection.close();
-        importLogger.info('Conexion a MongoDB cerrada');
+        logger.info('Conexion a MongoDB cerrada');
       } catch (error) {
-        importLogger.error({ error: error.message }, 'Error cerrando conexion');
+        logger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
   }
 
-  importLogger.info('Script completado');
+  logger.info('Script completado');
   if (process.exitCode === 1) {
     process.exit(1);
   } else {
@@ -688,14 +687,14 @@ async function handleShutdown(signal) {
   }
   isShuttingDown = true;
 
-  importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando...');
+  logger.warn({ signal }, 'Senal de terminacion recibida, cerrando...');
 
   if (mongoose.connection.readyState === 1) {
     try {
       await mongoose.connection.close();
-      importLogger.info('Conexion cerrada por senal de terminacion');
+      logger.info('Conexion cerrada por senal de terminacion');
     } catch (error) {
-      importLogger.error({ error: error.message }, 'Error cerrando conexion');
+      logger.error({ error: error.message }, 'Error cerrando conexion');
     }
   }
 
@@ -706,12 +705,12 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
-  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
+  logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });
 
@@ -721,7 +720,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 if (require.main === module) {
   main().catch(error => {
-    importLogger.fatal({ error: error.message }, 'Error fatal ejecutando script');
+    logger.fatal({ error: error.message }, 'Error fatal ejecutando script');
     process.exit(1);
   });
 }

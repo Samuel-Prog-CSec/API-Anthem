@@ -15,6 +15,8 @@ const Location = require('../models/Location');
 const Fine = require('../models/Fine');
 const Traffic = require('../models/Traffic');
 const AirQuality = require('../models/AirQuality');
+const Census = require('../models/Census');
+const ScooterAssignment = require('../models/ScooterAssignment');
 const logger = require('./logger');
 const { cacheLogger } = logger;
 
@@ -192,6 +194,111 @@ const warmAirQualityCache = async () => {
 };
 
 /**
+ * Precalentar caché de dashboard demográfico
+ * Datos del censo consultados frecuentemente
+ */
+const warmCensusDashboardCache = async () => {
+  try {
+    cacheLogger.info('Precalentando caché de dashboard demográfico...');
+
+    // Precalentar métricas generales del año por defecto (2051)
+    await Census.aggregate([
+      { $match: { año: 2051 } },
+      {
+        $group: {
+          _id: null,
+          poblacionTotal: { $sum: '$estadisticas.totalPoblacion' },
+          totalEspañoles: { $sum: '$estadisticas.totalEspañoles' },
+          totalExtranjeros: { $sum: '$estadisticas.totalExtranjeros' },
+          distritosUnicos: { $addToSet: '$distrito.codigo' }
+        }
+      }
+    ])
+      .allowDiskUse(true)
+      .maxTimeMS(5000);
+
+    // Precalentar top 5 distritos por población
+    await Census.aggregate([
+      { $match: { año: 2051 } },
+      {
+        $group: {
+          _id: {
+            codigo: '$distrito.codigo',
+            nombre: '$distrito.descripcion'
+          },
+          poblacionTotal: { $sum: '$estadisticas.totalPoblacion' }
+        }
+      },
+      { $sort: { poblacionTotal: -1 } },
+      { $limit: 5 }
+    ])
+      .allowDiskUse(true)
+      .maxTimeMS(5000);
+
+    cacheLogger.info('Caché de dashboard demográfico precalentado correctamente');
+    return { success: true, resource: 'census-dashboard' };
+
+  } catch (error) {
+    cacheLogger.warn({
+      error: error.message,
+      resource: 'census-dashboard'
+    }, 'Error precalentando caché de dashboard demográfico (no crítico)');
+
+    return { success: false, resource: 'census-dashboard', error: error.message };
+  }
+};
+
+/**
+ * Precalentar caché de asignación de patinetes
+ * Datos de patinetes eléctricos consultados frecuentemente
+ */
+const warmScooterAssignmentCache = async () => {
+  try {
+    cacheLogger.info('Precalentando caché de asignación de patinetes...');
+
+    // Precalentar estadísticas generales de patinetes
+    await ScooterAssignment.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalPatinetes: { $sum: '$totalPatinetes' },
+          proveedoresUnicos: { $addToSet: '$proveedor' },
+          distritosUnicos: { $addToSet: '$distrito' }
+        }
+      }
+    ])
+      .allowDiskUse(true)
+      .maxTimeMS(5000);
+
+    // Precalentar top 5 distritos por densidad de patinetes
+    await ScooterAssignment.aggregate([
+      {
+        $group: {
+          _id: '$distrito',
+          densidadPromedio: { $avg: '$densidad' },
+          totalPatinetes: { $sum: '$totalPatinetes' }
+        }
+      },
+      { $sort: { densidadPromedio: -1 } },
+      { $limit: 5 }
+    ])
+      .allowDiskUse(true)
+      .maxTimeMS(5000);
+
+    cacheLogger.info('Caché de asignación de patinetes precalentado correctamente');
+    return { success: true, resource: 'scooter-assignment' };
+
+  } catch (error) {
+    cacheLogger.warn({
+      error: error.message,
+      resource: 'scooter-assignment'
+    }, 'Error precalentando caché de asignación de patinetes (no crítico)');
+
+    return { success: false, resource: 'scooter-assignment', error: error.message };
+  }
+};
+
+/**
  * Función principal de precalentamiento de caché
  * Ejecuta todas las operaciones en paralelo
  *
@@ -211,7 +318,9 @@ const warmupCache = async () => {
       warmDistrictCache(),
       warmFineStatsCache(),
       warmTrafficCache(),
-      warmAirQualityCache()
+      warmAirQualityCache(),
+      warmCensusDashboardCache(),
+      warmScooterAssignmentCache()
     ]);
 
     // Analizar resultados

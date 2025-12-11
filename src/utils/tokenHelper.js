@@ -38,7 +38,7 @@ const generateAccessToken = (payload, expiresIn = config.jwt.expiresIn) => {
 const generateRefreshToken = (payload) => {
   return jwt.sign(
     payload,
-    config.jwt.secret,
+    config.jwt.refreshSecret,
     {
       expiresIn: config.jwt.refreshExpiresIn, // Configurado desde variable de entorno
       algorithm: config.jwt.algorithm,
@@ -104,10 +104,10 @@ const verifyToken = async (token) => {
  */
 const verifyRefreshToken = async (token) => {
   try {
-    return jwt.verify(token, config.jwt.secret, {
+    return jwt.verify(token, config.jwt.refreshSecret, {
       algorithms: [config.jwt.algorithm],
       issuer: config.jwt.issuer,
-      audience: config.jwt.audience
+      audience: 'api-rest-auth-refresh'
     });
   } catch (error) {
     if (error.name === 'TokenExpiredError') {

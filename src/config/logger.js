@@ -2,12 +2,18 @@
  * Configuración del Logger con Pino
  *
  * Configuración profesional de logging usando Pino.js
- * Soporta diferentes niveles por entorno, rotación de logs y formato estructurado.
+ * Soporta diferentes niveles por entorno, escritura a archivos y formato estructurado.
+ *
+ * Características:
+ * - Logs separados: servidor (logs/server/) y scripts (logs/scripts/)
+ * - Dual output: Consola (desarrollo) + Archivos (siempre)
+ * - Archivos: combined.log (todos) + errors.log (solo errores)
  *
  * @see https://getpino.io/
  */
 
 const pino = require('pino');
+const { getLogTransport } = require('./loggerTransport');
 
 const isDevelopment = process.env.NODE_ENV !== 'production';
 const isTest = process.env.NODE_ENV === 'test';
@@ -19,19 +25,10 @@ const pinoConfig = {
   // Nivel de log según entorno
   level: process.env.LOG_LEVEL || (isDevelopment ? 'debug' : 'info'),
 
-  // Configuración para desarrollo
-  ...(isDevelopment && !isTest && {
-    transport: {
-      target: 'pino-pretty',
-      options: {
-        colorize: true,
-        translateTime: 'SYS:standard',
-        ignore: 'pid,hostname',
-        singleLine: false,
-        messageFormat: '{levelLabel} - {msg}',
-        errorLikeObjectKeys: ['err', 'error']
-      }
-    }
+  // Configuración de transporte (consola + archivos)
+  // En test mode, el transporte retorna null y se silencia el logger después
+  ...(!isTest && {
+    transport: getLogTransport()
   }),
 
   // Configuración para producción

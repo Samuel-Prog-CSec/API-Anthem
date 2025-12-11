@@ -357,8 +357,8 @@ scooterAssignmentSchema.index({
  */
 
 /**
- * Calculate statistics for the assignment
- * Updates: estadisticas.*
+ * Calcular estadísticas para la asignación
+ * Actualiza: estadisticas.*
  */
 scooterAssignmentSchema.methods.calculateStatistics = function() {
   // Total de proveedores
@@ -388,8 +388,8 @@ scooterAssignmentSchema.methods.calculateStatistics = function() {
 };
 
 /**
- * Analyze distribution and market concentration
- * Updates: analisisDistribucion.*
+ * Analizar distribución y concentración de mercado
+ * Actualiza: analisisDistribucion.*
  */
 scooterAssignmentSchema.methods.analyzeDistribution = function() {
   const proveedoresActivos = this.proveedores.filter(p => p.activo && p.cantidad > 0);

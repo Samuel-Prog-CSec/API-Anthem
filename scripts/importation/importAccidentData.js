@@ -17,10 +17,9 @@ const mongoose = require('mongoose');
 
 // Importar modelos, configuración y utilidades
 const Accident = require('../../src/models/Accident');
-const { connectDB } = require('../../src/config/database');
+const connectDB = require('../../src/config/database');
 const config = require('../../src/config/config');
-const logger = require('../../src/config/logger');
-const { handleMongoError } = require('../../src/utils/errorUtils');
+const { importAccidentsLogger: logger } = require('../../src/config/scriptLogger');
 const {
   VALIDATION_LIMITS,
   GENDERS,
@@ -37,8 +36,6 @@ const {
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
 
-// Logger específico para importación
-const importLogger = logger.child({ component: 'import-accidents' });
 
 // ============================================================================
 // CONFIGURACIÓN
@@ -328,7 +325,7 @@ function parseCoordinates(xStr, yStr, rowIndex) {
 
   if (isNaN(x) || isNaN(y)) {
     rejectionTracker.track(REJECTION_REASONS.COORDENADAS_FORMATO_INVALIDO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.COORDENADAS_FORMATO_INVALIDO,
       datosOriginales: { coordenadaX: xStr, coordenadaY: yStr }
@@ -340,7 +337,7 @@ function parseCoordinates(xStr, yStr, rowIndex) {
   if (x < VALIDATION_LIMITS.UTM_X_MIN || x > VALIDATION_LIMITS.UTM_X_MAX ||
       y < VALIDATION_LIMITS.UTM_Y_MIN || y > VALIDATION_LIMITS.UTM_Y_MAX) {
     rejectionTracker.track(REJECTION_REASONS.COORDENADAS_FUERA_RANGO_UTM);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.COORDENADAS_FUERA_RANGO_UTM,
       datosOriginales: { x, y },
@@ -365,7 +362,7 @@ function parseCoordinates(xStr, yStr, rowIndex) {
 function parseDate(fechaStr, rowIndex) {
   if (!fechaStr || fechaStr.trim() === '') {
     rejectionTracker.track(REJECTION_REASONS.FECHA_FALTANTE);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.FECHA_FALTANTE,
       datosOriginales: { fecha: fechaStr }
@@ -376,7 +373,7 @@ function parseDate(fechaStr, rowIndex) {
   const parts = fechaStr.trim().split('/');
   if (parts.length !== 3) {
     rejectionTracker.track(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.FECHA_FORMATO_INVALIDO,
       datosOriginales: { fecha: fechaStr, formatoEsperado: 'DD/MM/YYYY' }
@@ -388,7 +385,7 @@ function parseDate(fechaStr, rowIndex) {
 
   if (isNaN(day) || isNaN(month) || isNaN(year)) {
     rejectionTracker.track(REJECTION_REASONS.FECHA_COMPONENTES_INVALIDOS);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.FECHA_COMPONENTES_INVALIDOS,
       datosOriginales: { fecha: fechaStr, dia: day, mes: month, año: year }
@@ -400,7 +397,7 @@ function parseDate(fechaStr, rowIndex) {
       month < VALIDATION_LIMITS.MONTH_MIN || month > VALIDATION_LIMITS.MONTH_MAX ||
       year < VALIDATION_LIMITS.YEAR_MIN || year > VALIDATION_LIMITS.YEAR_MAX) {
     rejectionTracker.track(REJECTION_REASONS.FECHA_FUERA_RANGO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.FECHA_FUERA_RANGO,
       datosOriginales: { fecha: fechaStr, dia: day, mes: month, año: year }
@@ -411,7 +408,7 @@ function parseDate(fechaStr, rowIndex) {
   const date = new Date(year, month - 1, day);
 
   if (isNaN(date.getTime())) {
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.FECHA_FORMATO_INVALIDO,
       datosOriginales: { fecha: fechaStr }
@@ -443,7 +440,7 @@ function validateAndTransformRow(row, rowIndex) {
   const numeroExpediente = row['0']?.toString().trim();
   if (!numeroExpediente) {
     rejectionTracker.track(REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE,
       datosOriginales: { numeroExpediente: row['0'] }
@@ -453,7 +450,7 @@ function validateAndTransformRow(row, rowIndex) {
 
   if (!/^\d{4}S\d{6}$/.test(numeroExpediente)) {
     rejectionTracker.track(REJECTION_REASONS.NUMERO_EXPEDIENTE_FORMATO_INVALIDO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.NUMERO_EXPEDIENTE_FORMATO_INVALIDO,
       datosOriginales: { numeroExpediente, formatoEsperado: 'YYYYSNNNNNN' }
@@ -469,7 +466,7 @@ function validateAndTransformRow(row, rowIndex) {
   const hora = row['2']?.toString().trim();
   if (!hora || !/^\d{1,2}:\d{2}:\d{2}$/.test(hora)) {
     rejectionTracker.track(REJECTION_REASONS.HORA_FORMATO_INVALIDO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.HORA_FORMATO_INVALIDO,
       datosOriginales: { hora, formatoEsperado: 'HH:MM:SS' }
@@ -481,7 +478,7 @@ function validateAndTransformRow(row, rowIndex) {
   const calle = row['3']?.toString().trim();
   if (!calle) {
     rejectionTracker.track(REJECTION_REASONS.LOCALIZACION_FALTANTE);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.LOCALIZACION_FALTANTE,
       datosOriginales: { localizacion: row['3'] }
@@ -495,7 +492,7 @@ function validateAndTransformRow(row, rowIndex) {
 
   if (!codigoDistrito || !nombreDistrito) {
     rejectionTracker.track(REJECTION_REASONS.DISTRITO_INCOMPLETO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.DISTRITO_INCOMPLETO,
       datosOriginales: { codigoDistrito, nombreDistrito }
@@ -635,7 +632,7 @@ async function processBatch(batch) {
     totalUpdated += actualizados;
 
     if (nuevos > 0 || actualizados > 0) {
-      importLogger.debug({
+      logger.debug({
         lote: { nuevos, actualizados, total: batch.length }
       }, 'Lote procesado correctamente');
     }
@@ -644,7 +641,7 @@ async function processBatch(batch) {
 
   } catch (error) {
     // Si el bulkWrite falla completamente, intentar procesar documentos individuales
-    importLogger.warn({
+    logger.warn({
       error: error.message,
       loteSize: batch.length
     }, 'Error en bulkWrite, procesando documentos individualmente');
@@ -672,10 +669,10 @@ async function processBatch(batch) {
       } catch (individualError) {
         errores++;
         totalErrors++;
-        
+
         // Solo loguear los primeros 5 errores para no saturar los logs
         if (errores <= 5) {
-          importLogger.error({
+          logger.error({
             numeroExpediente: accidentData.numeroExpediente,
             error: individualError.message
           }, 'Error insertando accidente individual');
@@ -684,7 +681,7 @@ async function processBatch(batch) {
     }
 
     if (errores > 5) {
-      importLogger.warn({
+      logger.warn({
         erroresAdicionales: errores - 5
       }, 'Errores adicionales omitidos en logs');
     }
@@ -704,7 +701,7 @@ async function processAccidentFile() {
     let processedCount = 0;
     let errorCount = 0;
 
-    importLogger.info({
+    logger.info({
       archivo: path.basename(DATA_FILE),
       batchSize: BATCH_SIZE
     }, 'Iniciando procesamiento de archivo de accidentes');
@@ -747,7 +744,7 @@ async function processAccidentFile() {
                 }
               })
               .catch((error) => {
-                importLogger.error({ error: error.message }, 'Error en lote');
+                logger.error({ error: error.message }, 'Error en lote');
                 if (!isShuttingDown) {
                   stream.resume();
                 }
@@ -756,7 +753,7 @@ async function processAccidentFile() {
 
           // Mostrar progreso
           if (processedCount % LOG_INTERVAL === 0) {
-            importLogger.info({
+            logger.info({
               procesadas: processedCount.toLocaleString(),
               errores: errorCount,
               insertadas: totalInserted,
@@ -777,7 +774,7 @@ async function processAccidentFile() {
             await processBatch(batch);
           }
 
-          importLogger.info({
+          logger.info({
             archivo: path.basename(DATA_FILE),
             filasLeidas: rowCount.toLocaleString(),
             registrosProcesados: processedCount.toLocaleString(),
@@ -795,7 +792,7 @@ async function processAccidentFile() {
         }
       })
       .on('error', (error) => {
-        importLogger.error({ error: error.message }, 'Error leyendo archivo CSV');
+        logger.error({ error: error.message }, 'Error leyendo archivo CSV');
         reject(new Error(`Error leyendo archivo: ${error.message}`));
       });
   });
@@ -822,7 +819,7 @@ function showSummary(startTime) {
   const endTime = Date.now();
   const durationMs = endTime - startTime;
 
-  importLogger.info({
+  logger.info({
     resumen: {
       duracion: formatDuration(durationMs),
       velocidad: calculateProcessingSpeed(totalProcessed, durationMs),
@@ -839,7 +836,7 @@ function showSummary(startTime) {
   // Resumen de rechazos por tipo
   const rejectionSummary = rejectionTracker.getSortedSummary();
   if (rejectionSummary.length > 0) {
-    importLogger.info({
+    logger.info({
       totalRechazos: rejectionTracker.totalRejected,
       desglose: rejectionSummary
     }, 'Resumen de rechazos por tipo');
@@ -856,21 +853,21 @@ function showSummary(startTime) {
 async function main() {
   const startTime = Date.now();
 
-  importLogger.info('Iniciando importacion de datos de accidentalidad');
+  logger.info('Iniciando importacion de datos de accidentalidad');
 
   try {
     // Verificar archivo de datos
     await checkDataFile();
-    importLogger.info({ archivo: DATA_FILE }, 'Archivo de datos verificado');
+    logger.info({ archivo: DATA_FILE }, 'Archivo de datos verificado');
 
     // Conectar a MongoDB
-    importLogger.info('Conectando a MongoDB...');
+    logger.info('Conectando a MongoDB...');
     await connectDB(config.database.uri);
-    importLogger.info('Conexion a MongoDB establecida');
+    logger.info('Conexion a MongoDB establecida');
 
     // Verificar modelo
     const countAntes = await Accident.countDocuments().maxTimeMS(10000);
-    importLogger.info({
+    logger.info({
       registrosExistentes: countAntes.toLocaleString()
     }, 'Modelo de accidentes verificado');
 
@@ -882,13 +879,13 @@ async function main() {
 
     // Contar registros finales
     const countDespues = await Accident.countDocuments().maxTimeMS(10000);
-    importLogger.info({
+    logger.info({
       registrosFinales: countDespues.toLocaleString(),
       incremento: (countDespues - countAntes).toLocaleString()
     }, 'Estadisticas finales de la base de datos');
 
   } catch (error) {
-    importLogger.error({
+    logger.error({
       error: error.message,
       stack: error.stack
     }, 'Error critico durante la importacion');
@@ -899,14 +896,14 @@ async function main() {
     if (mongoose.connection.readyState === 1) {
       try {
         await mongoose.connection.close();
-        importLogger.info('Conexion a MongoDB cerrada');
+        logger.info('Conexion a MongoDB cerrada');
       } catch (error) {
-        importLogger.error({ error: error.message }, 'Error cerrando conexion');
+        logger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
   }
 
-  importLogger.info('Script completado');
+  logger.info('Script completado');
   if (process.exitCode === 1) {
     process.exit(1);
   } else {
@@ -928,14 +925,14 @@ async function handleShutdown(signal) {
   }
   isShuttingDown = true;
 
-  importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando...');
+  logger.warn({ signal }, 'Senal de terminacion recibida, cerrando...');
 
   if (mongoose.connection.readyState === 1) {
     try {
       await mongoose.connection.close();
-      importLogger.info('Conexion cerrada por senal de terminacion');
+      logger.info('Conexion cerrada por senal de terminacion');
     } catch (error) {
-      importLogger.error({ error: error.message }, 'Error cerrando conexion');
+      logger.error({ error: error.message }, 'Error cerrando conexion');
     }
   }
 
@@ -946,12 +943,12 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
-  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
+  logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });
 
@@ -961,7 +958,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 if (require.main === module) {
   main().catch(error => {
-    importLogger.fatal({ error: error.message }, 'Error fatal ejecutando script');
+    logger.fatal({ error: error.message }, 'Error fatal ejecutando script');
     process.exit(1);
   });
 }

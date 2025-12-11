@@ -154,26 +154,29 @@ const noiseMonitoringSchema = new mongoose.Schema({
         }
       }
     },
-    // Validación de coherencia en el orden de percentiles
+    // Validación de coherencia en el orden de percentiles con tolerancia
+    // Tolerancia de 0.5 dB para permitir pequeñas anomalías de sensores
     validate: {
       validator: function(p) {
-        // Validar orden decreciente: las01 >= las10 >= las50 >= las90 >= las99
+        const TOLERANCE = 0.5; // Tolerancia de 0.5 dB para errores de medición
+
+        // Validar orden decreciente con tolerancia: las01 >= las10 >= las50 >= las90 >= las99
         // Solo validar si los valores existen
-        if (p.las01 != null && p.las10 != null && p.las01 < p.las10) {
+        if (p.las01 != null && p.las10 != null && (p.las01 + TOLERANCE) < p.las10) {
           return false;
         }
-        if (p.las10 != null && p.las50 != null && p.las10 < p.las50) {
+        if (p.las10 != null && p.las50 != null && (p.las10 + TOLERANCE) < p.las50) {
           return false;
         }
-        if (p.las50 != null && p.las90 != null && p.las50 < p.las90) {
+        if (p.las50 != null && p.las90 != null && (p.las50 + TOLERANCE) < p.las90) {
           return false;
         }
-        if (p.las90 != null && p.las99 != null && p.las90 < p.las99) {
+        if (p.las90 != null && p.las99 != null && (p.las90 + TOLERANCE) < p.las99) {
           return false;
         }
         return true;
       },
-      message: 'Los percentiles deben estar en orden decreciente: LAS01 >= LAS10 >= LAS50 >= LAS90 >= LAS99'
+      message: 'Los percentiles deben estar aproximadamente en orden decreciente: LAS01 >= LAS10 >= LAS50 >= LAS90 >= LAS99 (tolerancia ±0.5 dB)'
     }
   },
 

@@ -4,6 +4,8 @@
  * @module scripts/importation/importLocations
  */
 
+process.env.SCRIPT_MODE = 'true';
+
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const csv = require('csv-parser');
@@ -12,7 +14,7 @@ const mongoose = require('mongoose');
 const Location = require('../../src/models/Location');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const logger = require('../../src/config/logger');
+const { importLocationsLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   LOCATION_TYPES,
@@ -23,9 +25,6 @@ const {
   formatDuration,
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
-
-// Logger especifico para importacion
-const importLogger = logger.child({ component: 'import-locations' });
 
 // Parser para archivos GPX
 const { DOMParser } = require('@xmldom/xmldom');
@@ -126,7 +125,7 @@ async function importAcousticStations() {
 
   return new Promise((resolve, reject) => {
     if (!fsSync.existsSync(filePath)) {
-      importLogger.warn({ filePath }, 'Archivo de estaciones acusticas no encontrado');
+      logger.warn({ filePath }, 'Archivo de estaciones acusticas no encontrado');
       return resolve([]);
     }
 
@@ -145,7 +144,7 @@ async function importAcousticStations() {
           // Validar que tiene coordenadas UTM validas
           if (x === 0 && y === 0) {
             rejectedRows++;
-            importLogger.warn(
+            logger.warn(
               {
                 fila: rowIndex,
                 razon: REJECTION_REASONS.MISSING_UTM_COORDS,
@@ -178,7 +177,7 @@ async function importAcousticStations() {
 
           // Log si no tiene geometry valido (warning informativo)
           if (!station.geometry) {
-            importLogger.debug(
+            logger.debug(
               {
                 fila: rowIndex,
                 nmt: station.nmt,
@@ -193,18 +192,18 @@ async function importAcousticStations() {
           stations.push(station);
         } catch (error) {
           rejectedRows++;
-          importLogger.warn(
+          logger.warn(
             { fila: rowIndex, razon: error.message, row },
             'Fila rechazada - error procesando estacion acustica'
           );
         }
       })
       .on('end', () => {
-        importLogger.info({ count: stations.length, rechazadas: rejectedRows }, 'Estaciones acusticas procesadas');
+        logger.info({ count: stations.length, rechazadas: rejectedRows }, 'Estaciones acusticas procesadas');
         resolve(stations);
       })
       .on('error', (error) => {
-        importLogger.error({ error: error.message }, 'Error leyendo archivo de estaciones acusticas');
+        logger.error({ error: error.message }, 'Error leyendo archivo de estaciones acusticas');
         reject(error);
       });
   });
@@ -227,14 +226,14 @@ async function importTrafficPoints() {
     const timeout = setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        importLogger.warn({ count: points.length, rechazadas: rejectedRows, fila: rowIndex }, 'Timeout procesando puntos de trafico - usando datos parciales');
+        logger.warn({ count: points.length, rechazadas: rejectedRows, fila: rowIndex }, 'Timeout procesando puntos de trafico - usando datos parciales');
         resolve(points);
       }
     }, 30000);
 
     if (!fsSync.existsSync(filePath)) {
       clearTimeout(timeout);
-      importLogger.warn({ filePath }, 'Archivo de puntos de trafico no encontrado');
+      logger.warn({ filePath }, 'Archivo de puntos de trafico no encontrado');
       return resolve([]);
     }
 
@@ -255,7 +254,7 @@ async function importTrafficPoints() {
             rejectedRows++;
             // Disabled temporalmente para pruebas
             /*
-            importLogger.warn(
+            logger.warn(
               {
                 fila: rowIndex,
                 razon: REJECTION_REASONS.MISSING_UTM_COORDS,
@@ -288,7 +287,7 @@ async function importTrafficPoints() {
 
           // Log si no tiene geometry valido
           if (!point.geometry) {
-            importLogger.debug(
+            logger.debug(
               {
                 fila: rowIndex,
                 id: point.id_punto,
@@ -303,7 +302,7 @@ async function importTrafficPoints() {
           points.push(point);
         } catch (error) {
           rejectedRows++;
-          importLogger.warn(
+          logger.warn(
             { fila: rowIndex, razon: error.message, row },
             'Fila rechazada - error procesando punto de trafico'
           );
@@ -312,14 +311,14 @@ async function importTrafficPoints() {
       .on('end', () => {
         clearTimeout(timeout);
         resolved = true;
-        importLogger.info({ count: points.length, rechazadas: rejectedRows }, 'Puntos de trafico procesados');
+        logger.info({ count: points.length, rechazadas: rejectedRows }, 'Puntos de trafico procesados');
         resolve(points);
       })
       .on('error', (error) => {
         clearTimeout(timeout);
         if (!resolved) {
           resolved = true;
-          importLogger.error({ error: error.message }, 'Error leyendo archivo de puntos de trafico');
+          logger.error({ error: error.message }, 'Error leyendo archivo de puntos de trafico');
           reject(error);
         }
       })
@@ -328,7 +327,7 @@ async function importTrafficPoints() {
         // Si el stream se cierra sin 'end' ni 'error', resolver con lo que tenemos
         if (!resolved) {
           resolved = true;
-          importLogger.warn({ count: points.length, rechazadas: rejectedRows }, 'Stream cerrado prematuramente - usando datos parciales');
+          logger.warn({ count: points.length, rechazadas: rejectedRows }, 'Stream cerrado prematuramente - usando datos parciales');
           resolve(points);
         }
       });
@@ -372,7 +371,7 @@ function processGPXWaypoints(waypoints, gpxInfo, routes) {
       stats.processed++;
     } else {
       stats.rejected++;
-      importLogger.warn(
+      logger.warn(
         {
           archivo: gpxInfo.file,
           waypoint: i + 1,
@@ -500,7 +499,7 @@ function processTrackSegment(segmentData, gpxInfo, trackIndex, segmentIndex, rou
     });
 
     if (invalidPoints > 0) {
-      importLogger.debug(
+      logger.debug(
         {
           archivo: gpxInfo.file,
           track: `${trackIndex + 1}-${segmentIndex + 1}`,
@@ -513,7 +512,7 @@ function processTrackSegment(segmentData, gpxInfo, trackIndex, segmentIndex, rou
     return true;
   }
 
-  importLogger.warn(
+  logger.warn(
     {
       archivo: gpxInfo.file,
       track: `${trackIndex + 1}-${segmentIndex + 1}`,
@@ -569,7 +568,7 @@ async function importGPXRoutes() {
     const filePath = path.join(IMPORT_CONFIG.dataDirectory, gpxInfo.file);
 
     if (!fsSync.existsSync(filePath)) {
-      importLogger.warn({ file: gpxInfo.file }, 'Archivo GPX no encontrado');
+      logger.warn({ file: gpxInfo.file }, 'Archivo GPX no encontrado');
       continue;
     }
 
@@ -590,7 +589,7 @@ async function importGPXRoutes() {
 
 
 
-      importLogger.info({
+      logger.info({
         file: gpxInfo.file,
         waypoints: waypointStats.processed,
         waypointsRechazados: waypointStats.rejected,
@@ -599,11 +598,11 @@ async function importGPXRoutes() {
       }, 'Archivo GPX procesado');
 
     } catch (error) {
-      importLogger.error({ file: gpxInfo.file, error: error.message }, 'Error procesando archivo GPX');
+      logger.error({ file: gpxInfo.file, error: error.message }, 'Error procesando archivo GPX');
     }
   }
 
-  importLogger.info({ totalRoutes: routes.length }, 'Rutas GPX procesadas');
+  logger.info({ totalRoutes: routes.length }, 'Rutas GPX procesadas');
   return routes;
 }
 
@@ -618,7 +617,7 @@ function handleWriteError(writeError, failedDoc, result) {
 
   if (errorCode === 11000) {
     result.skipped++;
-    importLogger.debug(
+    logger.debug(
       {
         razon: REJECTION_REASONS.DUPLICATE_KEY,
         tipo: failedDoc?.tipo,
@@ -629,7 +628,7 @@ function handleWriteError(writeError, failedDoc, result) {
     );
   } else {
     result.errors++;
-    importLogger.warn(
+    logger.warn(
       {
         razon: REJECTION_REASONS.VALIDATION_ERROR,
         error: writeError.errmsg || writeError.err?.errmsg
@@ -675,7 +674,7 @@ async function processBatchInsert(batch, result) {
     });
 
     // Log resultado del bulkWrite (simplificado)
-    importLogger.debug({
+    logger.debug({
       batchSize: batch.length,
       insertedCount: bulkResult.insertedCount,
       ok: bulkResult.ok
@@ -685,7 +684,7 @@ async function processBatchInsert(batch, result) {
     result.inserted = bulkResult.insertedCount || bulkResult.nInserted || 0;
   } catch (bulkError) {
     // Log del error completo
-    importLogger.error({
+    logger.error({
       errorName: bulkError.name,
       errorMessage: bulkError.message,
       writeErrorsCount: bulkError.writeErrors?.length || 0,
@@ -759,7 +758,7 @@ async function processBatch(batch, stats, skipExisting) {
     return result;
   } catch (error) {
     const handledError = handleMongoError(error);
-    importLogger.error({ error: handledError.message }, 'Error en lote de ubicaciones');
+    logger.error({ error: handledError.message }, 'Error en lote de ubicaciones');
     result.errors = batch.length;
     return result;
   }
@@ -773,7 +772,7 @@ async function processBatch(batch, stats, skipExisting) {
 async function importAllLocations(options = {}) {
   const importConfig = { ...IMPORT_CONFIG, ...options };
 
-  importLogger.info({
+  logger.info({
     dataDirectory: importConfig.dataDirectory,
     batchSize: importConfig.batchSize,
     skipExisting: importConfig.skipExisting
@@ -791,7 +790,7 @@ async function importAllLocations(options = {}) {
 
   try {
     // Importar datos en paralelo
-    importLogger.info('Iniciando procesamiento de archivos...');
+    logger.info('Iniciando procesamiento de archivos...');
 
     const [acousticStations, trafficPoints, transportRoutes] = await Promise.all([
       importAcousticStations(),
@@ -800,7 +799,7 @@ async function importAllLocations(options = {}) {
     ]);
 
     if (isShuttingDown) {
-      importLogger.warn('Importacion interrumpida por senal de cierre');
+      logger.warn('Importacion interrumpida por senal de cierre');
       return stats;
     }
 
@@ -816,11 +815,11 @@ async function importAllLocations(options = {}) {
     ];
 
     if (allLocations.length === 0) {
-      importLogger.warn('No se encontraron datos para importar');
+      logger.warn('No se encontraron datos para importar');
       return stats;
     }
 
-    importLogger.info({
+    logger.info({
       acousticStations: acousticStations.length,
       trafficPoints: trafficPoints.length,
       transportRoutes: transportRoutes.length,
@@ -840,7 +839,7 @@ async function importAllLocations(options = {}) {
     for (const locationType of locationsByType) {
       if (isShuttingDown || locationType.data.length === 0) {continue;}
 
-      importLogger.info({ tipo: locationType.name, total: locationType.data.length }, 'Insertando tipo de ubicacion');
+      logger.info({ tipo: locationType.name, total: locationType.data.length }, 'Insertando tipo de ubicacion');
 
       for (let i = 0; i < locationType.data.length && !isShuttingDown; i += batchSize) {
         const batch = locationType.data.slice(i, i + batchSize);
@@ -853,7 +852,7 @@ async function importAllLocations(options = {}) {
         stats[locationType.statsKey].skipped += result.skipped;
         stats[locationType.statsKey].errors += result.errors;
 
-        importLogger.debug({
+        logger.debug({
           tipo: locationType.name,
           lote: `${batchNumber}/${totalTypeBatches}`,
           inserted: result.inserted,
@@ -874,7 +873,7 @@ async function importAllLocations(options = {}) {
 
   } catch (error) {
     const handledError = handleMongoError(error);
-    importLogger.error({ error: handledError.message }, 'Error en importacion de ubicaciones');
+    logger.error({ error: handledError.message }, 'Error en importacion de ubicaciones');
     throw error;
   }
 }
@@ -884,7 +883,7 @@ async function importAllLocations(options = {}) {
  * @returns {Promise<void>}
  */
 async function generatePostImportSummary() {
-  importLogger.info('Generando resumen estadistico de ubicaciones...');
+  logger.info('Generando resumen estadistico de ubicaciones...');
 
   try {
     const totalRecords = await Location.countDocuments().maxTimeMS(10000);
@@ -925,7 +924,7 @@ async function generatePostImportSummary() {
       { $sort: { total: -1 } }
     ], { maxTimeMS: 10000 });
 
-    importLogger.info({
+    logger.info({
       totalRegistros: totalRecords,
       distribucionPorTipo: typeDistribution.map(t => ({
         tipo: t._id,
@@ -943,7 +942,7 @@ async function generatePostImportSummary() {
     }, 'Resumen estadistico de ubicaciones');
 
   } catch (error) {
-    importLogger.error({ error: error.message }, 'Error generando resumen estadistico');
+    logger.error({ error: error.message }, 'Error generando resumen estadistico');
   }
 }
 
@@ -953,12 +952,12 @@ async function generatePostImportSummary() {
  */
 async function closeConnection() {
   if (mongoose.connection.readyState !== 0) {
-    importLogger.info('Cerrando conexion a MongoDB...');
+    logger.info('Cerrando conexion a MongoDB...');
     try {
       await mongoose.connection.close();
-      importLogger.info('Conexion cerrada correctamente');
+      logger.info('Conexion cerrada correctamente');
     } catch (error) {
-      importLogger.error({ error: error.message }, 'Error cerrando conexion');
+      logger.error({ error: error.message }, 'Error cerrando conexion');
     }
   }
 }
@@ -979,7 +978,7 @@ async function main() {
     clearExisting: args.includes('--clear')
   };
 
-  importLogger.info({
+  logger.info({
     options: {
       skipExisting: options.skipExisting,
       batchSize: options.batchSize,
@@ -999,7 +998,7 @@ async function main() {
 
     isClosing = true;
 
-    importLogger.warn({ signal }, 'Senal recibida, cerrando conexiones...');
+    logger.warn({ signal }, 'Senal recibida, cerrando conexiones...');
     isShuttingDown = true;
     await closeConnection();
     process.exit(0);
@@ -1010,31 +1009,31 @@ async function main() {
 
   try {
     // Conectar a MongoDB
-    importLogger.info('Conectando a MongoDB...');
+    logger.info('Conectando a MongoDB...');
     await connectDB(config.database.uri);
-    importLogger.info('Conexion establecida');
+    logger.info('Conexion establecida');
 
     // Verificar estado actual
     const currentCount = await Location.countDocuments().maxTimeMS(10000);
-    importLogger.info({ registrosActuales: currentCount }, 'Estado actual de la base de datos');
+    logger.info({ registrosActuales: currentCount }, 'Estado actual de la base de datos');
 
     // Limpiar coleccion si se solicita
     if (options.clearExisting) {
-      importLogger.warn('Limpiando coleccion existente...');
+      logger.warn('Limpiando coleccion existente...');
       await Location.deleteMany({});
-      importLogger.info('Coleccion limpiada');
+      logger.info('Coleccion limpiada');
     }
 
     // Ejecutar importacion
     const result = await importAllLocations(options);
 
     if (isShuttingDown) {
-      importLogger.warn('Importacion interrumpida por senal de cierre');
+      logger.warn('Importacion interrumpida por senal de cierre');
     } else {
       // Mostrar resultados finales
       const finalCount = await Location.countDocuments().maxTimeMS(10000);
 
-      importLogger.info({
+      logger.info({
         duracion: formatDuration(result.duration),
         velocidad: calculateProcessingSpeed(result.totalInserted + result.totalSkipped, result.duration),
         estacionesAcusticas: {
@@ -1066,7 +1065,7 @@ async function main() {
       // Resumen de rechazos por tipo
       const rejectionSummary = rejectionTracker.getSortedSummary();
       if (rejectionSummary.length > 0) {
-        importLogger.info({
+        logger.info({
           totalRechazos: rejectionTracker.totalRejected,
           desglose: rejectionSummary
         }, 'Resumen de rechazos por tipo');
@@ -1080,7 +1079,7 @@ async function main() {
 
   } catch (error) {
     const handledError = handleMongoError(error);
-    importLogger.error({
+    logger.error({
       error: handledError.message,
       stack: error.stack,
       name: error.name
@@ -1091,7 +1090,7 @@ async function main() {
     await closeConnection();
 
     // Respetar el exit code establecido por el catch
-    importLogger.info('Script completado');
+    logger.info('Script completado');
     if (process.exitCode === 1) {
       process.exit(1);
     } else {
@@ -1103,7 +1102,7 @@ async function main() {
 // Ejecutar si es llamado directamente
 if (require.main === module) {
   main().catch(async (error) => {
-    importLogger.fatal({ error: error.message }, 'Error fatal');
+    logger.fatal({ error: error.message }, 'Error fatal');
     await closeConnection();
     process.exit(1);
   });

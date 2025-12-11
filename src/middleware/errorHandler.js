@@ -38,7 +38,7 @@ const globalErrorHandler = (err, req, res, _next) => {
   // Enviar respuesta de error
   const errorResponse = formatErrorResponse(
     err,
-    config.NODE_ENV === 'development'
+    config.server.env === 'development'
   );
 
   res.status(err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR).json(errorResponse);

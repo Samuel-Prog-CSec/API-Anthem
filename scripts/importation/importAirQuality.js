@@ -28,7 +28,7 @@ const mongoose = require('mongoose');
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const logger = require('../../src/config/logger');
+const { importAirQualityLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   MAGNITUDES_PERMITIDAS,
@@ -42,9 +42,6 @@ const {
   formatDuration,
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
-
-// Logger especifico para importacion
-const importLogger = logger.child({ component: 'import-air-quality' });
 
 // Modelo
 const AirQuality = require('../../src/models/AirQuality');
@@ -112,7 +109,7 @@ function extractMonthFromFileName(fileName) {
     }
     return null;
   } catch (error) {
-    importLogger.warn({ fileName, error: error.message }, 'Error extrayendo mes del archivo');
+    logger.warn({ fileName, error: error.message }, 'Error extrayendo mes del archivo');
     return null;
   }
 }
@@ -252,7 +249,7 @@ function parseAirQualityRow(row, _sourceFile, _rowIndex) {
  */
 async function processAirQualityFile(filePath, options = {}) {
   const fileName = path.basename(filePath);
-  importLogger.info({ fileName }, 'Procesando archivo de calidad del aire');
+  logger.info({ fileName }, 'Procesando archivo de calidad del aire');
 
   return new Promise((resolve, reject) => {
     const stats = {
@@ -294,7 +291,7 @@ async function processAirQualityFile(filePath, options = {}) {
               stats.duplicateErrors += result.duplicates;
               batch.length = 0;
             } catch (error) {
-              importLogger.error({ error: error.message }, 'Error procesando lote');
+              logger.error({ error: error.message }, 'Error procesando lote');
               stats.errorRows++;
             } finally {
               isProcessing = false;
@@ -304,7 +301,7 @@ async function processAirQualityFile(filePath, options = {}) {
 
           // Log de progreso
           if (stats.totalRows % options.logInterval === 0) {
-            importLogger.debug({
+            logger.debug({
               fileName,
               totalRows: stats.totalRows,
               validRows: stats.processedRows
@@ -313,7 +310,7 @@ async function processAirQualityFile(filePath, options = {}) {
         } catch (error) {
           stats.errorRows++;
           stats.emptyRows++;
-          importLogger.warn(
+          logger.warn(
             {
               fila: stats.totalRows,
               archivo: fileName,
@@ -336,14 +333,14 @@ async function processAirQualityFile(filePath, options = {}) {
         try {
           // Procesar lote restante
           if (batch.length > 0) {
-            importLogger.debug({ fileName, batchSize: batch.length }, 'Procesando lote final');
+            logger.debug({ fileName, batchSize: batch.length }, 'Procesando lote final');
             const result = await processBatch(batch, options, stats);
             stats.insertedRecords += result.inserted;
             stats.skippedRecords += result.skipped;
             stats.duplicateErrors += result.duplicates;
           }
 
-          importLogger.info({
+          logger.info({
             fileName,
             totalRows: stats.totalRows,
             processedRows: stats.processedRows,
@@ -360,7 +357,7 @@ async function processAirQualityFile(filePath, options = {}) {
         }
       })
       .on('error', (error) => {
-        importLogger.error({ fileName, error: error.message }, 'Error leyendo archivo');
+        logger.error({ fileName, error: error.message }, 'Error leyendo archivo');
         reject(error);
       });
   });
@@ -378,7 +375,7 @@ function handleWriteError(writeError, failedDoc, result) {
   if (errorCode === 11000) {
     result.skipped++;
     result.duplicates++;
-    importLogger.debug(
+    logger.debug(
       {
         razon: REJECTION_REASONS.DUPLICATE_KEY,
         estacion: failedDoc?.estacion,
@@ -390,7 +387,7 @@ function handleWriteError(writeError, failedDoc, result) {
     );
   } else {
     result.errors++;
-    importLogger.warn(
+    logger.warn(
       {
         razon: REJECTION_REASONS.VALIDATION_ERROR,
         error: writeError.errmsg || writeError.err?.errmsg
@@ -506,7 +503,7 @@ async function processBatch(batch, options, stats) {
       return result;
     } catch (error) {
       retries++;
-      importLogger.warn({
+      logger.warn({
         attempt: retries,
         maxRetries: options.maxRetries || 3,
         error: error.message
@@ -516,7 +513,7 @@ async function processBatch(batch, options, stats) {
         await new Promise(resolve => setTimeout(resolve, options.retryDelay || 2000));
       } else {
         const handledError = handleMongoError(error);
-        importLogger.error({ error: handledError.message }, 'Lote fallido tras reintentos');
+        logger.error({ error: handledError.message }, 'Lote fallido tras reintentos');
         stats.errorRows += batch.length;
         throw error;
       }
@@ -534,7 +531,7 @@ async function processBatch(batch, options, stats) {
 async function importAirQualityData(options = {}) {
   const importConfig = { ...IMPORT_CONFIG, ...options };
 
-  importLogger.info({
+  logger.info({
     dataDirectory: importConfig.dataDirectory,
     maxParallel: importConfig.maxParallel
   }, 'Iniciando importacion de datos de calidad del aire');
@@ -556,7 +553,7 @@ async function importAirQualityData(options = {}) {
       throw new Error('No se encontraron archivos CSV de calidad del aire');
     }
 
-    importLogger.info({
+    logger.info({
       totalFiles: csvFiles.length,
       files: csvFiles.map(f => ({ name: f, month: extractMonthFromFileName(f) }))
     }, 'Archivos encontrados');
@@ -583,7 +580,7 @@ async function importAirQualityData(options = {}) {
       const batchNumber = Math.floor(i / maxParallel) + 1;
       const totalBatches = Math.ceil(csvFiles.length / maxParallel);
 
-      importLogger.info({
+      logger.info({
         batchNumber,
         totalBatches,
         files: batchFiles
@@ -595,7 +592,7 @@ async function importAirQualityData(options = {}) {
 
         return processAirQualityFile(filePath, importConfig)
           .then(fileStats => {
-            importLogger.info({
+            logger.info({
               file,
               fileIndex,
               totalFiles: csvFiles.length,
@@ -604,7 +601,7 @@ async function importAirQualityData(options = {}) {
             return fileStats;
           })
           .catch(error => {
-            importLogger.error({ file, error: error.message }, 'Error procesando archivo');
+            logger.error({ file, error: error.message }, 'Error procesando archivo');
             return {
               fileName: file,
               totalRows: 0,
@@ -633,7 +630,7 @@ async function importAirQualityData(options = {}) {
         globalStats.duplicateErrors += fileStats.duplicateErrors || 0;
       });
 
-      importLogger.info({
+      logger.info({
         batchNumber,
         progress: `${Math.min(i + maxParallel, csvFiles.length)}/${csvFiles.length}`
       }, 'Lote paralelo completado');
@@ -650,7 +647,7 @@ async function importAirQualityData(options = {}) {
     return globalStats;
   } catch (error) {
     const handledError = handleMongoError(error);
-    importLogger.error({ error: handledError.message }, 'Error en importacion de calidad del aire');
+    logger.error({ error: handledError.message }, 'Error en importacion de calidad del aire');
     throw error;
   }
 }
@@ -660,7 +657,7 @@ async function importAirQualityData(options = {}) {
  * @returns {Promise<void>}
  */
 async function generatePostImportSummary() {
-  importLogger.info('Generando resumen estadistico de calidad del aire...');
+  logger.info('Generando resumen estadistico de calidad del aire...');
 
   try {
     const totalRecords = await AirQuality.countDocuments().maxTimeMS(10000);
@@ -718,7 +715,7 @@ async function generatePostImportSummary() {
       }
     ], { maxTimeMS: 15000 });
 
-    importLogger.info({
+    logger.info({
       totalRegistros: totalRecords,
       distribucionPorMagnitud: magnitudeDistribution.map(m => ({
         magnitud: m._id,
@@ -750,7 +747,7 @@ async function generatePostImportSummary() {
     }, 'Resumen estadistico de calidad del aire');
 
   } catch (error) {
-    importLogger.error({ error: error.message }, 'Error generando resumen estadistico');
+    logger.error({ error: error.message }, 'Error generando resumen estadistico');
   }
 }
 
@@ -760,12 +757,12 @@ async function generatePostImportSummary() {
  */
 async function closeConnection() {
   if (mongoose.connection.readyState !== 0) {
-    importLogger.info('Cerrando conexion a MongoDB...');
+    logger.info('Cerrando conexion a MongoDB...');
     try {
       await mongoose.connection.close();
-      importLogger.info('Conexion cerrada correctamente');
+      logger.info('Conexion cerrada correctamente');
     } catch (error) {
-      importLogger.error({ error: error.message }, 'Error cerrando conexion');
+      logger.error({ error: error.message }, 'Error cerrando conexion');
     }
   }
 }
@@ -783,7 +780,7 @@ async function main() {
     generateSummary: !args.includes('--no-summary')
   };
 
-  importLogger.info({
+  logger.info({
     options: {
       skipExisting: options.skipExisting,
       batchSize: options.batchSize,
@@ -794,7 +791,7 @@ async function main() {
 
   // Configurar manejadores de senales para cierre graceful
   const handleSignal = async (signal) => {
-    importLogger.warn({ signal }, 'Senal recibida, cerrando conexiones...');
+    logger.warn({ signal }, 'Senal recibida, cerrando conexiones...');
     isShuttingDown = true;
     await closeConnection();
     process.exit(0);
@@ -805,24 +802,24 @@ async function main() {
 
   try {
     // Conectar a MongoDB
-    importLogger.info('Conectando a MongoDB...');
+    logger.info('Conectando a MongoDB...');
     await connectDB(config.database.uri);
-    importLogger.info('Conexion establecida');
+    logger.info('Conexion establecida');
 
     // Verificar modelo y datos actuales
     const airQualityCount = await AirQuality.countDocuments().maxTimeMS(10000);
-    importLogger.info({ registrosActuales: airQualityCount }, 'Estado actual de la base de datos');
+    logger.info({ registrosActuales: airQualityCount }, 'Estado actual de la base de datos');
 
     // Ejecutar importacion
     const result = await importAirQualityData(options);
 
     if (isShuttingDown) {
-      importLogger.warn('Importacion interrumpida por senal de cierre');
+      logger.warn('Importacion interrumpida por senal de cierre');
     } else {
       // Mostrar resultados finales
       const finalCount = await AirQuality.countDocuments().maxTimeMS(10000);
 
-      importLogger.info({
+      logger.info({
         duracion: formatDuration(result.duration),
         velocidad: calculateProcessingSpeed(result.totalRows, result.duration),
         archivosProcesados: `${result.completedFiles}/${result.totalFiles}`,
@@ -839,7 +836,7 @@ async function main() {
       // Resumen de rechazos por tipo
       const rejectionSummary = rejectionTracker.getSortedSummary();
       if (rejectionSummary.length > 0) {
-        importLogger.info({
+        logger.info({
           totalRechazos: rejectionTracker.totalRejected,
           desglose: rejectionSummary.slice(0, 10)
         }, 'Resumen de rechazos por tipo');
@@ -853,7 +850,7 @@ async function main() {
 
   } catch (error) {
     const handledError = handleMongoError(error);
-    importLogger.error({
+    logger.error({
       error: handledError.message,
       stack: error.stack
     }, 'Error durante la importacion');
@@ -863,7 +860,7 @@ async function main() {
     await closeConnection();
   }
 
-  importLogger.info('Script completado');
+  logger.info('Script completado');
   if (process.exitCode === 1) {
     process.exit(1);
   } else {
@@ -876,7 +873,7 @@ async function main() {
  * @param {string} signal - Senal recibida
  */
 function handleShutdown(signal) {
-  importLogger.warn({ signal }, 'Senal recibida, iniciando cierre...');
+  logger.warn({ signal }, 'Senal recibida, iniciando cierre...');
   isShuttingDown = true;
   closeConnection().then(() => process.exit(0));
 }
@@ -885,19 +882,19 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
-  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
+  logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });
 
 // Ejecutar si es llamado directamente
 if (require.main === module) {
   main().catch(error => {
-    importLogger.fatal({ error: error.message }, 'Error fatal');
+    logger.fatal({ error: error.message }, 'Error fatal');
     process.exit(1);
   });
 }

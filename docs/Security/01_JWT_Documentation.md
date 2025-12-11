@@ -161,33 +161,110 @@ Hemos centralizado la configuración JWT en `src/config/config.js`:
 ```javascript
 const config = {
   jwt: {
-    secret: process.env.JWT_SECRET,           // Clave secreta (min 32 caracteres)
-    expiresIn: process.env.JWT_EXPIRE || '15m', // Tiempo de expiración
-    algorithm: 'HS256'                        // Algoritmo de firma
+    secret: process.env.JWT_SECRET,              // Clave para access tokens (min 32 caracteres)
+    refreshSecret: process.env.JWT_REFRESH_SECRET, // Clave separada para refresh tokens (min 32 caracteres)
+    expiresIn: process.env.JWT_EXPIRE || '1h',   // Tiempo de expiración access token
+    refreshExpiresIn: '7d',                       // Tiempo de expiración refresh token
+    algorithm: 'HS256'                            // Algoritmo de firma
   }
 };
 ```
 
+### ¿Por qué Secretos Separados?
+
+**Decisión arquitectónica crítica implementada en fase de mantenimiento (Dic 2025):**
+
+Inicialmente usábamos un solo `JWT_SECRET` para ambos tipos de tokens. Tras auditoría de seguridad, implementamos **secretos separados** por las siguientes razones:
+
+#### 1. **Principio de Separación de Privilegios**
+```
+ESCENARIO: JWT_SECRET comprometido
+
+✅ Con secretos separados:
+- Access tokens comprometidos (expiran en 1h)
+- Refresh tokens SEGUROS (secreto diferente)
+- Atacante solo tiene acceso temporal
+
+❌ Con un solo secreto:
+- Access tokens comprometidos
+- Refresh tokens comprometidos
+- Atacante puede generar tokens indefinidamente
+```
+
+#### 2. **Rotación Independiente**
+```javascript
+// Podemos rotar JWT_SECRET sin invalidar refresh tokens
+process.env.JWT_SECRET = 'nuevo_secreto_access';
+// Los refresh tokens con JWT_REFRESH_SECRET siguen funcionando
+
+// O viceversa: rotar refresh sin afectar sesiones activas
+process.env.JWT_REFRESH_SECRET = 'nuevo_secreto_refresh';
+// Los access tokens activos siguen válidos
+```
+
+#### 3. **Diferentes Niveles de Seguridad**
+```javascript
+// Access Token: Uso frecuente, expiración corta
+JWT_SECRET: 32 caracteres mínimo (256 bits)
+
+// Refresh Token: Almacenado, expiración larga
+JWT_REFRESH_SECRET: Recomendado 64+ caracteres (512+ bits)
+```
+
+#### 4. **Validación de Audience Correcta**
+Con secretos separados, también validamos que cada token se use en su contexto correcto:
+
+```javascript
+// Access Token
+jwt.sign(payload, config.jwt.secret, {
+  audience: 'api-rest-auth-client'  // Para requests normales
+});
+
+// Refresh Token
+jwt.sign(payload, config.jwt.refreshSecret, {
+  audience: 'api-rest-auth-refresh' // Solo para renovación
+});
+
+// Validación estricta en middleware
+jwt.verify(token, config.jwt.secret, {
+  audience: 'api-rest-auth-client'  // Rechaza si audience no coincide
+});
+```
+
+**Resultado:** Un refresh token no puede usarse como access token aunque sea válido (diferente secreto + audience).
+
 ### ¿Por qué estos valores?
 
-#### **1. JWT_SECRET - Clave Secreta**
+#### **1. JWT_SECRET y JWT_REFRESH_SECRET - Claves Secretas**
 
 **Requisitos que implementamos:**
-- Mínimo 32 caracteres (256 bits)
-- Generada aleatoriamente
-- Almacenada en variable de entorno
-- Validada al inicio de la aplicación
+- Mínimo 32 caracteres (256 bits) para cada secreto
+- Generadas aleatoriamente con alta entropía
+- Almacenadas en variables de entorno separadas
+- Validadas al inicio de la aplicación
+- **DEBEN SER DIFERENTES** (validación implícita)
 
 ```javascript
 const validateEnvironment = () => {
-  // Verificar que existe
+  // Verificar que existen
   if (!process.env.JWT_SECRET) {
     throw new Error('JWT_SECRET es obligatorio');
+  }
+  if (!process.env.JWT_REFRESH_SECRET) {
+    throw new Error('JWT_REFRESH_SECRET es obligatorio');
   }
 
   // Verificar fortaleza
   if (process.env.JWT_SECRET.length < 32) {
     console.warn('JWT_SECRET debe tener al menos 32 caracteres');
+  }
+  if (process.env.JWT_REFRESH_SECRET.length < 32) {
+    console.warn('JWT_REFRESH_SECRET debe tener al menos 32 caracteres');
+  }
+
+  // Verificar que son diferentes
+  if (process.env.JWT_SECRET === process.env.JWT_REFRESH_SECRET) {
+    throw new Error('JWT_SECRET y JWT_REFRESH_SECRET deben ser diferentes');
   }
 };
 ```
@@ -197,7 +274,16 @@ const validateEnvironment = () => {
 - Mayor entropía = mayor resistencia a ataques de fuerza bruta
 - Recomendación de OWASP y NIST
 
-#### **2. expiresIn - Tiempo de Expiración**
+**Ejemplo de generación segura:**
+```bash
+# Generar JWT_SECRET
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# Generar JWT_REFRESH_SECRET (diferente)
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+#### **2. expiresIn - Tiempo de Expiración Access Token**
 
 **Valor por defecto: 15 minutos**
 
@@ -292,15 +378,15 @@ const payload = {
 
 ### Refresh Token
 
-Para evitar que el usuario tenga que hacer login cada 15 minutos, implementamos refresh tokens:
+Para evitar que el usuario tenga que hacer login cada hora, implementamos refresh tokens con **secreto separado**:
 
 ```javascript
 const generateRefreshToken = (payload) => {
   return jwt.sign(
     payload,
-    config.jwt.secret,
+    config.jwt.refreshSecret,       // SECRETO DIFERENTE para refresh tokens
     {
-      expiresIn: '30d',          // Mayor duración
+      expiresIn: '7d',               // Mayor duración (7 días)
       algorithm: config.jwt.algorithm,
       issuer: 'api-rest-auth',
       audience: 'api-rest-auth-refresh' // Audience diferente
@@ -310,10 +396,17 @@ const generateRefreshToken = (payload) => {
 ```
 
 **Diferencias clave:**
-- **Duración**: 30 días vs 15 minutos
+- **Secreto**: `JWT_REFRESH_SECRET` (diferente de access token)
+- **Duración**: 7 días vs 1 hora
 - **Audience**: `api-rest-auth-refresh` (diferente del access token)
-- **Payload mínimo**: Solo contiene `id` del usuario
-- **Uso único**: Después de usar, se invalida y genera uno nuevo
+- **Payload mínimo**: Solo contiene `id` del usuario (menos información = menor riesgo)
+- **Uso único**: Después de usar, se invalida y genera uno nuevo (refresh token rotation)
+
+**Implicaciones de seguridad:**
+
+1. **No puede usarse como access token**: Diferente secreto y audience
+2. **Compromiso limitado**: Si se roba, solo permite renovar tokens (con detección de reuso)
+3. **Rotación independiente**: Podemos cambiar `JWT_REFRESH_SECRET` sin invalidar sesiones activas
 
 ### Función Helper Unificada
 
@@ -357,15 +450,15 @@ res.status(200).json({
 
 ### Verificación de Access Token
 
-Implementamos la verificación en el middleware de autenticación:
+Implementamos la verificación en el middleware de autenticación usando `JWT_SECRET`:
 
 ```javascript
 const verifyToken = async (token) => {
   try {
-    return jwt.verify(token, config.jwt.secret, {
+    return jwt.verify(token, config.jwt.secret, {  // Usa JWT_SECRET
       algorithms: [config.jwt.algorithm], // Solo aceptamos HS256
       issuer: 'api-rest-auth',            // Verificamos emisor
-      audience: 'api-rest-auth-client'    // Verificamos audiencia
+      audience: 'api-rest-auth-client'    // Verificamos audience
     });
   } catch (error) {
     // Manejo específico de errores
@@ -380,6 +473,42 @@ const verifyToken = async (token) => {
     }
   }
 };
+```
+
+### Verificación de Refresh Token
+
+Verificación separada con `JWT_REFRESH_SECRET`:
+
+```javascript
+const verifyRefreshToken = async (token) => {
+  try {
+    return jwt.verify(token, config.jwt.refreshSecret, {  // Usa JWT_REFRESH_SECRET
+      algorithms: [config.jwt.algorithm],
+      issuer: 'api-rest-auth',
+      audience: 'api-rest-auth-refresh'    // Audience diferente
+    });
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      throw new Error('Refresh token expirado, debe iniciar sesión nuevamente');
+    }
+    throw new Error('Refresh token inválido');
+  }
+};
+```
+
+**Separación estricta:**
+```javascript
+// ❌ Esto fallará: Usar refresh token como access token
+verifyToken(refreshToken);
+// Error: audience no coincide + secreto incorrecto
+
+// ❌ Esto fallará: Usar access token como refresh token
+verifyRefreshToken(accessToken);
+// Error: audience no coincide + secreto incorrecto
+
+// ✅ Uso correcto
+verifyToken(accessToken);         // Para requests normales
+verifyRefreshToken(refreshToken); // Solo para renovación
 ```
 
 ### Capas de Validación

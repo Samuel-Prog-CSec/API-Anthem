@@ -30,7 +30,7 @@ const mongoose = require('mongoose');
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const logger = require('../../src/config/logger');
+const { importNoiseLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   NOISE_LIMITS,
@@ -42,9 +42,6 @@ const {
   formatDuration,
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
-
-// Logger especifico para importacion
-const importLogger = logger.child({ component: 'import-noise' });
 
 // Modelo
 const NoiseMonitoring = require('../../src/models/NoiseMonitoring');
@@ -119,15 +116,15 @@ function registerSignalHandlers() {
       if (isShuttingDown) {return;}
       isShuttingDown = true;
 
-      importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando conexiones...');
+      logger.warn({ signal }, 'Senal de terminacion recibida, cerrando conexiones...');
 
       try {
         if (mongoose.connection.readyState === 1) {
           await mongoose.connection.close();
-          importLogger.info('Conexion a MongoDB cerrada correctamente');
+          logger.info('Conexion a MongoDB cerrada correctamente');
         }
       } catch (error) {
-        importLogger.error({ error: error.message }, 'Error al cerrar conexion');
+        logger.error({ error: error.message }, 'Error al cerrar conexion');
       }
 
       process.exit(0);
@@ -135,28 +132,28 @@ function registerSignalHandlers() {
   });
 
   process.on('uncaughtException', async (error) => {
-    importLogger.fatal({ error: error.message, stack: error.stack }, 'Excepcion no capturada');
+    logger.fatal({ error: error.message, stack: error.stack }, 'Excepcion no capturada');
 
     try {
       if (mongoose.connection.readyState === 1) {
         await mongoose.connection.close();
       }
     } catch (closeError) {
-      importLogger.error({ error: closeError.message }, 'Error al cerrar conexion tras excepcion');
+      logger.error({ error: closeError.message }, 'Error al cerrar conexion tras excepcion');
     }
 
     process.exit(1);
   });
 
   process.on('unhandledRejection', async (reason) => {
-    importLogger.fatal({ reason: String(reason) }, 'Promesa rechazada no manejada');
+    logger.fatal({ reason: String(reason) }, 'Promesa rechazada no manejada');
 
     try {
       if (mongoose.connection.readyState === 1) {
         await mongoose.connection.close();
       }
     } catch (closeError) {
-      importLogger.error({ error: closeError.message }, 'Error al cerrar conexion tras rechazo');
+      logger.error({ error: closeError.message }, 'Error al cerrar conexion tras rechazo');
     }
 
     process.exit(1);
@@ -167,7 +164,7 @@ function registerSignalHandlers() {
  * Mostrar ayuda del script
  */
 function showHelp() {
-  importLogger.info(`
+  logger.info(`
 Script de Importacion de Contaminacion Acustica
 
 Uso: node scripts/importation/importNoise.js [opciones]
@@ -351,7 +348,7 @@ function parseNoiseRow(row, sourceFile, _rowIndex) {
  */
 async function processNoiseFile(filePath, options = {}) {
   const fileName = path.basename(filePath);
-  importLogger.info({ fileName }, 'Procesando archivo de contaminacion acustica');
+  logger.info({ fileName }, 'Procesando archivo de contaminacion acustica');
 
   return new Promise((resolve, reject) => {
     const batch = [];
@@ -394,7 +391,7 @@ async function processNoiseFile(filePath, options = {}) {
                 stats.errorRows += result.errors;
                 batch.length = 0;
               } catch (error) {
-                importLogger.error({ error: error.message }, 'Error procesando lote');
+                logger.error({ error: error.message }, 'Error procesando lote');
                 stats.errorRows++;
               } finally {
                 isProcessing = false;
@@ -407,7 +404,7 @@ async function processNoiseFile(filePath, options = {}) {
 
           // Log de progreso
           if (stats.totalRows % options.logInterval === 0) {
-            importLogger.debug({
+            logger.debug({
               totalRows: stats.totalRows,
               validRows: stats.processedRows
             }, 'Progreso de lectura');
@@ -418,7 +415,7 @@ async function processNoiseFile(filePath, options = {}) {
           if (stats.errors.length < 100) {
             stats.errors.push({ row: stats.totalRows, error: error.message });
           }
-          importLogger.warn(
+          logger.warn(
             {
               fila: stats.totalRows,
               razon: error.message,
@@ -445,7 +442,7 @@ async function processNoiseFile(filePath, options = {}) {
             stats.errorRows += result.errors;
           }
 
-          importLogger.info({
+          logger.info({
             fileName,
             totalRows: stats.totalRows,
             processedRows: stats.processedRows,
@@ -461,7 +458,7 @@ async function processNoiseFile(filePath, options = {}) {
         }
       })
       .on('error', (error) => {
-        importLogger.error({ fileName, error: error.message }, 'Error leyendo archivo');
+        logger.error({ fileName, error: error.message }, 'Error leyendo archivo');
         reject(error);
       });
   });
@@ -488,7 +485,7 @@ async function processBatch(batch, options) {
       } catch (error) {
         if (error.code === 11000) {
           result.skipped++;
-          importLogger.debug(
+          logger.debug(
             {
               razon: REJECTION_REASONS.DUPLICATE_KEY,
               nmt: noiseData.nmt,
@@ -500,7 +497,7 @@ async function processBatch(batch, options) {
           );
         } else {
           const handledError = handleMongoError(error);
-          importLogger.warn(
+          logger.warn(
             {
               razon: REJECTION_REASONS.VALIDATION_ERROR,
               nmt: noiseData.nmt,
@@ -532,7 +529,7 @@ async function processBatch(batch, options) {
       result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);
     } catch (error) {
       const handledError = handleMongoError(error);
-      importLogger.error({ error: handledError.message }, 'Error en bulkWrite');
+      logger.error({ error: handledError.message }, 'Error en bulkWrite');
       result.errors = batch.length;
       throw error;
     }
@@ -546,7 +543,7 @@ async function processBatch(batch, options) {
  * @returns {Promise<void>}
  */
 async function generatePostImportSummary() {
-  importLogger.info('Generando resumen estadistico...');
+  logger.info('Generando resumen estadistico...');
 
   try {
     const totalRecords = await NoiseMonitoring.countDocuments().maxTimeMS(10000);
@@ -616,7 +613,7 @@ async function generatePostImportSummary() {
       }
     ], { maxTimeMS: 10000 });
 
-    importLogger.info({
+    logger.info({
       totalRegistros: totalRecords,
       distribucionPorAno: yearDistribution.map(y => ({
         año: y._id,
@@ -649,7 +646,7 @@ async function generatePostImportSummary() {
     }, 'Resumen estadistico de contaminacion acustica');
 
   } catch (error) {
-    importLogger.error({ error: error.message }, 'Error generando resumen estadistico');
+    logger.error({ error: error.message }, 'Error generando resumen estadistico');
   }
 }
 
@@ -670,7 +667,7 @@ async function main() {
     return;
   }
 
-  importLogger.info({
+  logger.info({
     skipExisting: options.skipExisting,
     batchSize: options.batchSize,
     validateOnly: options.validateOnly,
@@ -691,14 +688,14 @@ async function main() {
 
     if (!options.validateOnly) {
       // Conectar a MongoDB
-      importLogger.info('Conectando a MongoDB...');
+      logger.info('Conectando a MongoDB...');
       await connectDB(config.database.uri);
-      importLogger.info('Conexion a MongoDB establecida');
+      logger.info('Conexion a MongoDB establecida');
 
       const initialCount = await NoiseMonitoring.countDocuments().maxTimeMS(5000);
-      importLogger.info({ registrosActuales: initialCount }, 'Estado inicial de la coleccion');
+      logger.info({ registrosActuales: initialCount }, 'Estado inicial de la coleccion');
     } else {
-      importLogger.info('Modo validacion: solo se verificaran los datos sin importar');
+      logger.info('Modo validacion: solo se verificaran los datos sin importar');
     }
 
     // Procesar archivo
@@ -707,7 +704,7 @@ async function main() {
     // Mostrar resultados finales
     const durationMs = Date.now() - stats.startTime;
 
-    importLogger.info({
+    logger.info({
       duracion: formatDuration(durationMs),
       velocidad: calculateProcessingSpeed(stats.totalRows, durationMs),
       filasTotales: stats.totalRows,
@@ -721,7 +718,7 @@ async function main() {
     // Resumen de rechazos por tipo
     const rejectionSummary = rejectionTracker.getSortedSummary();
     if (rejectionSummary.length > 0) {
-      importLogger.info({
+      logger.info({
         totalRechazos: rejectionTracker.totalRejected,
         desglose: rejectionSummary
       }, 'Resumen de rechazos por tipo');
@@ -734,24 +731,24 @@ async function main() {
 
   } catch (error) {
     const handledError = handleMongoError(error);
-    importLogger.error({
+    logger.error({
       error: handledError.message,
       stack: error.stack
     }, 'Error durante la importacion');
     process.exitCode = 1;
   } finally {
     if (mongoose.connection.readyState === 1) {
-      importLogger.info('Cerrando conexion a MongoDB...');
+      logger.info('Cerrando conexion a MongoDB...');
       try {
         await mongoose.connection.close();
-        importLogger.info('Conexion cerrada correctamente');
+        logger.info('Conexion cerrada correctamente');
       } catch (error) {
-        importLogger.error({ error: error.message }, 'Error al cerrar conexion');
+        logger.error({ error: error.message }, 'Error al cerrar conexion');
       }
     }
   }
 
-  importLogger.info('Script completado');
+  logger.info('Script completado');
   if (process.exitCode === 1) {
     process.exit(1);
   } else {
@@ -762,7 +759,7 @@ async function main() {
 // Ejecutar si es llamado directamente
 if (require.main === module) {
   main().catch(error => {
-    importLogger.fatal({ error: error.message }, 'Error fatal');
+    logger.fatal({ error: error.message }, 'Error fatal');
     process.exit(1);
   });
 }

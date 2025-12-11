@@ -6,6 +6,8 @@
  * del directorio datos_hpe/Multas/
  */
 
+process.env.SCRIPT_MODE = 'true';
+
 const fs = require('fs').promises;
 const path = require('path');
 const csv = require('csv-parser');
@@ -14,7 +16,7 @@ const mongoose = require('mongoose');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
 const Fine = require('../../src/models/Fine');
-const logger = require('../../src/config/logger');
+const { importFinesLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const { VALIDATION_LIMITS, SEVERITY_LEVELS } = require('../../src/constants');
 const {
@@ -23,9 +25,6 @@ const {
   formatDuration,
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
-
-// Logger específico para importación
-const importLogger = logger.child({ component: 'import-fines' });
 
 // ============================================================================
 // CONFIGURACIÓN
@@ -97,7 +96,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   const dateInfo = extractDateFromFileName(sourceFile);
   if (!dateInfo) {
     rejectionTracker.track(REJECTION_REASONS.ARCHIVO_SIN_FECHA);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.ARCHIVO_SIN_FECHA,
       datosOriginales: { archivo: sourceFile }
@@ -119,7 +118,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
         coordenadas.x = coordX;
       } else {
         rejectionTracker.track(REJECTION_REASONS.COORDENADA_X_INVALIDA);
-        importLogger.warn({
+        logger.warn({
           fila: rowIndex,
           razon: REJECTION_REASONS.COORDENADA_X_INVALIDA,
           datosOriginales: { coordenadaX: row.COORDENADA_X, valor: coordX }
@@ -135,7 +134,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
         coordenadas.y = coordY;
       } else {
         rejectionTracker.track(REJECTION_REASONS.COORDENADA_Y_INVALIDA);
-        importLogger.warn({
+        logger.warn({
           fila: rowIndex,
           razon: REJECTION_REASONS.COORDENADA_Y_INVALIDA,
           datosOriginales: { coordenadaY: row.COORDENADA_Y, valor: coordY }
@@ -152,7 +151,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
       datosVelocidad.velocidadLimite = velLimite;
     } else if (!isNaN(velLimite)) {
       rejectionTracker.track(REJECTION_REASONS.VELOCIDAD_LIMITE_INVALIDA);
-      importLogger.warn({
+      logger.warn({
         fila: rowIndex,
         razon: REJECTION_REASONS.VELOCIDAD_LIMITE_INVALIDA,
         datosOriginales: { velocidadLimite: row.VEL_LIMITE, valor: velLimite }
@@ -166,7 +165,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
       datosVelocidad.velocidadCirculacion = velCircula;
     } else if (!isNaN(velCircula)) {
       rejectionTracker.track(REJECTION_REASONS.VELOCIDAD_CIRCULACION_INVALIDA);
-      importLogger.warn({
+      logger.warn({
         fila: rowIndex,
         razon: REJECTION_REASONS.VELOCIDAD_CIRCULACION_INVALIDA,
         datosOriginales: { velocidadCirculacion: row.VEL_CIRCULA, valor: velCircula }
@@ -180,7 +179,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
 
   if (importe < 0) {
     rejectionTracker.track(REJECTION_REASONS.IMPORTE_NEGATIVO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.IMPORTE_NEGATIVO,
       datosOriginales: { importe: row.IMP_BOL, valor: importe }
@@ -191,7 +190,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   const puntos = parseInt(row.PUNTOS) || 0;
   if (puntos < VALIDATION_LIMITS.DRIVER_POINTS_MIN || puntos > VALIDATION_LIMITS.DRIVER_POINTS_MAX) {
     rejectionTracker.track(REJECTION_REASONS.PUNTOS_FUERA_RANGO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.PUNTOS_FUERA_RANGO,
       datosOriginales: { puntos: row.PUNTOS, valor: puntos }
@@ -215,7 +214,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
 
   if (!calificacionesValidas.includes(calificacionRaw) && calificacionRaw !== SEVERITY_LEVELS.FINE.LEVE) {
     rejectionTracker.track(REJECTION_REASONS.CALIFICACION_INVALIDA);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.CALIFICACION_INVALIDA,
       datosOriginales: { calificacion: row.CALIFICACION, valorUsado: SEVERITY_LEVELS.FINE.LEVE }
@@ -257,7 +256,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
  */
 async function processMultasFile(filePath, options = {}) {
   const fileName = path.basename(filePath);
-  importLogger.info({ archivo: fileName }, 'Iniciando procesamiento de archivo');
+  logger.info({ archivo: fileName }, 'Iniciando procesamiento de archivo');
 
   return new Promise((resolve, reject) => {
     const stats = {
@@ -305,7 +304,7 @@ async function processMultasFile(filePath, options = {}) {
 
           // Log de progreso
           if (stats.totalRows % (options.logInterval || IMPORT_CONFIG.logInterval) === 0) {
-            importLogger.info({
+            logger.info({
               archivo: fileName,
               filasProcesadas: stats.totalRows,
               insertadas: stats.insertedRecords,
@@ -316,7 +315,7 @@ async function processMultasFile(filePath, options = {}) {
         } catch (error) {
           stats.errorRows++;
           totalErrors++;
-          importLogger.error({
+          logger.error({
             fila: rowIndex,
             archivo: fileName,
             razon: REJECTION_REASONS.ERROR_PROCESAMIENTO_FILA,
@@ -344,7 +343,7 @@ async function processMultasFile(filePath, options = {}) {
           totalSkipped += stats.skippedRecords;
           totalRejected += stats.rejectedRecords;
 
-          importLogger.info({
+          logger.info({
             archivo: fileName,
             totalFilas: stats.totalRows,
             procesadas: stats.processedRows,
@@ -360,7 +359,7 @@ async function processMultasFile(filePath, options = {}) {
         }
       })
       .on('error', (error) => {
-        importLogger.error({
+        logger.error({
           archivo: fileName,
           error: error.message
         }, 'Error leyendo archivo CSV');
@@ -388,7 +387,7 @@ function handleWriteError(writeError, failedDoc, stats) {
   } else {
     stats.errorRows++;
     const errorInfo = handleMongoError(writeError.err || writeError);
-    importLogger.warn({
+    logger.warn({
       fila: writeError.index,
       razon: REJECTION_REASONS.ERROR_INSERCION_BD,
       datosOriginales: {
@@ -473,7 +472,7 @@ async function processBatchUpsert(batch, stats) {
     stats.skippedRecords += (result.matchedCount || 0) - (result.modifiedCount || 0);
   } catch (bulkError) {
     const errorInfo = handleMongoError(bulkError);
-    importLogger.error({
+    logger.error({
       razon: REJECTION_REASONS.ERROR_INSERCION_BD,
       errorMongo: errorInfo
     }, 'Error en operacion upsert de lote');
@@ -501,7 +500,7 @@ async function processBatch(batch, options, stats) {
     }
   } catch (error) {
     const errorInfo = handleMongoError(error);
-    importLogger.error({
+    logger.error({
       razon: REJECTION_REASONS.ERROR_INSERCION_BD,
       loteSize: batch.length,
       errorMongo: errorInfo
@@ -522,7 +521,7 @@ async function processBatch(batch, options, stats) {
 async function importMultasData(options = {}) {
   const importConfig = { ...IMPORT_CONFIG, ...options };
 
-  importLogger.info({
+  logger.info({
     directorio: importConfig.dataDirectory,
     batchSize: importConfig.batchSize,
     maxParallel: importConfig.maxParallel
@@ -545,7 +544,7 @@ async function importMultasData(options = {}) {
       throw new Error('No se encontraron archivos CSV de multas');
     }
 
-    importLogger.info({ archivosEncontrados: csvFiles.length, archivos: csvFiles }, 'Archivos CSV detectados');
+    logger.info({ archivosEncontrados: csvFiles.length, archivos: csvFiles }, 'Archivos CSV detectados');
 
     const globalStats = {
       startTime: new Date(),
@@ -581,7 +580,7 @@ async function importMultasData(options = {}) {
       try {
         return await processMultasFile(filePath, importConfig);
       } catch (error) {
-        importLogger.error({
+        logger.error({
           archivo: file,
           error: error.message
         }, 'Error procesando archivo de multas');
@@ -604,7 +603,7 @@ async function importMultasData(options = {}) {
       const loteNum = Math.floor(i / maxParallel) + 1;
       const totalLotes = Math.ceil(csvFiles.length / maxParallel);
 
-      importLogger.info({
+      logger.info({
         lote: loteNum,
         totalLotes,
         archivos: batch
@@ -625,7 +624,7 @@ async function importMultasData(options = {}) {
         globalStats.rejectedRecords += fileStats.rejectedRecords || 0;
       });
 
-      importLogger.info({
+      logger.info({
         lote: loteNum,
         progreso: `${globalStats.completedFiles}/${csvFiles.length}`,
         insertadasAcumuladas: globalStats.insertedRecords
@@ -638,7 +637,7 @@ async function importMultasData(options = {}) {
     return globalStats;
 
   } catch (error) {
-    importLogger.error({ error: error.message }, 'Error en importacion de multas');
+    logger.error({ error: error.message }, 'Error en importacion de multas');
     throw error;
   }
 }
@@ -657,10 +656,10 @@ async function handleShutdown(signal) {
   }
   isShuttingDown = true;
 
-  importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando gracefully...');
+  logger.warn({ signal }, 'Senal de terminacion recibida, cerrando gracefully...');
 
   // Resumen parcial
-  importLogger.info({
+  logger.info({
     procesadas: totalProcessed,
     insertadas: totalInserted,
     omitidas: totalSkipped,
@@ -671,10 +670,10 @@ async function handleShutdown(signal) {
   try {
     if (mongoose.connection.readyState === 1) {
       await mongoose.connection.close();
-      importLogger.info('Conexion a MongoDB cerrada correctamente');
+      logger.info('Conexion a MongoDB cerrada correctamente');
     }
   } catch (error) {
-    importLogger.error({ error: error.message }, 'Error cerrando conexion a MongoDB');
+    logger.error({ error: error.message }, 'Error cerrando conexion a MongoDB');
   }
 
   process.exit(0);
@@ -685,12 +684,12 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
-  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
+  logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });
 
@@ -708,26 +707,26 @@ async function main() {
     batchSize: parseInt(args.find(arg => arg.startsWith('--batch='))?.split('=')[1]) || IMPORT_CONFIG.batchSize
   };
 
-  importLogger.info({
+  logger.info({
     omitirExistentes: options.skipExisting,
     tamanoLote: options.batchSize
   }, 'Iniciando script de importacion de multas');
 
   try {
     // Conectar a MongoDB usando connectDB centralizado
-    importLogger.info('Conectando a MongoDB...');
+    logger.info('Conectando a MongoDB...');
     await connectDB(config.database.uri);
-    importLogger.info('Conexion establecida con MongoDB');
+    logger.info('Conexion establecida con MongoDB');
 
     // Verificar modelo de multas
     const finesCount = await Fine.countDocuments().maxTimeMS(10000);
-    importLogger.info({ registrosActuales: finesCount }, 'Estado actual de la coleccion de multas');
+    logger.info({ registrosActuales: finesCount }, 'Estado actual de la coleccion de multas');
 
     // Ejecutar importacion
     const result = await importMultasData(options);
 
     // Mostrar resultados finales
-    importLogger.info({
+    logger.info({
       duracion: formatDuration(result.duration),
       velocidad: calculateProcessingSpeed(result.totalRows, result.duration),
       archivosProcesados: result.completedFiles,
@@ -741,12 +740,12 @@ async function main() {
 
     // Estadisticas finales de la base de datos
     const finalCount = await Fine.countDocuments().maxTimeMS(10000);
-    importLogger.info({ totalMultasBD: finalCount }, 'Total de multas en la base de datos');
+    logger.info({ totalMultasBD: finalCount }, 'Total de multas en la base de datos');
 
     // Resumen de rechazos por tipo
     const rejectionSummary = rejectionTracker.getSortedSummary();
     if (rejectionSummary.length > 0) {
-      importLogger.info({
+      logger.info({
         totalRechazos: rejectionTracker.totalRejected,
         desglose: rejectionSummary.slice(0, 10) // Top 10 razones
       }, 'Resumen de rechazos por tipo');
@@ -754,7 +753,7 @@ async function main() {
 
   } catch (error) {
     const errorInfo = handleMongoError(error);
-    importLogger.error({
+    logger.error({
       mensaje: error.message,
       errorInfo
     }, 'Error durante la importacion');
@@ -762,17 +761,17 @@ async function main() {
 
   } finally {
     if (!isShuttingDown && mongoose.connection.readyState === 1) {
-      importLogger.info('Cerrando conexion a MongoDB...');
+      logger.info('Cerrando conexion a MongoDB...');
       try {
         await mongoose.connection.close();
-        importLogger.info('Conexion cerrada correctamente');
+        logger.info('Conexion cerrada correctamente');
       } catch (error) {
-        importLogger.error({ error: error.message }, 'Error cerrando conexion');
+        logger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
   }
 
-  importLogger.info('Script completado');
+  logger.info('Script completado');
   if (process.exitCode === 1) {
     process.exit(1);
   } else {
@@ -783,7 +782,7 @@ async function main() {
 // Ejecutar si es llamado directamente
 if (require.main === module) {
   main().catch(error => {
-    importLogger.error({ error: error.message }, 'Error fatal en script de importacion');
+    logger.error({ error: error.message }, 'Error fatal en script de importacion');
     process.exit(1);
   });
 }

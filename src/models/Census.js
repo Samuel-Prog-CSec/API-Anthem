@@ -19,7 +19,8 @@ const {
   CENSUS_FIELD_TYPES,
   DATASET_YEARS,
   VALIDATION_LIMITS,
-  MONGODB_TIMEOUTS
+  MONGODB_TIMEOUTS,
+  AGGREGATION_LIMITS
 } = require('../constants');
 
 /**
@@ -1043,6 +1044,214 @@ censusSchema.statics.findWithOptions = async function(options) {
     total: results[1],
     stats: includeStats && results[2] ? results[2][0] : null
   };
+};
+
+/**
+ * Obtener estadísticas por distritos con opción de incluir barrios
+ *
+ * @param {Object} options - Opciones de filtrado
+ * @param {number} options.año - Año del censo
+ * @param {number} [options.mes] - Mes del censo (opcional)
+ * @param {boolean} [options.incluirBarrios=false] - Incluir estadísticas de barrios
+ * @returns {Promise<Object>} Estadísticas por distrito y opcionalmente por barrio
+ */
+censusSchema.statics.getDistrictStatisticsOptimized = async function(options) {
+  const { año, mes, incluirBarrios = false } = options;
+
+  // Construir condición de match
+  const matchCondition = { año: parseInt(año) };
+  if (mes) {
+    matchCondition.mes = parseInt(mes);
+  }
+
+  // Ejecutar agregaciones en paralelo
+  const [districtStatistics, neighborhoodStatistics] = await Promise.all([
+    // Agregación de distritos
+    this.aggregate([
+      { $match: matchCondition },
+      {
+        $group: {
+          _id: {
+            distrito: '$distrito.codigo',
+            nombre: '$distrito.descripcion'
+          },
+          totalPoblacion: { $sum: '$estadisticas.totalPoblacion' },
+          totalEspañoles: { $sum: '$estadisticas.totalEspañoles' },
+          totalExtranjeros: { $sum: '$estadisticas.totalExtranjeros' },
+          poblacionProductiva: {
+            $sum: {
+              $cond: ['$clasificacionEdad.esGrupoProductivo', '$estadisticas.totalPoblacion', 0]
+            }
+          },
+          terceraEdad: {
+            $sum: {
+              $cond: ['$clasificacionEdad.esTerceraEdad', '$estadisticas.totalPoblacion', 0]
+            }
+          },
+          totalBarrios: { $addToSet: '$barrio.codigo' }
+        }
+      },
+      {
+        $addFields: {
+          porcentajePoblacionProductiva: {
+            $cond: [
+              { $gt: ['$totalPoblacion', 0] },
+              { $multiply: [{ $divide: ['$poblacionProductiva', '$totalPoblacion'] }, 100] },
+              0
+            ]
+          },
+          porcentajeTerceraEdad: {
+            $cond: [
+              { $gt: ['$totalPoblacion', 0] },
+              { $multiply: [{ $divide: ['$terceraEdad', '$totalPoblacion'] }, 100] },
+              0
+            ]
+          },
+          porcentajeExtranjeros: {
+            $cond: [
+              { $gt: ['$totalPoblacion', 0] },
+              { $multiply: [{ $divide: ['$totalExtranjeros', '$totalPoblacion'] }, 100] },
+              0
+            ]
+          },
+          numeroBarrios: { $size: '$totalBarrios' }
+        }
+      },
+      {
+        $project: {
+          distrito: {
+            codigo: '$_id.distrito',
+            nombre: '$_id.nombre'
+          },
+          poblacion: {
+            total: '$totalPoblacion',
+            españoles: '$totalEspañoles',
+            extranjeros: '$totalExtranjeros',
+            productiva: '$poblacionProductiva',
+            terceraEdad: '$terceraEdad'
+          },
+          porcentajes: {
+            extranjeros: { $round: ['$porcentajeExtranjeros', 2] },
+            poblacionProductiva: { $round: ['$porcentajePoblacionProductiva', 2] },
+            terceraEdad: { $round: ['$porcentajeTerceraEdad', 2] }
+          },
+          numeroBarrios: '$numeroBarrios',
+          densidadPorBarrio: {
+            $round: [{ $divide: ['$totalPoblacion', '$numeroBarrios'] }, 0]
+          }
+        }
+      },
+      { $sort: { 'poblacion.total': -1 } }
+    ])
+      .allowDiskUse(true)
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
+
+    // Agregación de barrios (solo si se solicita)
+    incluirBarrios ? this.aggregate([
+      { $match: matchCondition },
+      {
+        $group: {
+          _id: {
+            distrito: '$distrito.codigo',
+            distritoNombre: '$distrito.descripcion',
+            barrio: '$barrio.codigo',
+            barrioNombre: '$barrio.descripcion'
+          },
+          poblacionTotal: { $sum: '$estadisticas.totalPoblacion' },
+          poblacionExtranjera: { $sum: '$estadisticas.totalExtranjeros' },
+          porcentajeExtranjeros: {
+            $avg: '$estadisticas.porcentajeExtranjeros'
+          }
+        }
+      },
+      {
+        $project: {
+          distrito: {
+            codigo: '$_id.distrito',
+            nombre: '$_id.distritoNombre'
+          },
+          barrio: {
+            codigo: '$_id.barrio',
+            nombre: '$_id.barrioNombre'
+          },
+          poblacionTotal: 1,
+          poblacionExtranjera: 1,
+          porcentajeExtranjeros: { $round: ['$porcentajeExtranjeros', 2] }
+        }
+      },
+      { $sort: { poblacionTotal: -1 } },
+      { $limit: AGGREGATION_LIMITS.TOP_RESULTS }
+    ])
+      .allowDiskUse(true)
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) : Promise.resolve(null)
+  ]);
+
+  return {
+    districtStatistics,
+    neighborhoodStatistics
+  };
+};
+
+/**
+ * Obtener evolución demográfica temporal
+ *
+ * @param {Object} options - Opciones de filtrado
+ * @param {number} [options.distrito] - Código de distrito (opcional)
+ * @param {string} options.metrica - Métrica a analizar (poblacionTotal, porcentajeExtranjeros, etc.)
+ * @param {number} [options.startYear] - Año inicial
+ * @param {number} [options.endYear] - Año final
+ * @returns {Promise<Array>} Evolución de la métrica por período
+ */
+censusSchema.statics.getDemographicEvolutionOptimized = async function(options) {
+  const {
+    distrito,
+    metrica = 'poblacionTotal',
+    startYear = DATASET_YEARS.MIN_YEAR,
+    endYear = DATASET_YEARS.MAX_YEAR
+  } = options;
+
+  // Construir condición de match
+  const matchFilters = {
+    año: { $gte: parseInt(startYear), $lte: parseInt(endYear) }
+  };
+
+  if (distrito) {
+    matchFilters['distrito.codigo'] = parseInt(distrito);
+  }
+
+  // Mapeo de métricas a campos de agregación
+  const metricaField = {
+    poblacionTotal: '$estadisticas.totalPoblacion',
+    porcentajeExtranjeros: '$estadisticas.porcentajeExtranjeros',
+    totalEspañoles: '$estadisticas.totalEspañoles',
+    totalExtranjeros: '$estadisticas.totalExtranjeros'
+  }[metrica] || '$estadisticas.totalPoblacion';
+
+  const evolucion = await this.aggregate([
+    { $match: matchFilters },
+    {
+      $group: {
+        _id: {
+          año: '$año',
+          mes: '$mes'
+        },
+        valor: { $sum: metricaField }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        año: '$_id.año',
+        mes: '$_id.mes',
+        valor: { $round: ['$valor', 2] }
+      }
+    },
+    { $sort: { '_id.año': 1, '_id.mes': 1 } }
+  ])
+    .allowDiskUse(true)
+    .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+
+  return evolucion;
 };
 
 // Crear y exportar el modelo

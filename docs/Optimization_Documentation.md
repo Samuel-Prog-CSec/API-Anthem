@@ -959,24 +959,119 @@ invalidateTrafficCache(pointId, 'create');
 
 **Ubicación:** `src/config/cacheWarming.js`
 
-Precalienta caché automáticamente al arrancar el servidor:
+Precalienta caché automáticamente al arrancar el servidor con datos frecuentemente accedidos:
 
 ```javascript
 const warmupCache = async () => {
   await Promise.allSettled([
-    warmLocationCache(),      // Ubicaciones frecuentes
-    warmDistrictCache(),      // Distritos únicos
-    warmFineStatsCache(),     // Estadísticas de multas (30 días)
-    warmTrafficCache(),       // Datos de tráfico (24h)
-    warmAirQualityCache()     // Calidad aire (7 días)
+    warmLocationCache(),          // Ubicaciones frecuentes (puntos tráfico, estaciones)
+    warmDistrictCache(),          // Distritos únicos para filtros
+    warmFineStatsCache(),         // Estadísticas de multas (30 días)
+    warmTrafficCache(),           // Datos de tráfico (24h recientes)
+    warmAirQualityCache(),        // Calidad aire (7 días)
+    warmCensusDashboardCache(),   // Dashboard demográfico (estadísticas distrito)
+    warmScooterAssignmentCache()  // Análisis de mercado patinetes
   ]);
 };
 ```
 
+**Funciones de warming implementadas:**
+
+1. **warmLocationCache()**: Cachea puntos de tráfico (100) y estaciones acústicas (50)
+2. **warmDistrictCache()**: Lista de distritos únicos para filtros
+3. **warmFineStatsCache()**: Agregación de multas últimos 30 días por distrito
+4. **warmTrafficCache()**: Agregación de tráfico últimas 24 horas por hora
+5. **warmAirQualityCache()**: Estadísticas de calidad aire últimos 7 días
+6. **warmCensusDashboardCache()**: Estadísticas demográficas por distrito (población, edad media)
+7. **warmScooterAssignmentCache()**: Análisis de mercado de proveedores de patinetes
+
 **Beneficios:**
-- Primera request ya encuentra datos en caché
-- Ejecución en background (no bloquea startup)
+- Primera request ya encuentra datos en caché (cache hit inmediato)
+- Ejecución en background con `Promise.allSettled()` (no bloquea startup)
 - Reduce latencia inicial de ~800ms a ~100ms
+- Logging detallado del proceso de warming
+- Manejo de errores no crítico (warming falla silenciosamente)
+
+**Características de robustez:**
+```javascript
+// Cada función de warming tiene timeout
+await Traffic.aggregate(pipeline).maxTimeMS(10000);
+
+// Manejo de errores individual
+catch (error) {
+  cacheLogger.warn({ error: error.message }, 'Error en warming (no crítico)');
+  return { success: false, resource: 'traffic', error: error.message };
+}
+```
+
+#### Cache Key Generator Seguro
+
+**Ubicación:** `src/utils/cacheKeyGenerator.js`
+
+Generador de claves de caché determinísticas y seguras usando SHA-256:
+
+```javascript
+const generateSecureCacheKey = (method, url, query = {}) => {
+  // 1. Ordenar alfabéticamente para determinismo
+  const sortedQuery = {};
+  Object.keys(query).sort().forEach(key => {
+    sortedQuery[key] = sanitizeValue(query[key]);
+  });
+
+  // 2. Crear string determinístico
+  const queryString = JSON.stringify(sortedQuery);
+
+  // 3. Generar hash SHA-256 (longitud fija, seguro)
+  const hash = crypto
+    .createHash('sha256')
+    .update(queryString)
+    .digest('hex')
+    .substring(0, 16); // Primeros 16 caracteres
+
+  return `${method}:${url}:${hash}`;
+};
+```
+
+**Características de seguridad:**
+
+1. **Determinismo**: Mismos parámetros = misma clave (orden alfabético)
+2. **Prevención de cache poisoning**: Hash no puede ser manipulado sin conocer el algoritmo
+3. **Colisiones mínimas**: SHA-256 reduce probabilidad de colisiones
+4. **Longitud fija**: Claves predecibles en tamaño (performance de node-cache)
+5. **Sanitización**: Arrays ordenados, valores normalizados
+
+**Ejemplo de uso:**
+```javascript
+// Request: GET /api/traffic?distrito=1&fecha=2051-01-01
+const key = generateSecureCacheKey('GET', '/api/traffic', req.query);
+// Resultado: "GET:/api/traffic:a1b2c3d4e5f6g7h8"
+
+// Mismos parámetros en diferente orden generan misma clave:
+// ?fecha=2051-01-01&distrito=1 → misma clave
+// ?distrito=1&fecha=2051-01-01 → misma clave
+```
+
+**Integración con middleware de caché:**
+```javascript
+const cacheMiddleware = (cacheType) => {
+  return (req, res, next) => {
+    const cacheKey = generateSecureCacheKey(
+      req.method,
+      req.originalUrl,
+      req.query
+    );
+    const cached = caches[cacheType].get(cacheKey);
+    if (cached) return res.json(cached);
+    // ... continuar con query
+  };
+};
+```
+
+**Beneficios:**
+- Previene ataques de cache poisoning
+- Evita bypass de caché por manipulación de parámetros
+- Reduce colisiones en cache keys
+- Claves legibles para debugging (formato: `method:url:hash`)
 
 #### HTTP ETag Validation
 
@@ -1017,6 +1112,52 @@ const stats = await Traffic.aggregate(pipeline).maxTimeMS(10000);
 ```
 
 **Beneficio:** Previene queries infinitas que bloquean conexiones
+
+#### allowDiskUse en Agregaciones Complejas
+
+Añadido `.allowDiskUse(true)` en agregaciones que procesan grandes volúmenes de datos:
+
+```javascript
+// Agregación con múltiples stages y grandes datasets
+const results = await Census.aggregate([
+  { $match: filters },
+  { $group: { _id: '$distrito', totalPoblacion: { $sum: 1 } } },
+  { $sort: { totalPoblacion: -1 } },
+  { $limit: 100 }
+])
+  .allowDiskUse(true)  // Permite usar disco temporal si memoria no es suficiente
+  .maxTimeMS(10000);
+```
+
+**¿Por qué es necesario?**
+
+Por defecto, MongoDB limita el uso de memoria en agregaciones a **100MB**. Para datasets grandes:
+- **Sin `.allowDiskUse(true)`**: Error "Exceeded memory limit for $group"
+- **Con `.allowDiskUse(true)`**: MongoDB usa disco temporal si memoria no es suficiente
+
+**Trade-offs:**
+- **Ventaja**: No hay límite de memoria, previene errores en agregaciones grandes
+- **Desventaja**: ~20-30% más lento si usa disco (pero funciona)
+- **Decisión**: Preferible lento que error
+
+**Uso en el proyecto:**
+```javascript
+// Traffic.js - Agregación histórica (millones de documentos)
+trafficSchema.statics.getHistoricalDataOptimized = async function(filters, aggregation) {
+  return this.aggregate(pipeline)
+    .allowDiskUse(true)  // Datasets grandes
+    .maxTimeMS(10000);
+};
+
+// Census.js - Estadísticas demográficas
+censusSchema.statics.getDistrictStatisticsOptimized = async function(filters) {
+  return this.aggregate(pipeline)
+    .allowDiskUse(true)  // +200K documentos por mes
+    .maxTimeMS(10000);
+};
+```
+
+**Beneficio:** Previene errores de memoria en agregaciones complejas con grandes volúmenes de datos
 
 #### Límites en Agregaciones
 

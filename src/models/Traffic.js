@@ -1,15 +1,7 @@
 /**
  * Modelo de Tráfico
  *
- * Esquema de Mon  fecha: {
-    type: Date,
-    required: true,
-    index: true,
-    validate: {
-      validator: validateDatasetDate,
-      message: 'La fecha debe estar dentro del rango del dataset (2050-2052)'
-    }
-  },a almacenar y gestionar datos de intensidad del tráfico
+ * Esquema de Mongoose para almacenar y gestionar datos de intensidad del tráfico
  * provenientes de los sensores distribuidos por la ciudad.
  * Incluye validaciones, índices optimizados para consultas frecuentes,
  * y métodos para análisis de congestión y calidad de datos.
@@ -388,8 +380,8 @@ trafficSchema.index({
  */
 
 /**
- * Calculate congestion level based on occupation and load
- * Updates: analisis.nivelCongestion
+ * Calcular nivel de congestión basado en ocupación y carga
+ * Actualiza: analisis.nivelCongestion
  */
 trafficSchema.methods.calculateCongestionLevel = function() {
   const ocupacion = this.metricas.ocupacion || 0;
@@ -414,8 +406,8 @@ trafficSchema.methods.calculateCongestionLevel = function() {
 };
 
 /**
- * Calculate intensity classification based on traffic flow
- * Updates: analisis.clasificacionIntensidad
+ * Calcular clasificación de intensidad basada en flujo de tráfico
+ * Actualiza: analisis.clasificacionIntensidad
  */
 trafficSchema.methods.calculateIntensityClassification = function() {
   const intensidad = this.metricas.intensidad || 0;
@@ -441,8 +433,8 @@ trafficSchema.methods.calculateIntensityClassification = function() {
 };
 
 /**
- * Calculate overall data quality based on error indicator and integration period
- * Updates: calidadDatos.calidadGeneral
+ * Calcular calidad general de datos basada en indicador de error y período de integración
+ * Actualiza: calidadDatos.calidadGeneral
  */
 trafficSchema.methods.calculateOverallQuality = function() {
   const error = this.calidadDatos.error;
@@ -638,6 +630,7 @@ trafficSchema.statics.getCongestionAnalysisOptimized = async function(filters = 
  * @param {string} aggregation - Tipo de agregación ('hour', 'day', 'week', 'month')
  * @returns {Promise<Array>} Datos históricos agregados
  */
+// eslint-disable-next-line max-lines-per-function
 trafficSchema.statics.getHistoricalDataOptimized = async function(filters = {}, aggregation = 'hour') {
   // Configurar agrupación temporal según el tipo
   let dateGrouping;
@@ -718,7 +711,7 @@ trafficSchema.statics.getHistoricalDataOptimized = async function(filters = {}, 
         },
         velocidadPromedio: {
           $avg: {
-            $cond: [{ $gte: ['$metricas.velocidad', 0] }, '$metricas.velocidad', null]
+            $cond: [{ $gte: ['$metricas.velocidadMedia', 0] }, '$metricas.velocidadMedia', null]
           }
         },
         medicionesCongestionadas: {

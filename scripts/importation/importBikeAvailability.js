@@ -24,7 +24,7 @@ const mongoose = require('mongoose');
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const logger = require('../../src/config/logger');
+const { importBikesLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const { DATASET_YEARS, VALIDATION_LIMITS } = require('../../src/constants');
 const {
@@ -32,9 +32,6 @@ const {
   formatDuration,
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
-
-// Logger especifico para importacion
-const importLogger = logger.child({ component: 'import-bike-availability' });
 
 // Modelo
 const BikeAvailability = require('../../src/models/BikeAvailability');
@@ -103,15 +100,15 @@ function registerSignalHandlers() {
       if (isShuttingDown) {return;}
       isShuttingDown = true;
 
-      importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando conexiones...');
+      logger.warn({ signal }, 'Senal de terminacion recibida, cerrando conexiones...');
 
       try {
         if (mongoose.connection.readyState === 1) {
           await mongoose.connection.close();
-          importLogger.info('Conexion a MongoDB cerrada correctamente');
+          logger.info('Conexion a MongoDB cerrada correctamente');
         }
       } catch (error) {
-        importLogger.error({ error: error.message }, 'Error al cerrar conexion');
+        logger.error({ error: error.message }, 'Error al cerrar conexion');
       }
 
       process.exit(0);
@@ -119,28 +116,28 @@ function registerSignalHandlers() {
   });
 
   process.on('uncaughtException', async (error) => {
-    importLogger.fatal({ error: error.message, stack: error.stack }, 'Excepcion no capturada');
+    logger.fatal({ error: error.message, stack: error.stack }, 'Excepcion no capturada');
 
     try {
       if (mongoose.connection.readyState === 1) {
         await mongoose.connection.close();
       }
     } catch (closeError) {
-      importLogger.error({ error: closeError.message }, 'Error al cerrar conexion tras excepcion');
+      logger.error({ error: closeError.message }, 'Error al cerrar conexion tras excepcion');
     }
 
     process.exit(1);
   });
 
   process.on('unhandledRejection', async (reason) => {
-    importLogger.fatal({ reason: String(reason) }, 'Promesa rechazada no manejada');
+    logger.fatal({ reason: String(reason) }, 'Promesa rechazada no manejada');
 
     try {
       if (mongoose.connection.readyState === 1) {
         await mongoose.connection.close();
       }
     } catch (closeError) {
-      importLogger.error({ error: closeError.message }, 'Error al cerrar conexion tras rechazo');
+      logger.error({ error: closeError.message }, 'Error al cerrar conexion tras rechazo');
     }
 
     process.exit(1);
@@ -261,7 +258,7 @@ function validateAndTransformRow(row, rowIndex) {
   // Validar coherencia de usos (modelo valida que totalUsos = anual + ocasional)
   const sumUsos = usosAbonadoAnual + usosAbonadoOcasional;
   if (totalUsos !== sumUsos && totalUsos !== 0) {
-    importLogger.debug(
+    logger.debug(
       { rowIndex, totalUsos, sumUsos },
       'Discrepancia en suma de usos, usando valor calculado'
     );
@@ -326,7 +323,7 @@ async function processBatch(batch, options) {
           error.writeErrors.forEach(writeErr => {
             if (writeErr.code === 11000) {
               const duplicateDoc = batch[writeErr.index];
-              importLogger.warn(
+              logger.warn(
                 {
                   fecha: duplicateDoc?.dia?.toISOString().split('T')[0],
                   razon: REJECTION_REASONS.DUPLICATE_KEY,
@@ -339,7 +336,7 @@ async function processBatch(batch, options) {
         }
       } else {
         const handledError = handleMongoError(error);
-        importLogger.error({ error: handledError.message }, 'Error en insercion de lote');
+        logger.error({ error: handledError.message }, 'Error en insercion de lote');
         result.errors = batch.length;
         throw error;
       }
@@ -360,7 +357,7 @@ async function processBatch(batch, options) {
       result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);
     } catch (error) {
       const handledError = handleMongoError(error);
-      importLogger.error({ error: handledError.message }, 'Error en bulkWrite');
+      logger.error({ error: handledError.message }, 'Error en bulkWrite');
       result.errors = batch.length;
       throw error;
     }
@@ -375,7 +372,7 @@ async function processBatch(batch, options) {
  * @returns {Promise<void>}
  */
 async function processCSV(options) {
-  importLogger.info(
+  logger.info(
     { file: IMPORT_CONFIG.dataFile },
     'Iniciando procesamiento de archivo CSV'
   );
@@ -398,7 +395,7 @@ async function processCSV(options) {
         records.push(transformedData);
 
         if (totalProcessed % IMPORT_CONFIG.logInterval === 0) {
-          importLogger.debug(
+          logger.debug(
             { processed: totalProcessed, valid: records.length },
             'Progreso de lectura'
           );
@@ -407,7 +404,7 @@ async function processCSV(options) {
         totalErrors++;
         totalRejected++;
         rejectionTracker.track(error.message.split(':')[0] || 'ERROR_DESCONOCIDO');
-        importLogger.warn(
+        logger.warn(
           {
             fila: totalProcessed,
             razon: error.message,
@@ -423,13 +420,13 @@ async function processCSV(options) {
     });
 
     stream.on('end', async () => {
-      importLogger.info(
+      logger.info(
         { totalProcessed: totalProcessed, validRecords: records.length, errors: totalErrors },
         'Lectura de CSV completada'
       );
 
       if (records.length === 0) {
-        importLogger.warn('No hay registros validos para insertar');
+        logger.warn('No hay registros validos para insertar');
         return resolve();
       }
 
@@ -437,7 +434,7 @@ async function processCSV(options) {
       let recordsToInsert = records;
 
       if (options.skipExisting) {
-        importLogger.info('Verificando duplicados en base de datos...');
+        logger.info('Verificando duplicados en base de datos...');
         const dates = records.map(r => r.dia);
         const existingDatesSet = await checkDuplicates(dates);
 
@@ -445,7 +442,7 @@ async function processCSV(options) {
           const isDuplicate = existingDatesSet.has(record.dia.toISOString());
           if (isDuplicate) {
             totalSkipped++;
-            importLogger.debug(
+            logger.debug(
               { fecha: record.dia.toISOString().split('T')[0], razon: REJECTION_REASONS.DUPLICATE_IN_DB },
               'Registro omitido - duplicado en BD'
             );
@@ -453,19 +450,19 @@ async function processCSV(options) {
           return !isDuplicate;
         });
 
-        importLogger.info(
+        logger.info(
           { newRecords: recordsToInsert.length, duplicates: totalSkipped },
           'Verificacion de duplicados completada'
         );
       }
 
       if (recordsToInsert.length === 0) {
-        importLogger.info('Todos los registros ya existen en la base de datos');
+        logger.info('Todos los registros ya existen en la base de datos');
         return resolve();
       }
 
       // Insertar en lotes
-      importLogger.info(
+      logger.info(
         { totalRecords: recordsToInsert.length, batchSize: options.batchSize },
         'Iniciando insercion en base de datos'
       );
@@ -479,7 +476,7 @@ async function processCSV(options) {
           totalSkipped += result.skipped;
 
           const progress = Math.round(((i + batch.length) / recordsToInsert.length) * 100);
-          importLogger.debug(
+          logger.debug(
             { inserted: totalInserted, progress: `${progress}%` },
             'Progreso de insercion'
           );
@@ -487,13 +484,13 @@ async function processCSV(options) {
 
         resolve();
       } catch (error) {
-        importLogger.error({ error: error.message }, 'Error durante insercion');
+        logger.error({ error: error.message }, 'Error durante insercion');
         reject(error);
       }
     });
 
     stream.on('error', (error) => {
-      importLogger.error({ error: error.message }, 'Error leyendo archivo CSV');
+      logger.error({ error: error.message }, 'Error leyendo archivo CSV');
       reject(error);
     });
   });
@@ -513,7 +510,7 @@ async function showStatistics() {
     BikeAvailability.findOne().sort({ dia: -1 }).select('dia').lean().maxTimeMS(5000)
   ]);
 
-  importLogger.info({
+  logger.info({
     duracion: formatDuration(durationMs),
     velocidad: calculateProcessingSpeed(totalProcessed, durationMs),
     filasProcesadas: totalProcessed,
@@ -529,7 +526,7 @@ async function showStatistics() {
   // Resumen de rechazos por tipo
   const rejectionSummary = rejectionTracker.getSortedSummary();
   if (rejectionSummary.length > 0) {
-    importLogger.info({
+    logger.info({
       totalRechazos: rejectionTracker.totalRejected,
       desglose: rejectionSummary
     }, 'Resumen de rechazos por tipo');
@@ -548,7 +545,7 @@ async function main() {
   // Parsear argumentos
   const options = parseArguments();
 
-  importLogger.info({
+  logger.info({
     skipExisting: options.skipExisting,
     batchSize: options.batchSize,
     dataFile: IMPORT_CONFIG.dataFile
@@ -561,13 +558,13 @@ async function main() {
     }
 
     // Conectar a la base de datos
-    importLogger.info('Conectando a MongoDB...');
+    logger.info('Conectando a MongoDB...');
     await connectDB(config.database.uri);
-    importLogger.info('Conexion a MongoDB establecida');
+    logger.info('Conexion a MongoDB establecida');
 
     // Verificar estado inicial
     const initialCount = await BikeAvailability.countDocuments().maxTimeMS(5000);
-    importLogger.info({ registrosActuales: initialCount }, 'Estado inicial de la coleccion');
+    logger.info({ registrosActuales: initialCount }, 'Estado inicial de la coleccion');
 
     // Procesar CSV
     await processCSV(options);
@@ -577,7 +574,7 @@ async function main() {
 
   } catch (error) {
     const handledError = handleMongoError(error);
-    importLogger.error({
+    logger.error({
       error: handledError.message,
       stack: error.stack
     }, 'Error fatal durante la importacion');
@@ -585,17 +582,17 @@ async function main() {
   } finally {
     // Cerrar conexion
     if (mongoose.connection.readyState === 1) {
-      importLogger.info('Cerrando conexion a MongoDB...');
+      logger.info('Cerrando conexion a MongoDB...');
       try {
         await mongoose.connection.close();
-        importLogger.info('Conexion cerrada correctamente');
+        logger.info('Conexion cerrada correctamente');
       } catch (error) {
-        importLogger.error({ error: error.message }, 'Error al cerrar conexion');
+        logger.error({ error: error.message }, 'Error al cerrar conexion');
       }
     }
   }
 
-  importLogger.info('Script completado');
+  logger.info('Script completado');
   if (process.exitCode === 1) {
     process.exit(1);
   } else {
@@ -606,7 +603,7 @@ async function main() {
 // Ejecutar si es llamado directamente
 if (require.main === module) {
   main().catch(error => {
-    importLogger.error({ error: error.message }, 'Error fatal en script de importacion');
+    logger.error({ error: error.message }, 'Error fatal en script de importacion');
     process.exit(1);
   });
 }

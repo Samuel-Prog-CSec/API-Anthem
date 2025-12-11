@@ -250,129 +250,12 @@ const getDistrictStatistics = async (req, res, next) => {
       { año: DATASET_YEARS.DEFAULT_YEAR }
     );
 
-    const matchCondition = { año };
-    if (mes) { matchCondition.mes = mes; }
-
-    // Estadísticas por distrito
-    const districtStatistics = await Census.aggregate([
-      { $match: matchCondition },
-      // NO usar $limit antes de $group - corrompe las estadísticas globales
-      {
-        $group: {
-          _id: {
-            distrito: '$distrito.codigo',
-            nombre: '$distrito.descripcion'
-          },
-          totalPoblacion: { $sum: '$estadisticas.totalPoblacion' },
-          totalEspañoles: { $sum: '$estadisticas.totalEspañoles' },
-          totalExtranjeros: { $sum: '$estadisticas.totalExtranjeros' },
-          poblacionProductiva: {
-            $sum: {
-              $cond: ['$clasificacionEdad.esGrupoProductivo', '$estadisticas.totalPoblacion', 0]
-            }
-          },
-          terceraEdad: {
-            $sum: {
-              $cond: ['$clasificacionEdad.esTerceraEdad', '$estadisticas.totalPoblacion', 0]
-            }
-          },
-          totalBarrios: { $addToSet: '$barrio.codigo' }
-        }
-      },
-      {
-        $addFields: {
-          porcentajePoblacionProductiva: {
-            $cond: [
-              { $gt: ['$totalPoblacion', 0] },
-              { $multiply: [{ $divide: ['$poblacionProductiva', '$totalPoblacion'] }, 100] },
-              0
-            ]
-          },
-          porcentajeTerceraEdad: {
-            $cond: [
-              { $gt: ['$totalPoblacion', 0] },
-              { $multiply: [{ $divide: ['$terceraEdad', '$totalPoblacion'] }, 100] },
-              0
-            ]
-          },
-          porcentajeExtranjeros: {
-            $cond: [
-              { $gt: ['$totalPoblacion', 0] },
-              { $multiply: [{ $divide: ['$totalExtranjeros', '$totalPoblacion'] }, 100] },
-              0
-            ]
-          },
-          numeroBarrios: { $size: '$totalBarrios' }
-        }
-      },
-      {
-        $project: {
-          distrito: {
-            codigo: '$_id.distrito',
-            nombre: '$_id.nombre'
-          },
-          poblacion: {
-            total: '$totalPoblacion',
-            españoles: '$totalEspañoles',
-            extranjeros: '$totalExtranjeros',
-            productiva: '$poblacionProductiva',
-            terceraEdad: '$terceraEdad'
-          },
-          porcentajes: {
-            extranjeros: { $round: ['$porcentajeExtranjeros', 2] },
-            poblacionProductiva: { $round: ['$porcentajePoblacionProductiva', 2] },
-            terceraEdad: { $round: ['$porcentajeTerceraEdad', 2] }
-          },
-          numeroBarrios: '$numeroBarrios',
-          densidadPorBarrio: {
-            $round: [{ $divide: ['$totalPoblacion', '$numeroBarrios'] }, 0]
-          }
-        }
-      },
-      { $sort: { 'poblacion.total': -1 } }
-    ])
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
-
-    let neighborhoodStatistics = null;
-
-    // Si se solicita información de barrios, obtenerla
-    if (incluirBarrios === 'true') {
-      neighborhoodStatistics = await Census.aggregate([
-        { $match: matchCondition },
-        // NO usar $limit antes de $group - corrompe las estadísticas
-        {
-          $group: {
-            _id: {
-              distrito: '$distrito.descripcion',
-              barrio: '$barrio.descripcion',
-              codigoBarrio: '$barrio.codigo'
-            },
-            totalPoblacion: { $sum: '$estadisticas.totalPoblacion' },
-            diversidadCultural: { $avg: '$estadisticas.porcentajeExtranjeros' },
-            poblacionProductiva: {
-              $sum: {
-                $cond: ['$clasificacionEdad.esGrupoProductivo', '$estadisticas.totalPoblacion', 0]
-              }
-            }
-          }
-        },
-        {
-          $project: {
-            distrito: '$_id.distrito',
-            barrio: {
-              nombre: '$_id.barrio',
-              codigo: '$_id.codigoBarrio'
-            },
-            poblacionTotal: '$totalPoblacion',
-            diversidadCultural: { $round: ['$diversidadCultural', 2] },
-            poblacionProductiva: '$poblacionProductiva'
-          }
-        },
-        { $sort: { poblacionTotal: -1 } },
-        { $limit: AGGREGATION_LIMITS.TOP_RESULTS } // Top 50 barrios DESPUÉS de agrupar
-      ])
-        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
-    }
+    // Usar método estático del modelo para obtener estadísticas
+    const { districtStatistics, neighborhoodStatistics } = await Census.getDistrictStatisticsOptimized({
+      año,
+      mes,
+      incluirBarrios: incluirBarrios === 'true'
+    });
 
     // Ranking de distritos por diferentes métricas
     const rankings = {
@@ -561,6 +444,7 @@ const getDemographicEvolution = async (req, res, next) => {
       },
       { $sort: { '_id.año': 1, '_id.mes': 1 } }
     ])
+      .allowDiskUse(true)
       .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
 
     // Calcular tendencias
@@ -679,38 +563,44 @@ const getDemographicDashboard = async (req, res, next) => {
         }
       }
     ])
+      .allowDiskUse(true)
       .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
 
-    // Top distritos por población
-    const topDistritos = await Census.aggregate([
-      { $match: matchFilters },
-      {
-        $group: {
-          _id: {
-            codigo: '$distrito.codigo',
-            nombre: '$distrito.descripcion'
-          },
-          poblacionTotal: { $sum: '$estadisticas.totalPoblacion' },
-          diversidadCultural: { $avg: '$estadisticas.porcentajeExtranjeros' }
-        }
-      },
-      { $sort: { poblacionTotal: -1 } },
-      { $limit: AGGREGATION_LIMITS.PREVIEW }
-    ])
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
+    // Ejecutar queries en paralelo para mejor rendimiento
+    const [topDistritos, distribucionEdad] = await Promise.all([
+      // Top distritos por población
+      Census.aggregate([
+        { $match: matchFilters },
+        {
+          $group: {
+            _id: {
+              codigo: '$distrito.codigo',
+              nombre: '$distrito.descripcion'
+            },
+            poblacionTotal: { $sum: '$estadisticas.totalPoblacion' },
+            diversidadCultural: { $avg: '$estadisticas.porcentajeExtranjeros' }
+          }
+        },
+        { $sort: { poblacionTotal: -1 } },
+        { $limit: AGGREGATION_LIMITS.PREVIEW }
+      ])
+        .allowDiskUse(true)
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
 
-    // Distribución por grupos de edad
-    const distribucionEdad = await Census.aggregate([
-      { $match: matchFilters },
-      {
-        $group: {
-          _id: '$clasificacionEdad.grupoEdad',
-          poblacionTotal: { $sum: '$estadisticas.totalPoblacion' }
-        }
-      },
-      { $sort: { poblacionTotal: -1 } }
-    ])
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
+      // Distribución por grupos de edad
+      Census.aggregate([
+        { $match: matchFilters },
+        {
+          $group: {
+            _id: '$clasificacionEdad.grupoEdad',
+            poblacionTotal: { $sum: '$estadisticas.totalPoblacion' }
+          }
+        },
+        { $sort: { poblacionTotal: -1 } }
+      ])
+        .allowDiskUse(true)
+        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+    ]);
 
     const responseData = {
       message: 'Dashboard demográfico obtenido exitosamente',

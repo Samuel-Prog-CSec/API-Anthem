@@ -27,7 +27,7 @@ const mongoose = require('mongoose');
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const logger = require('../../src/config/logger');
+const { importScootersLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const ScooterAssignment = require('../../src/models/ScooterAssignment');
 const {
@@ -40,9 +40,6 @@ const {
   SCOOTER_PROVIDERS,
   DATASET_YEARS
 } = require('../../src/constants');
-
-// Logger especifico para importacion
-const importLogger = logger.child({ component: 'import-scooter-assignments' });
 
 // ============================================================================
 // CONFIGURACION
@@ -167,7 +164,7 @@ function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
   // Validar campos obligatorios
   if (!distrito) {
     rejectionTracker.track(REJECTION_REASONS.DISTRITO_FALTANTE);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.DISTRITO_FALTANTE,
       datosOriginales: { distrito: row.DISTRITO, barrio: row.BARRIO }
@@ -177,7 +174,7 @@ function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
 
   if (!barrio) {
     rejectionTracker.track(REJECTION_REASONS.BARRIO_FALTANTE);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.BARRIO_FALTANTE,
       datosOriginales: { distrito: row.DISTRITO, barrio: row.BARRIO }
@@ -188,7 +185,7 @@ function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
   // Ignorar filas de totales
   if (distrito.includes('TOTAL') || barrio.toLowerCase().includes('total')) {
     rejectionTracker.track(REJECTION_REASONS.FILA_TOTAL);
-    importLogger.debug({
+    logger.debug({
       fila: rowIndex,
       razon: REJECTION_REASONS.FILA_TOTAL,
       datosOriginales: { distrito, barrio }
@@ -231,7 +228,7 @@ function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
   // Validar que hay al menos un proveedor
   if (proveedores.length === 0) {
     rejectionTracker.track(REJECTION_REASONS.SIN_PROVEEDORES);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.SIN_PROVEEDORES,
       datosOriginales: { distrito, barrio }
@@ -242,7 +239,7 @@ function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
   // Verificar discrepancia en total
   const totalCSV = parseNumber(row.TOTAL);
   if (totalCSV > 0 && totalCalculado !== totalCSV) {
-    importLogger.debug({
+    logger.debug({
       fila: rowIndex,
       distrito,
       barrio,
@@ -283,7 +280,7 @@ function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
  */
 async function processScooterFile(filePath, options = {}) {
   const fileName = path.basename(filePath);
-  importLogger.info({ archivo: fileName }, 'Procesando archivo de asignacion de patinetes');
+  logger.info({ archivo: fileName }, 'Procesando archivo de asignacion de patinetes');
 
   return new Promise((resolve, reject) => {
     const stats = {
@@ -336,7 +333,7 @@ async function processScooterFile(filePath, options = {}) {
 
           // Log de progreso
           if (stats.totalRows % (options.logInterval || IMPORT_CONFIG.logInterval) === 0) {
-            importLogger.info({
+            logger.info({
               archivo: fileName,
               filasProcesadas: stats.totalRows,
               insertadas: stats.insertedRecords,
@@ -348,7 +345,7 @@ async function processScooterFile(filePath, options = {}) {
           stats.errorRows++;
           totalErrors++;
           rejectionTracker.track(REJECTION_REASONS.ERROR_PROCESAMIENTO_FILA);
-          importLogger.error({
+          logger.error({
             fila: rowIndex,
             archivo: fileName,
             razon: REJECTION_REASONS.ERROR_PROCESAMIENTO_FILA,
@@ -381,7 +378,7 @@ async function processScooterFile(filePath, options = {}) {
           totalSkipped += stats.skippedRecords;
           totalRejected += stats.rejectedRows;
 
-          importLogger.info({
+          logger.info({
             archivo: fileName,
             totalFilas: stats.totalRows,
             procesadas: stats.processedRows,
@@ -398,7 +395,7 @@ async function processScooterFile(filePath, options = {}) {
         }
       })
       .on('error', (error) => {
-        importLogger.error({
+        logger.error({
           archivo: fileName,
           error: error.message
         }, 'Error leyendo archivo CSV');
@@ -422,7 +419,7 @@ function handleWriteError(writeError, failedDoc, result) {
 
   if (errorCode === 11000) {
     result.skipped++;
-    importLogger.debug({
+    logger.debug({
       razon: REJECTION_REASONS.ERROR_DUPLICADO,
       distrito: failedDoc?.distrito?.nombre,
       barrio: failedDoc?.barrio?.nombre
@@ -430,7 +427,7 @@ function handleWriteError(writeError, failedDoc, result) {
   } else {
     result.errors++;
     const errorInfo = handleMongoError(writeError.err || writeError);
-    importLogger.warn({
+    logger.warn({
       razon: REJECTION_REASONS.ERROR_INSERCION_BD,
       datosOriginales: {
         distrito: failedDoc?.distrito?.nombre,
@@ -533,7 +530,7 @@ async function processBatchUpsert(batch, result) {
     result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);
   } catch (bulkError) {
     const errorInfo = handleMongoError(bulkError);
-    importLogger.error({
+    logger.error({
       razon: REJECTION_REASONS.ERROR_INSERCION_BD,
       errorMongo: errorInfo
     }, 'Error en operacion upsert de lote');
@@ -560,7 +557,7 @@ async function processBatchUpsert(batch, result) {
 async function importScooterData(options = {}) {
   const importConfig = { ...IMPORT_CONFIG, ...options };
 
-  importLogger.info({
+  logger.info({
     archivo: importConfig.dataFile,
     batchSize: importConfig.batchSize,
     skipExisting: importConfig.skipExisting
@@ -603,7 +600,7 @@ async function importScooterData(options = {}) {
     return globalStats;
 
   } catch (error) {
-    importLogger.error({ error: error.message }, 'Error en importacion de asignacion de patinetes');
+    logger.error({ error: error.message }, 'Error en importacion de asignacion de patinetes');
     throw error;
   }
 }
@@ -622,10 +619,10 @@ async function handleShutdown(signal) {
   }
   isShuttingDown = true;
 
-  importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando gracefully...');
+  logger.warn({ signal }, 'Senal de terminacion recibida, cerrando gracefully...');
 
   // Resumen parcial
-  importLogger.info({
+  logger.info({
     procesadas: totalProcessed,
     insertadas: totalInserted,
     actualizadas: totalUpdated,
@@ -637,10 +634,10 @@ async function handleShutdown(signal) {
   try {
     if (mongoose.connection.readyState === 1) {
       await mongoose.connection.close();
-      importLogger.info('Conexion a MongoDB cerrada correctamente');
+      logger.info('Conexion a MongoDB cerrada correctamente');
     }
   } catch (error) {
-    importLogger.error({ error: error.message }, 'Error cerrando conexion a MongoDB');
+    logger.error({ error: error.message }, 'Error cerrando conexion a MongoDB');
   }
 
   process.exit(0);
@@ -651,12 +648,12 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
-  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
+  logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });
 
@@ -672,7 +669,7 @@ async function main() {
 
   // Mostrar ayuda
   if (args.includes('--help') || args.includes('-h')) {
-    importLogger.info(`
+    logger.info(`
 Script de Importacion de Asignacion de Patinetes
 
 Uso: node scripts/importation/importScooterAssignments.js [opciones]
@@ -695,26 +692,26 @@ Ejemplos:
     batchSize: parseInt(args.find(arg => arg.startsWith('--batch='))?.split('=')[1], 10) || IMPORT_CONFIG.batchSize
   };
 
-  importLogger.info({
+  logger.info({
     omitirExistentes: options.skipExisting,
     tamanoLote: options.batchSize
   }, 'Iniciando script de importacion de asignacion de patinetes');
 
   try {
     // Conectar a MongoDB
-    importLogger.info('Conectando a MongoDB...');
+    logger.info('Conectando a MongoDB...');
     await connectDB(config.database.uri);
-    importLogger.info('Conexion establecida con MongoDB');
+    logger.info('Conexion establecida con MongoDB');
 
     // Verificar modelo
     const assignmentsCount = await ScooterAssignment.countDocuments().maxTimeMS(10000);
-    importLogger.info({ registrosActuales: assignmentsCount }, 'Estado actual de la coleccion de asignaciones');
+    logger.info({ registrosActuales: assignmentsCount }, 'Estado actual de la coleccion de asignaciones');
 
     // Ejecutar importacion
     const result = await importScooterData(options);
 
     // Mostrar resultados finales
-    importLogger.info({
+    logger.info({
       duracion: formatDuration(result.duration),
       velocidad: calculateProcessingSpeed(result.totalRows, result.duration),
       filasTotales: result.totalRows,
@@ -727,12 +724,12 @@ Ejemplos:
 
     // Estadisticas finales de la base de datos
     const finalCount = await ScooterAssignment.countDocuments().maxTimeMS(10000);
-    importLogger.info({ totalAsignacionesBD: finalCount }, 'Total de asignaciones en la base de datos');
+    logger.info({ totalAsignacionesBD: finalCount }, 'Total de asignaciones en la base de datos');
 
     // Resumen de rechazos por tipo
     const rejectionSummary = rejectionTracker.getSortedSummary();
     if (rejectionSummary.length > 0) {
-      importLogger.info({
+      logger.info({
         totalRechazos: rejectionTracker.totalRejected,
         desglose: rejectionSummary
       }, 'Resumen de rechazos por tipo');
@@ -749,14 +746,14 @@ Ejemplos:
     ], { maxTimeMS: 10000 });
 
     if (totalPatinetes.length > 0) {
-      importLogger.info({
+      logger.info({
         totalPatinetes: totalPatinetes[0].total
       }, 'Total de patinetes registrados');
     }
 
   } catch (error) {
     const errorInfo = handleMongoError(error);
-    importLogger.error({
+    logger.error({
       mensaje: error.message,
       errorInfo
     }, 'Error durante la importacion');
@@ -764,17 +761,17 @@ Ejemplos:
 
   } finally {
     if (!isShuttingDown && mongoose.connection.readyState === 1) {
-      importLogger.info('Cerrando conexion a MongoDB...');
+      logger.info('Cerrando conexion a MongoDB...');
       try {
         await mongoose.connection.close();
-        importLogger.info('Conexion cerrada correctamente');
+        logger.info('Conexion cerrada correctamente');
       } catch (error) {
-        importLogger.error({ error: error.message }, 'Error cerrando conexion');
+        logger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
   }
 
-  importLogger.info('Script completado');
+  logger.info('Script completado');
   if (process.exitCode === 1) {
     process.exit(1);
   } else {
@@ -785,7 +782,7 @@ Ejemplos:
 // Ejecutar si es llamado directamente
 if (require.main === module) {
   main().catch(error => {
-    importLogger.error({ error: error.message }, 'Error fatal en script de importacion');
+    logger.error({ error: error.message }, 'Error fatal en script de importacion');
     process.exit(1);
   });
 }

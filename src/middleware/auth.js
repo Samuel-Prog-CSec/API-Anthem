@@ -67,8 +67,10 @@ const authenticate = async (req, res, next) => {
       );
     }
 
-    // Obtener usuario del payload del token
-    const user = await User.findById(decoded.id).select('-password');
+    // Obtener usuario del payload del token (optimizado con .lean())
+    const user = await User.findById(decoded.id)
+      .select('-password')
+      .lean();
 
     if (!user) {
       return res.status(HTTP_STATUS.UNAUTHORIZED).json(
@@ -91,10 +93,14 @@ const authenticate = async (req, res, next) => {
     }
 
     // Verificar si el usuario cambió la contraseña después de emitir el token
-    if (user.changedPasswordAfter(decoded.iat)) {
-      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
-        createUnauthorizedResponse('El usuario cambió la contraseña recientemente. Por favor inicie sesión nuevamente.')
-      );
+    // (Lógica inline porque user es un objeto plano, no un documento Mongoose)
+    if (user.passwordChangedAt) {
+      const changedTimestamp = parseInt(user.passwordChangedAt.getTime() / 1000, 10);
+      if (decoded.iat < changedTimestamp) {
+        return res.status(HTTP_STATUS.UNAUTHORIZED).json(
+          createUnauthorizedResponse('El usuario cambió la contraseña recientemente. Por favor inicie sesión nuevamente.')
+        );
+      }
     }
 
     // Adjuntar usuario al objeto request

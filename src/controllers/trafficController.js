@@ -266,7 +266,7 @@ const getTrafficByPoint = async (req, res, next) => {
  */
 const getTrafficStats = async (req, res, next) => {
   try {
-    const { tipoElemento } = req.query;
+    const { tipoElemento: _tipoElemento } = req.query;
 
     logger.debug({
       query: req.query,
@@ -354,8 +354,8 @@ const getHistoricalData = async (req, res, next) => {
   try {
     const {
       aggregation = 'hour', // hour, day, week, month
-      puntoMedidaId,
-      tipoElemento
+      puntoMedidaId: _puntoMedidaId,
+      tipoElemento: _tipoElemento
     } = req.query;
 
     // Construir filtros usando queryHelper

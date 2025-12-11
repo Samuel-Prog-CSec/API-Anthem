@@ -223,8 +223,8 @@ airQualitySchema.index({
   magnitud: 1
 }, {
   name: 'idx_airquality_temporal_geographic_detailed',
-  background: true,
-  sparse: true // SPARSE: Evita indexar documentos sin todos los campos
+  background: true
+  // No se usa sparse porque todos los campos son required: true
 });
 
 // ========================================

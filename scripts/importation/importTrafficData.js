@@ -18,7 +18,7 @@ const mongoose = require('mongoose');
 const Traffic = require('../../src/models/Traffic');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const logger = require('../../src/config/logger');
+const { importTrafficLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const { TRAFFIC_ERROR_CODES, TRAFFIC_ELEMENT_TYPES } = require('../../src/constants');
 const {
@@ -26,9 +26,6 @@ const {
   formatDuration,
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
-
-// Logger específico para importación
-const importLogger = logger.child({ component: 'import-traffic' });
 
 // ============================================================================
 // CONFIGURACIÓN
@@ -90,7 +87,7 @@ const rejectionTracker = new RejectionTracker();
  * @returns {Promise<Map>} - Mapa de puntos de medida
  */
 async function loadTrafficPoints() {
-  importLogger.info({ archivo: LOCATIONS_FILE }, 'Cargando puntos de medida de trafico');
+  logger.info({ archivo: LOCATIONS_FILE }, 'Cargando puntos de medida de trafico');
 
   return new Promise((resolve, reject) => {
     const points = new Map();
@@ -116,18 +113,18 @@ async function loadTrafficPoints() {
             count++;
           }
         } catch (error) {
-          importLogger.warn({
+          logger.warn({
             error: error.message,
             punto: row.id
           }, 'Error procesando punto de medida');
         }
       })
       .on('end', () => {
-        importLogger.info({ puntosCardos: count }, 'Puntos de medida de trafico cargados');
+        logger.info({ puntosCardos: count }, 'Puntos de medida de trafico cargados');
         resolve(points);
       })
       .on('error', (error) => {
-        importLogger.error({ error: error.message }, 'Error leyendo archivo de puntos');
+        logger.error({ error: error.message }, 'Error leyendo archivo de puntos');
         reject(error);
       });
   });
@@ -151,7 +148,7 @@ function validateAndTransformRow(row, rowIndex) {
   // Validar ID de punto
   if (!puntoMedidaId) {
     rejectionTracker.track(REJECTION_REASONS.ID_PUNTO_FALTANTE);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.ID_PUNTO_FALTANTE,
       datosOriginales: { id: row.id }
@@ -161,7 +158,7 @@ function validateAndTransformRow(row, rowIndex) {
 
   if (!/^\d+$/.test(puntoMedidaId)) {
     rejectionTracker.track(REJECTION_REASONS.ID_PUNTO_FORMATO_INVALIDO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.ID_PUNTO_FORMATO_INVALIDO,
       datosOriginales: { id: row.id }
@@ -173,7 +170,7 @@ function validateAndTransformRow(row, rowIndex) {
   const fechaStr = row.fecha?.trim();
   if (!fechaStr) {
     rejectionTracker.track(REJECTION_REASONS.FECHA_FALTANTE);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.FECHA_FALTANTE,
       datosOriginales: { fecha: row.fecha }
@@ -184,7 +181,7 @@ function validateAndTransformRow(row, rowIndex) {
   const fecha = new Date(fechaStr);
   if (isNaN(fecha.getTime())) {
     rejectionTracker.track(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.FECHA_FORMATO_INVALIDO,
       datosOriginales: { fecha: fechaStr }
@@ -207,7 +204,7 @@ function validateAndTransformRow(row, rowIndex) {
   const tiposValidos = Object.values(TRAFFIC_ELEMENT_TYPES);
   if (!tiposValidos.includes(tipoElemento)) {
     rejectionTracker.track(REJECTION_REASONS.TIPO_ELEMENTO_INVALIDO);
-    importLogger.warn({
+    logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.TIPO_ELEMENTO_INVALIDO,
       datosOriginales: { tipoElemento: tipoElementoRaw, esperados: tiposValidos }
@@ -291,7 +288,7 @@ async function processBatch(batch) {
 
   } catch (error) {
     const mongoError = handleMongoError(error);
-    importLogger.error({
+    logger.error({
       error: mongoError.message,
       tipo: mongoError.type,
       loteSize: batch.length
@@ -315,7 +312,7 @@ async function processTrafficFile(filePath) {
     let errorCount = 0;
 
     currentFile = path.basename(filePath);
-    importLogger.info({ archivo: currentFile }, 'Procesando archivo de trafico');
+    logger.info({ archivo: currentFile }, 'Procesando archivo de trafico');
 
     const stream = createReadStream(filePath)
       .pipe(csv({ separator: ';' }))
@@ -330,7 +327,7 @@ async function processTrafficFile(filePath) {
 
         // Mostrar progreso
         if (rowCount % LOG_INTERVAL === 0) {
-          importLogger.info({
+          logger.info({
             archivo: currentFile,
             procesadas: rowCount.toLocaleString(),
             insertadas: totalInserted,
@@ -356,7 +353,7 @@ async function processTrafficFile(filePath) {
                 }
               })
               .catch((error) => {
-                importLogger.error({ error: error.message }, 'Error en lote');
+                logger.error({ error: error.message }, 'Error en lote');
                 if (!isShuttingDown) {
                   stream.resume();
                 }
@@ -376,7 +373,7 @@ async function processTrafficFile(filePath) {
             await processBatch(batch);
           }
 
-          importLogger.info({
+          logger.info({
             archivo: currentFile,
             totalFilas: rowCount.toLocaleString(),
             procesadas: processedCount.toLocaleString(),
@@ -395,7 +392,7 @@ async function processTrafficFile(filePath) {
         }
       })
       .on('error', (error) => {
-        importLogger.error({ error: error.message, archivo: currentFile }, 'Error leyendo archivo CSV');
+        logger.error({ error: error.message, archivo: currentFile }, 'Error leyendo archivo CSV');
         reject(new Error(`Error leyendo archivo ${currentFile}: ${error.message}`));
       });
   });
@@ -406,7 +403,7 @@ async function processTrafficFile(filePath) {
  * @returns {Promise<Array>} - Lista de archivos CSV
  */
 async function getFilesToProcess() {
-  importLogger.info({ directorio: DATA_DIR }, 'Buscando archivos de trafico');
+  logger.info({ directorio: DATA_DIR }, 'Buscando archivos de trafico');
 
   const files = await fs.readdir(DATA_DIR);
   const csvFiles = files.filter(file =>
@@ -415,7 +412,7 @@ async function getFilesToProcess() {
     !file.includes('sample')
   );
 
-  importLogger.info({
+  logger.info({
     archivosEncontrados: csvFiles.length,
     archivos: csvFiles
   }, 'Archivos de trafico encontrados');
@@ -433,7 +430,7 @@ async function getFilesToProcess() {
 async function main() {
   const startTime = Date.now();
 
-  importLogger.info({
+  logger.info({
     batchSize: BATCH_SIZE,
     directorioDatos: DATA_DIR,
     procesamientoParalelo: MAX_PARALLEL
@@ -441,9 +438,9 @@ async function main() {
 
   try {
     // Conectar a base de datos
-    importLogger.info('Conectando a MongoDB...');
+    logger.info('Conectando a MongoDB...');
     await connectDB(config.database.uri);
-    importLogger.info('Conexion a MongoDB establecida');
+    logger.info('Conexion a MongoDB establecida');
 
     // Cargar puntos de medida (para referencia/validación futura)
     await loadTrafficPoints();
@@ -452,26 +449,26 @@ async function main() {
     const filesToProcess = await getFilesToProcess();
 
     if (filesToProcess.length === 0) {
-      importLogger.warn('No hay archivos para procesar');
+      logger.warn('No hay archivos para procesar');
       return;
     }
 
     // Contar registros antes
     const countAntes = await Traffic.countDocuments().maxTimeMS(10000);
-    importLogger.info({ registrosExistentes: countAntes.toLocaleString() }, 'Registros actuales de trafico');
+    logger.info({ registrosExistentes: countAntes.toLocaleString() }, 'Registros actuales de trafico');
 
     // Procesar archivos en paralelo
     const fileResults = [];
 
     for (let i = 0; i < filesToProcess.length; i += MAX_PARALLEL) {
       if (isShuttingDown) {
-        importLogger.warn('Importacion interrumpida por senal de terminacion');
+        logger.warn('Importacion interrumpida por senal de terminacion');
         break;
       }
 
       const batch = filesToProcess.slice(i, i + MAX_PARALLEL);
 
-      importLogger.info({
+      logger.info({
         lote: Math.floor(i / MAX_PARALLEL) + 1,
         totalLotes: Math.ceil(filesToProcess.length / MAX_PARALLEL),
         archivos: batch
@@ -483,7 +480,7 @@ async function main() {
         try {
           return await processTrafficFile(filePath);
         } catch (error) {
-          importLogger.error({
+          logger.error({
             archivo: fileName,
             error: error.message
           }, 'Error procesando archivo');
@@ -501,7 +498,7 @@ async function main() {
       const batchResults = await Promise.all(promises);
       fileResults.push(...batchResults);
 
-      importLogger.info({
+      logger.info({
         loteCompletado: Math.floor(i / MAX_PARALLEL) + 1,
         progreso: `${Math.min(i + MAX_PARALLEL, filesToProcess.length)}/${filesToProcess.length}`
       }, 'Lote paralelo completado');
@@ -512,7 +509,7 @@ async function main() {
 
     const countDespues = await Traffic.countDocuments().maxTimeMS(10000);
 
-    importLogger.info({
+    logger.info({
       resumen: {
         duracion: formatDuration(endTime - startTime),
         velocidad: calculateProcessingSpeed(totalProcessed, endTime - startTime),
@@ -532,14 +529,14 @@ async function main() {
     // Resumen de rechazos por tipo
     const rejectionSummary = rejectionTracker.getSortedSummary();
     if (rejectionSummary.length > 0) {
-      importLogger.info({
+      logger.info({
         totalRechazos: rejectionTracker.totalRejected,
         desglose: rejectionSummary
       }, 'Resumen de rechazos por tipo');
     }
 
   } catch (error) {
-    importLogger.error({
+    logger.error({
       error: error.message,
       stack: error.stack
     }, 'Error critico durante la importacion');
@@ -549,14 +546,14 @@ async function main() {
     if (mongoose.connection.readyState === 1) {
       try {
         await mongoose.connection.close();
-        importLogger.info('Conexion a MongoDB cerrada');
+        logger.info('Conexion a MongoDB cerrada');
       } catch (error) {
-        importLogger.error({ error: error.message }, 'Error cerrando conexion');
+        logger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
   }
 
-  importLogger.info('Script completado');
+  logger.info('Script completado');
   if (process.exitCode === 1) {
     process.exit(1);
   } else {
@@ -578,14 +575,14 @@ async function handleShutdown(signal) {
   }
   isShuttingDown = true;
 
-  importLogger.warn({ signal }, 'Senal de terminacion recibida, cerrando...');
+  logger.warn({ signal }, 'Senal de terminacion recibida, cerrando...');
 
   if (mongoose.connection.readyState === 1) {
     try {
       await mongoose.connection.close();
-      importLogger.info('Conexion cerrada por senal de terminacion');
+      logger.info('Conexion cerrada por senal de terminacion');
     } catch (error) {
-      importLogger.error({ error: error.message }, 'Error cerrando conexion');
+      logger.error({ error: error.message }, 'Error cerrando conexion');
     }
   }
 
@@ -596,12 +593,12 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
-  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
+  logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });
 
@@ -611,7 +608,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 if (require.main === module) {
   main().catch(error => {
-    importLogger.fatal({ error: error.message }, 'Error fatal ejecutando script');
+    logger.fatal({ error: error.message }, 'Error fatal ejecutando script');
     process.exit(1);
   });
 }

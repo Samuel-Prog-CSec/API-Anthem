@@ -9,6 +9,7 @@ const NodeCache = require('node-cache');
 const logger = require('../config/logger');
 const { cacheLogger } = logger;
 const { HTTP_STATUS } = require('../constants');
+const { generateCacheKeyFromRequest, generateStatsCacheKey } = require('../utils/cacheKeyGenerator');
 
 /**
  * Middleware de caché para optimización de consultas frecuentes
@@ -91,10 +92,10 @@ const cacheMiddleware = (cacheType = 'traffic', keyGenerator = null) => {
     // Validar tipo de caché
     const cacheInstance = caches[cacheType] || caches.traffic;
 
-    // Generar clave de caché
+    // Generar clave de caché segura
     const cacheKey = keyGenerator
       ? keyGenerator(req)
-      : `${req.method}:${req.originalUrl}:${JSON.stringify(req.query)}`;
+      : generateCacheKeyFromRequest(req);
 
     try {
       // Intentar obtener del caché
@@ -151,7 +152,7 @@ const cacheMiddleware = (cacheType = 'traffic', keyGenerator = null) => {
  */
 const statsCacheMiddleware = () => {
   return (req, res, next) => {
-    const cacheKey = `stats_${req.originalUrl}_${JSON.stringify(req.query)}`;
+    const cacheKey = generateStatsCacheKey(req.originalUrl, req.query);
 
     try {
       const cachedData = statsCache.get(cacheKey);
