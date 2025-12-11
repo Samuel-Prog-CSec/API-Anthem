@@ -18,6 +18,9 @@
  * @module scripts/importation/importNoise
  */
 
+// Configurar modo script para evitar reconexiones infinitas
+process.env.SCRIPT_MODE = 'true';
+
 const fs = require('fs').promises;
 const path = require('path');
 const csv = require('csv-parser');
@@ -26,7 +29,8 @@ const mongoose = require('mongoose');
 
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
-const { logger } = require('../../src/config/logger');
+const config = require('../../src/config/config');
+const logger = require('../../src/config/logger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   NOISE_LIMITS,
@@ -558,7 +562,7 @@ async function generatePostImportSummary() {
       },
       { $sort: { _id: 1 } },
       { $limit: 10 }
-    ]).maxTimeMS(10000);
+    ], { maxTimeMS: 10000 });
 
     // Distribucion por estacion
     const stationDistribution = await NoiseMonitoring.aggregate([
@@ -574,7 +578,7 @@ async function generatePostImportSummary() {
       },
       { $sort: { totalRegistros: -1 } },
       { $limit: 10 }
-    ]).maxTimeMS(10000);
+    ], { maxTimeMS: 10000 });
 
     // Analisis de cumplimiento normativo
     const complianceAnalysis = await NoiseMonitoring.aggregate([
@@ -610,7 +614,7 @@ async function generatePostImportSummary() {
           }
         }
       }
-    ]).maxTimeMS(10000);
+    ], { maxTimeMS: 10000 });
 
     importLogger.info({
       totalRegistros: totalRecords,
@@ -688,7 +692,7 @@ async function main() {
     if (!options.validateOnly) {
       // Conectar a MongoDB
       importLogger.info('Conectando a MongoDB...');
-      await connectDB();
+      await connectDB(config.database.uri);
       importLogger.info('Conexion a MongoDB establecida');
 
       const initialCount = await NoiseMonitoring.countDocuments().maxTimeMS(5000);
@@ -745,6 +749,13 @@ async function main() {
         importLogger.error({ error: error.message }, 'Error al cerrar conexion');
       }
     }
+  }
+
+  importLogger.info('Script completado');
+  if (process.exitCode === 1) {
+    process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 

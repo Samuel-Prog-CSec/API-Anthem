@@ -7,6 +7,8 @@
  * Uso: node scripts/importation/importAccidentData.js
  */
 
+process.env.SCRIPT_MODE = 'true';
+
 const path = require('path');
 const csv = require('csv-parser');
 const { createReadStream } = require('fs');
@@ -16,7 +18,8 @@ const mongoose = require('mongoose');
 // Importar modelos, configuración y utilidades
 const Accident = require('../../src/models/Accident');
 const { connectDB } = require('../../src/config/database');
-const { logger } = require('../../src/config/logger');
+const config = require('../../src/config/config');
+const logger = require('../../src/config/logger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   VALIDATION_LIMITS,
@@ -270,6 +273,44 @@ function normalizeWeatherState(estado) {
 }
 
 /**
+ * Normalizar rango de edad
+ * @param {string} rango - Rango de edad original del CSV
+ * @returns {string} - Rango normalizado (ej: "18-25", "65+", "DESCONOCIDO")
+ */
+function normalizeAgeRange(rango) {
+  if (!rango || rango.trim() === '' || rango.toLowerCase() === 'desconocido') {
+    return 'DESCONOCIDO';
+  }
+
+  const normalized = rango.trim();
+
+  // Formato "De X a Y años" -> "X-Y"
+  const matchDeA = normalized.match(/De (\d+) a (\d+) años/i);
+  if (matchDeA) {
+    return `${matchDeA[1]}-${matchDeA[2]}`;
+  }
+
+  // Formato "Menor de X años" -> "0-X" (aprox)
+  const matchMenor = normalized.match(/Menor de (\d+) años/i);
+  if (matchMenor) {
+    return `0-${parseInt(matchMenor[1]) - 1}`;
+  }
+
+  // Formato "Mayor de X años" -> "X+"
+  const matchMayor = normalized.match(/Mayor de (\d+) años/i);
+  if (matchMayor) {
+    return `${matchMayor[1]}+`;
+  }
+
+  // Si ya cumple el formato esperado, devolver tal cual
+  if (/^(\d+-\d+|\d+\+|DESCONOCIDO)$/i.test(normalized)) {
+    return normalized;
+  }
+
+  return 'DESCONOCIDO';
+}
+
+/**
  * Parsear y validar coordenadas UTM
  * @param {string} xStr - Coordenada X
  * @param {string} yStr - Coordenada Y
@@ -476,7 +517,8 @@ function validateAndTransformRow(row, rowIndex) {
 
   // Datos de la persona afectada
   const tipoPersona = normalizePersonType(row['10']?.toString().trim());
-  const rangoEdad = row['11']?.toString().trim() || 'Desconocido';
+  const rangoEdadRaw = row['11']?.toString().trim();
+  const rangoEdad = normalizeAgeRange(rangoEdadRaw);
   const sexoRaw = row['12']?.toString().trim().toUpperCase();
   const sexo = (sexoRaw === 'MUJER') ? GENDERS.MUJER :
     (sexoRaw === 'HOMBRE') ? GENDERS.HOMBRE : GENDERS.DESCONOCIDO;
@@ -601,16 +643,53 @@ async function processBatch(batch) {
     return { nuevos, actualizados, errores: 0 };
 
   } catch (error) {
-    const mongoError = handleMongoError(error);
-    totalErrors += batch.length;
-
-    importLogger.error({
-      error: mongoError.message,
-      tipo: mongoError.type,
+    // Si el bulkWrite falla completamente, intentar procesar documentos individuales
+    importLogger.warn({
+      error: error.message,
       loteSize: batch.length
-    }, 'Error procesando lote de accidentes');
+    }, 'Error en bulkWrite, procesando documentos individualmente');
 
-    return { nuevos: 0, actualizados: 0, errores: batch.length };
+    let nuevos = 0;
+    let actualizados = 0;
+    let errores = 0;
+
+    // Procesar cada documento individualmente
+    for (const accidentData of batch) {
+      try {
+        const result = await Accident.updateOne(
+          { numeroExpediente: accidentData.numeroExpediente },
+          { $set: accidentData },
+          { upsert: true }
+        );
+
+        if (result.upsertedCount > 0) {
+          nuevos++;
+          totalInserted++;
+        } else if (result.modifiedCount > 0) {
+          actualizados++;
+          totalUpdated++;
+        }
+      } catch (individualError) {
+        errores++;
+        totalErrors++;
+        
+        // Solo loguear los primeros 5 errores para no saturar los logs
+        if (errores <= 5) {
+          importLogger.error({
+            numeroExpediente: accidentData.numeroExpediente,
+            error: individualError.message
+          }, 'Error insertando accidente individual');
+        }
+      }
+    }
+
+    if (errores > 5) {
+      importLogger.warn({
+        erroresAdicionales: errores - 5
+      }, 'Errores adicionales omitidos en logs');
+    }
+
+    return { nuevos, actualizados, errores };
   }
 }
 
@@ -786,7 +865,7 @@ async function main() {
 
     // Conectar a MongoDB
     importLogger.info('Conectando a MongoDB...');
-    await connectDB();
+    await connectDB(config.database.uri);
     importLogger.info('Conexion a MongoDB establecida');
 
     // Verificar modelo
@@ -825,6 +904,13 @@ async function main() {
         importLogger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
+  }
+
+  importLogger.info('Script completado');
+  if (process.exitCode === 1) {
+    process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 

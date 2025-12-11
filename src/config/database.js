@@ -99,24 +99,21 @@ const connectDB = async (uri) => {
       dbLogger.info('Reconexión a MongoDB exitosa');
     });
 
-    // Manejo de cierre de la conexión al terminar la aplicación
-    process.on('SIGINT', async () => {
-      await mongoose.connection.close();
-      dbLogger.info('Conexión a MongoDB cerrada por terminación de la aplicación');
-      process.exit(0);
-    });
-
   } catch (error) {
     dbLogger.error({
       error: error.message,
       stack: error.stack
     }, 'Fallo de conexión a la base de datos');
 
-    // Reintentar la conexión después de un retraso
-    setTimeout(() => {
-      dbLogger.info('Reintentando la conexión a la base de datos...');
-      connectDB(uri);
-    }, 5000);
+    // Solo reintentar si estamos en modo servidor (no en scripts)
+    if (!process.env.SCRIPT_MODE) {
+      setTimeout(() => {
+        dbLogger.info('Reintentando la conexión a la base de datos...');
+        connectDB(uri);
+      }, 5000);
+    } else {
+      throw error;
+    }
   }
 };
 

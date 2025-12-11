@@ -12,8 +12,9 @@ const csv = require('csv-parser');
 const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 const { connectDB } = require('../../src/config/database');
+const config = require('../../src/config/config');
 const Census = require('../../src/models/Census');
-const { logger } = require('../../src/config/logger');
+const logger = require('../../src/config/logger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const { VALIDATION_LIMITS, DEFAULT_VALUES } = require('../../src/constants');
 const {
@@ -605,7 +606,7 @@ async function main() {
   try {
     // Conectar a MongoDB
     importLogger.info('Conectando a MongoDB...');
-    await connectDB();
+    await connectDB(config.database.uri);
     importLogger.info('Conexion a MongoDB establecida');
 
     // Verificar que el modelo de censo esté disponible
@@ -663,6 +664,13 @@ async function main() {
         importLogger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
+  }
+
+  importLogger.info('Script completado');
+  if (process.exitCode === 1) {
+    process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 

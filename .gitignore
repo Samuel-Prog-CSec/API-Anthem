@@ -1,6 +1,5 @@
 node_modules/
 .git/
-.github/
 datos_hpe/
 logs/
 reports/
@@ -21,5 +20,4 @@ dist/
 build/
 .cache/
 .agent/
-
-
+.github/

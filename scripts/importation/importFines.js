@@ -12,8 +12,9 @@ const csv = require('csv-parser');
 const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 const { connectDB } = require('../../src/config/database');
+const config = require('../../src/config/config');
 const Fine = require('../../src/models/Fine');
-const { logger } = require('../../src/config/logger');
+const logger = require('../../src/config/logger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const { VALIDATION_LIMITS, SEVERITY_LEVELS } = require('../../src/constants');
 const {
@@ -32,7 +33,7 @@ const importLogger = logger.child({ component: 'import-fines' });
 
 const IMPORT_CONFIG = {
   dataDirectory: path.join(__dirname, '..', '..', 'datos_hpe', 'Multas'),
-  batchSize: 2000,
+  batchSize: 5000,
   skipExisting: true,
   logInterval: 50000,
   maxParallel: 3
@@ -202,7 +203,13 @@ function parseMultaRow(row, sourceFile, rowIndex) {
     (row.DESCUENTO.toLowerCase().includes('si') || row.DESCUENTO.toLowerCase().includes('sí'));
 
   // Validar calificación
-  const calificacionRaw = (row.CALIFICACION || SEVERITY_LEVELS.FINE.LEVE).toUpperCase().trim();
+  let calificacionRaw = (row.CALIFICACION || SEVERITY_LEVELS.FINE.LEVE).toUpperCase().trim();
+
+  // Normalizar valores conocidos que difieren de la constante
+  if (calificacionRaw === 'MUY GRAVE') {
+    calificacionRaw = SEVERITY_LEVELS.FINE.MUY_GRAVE;
+  }
+
   const calificacionesValidas = [SEVERITY_LEVELS.FINE.LEVE, SEVERITY_LEVELS.FINE.GRAVE, SEVERITY_LEVELS.FINE.MUY_GRAVE];
   const calificacion = calificacionesValidas.includes(calificacionRaw) ? calificacionRaw : SEVERITY_LEVELS.FINE.LEVE;
 
@@ -709,7 +716,7 @@ async function main() {
   try {
     // Conectar a MongoDB usando connectDB centralizado
     importLogger.info('Conectando a MongoDB...');
-    await connectDB();
+    await connectDB(config.database.uri);
     importLogger.info('Conexion establecida con MongoDB');
 
     // Verificar modelo de multas
@@ -765,7 +772,12 @@ async function main() {
     }
   }
 
-  importLogger.info('Script de importacion finalizado');
+  importLogger.info('Script completado');
+  if (process.exitCode === 1) {
+    process.exit(1);
+  } else {
+    process.exit(0);
+  }
 }
 
 // Ejecutar si es llamado directamente

@@ -13,6 +13,9 @@
  * @module scripts/importation/importContainers
  */
 
+// Configurar modo script para evitar reconexiones infinitas
+process.env.SCRIPT_MODE = 'true';
+
 const fs = require('fs');
 const path = require('path');
 const csv = require('csv-parser');
@@ -20,7 +23,8 @@ const mongoose = require('mongoose');
 
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
-const { logger } = require('../../src/config/logger');
+const config = require('../../src/config/config');
+const logger = require('../../src/config/logger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   CONTAINER_TYPES,
@@ -601,7 +605,7 @@ async function showStatistics() {
       },
       { $sort: { _id: 1 } },
       { $limit: 10 }
-    ]).maxTimeMS(10000),
+    ], { maxTimeMS: 10000 }),
 
     Container.aggregate([
       {
@@ -612,7 +616,7 @@ async function showStatistics() {
       },
       { $sort: { total: -1 } },
       { $limit: 5 }
-    ]).maxTimeMS(10000)
+    ], { maxTimeMS: 10000 })
   ]);
 
   importLogger.info({
@@ -671,7 +675,7 @@ async function main() {
 
     // Conectar a la base de datos
     importLogger.info('Conectando a MongoDB...');
-    await connectDB();
+    await connectDB(config.database.uri);
     importLogger.info('Conexion a MongoDB establecida');
 
     // Verificar estado inicial
@@ -702,6 +706,13 @@ async function main() {
         importLogger.error({ error: error.message }, 'Error al cerrar conexion');
       }
     }
+  }
+
+  importLogger.info('Script completado');
+  if (process.exitCode === 1) {
+    process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 

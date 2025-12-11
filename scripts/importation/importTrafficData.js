@@ -5,6 +5,9 @@
  * Ejecutar: node scripts/importation/importTrafficData.js
  */
 
+// Configurar modo script para evitar reconexiones infinitas
+process.env.SCRIPT_MODE = 'true';
+
 const fs = require('fs').promises;
 const path = require('path');
 const csv = require('csv-parser');
@@ -14,7 +17,8 @@ const mongoose = require('mongoose');
 // Importar modelos, configuración y utilidades
 const Traffic = require('../../src/models/Traffic');
 const { connectDB } = require('../../src/config/database');
-const { logger } = require('../../src/config/logger');
+const config = require('../../src/config/config');
+const logger = require('../../src/config/logger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const { TRAFFIC_ERROR_CODES, TRAFFIC_ELEMENT_TYPES } = require('../../src/constants');
 const {
@@ -30,7 +34,7 @@ const importLogger = logger.child({ component: 'import-traffic' });
 // CONFIGURACIÓN
 // ============================================================================
 
-const BATCH_SIZE = 5000;
+const BATCH_SIZE = 10000;
 const DATA_DIR = path.join(__dirname, '../../datos_hpe/Trafico');
 const LOCATIONS_FILE = path.join(__dirname, '../../datos_hpe/Ubicaciones/Anthem_CTC_PuntoMedidaTrafico.csv');
 const MAX_PARALLEL = 3;
@@ -438,7 +442,7 @@ async function main() {
   try {
     // Conectar a base de datos
     importLogger.info('Conectando a MongoDB...');
-    await connectDB();
+    await connectDB(config.database.uri);
     importLogger.info('Conexion a MongoDB establecida');
 
     // Cargar puntos de medida (para referencia/validación futura)
@@ -550,6 +554,13 @@ async function main() {
         importLogger.error({ error: error.message }, 'Error cerrando conexion');
       }
     }
+  }
+
+  importLogger.info('Script completado');
+  if (process.exitCode === 1) {
+    process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 

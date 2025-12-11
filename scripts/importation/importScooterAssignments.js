@@ -9,11 +9,14 @@
  *
  * Opciones:
  *   --force         Sobrescribir datos existentes (upsert)
- *   --batch=N       Tamano del lote (default: 100)
+ *   --batch=N       Tamano del lote (default: 50)
  *   --help          Mostrar ayuda
  *
  * @module scripts/importation/importScooterAssignments
  */
+
+// Configurar modo script para evitar reconexiones infinitas
+process.env.SCRIPT_MODE = 'true';
 
 const fs = require('fs').promises;
 const path = require('path');
@@ -23,7 +26,8 @@ const mongoose = require('mongoose');
 
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
-const { logger } = require('../../src/config/logger');
+const config = require('../../src/config/config');
+const logger = require('../../src/config/logger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const ScooterAssignment = require('../../src/models/ScooterAssignment');
 const {
@@ -46,7 +50,7 @@ const importLogger = logger.child({ component: 'import-scooter-assignments' });
 
 const IMPORT_CONFIG = {
   dataFile: path.join(__dirname, '..', '..', 'datos_hpe', 'Anthem_CTC_AsignaciónPatinetes.csv'),
-  batchSize: 100,
+  batchSize: 50,
   skipExisting: true,
   logInterval: 50,
   csvSeparator: ';'
@@ -699,7 +703,7 @@ Ejemplos:
   try {
     // Conectar a MongoDB
     importLogger.info('Conectando a MongoDB...');
-    await connectDB();
+    await connectDB(config.database.uri);
     importLogger.info('Conexion establecida con MongoDB');
 
     // Verificar modelo
@@ -742,7 +746,7 @@ Ejemplos:
           total: { $sum: '$estadisticas.totalPatinetes' }
         }
       }
-    ]).maxTimeMS(10000);
+    ], { maxTimeMS: 10000 });
 
     if (totalPatinetes.length > 0) {
       importLogger.info({
@@ -770,7 +774,12 @@ Ejemplos:
     }
   }
 
-  importLogger.info('Script de importacion finalizado');
+  importLogger.info('Script completado');
+  if (process.exitCode === 1) {
+    process.exit(1);
+  } else {
+    process.exit(0);
+  }
 }
 
 // Ejecutar si es llamado directamente

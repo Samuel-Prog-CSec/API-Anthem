@@ -88,6 +88,7 @@ const fineSchema = new mongoose.Schema({
   calificacion: {
     type: String,
     required: true,
+    trim: true,
     enum: Object.values(SEVERITY_LEVELS.FINE),
     uppercase: true,
     index: true

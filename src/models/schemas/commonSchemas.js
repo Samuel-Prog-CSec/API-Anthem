@@ -6,7 +6,6 @@
  */
 
 const mongoose = require('mongoose');
-const { validateUTMCoordinates } = require('../../utils/dataValidator');
 const {
   VALIDATION_LIMITS,
   DATASET_YEARS
@@ -25,33 +24,13 @@ const coordinatesUTMSchema = new mongoose.Schema({
     type: Number,
     required: false,
     min: [VALIDATION_LIMITS.UTM_X_MIN, `Coordenada X UTM fuera de rango válido para España (${VALIDATION_LIMITS.UTM_X_MIN} - ${VALIDATION_LIMITS.UTM_X_MAX} m)`],
-    max: [VALIDATION_LIMITS.UTM_X_MAX, `Coordenada X UTM fuera de rango válido para España (${VALIDATION_LIMITS.UTM_X_MIN} - ${VALIDATION_LIMITS.UTM_X_MAX} m)`],
-    validate: {
-      validator: function(v) {
-        // Solo validar si está definida
-        if (v === null || v === undefined) {return true;}
-        // Validar usando función centralizada
-        const result = validateUTMCoordinates(v, this.y || 0);
-        return result.valid || !this.y; // Si no hay Y, no validar coherencia
-      },
-      message: props => `Coordenada X (${props.value}) no es válida para el sistema UTM de España`
-    }
+    max: [VALIDATION_LIMITS.UTM_X_MAX, `Coordenada X UTM fuera de rango válido para España (${VALIDATION_LIMITS.UTM_X_MIN} - ${VALIDATION_LIMITS.UTM_X_MAX} m)`]
   },
   y: {
     type: Number,
     required: false,
     min: [VALIDATION_LIMITS.UTM_Y_MIN, `Coordenada Y UTM fuera de rango válido para España (${VALIDATION_LIMITS.UTM_Y_MIN} - ${VALIDATION_LIMITS.UTM_Y_MAX} m)`],
-    max: [VALIDATION_LIMITS.UTM_Y_MAX, `Coordenada Y UTM fuera de rango válido para España (${VALIDATION_LIMITS.UTM_Y_MIN} - ${VALIDATION_LIMITS.UTM_Y_MAX} m)`],
-    validate: {
-      validator: function(v) {
-        // Solo validar si está definida
-        if (v === null || v === undefined) {return true;}
-        // Validar usando función centralizada
-        const result = validateUTMCoordinates(this.x || 0, v);
-        return result.valid || !this.x; // Si no hay X, no validar coherencia
-      },
-      message: props => `Coordenada Y (${props.value}) no es válida para el sistema UTM de España`
-    }
+    max: [VALIDATION_LIMITS.UTM_Y_MAX, `Coordenada Y UTM fuera de rango válido para España (${VALIDATION_LIMITS.UTM_Y_MIN} - ${VALIDATION_LIMITS.UTM_Y_MAX} m)`]
   }
 }, { _id: false });
 

@@ -18,7 +18,6 @@ const locationSchema = new mongoose.Schema({
     type: String,
     enum: Object.values(LOCATION_TYPES),
     required: true,
-    uppercase: true,
     index: true
   },
 

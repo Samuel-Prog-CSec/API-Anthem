@@ -8,10 +8,13 @@
  *
  * Opciones:
  *   --force    Sobrescribir registros existentes (upsert)
- *   --batch=N  Tamano del lote para inserciones (default: 100)
+ *   --batch=N  Tamano del lote para inserciones (default: 50)
  *
  * @module scripts/importation/importBikeAvailability
  */
+
+// Configurar modo script para evitar reconexiones infinitas
+process.env.SCRIPT_MODE = 'true';
 
 const fs = require('fs');
 const path = require('path');
@@ -20,7 +23,8 @@ const mongoose = require('mongoose');
 
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
-const { logger } = require('../../src/config/logger');
+const config = require('../../src/config/config');
+const logger = require('../../src/config/logger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const { DATASET_YEARS, VALIDATION_LIMITS } = require('../../src/constants');
 const {
@@ -40,7 +44,7 @@ const BikeAvailability = require('../../src/models/BikeAvailability');
  * @constant {Object}
  */
 const IMPORT_CONFIG = {
-  batchSize: 100,
+  batchSize: 50,
   dataFile: path.join(__dirname, '../../datos_hpe/Anthem_CTC_Bicicletas_Disponibilidad.csv'),
   logInterval: 50,
   csvSeparator: ';'
@@ -558,7 +562,7 @@ async function main() {
 
     // Conectar a la base de datos
     importLogger.info('Conectando a MongoDB...');
-    await connectDB();
+    await connectDB(config.database.uri);
     importLogger.info('Conexion a MongoDB establecida');
 
     // Verificar estado inicial
@@ -589,6 +593,13 @@ async function main() {
         importLogger.error({ error: error.message }, 'Error al cerrar conexion');
       }
     }
+  }
+
+  importLogger.info('Script completado');
+  if (process.exitCode === 1) {
+    process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 

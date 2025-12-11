@@ -11,7 +11,8 @@ const path = require('path');
 const mongoose = require('mongoose');
 const Location = require('../../src/models/Location');
 const { connectDB } = require('../../src/config/database');
-const { logger } = require('../../src/config/logger');
+const config = require('../../src/config/config');
+const logger = require('../../src/config/logger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   LOCATION_TYPES,
@@ -57,7 +58,7 @@ const rejectionTracker = new RejectionTracker();
  */
 const IMPORT_CONFIG = {
   dataDirectory: path.join(__dirname, '../../datos_hpe/Ubicaciones'),
-  batchSize: 500,
+  batchSize: 250,
   maxRetries: 3,
   retryDelay: 2000,
   skipExisting: true,
@@ -220,7 +221,19 @@ async function importTrafficPoints() {
   let rejectedRows = 0;
 
   return new Promise((resolve, reject) => {
+    let resolved = false; // Bandera para evitar resolve multiple
+
+    // Timeout de seguridad: 30 segundos
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        importLogger.warn({ count: points.length, rechazadas: rejectedRows, fila: rowIndex }, 'Timeout procesando puntos de trafico - usando datos parciales');
+        resolve(points);
+      }
+    }, 30000);
+
     if (!fsSync.existsSync(filePath)) {
+      clearTimeout(timeout);
       importLogger.warn({ filePath }, 'Archivo de puntos de trafico no encontrado');
       return resolve([]);
     }
@@ -240,6 +253,8 @@ async function importTrafficPoints() {
           // Validar que tiene coordenadas UTM validas
           if (utmX === 0 && utmY === 0) {
             rejectedRows++;
+            // Disabled temporalmente para pruebas
+            /*
             importLogger.warn(
               {
                 fila: rowIndex,
@@ -253,6 +268,7 @@ async function importTrafficPoints() {
               },
               'Fila rechazada - punto de trafico sin coordenadas UTM'
             );
+            */
             return;
           }
 
@@ -294,12 +310,27 @@ async function importTrafficPoints() {
         }
       })
       .on('end', () => {
+        clearTimeout(timeout);
+        resolved = true;
         importLogger.info({ count: points.length, rechazadas: rejectedRows }, 'Puntos de trafico procesados');
         resolve(points);
       })
       .on('error', (error) => {
-        importLogger.error({ error: error.message }, 'Error leyendo archivo de puntos de trafico');
-        reject(error);
+        clearTimeout(timeout);
+        if (!resolved) {
+          resolved = true;
+          importLogger.error({ error: error.message }, 'Error leyendo archivo de puntos de trafico');
+          reject(error);
+        }
+      })
+      .on('close', () => {
+        clearTimeout(timeout);
+        // Si el stream se cierra sin 'end' ni 'error', resolver con lo que tenemos
+        if (!resolved) {
+          resolved = true;
+          importLogger.warn({ count: points.length, rechazadas: rejectedRows }, 'Stream cerrado prematuramente - usando datos parciales');
+          resolve(points);
+        }
       });
   });
 }
@@ -322,17 +353,20 @@ function processGPXWaypoints(waypoints, gpxInfo, routes) {
     const name = nameElement?.textContent || `${gpxInfo.nombre} ${i + 1}`;
 
     if (isValidCoordinate(lon, lat)) {
+      // Convertir lat/lon a UTM para validacion
+      const utm = latLonToUTM30N(lat, lon);
+
       routes.push({
         tipo: gpxInfo.tipo,
         nombre: cleanString(name),
         coordenadas: {
-          x: lon,
-          y: lat,
-          ruta: [{ lat, lon }]
+          x: utm.x, // Coordenadas UTM en metros
+          y: utm.y,
+          ruta: [{ lat, lon }] // Mantener original en lat/lon
         },
         geometry: {
           type: 'Point',
-          coordinates: [lon, lat]
+          coordinates: [lon, lat] // GeoJSON usa lon/lat (WGS84)
         }
       });
       stats.processed++;
@@ -353,6 +387,58 @@ function processGPXWaypoints(waypoints, gpxInfo, routes) {
   }
 
   return stats;
+}
+
+/**
+ * Convertir coordenadas lat/lon (WGS84) a UTM zona 30N
+ * Formula simplificada para España peninsular
+ * @param {number} lat - Latitud en grados
+ * @param {number} lon - Longitud en grados
+ * @returns {{x: number, y: number}} Coordenadas UTM en metros
+ */
+function latLonToUTM30N(lat, lon) {
+  // Constantes WGS84
+  const a = 6378137.0; // Semi-eje mayor
+  const e = 0.081819191; // Excentricidad
+  const e2 = e * e;
+  const k0 = 0.9996; // Factor de escala
+  const lon0 = -3; // Meridiano central zona 30N
+  const x0 = 500000; // False Easting
+  const y0 = 0; // False Northing
+
+  // Convertir a radianes
+  const latRad = lat * Math.PI / 180;
+  const lonRad = lon * Math.PI / 180;
+  const lon0Rad = lon0 * Math.PI / 180;
+
+  // Calculos intermedios
+  const N = a / Math.sqrt(1 - e2 * Math.sin(latRad) * Math.sin(latRad));
+  const T = Math.tan(latRad) * Math.tan(latRad);
+  const C = (e2 / (1 - e2)) * Math.cos(latRad) * Math.cos(latRad);
+  const A = (lonRad - lon0Rad) * Math.cos(latRad);
+
+  // Meridiano
+  const M = a * (
+    (1 - e2/4 - 3*e2*e2/64 - 5*e2*e2*e2/256) * latRad -
+    (3*e2/8 + 3*e2*e2/32 + 45*e2*e2*e2/1024) * Math.sin(2*latRad) +
+    (15*e2*e2/256 + 45*e2*e2*e2/1024) * Math.sin(4*latRad) -
+    (35*e2*e2*e2/3072) * Math.sin(6*latRad)
+  );
+
+  // Coordenadas UTM
+  const x = x0 + k0 * N * (
+    A + (1 - T + C) * A*A*A / 6 +
+    (5 - 18*T + T*T + 72*C - 58*(e2/(1-e2))) * A*A*A*A*A / 120
+  );
+
+  const y = y0 + k0 * (
+    M + N * Math.tan(latRad) * (
+      A*A / 2 + (5 - T + 9*C + 4*C*C) * A*A*A*A / 24 +
+      (61 - 58*T + T*T + 600*C - 330*(e2/(1-e2))) * A*A*A*A*A*A / 720
+    )
+  );
+
+  return { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 };
 }
 
 /**
@@ -394,17 +480,22 @@ function processTrackSegment(segmentData, gpxInfo, trackIndex, segmentIndex, rou
   const { rutaPuntos, coordinates, invalidPoints } = segmentData;
 
   if (coordinates.length > 1) {
+    // Convertir primer punto (lat/lon) a UTM para validacion
+    const firstLon = coordinates[0][0];
+    const firstLat = coordinates[0][1];
+    const utm = latLonToUTM30N(firstLat, firstLon);
+
     routes.push({
       tipo: gpxInfo.tipo,
       nombre: `${gpxInfo.nombre} - Ruta ${trackIndex + 1}-${segmentIndex + 1}`,
       coordenadas: {
-        x: coordinates[0][0],
-        y: coordinates[0][1],
-        ruta: rutaPuntos
+        x: utm.x, // Coordenadas UTM en metros
+        y: utm.y,
+        ruta: rutaPuntos // Mantener ruta original en lat/lon
       },
       geometry: {
         type: 'LineString',
-        coordinates: coordinates
+        coordinates: coordinates // GeoJSON usa lon/lat (WGS84)
       }
     });
 
@@ -497,6 +588,8 @@ async function importGPXRoutes() {
       // Procesar tracks como lineas
       const trackStats = processGPXTracks(tracks, gpxInfo, routes);
 
+
+
       importLogger.info({
         file: gpxInfo.file,
         waypoints: waypointStats.processed,
@@ -580,8 +673,29 @@ async function processBatchInsert(batch, result) {
       ordered: false,
       bypassDocumentValidation: false
     });
-    result.inserted = bulkResult.insertedCount || 0;
+
+    // Log resultado del bulkWrite (simplificado)
+    importLogger.debug({
+      batchSize: batch.length,
+      insertedCount: bulkResult.insertedCount,
+      ok: bulkResult.ok
+    }, 'Lote insertado correctamente');
+
+    // Usar el campo correcto según la respuesta
+    result.inserted = bulkResult.insertedCount || bulkResult.nInserted || 0;
   } catch (bulkError) {
+    // Log del error completo
+    importLogger.error({
+      errorName: bulkError.name,
+      errorMessage: bulkError.message,
+      writeErrorsCount: bulkError.writeErrors?.length || 0,
+      primerosErrores: bulkError.writeErrors?.slice(0, 3).map(e => ({
+        index: e.index,
+        code: e.code,
+        errmsg: e.errmsg
+      }))
+    }, 'Error en bulkWrite');
+
     if (!bulkError.writeErrors) {
       throw bulkError;
     }
@@ -784,7 +898,7 @@ async function generatePostImportSummary() {
         }
       },
       { $sort: { totalRegistros: -1 } }
-    ]).maxTimeMS(15000);
+    ], { maxTimeMS: 15000 });
 
     // Distribucion por distrito (solo para los que tienen)
     const districtDistribution = await Location.aggregate([
@@ -798,7 +912,7 @@ async function generatePostImportSummary() {
       },
       { $sort: { totalRegistros: -1 } },
       { $limit: 10 }
-    ]).maxTimeMS(15000);
+    ], { maxTimeMS: 15000 });
 
     // Conteo de geometrias
     const geometryStats = await Location.aggregate([
@@ -809,7 +923,7 @@ async function generatePostImportSummary() {
         }
       },
       { $sort: { total: -1 } }
-    ]).maxTimeMS(10000);
+    ], { maxTimeMS: 10000 });
 
     importLogger.info({
       totalRegistros: totalRecords,
@@ -854,6 +968,9 @@ async function closeConnection() {
  * @returns {Promise<void>}
  */
 async function main() {
+  // Marcar que estamos en modo script para evitar reintentos automáticos
+  process.env.SCRIPT_MODE = 'true';
+
   const args = process.argv.slice(2);
   const options = {
     skipExisting: !args.includes('--force'),
@@ -871,21 +988,30 @@ async function main() {
     }
   }, 'Script de importacion de ubicaciones iniciado');
 
+  // Variable para rastrear si ya se está cerrando
+  let isClosing = false;
+
   // Configurar manejadores de senales para cierre graceful
   const handleSignal = async (signal) => {
+    if (isClosing) {
+      return;
+    }
+
+    isClosing = true;
+
     importLogger.warn({ signal }, 'Senal recibida, cerrando conexiones...');
     isShuttingDown = true;
     await closeConnection();
     process.exit(0);
   };
 
-  process.on('SIGINT', () => handleSignal('SIGINT'));
-  process.on('SIGTERM', () => handleSignal('SIGTERM'));
+  process.once('SIGINT', () => handleSignal('SIGINT'));
+  process.once('SIGTERM', () => handleSignal('SIGTERM'));
 
   try {
     // Conectar a MongoDB
     importLogger.info('Conectando a MongoDB...');
-    await connectDB();
+    await connectDB(config.database.uri);
     importLogger.info('Conexion establecida');
 
     // Verificar estado actual
@@ -956,44 +1082,29 @@ async function main() {
     const handledError = handleMongoError(error);
     importLogger.error({
       error: handledError.message,
-      stack: error.stack
+      stack: error.stack,
+      name: error.name
     }, 'Error durante la importacion');
     process.exitCode = 1;
 
   } finally {
     await closeConnection();
+
+    // Respetar el exit code establecido por el catch
+    importLogger.info('Script completado');
+    if (process.exitCode === 1) {
+      process.exit(1);
+    } else {
+      process.exit(0);
+    }
   }
-
-  importLogger.info('Script completado');
 }
-
-/**
- * Manejador de cierre graceful
- * @param {string} signal - Senal recibida
- */
-function handleShutdown(signal) {
-  importLogger.warn({ signal }, 'Senal recibida, iniciando cierre...');
-  isShuttingDown = true;
-  closeConnection().then(() => process.exit(0));
-}
-
-process.on('SIGINT', () => handleShutdown('SIGINT'));
-process.on('SIGTERM', () => handleShutdown('SIGTERM'));
-
-process.on('uncaughtException', (error) => {
-  importLogger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  importLogger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
-  process.exit(1);
-});
 
 // Ejecutar si es llamado directamente
 if (require.main === module) {
-  main().catch(error => {
+  main().catch(async (error) => {
     importLogger.fatal({ error: error.message }, 'Error fatal');
+    await closeConnection();
     process.exit(1);
   });
 }

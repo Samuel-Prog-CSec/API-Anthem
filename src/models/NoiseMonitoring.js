@@ -63,8 +63,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
   // Identificación de la estación
   nmt: {
     type: Number,
-    required: true,
-    uppercase: true
+    required: true
   },
 
   nombre: {
