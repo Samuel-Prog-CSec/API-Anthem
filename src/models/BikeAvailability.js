@@ -11,7 +11,8 @@ const {
   TIME_CONSTANTS,
   BIKE_USAGE_THRESHOLDS,
   VALIDATION_LIMITS,
-  MONGODB_TIMEOUTS
+  MONGODB_TIMEOUTS,
+  DATASET_YEARS
 } = require('../constants');
 
 /**
@@ -27,7 +28,7 @@ const bikeAvailabilitySchema = new mongoose.Schema({
     required: true,
     validate: {
       validator: validateDatasetDate,
-      message: 'La fecha debe estar dentro del rango del dataset (2050-2052)'
+      message: `La fecha debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
     }
   },
 

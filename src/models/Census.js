@@ -75,7 +75,7 @@ const censusSchema = new mongoose.Schema({
     index: true,
     validate: {
       validator: validateDatasetDate,
-      message: 'La fecha del censo debe estar dentro del rango del dataset (2050-2052)'
+      message: `La fecha del censo debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
     }
   },
 
@@ -95,7 +95,7 @@ const censusSchema = new mongoose.Schema({
     index: true,
     validate: {
       validator: validateYear,
-      message: 'Año debe estar entre 2000 y 3000'
+      message: `Año debe estar entre ${VALIDATION_LIMITS.YEAR_MIN} y ${VALIDATION_LIMITS.YEAR_MAX}`
     }
   },
 

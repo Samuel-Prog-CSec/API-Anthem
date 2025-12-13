@@ -156,7 +156,7 @@ const accidentSchema = new mongoose.Schema({
     index: true,
     validate: {
       validator: validateDatasetDate,
-      message: 'La fecha del accidente debe estar dentro del rango del dataset (2050-2052)'
+      message: `La fecha del accidente debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
     }
   },
 
@@ -164,7 +164,7 @@ const accidentSchema = new mongoose.Schema({
     type: Number,
     required: true,
     index: true,
-    min: [DATASET_YEARS.VALIDATION_MIN, 'Año debe ser 2000 o posterior'],
+    min: [DATASET_YEARS.VALIDATION_MIN, `Año debe ser ${DATASET_YEARS.VALIDATION_MIN} o posterior`],
     // IMPORTANTE: Validación dinámica para soportar datos históricos y futuros
     // Los datos del proyecto corresponden al año 2051 (dataset Anthem)
     // No usar max estático porque se evalúa al cargar el módulo
@@ -174,7 +174,7 @@ const accidentSchema = new mongoose.Schema({
         // El dataset actual contiene datos de 2051
         return value >= DATASET_YEARS.VALIDATION_MIN && value <= DATASET_YEARS.VALIDATION_MAX;
       },
-      message: 'Año debe estar entre $<DATASET_YEARS.VALIDATION_MIN> y $<DATASET_YEARS.VALIDATION_MAX>'
+      message: `Año debe estar entre ${DATASET_YEARS.VALIDATION_MIN} y ${DATASET_YEARS.VALIDATION_MAX}`
     },
     default: DATASET_YEARS.DEFAULT_YEAR
   },

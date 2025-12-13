@@ -36,7 +36,7 @@ const coordinatesUTMSchema = new mongoose.Schema({
 
 /**
  * Sub-esquema para rango de fechas con validación
- * IMPORTANTE: Valida contra rango del dataset (2050-2052), NO contra fecha actual
+ * IMPORTANTE: Valida contra rango del dataset (DATASET_YEARS.MIN_YEAR-DATASET_YEARS.MAX_YEAR), NO contra fecha actual
  * El dataset de Anthem Smart City contiene datos proyectados del año 2051
  */
 const dateRangeSchema = new mongoose.Schema({
@@ -85,7 +85,7 @@ function validateTimeFormat(time) {
 
 /**
  * Validador personalizado para fechas del dataset
- * IMPORTANTE: Valida que la fecha esté en el rango del dataset (2050-2052), NO contra fecha actual
+ * IMPORTANTE: Valida que la fecha esté en el rango del dataset (DATASET_YEARS.MIN_YEAR-DATASET_YEARS.MAX_YEAR), NO contra fecha actual
  * El dataset de Anthem Smart City contiene datos proyectados del año 2051
  *
  * @param {Date} date - Fecha a validar

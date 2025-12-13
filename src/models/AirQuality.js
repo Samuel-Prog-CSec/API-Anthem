@@ -14,7 +14,8 @@ const {
   VALIDATION_CODES,
   AGGREGATION_LIMITS,
   TIME_CONSTANTS,
-  MONGODB_TIMEOUTS
+  MONGODB_TIMEOUTS,
+  DATASET_YEARS
 } = require('../constants');
 
 /**
@@ -94,7 +95,7 @@ const airQualitySchema = new mongoose.Schema({
     index: true,
     validate: {
       validator: validateDatasetDate,
-      message: 'La fecha de medición debe estar dentro del rango del dataset (2050-2052)'
+      message: `La fecha de medición debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
     }
   },
 

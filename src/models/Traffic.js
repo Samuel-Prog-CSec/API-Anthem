@@ -27,7 +27,8 @@ const {
   TRAFFIC_THRESHOLDS,
   BINARY_INDICATORS,
   LOCATION_TYPES,
-  MONGODB_TIMEOUTS
+  MONGODB_TIMEOUTS,
+  DATASET_YEARS
 } = require('../constants');
 
 /**
@@ -61,7 +62,7 @@ const trafficSchema = new mongoose.Schema({
     index: true,
     validate: {
       validator: validateDatasetDate,
-      message: 'La fecha de medición debe estar dentro del rango del dataset (2050-2052)'
+      message: `La fecha de medición debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
     }
   },
 
@@ -72,7 +73,7 @@ const trafficSchema = new mongoose.Schema({
     index: true,
     validate: {
       validator: validateYear,
-      message: 'Año debe estar entre 2000 y 3000'
+      message: `Año debe estar entre ${VALIDATION_LIMITS.YEAR_MIN} y ${VALIDATION_LIMITS.YEAR_MAX}`
     }
   },
 
@@ -174,7 +175,7 @@ const trafficSchema = new mongoose.Schema({
           if (v === null || v === undefined) {return true;}
           return validateSpeed(v);
         },
-        message: 'Velocidad media debe estar entre 0 y 300 km/h o ser null'
+        message: `Velocidad media debe estar entre ${VALIDATION_LIMITS.SPEED_MIN} y ${VALIDATION_LIMITS.SPEED_MAX} km/h o ser null`
       }
     }
   },

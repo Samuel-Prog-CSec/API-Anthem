@@ -65,7 +65,7 @@ const scooterAssignmentSchema = new mongoose.Schema({
     index: true,
     validate: {
       validator: validateDatasetDate,
-      message: 'La fecha de asignación debe estar dentro del rango del dataset (2050-2052)'
+      message: `La fecha de asignación debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
     }
   },
 

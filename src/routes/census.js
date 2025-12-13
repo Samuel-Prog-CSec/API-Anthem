@@ -17,7 +17,12 @@ const {
   getDemographicDashboard
 } = require('../controllers/censusController');
 
-const { ROUTE_SPECIFIC_LIMITS } = require('../constants');
+const {
+  ROUTE_SPECIFIC_LIMITS,
+  CENSUS_DEFAULTS,
+  AGE_GROUPS,
+  DATASET_YEARS
+} = require('../constants');
 
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
@@ -128,7 +133,7 @@ router.get('/',
   query('grupoEdad')
     .optional()
     .custom((value) => {
-      const validValues = ['INFANTIL', 'JUVENIL', 'ADULTO_JOVEN', 'ADULTO', 'MAYOR', 'ANCIANO'];
+      const validValues = [ ...Object.values(AGE_GROUPS) ];
       const values = Array.isArray(value) ? value : [value];
       return values.every(v => validValues.includes(v));
     })
@@ -233,7 +238,7 @@ router.get('/pyramid',
 
   // Middleware de caché (1 hora para datos demográficos)
   cacheMiddleware('demographic', (req) =>
-    `census:pyramid:${req.query.año || 2051}:${req.query.distrito || 'all'}:${req.query.incluirExtranjeros || true}`
+    `census:pyramid:${req.query.año || CENSUS_DEFAULTS.START_YEAR}:${req.query.distrito || 'all'}:${req.query.incluirExtranjeros || true}`
   ),
 
   // Controlador
@@ -275,7 +280,7 @@ router.get('/districts/statistics',
 
   // Middleware de caché (1 hora para datos demográficos)
   cacheMiddleware('demographic', (req) =>
-    `census:districts:stats:${req.query.año || 2051}:${req.query.mes || 'all'}:${req.query.incluirBarrios || false}`
+    `census:districts:stats:${req.query.año || CENSUS_DEFAULTS.START_YEAR}:${req.query.mes || 'all'}:${req.query.incluirBarrios || false}`
   ),
 
   // Controlador
@@ -316,7 +321,7 @@ router.get('/analysis/demographic',
 
   // Middleware de caché (1 hora para análisis demográfico)
   cacheMiddleware('demographic', (req) =>
-    `census:demographic:${req.query.año || 2051}:${req.query.distrito || 'all'}:${req.query.mes || 'all'}`
+    `census:demographic:${req.query.año || CENSUS_DEFAULTS.START_YEAR}:${req.query.distrito || 'all'}:${req.query.mes || 'all'}`
   ),
 
   // Controlador
@@ -366,7 +371,7 @@ router.get('/evolution',
 
   // Middleware de caché (1 hora para datos demográficos)
   cacheMiddleware('demographic', (req) =>
-    `census:evolution:${req.query.distrito || 'all'}:${req.query.startYear || 2050}:${req.query.endYear || 2051}:${req.query.metrica || 'poblacionTotal'}`
+    `census:evolution:${req.query.distrito || 'all'}:${req.query.startYear || DATASET_YEARS.MIN_YEAR}:${req.query.endYear || CENSUS_DEFAULTS.END_YEAR}:${req.query.metrica || 'poblacionTotal'}`
   ),
 
   // Controlador
@@ -402,7 +407,7 @@ router.get('/dashboard',
 
   // Middleware de caché (1 hora para datos demográficos)
   cacheMiddleware('demographic', (req) =>
-    `census:dashboard:${req.query.año || 2051}:${req.query.distrito || 'all'}`
+    `census:dashboard:${req.query.año || CENSUS_DEFAULTS.START_YEAR}:${req.query.distrito || 'all'}`
   ),
 
   // Controlador

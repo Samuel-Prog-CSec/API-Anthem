@@ -19,6 +19,7 @@ const Census = require('../models/Census');
 const ScooterAssignment = require('../models/ScooterAssignment');
 const logger = require('./logger');
 const { cacheLogger } = logger;
+const { DATASET_YEARS } = require('../constants');
 
 /**
  * Precalentar caché de ubicaciones
@@ -201,9 +202,9 @@ const warmCensusDashboardCache = async () => {
   try {
     cacheLogger.info('Precalentando caché de dashboard demográfico...');
 
-    // Precalentar métricas generales del año por defecto (2051)
+    // Precalentar métricas generales del año por defecto del dataset
     await Census.aggregate([
-      { $match: { año: 2051 } },
+      { $match: { año: DATASET_YEARS.DEFAULT_YEAR } },
       {
         $group: {
           _id: null,
@@ -219,7 +220,7 @@ const warmCensusDashboardCache = async () => {
 
     // Precalentar top 5 distritos por población
     await Census.aggregate([
-      { $match: { año: 2051 } },
+      { $match: { año: DATASET_YEARS.DEFAULT_YEAR } },
       {
         $group: {
           _id: {

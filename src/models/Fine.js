@@ -22,7 +22,8 @@ const {
   INFRACTION_TYPES,
   FINE_CONFIG,
   VALIDATION_LIMITS,
-  MONGODB_TIMEOUTS
+  MONGODB_TIMEOUTS,
+  DATASET_YEARS
 } = require('../constants');
 
 /**
@@ -49,7 +50,7 @@ const fineSchema = new mongoose.Schema({
     index: true,
     validate: {
       validator: validateDatasetDate,
-      message: 'La fecha de la multa debe estar dentro del rango del dataset (2050-2052)'
+      message: `La fecha de la multa debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
     }
   },
 
@@ -69,7 +70,7 @@ const fineSchema = new mongoose.Schema({
     index: true,
     validate: {
       validator: validateYear,
-      message: 'Año debe estar entre 2000 y 3000'
+      message: `Año debe estar entre ${VALIDATION_LIMITS.YEAR_MIN} y ${VALIDATION_LIMITS.YEAR_MAX}`
     }
   },
 
@@ -153,7 +154,7 @@ const fineSchema = new mongoose.Schema({
     index: true,
     validate: {
       validator: validateLicensePoints,
-      message: 'Puntos detraídos deben estar entre 0 y 12'
+      message: `Puntos detraídos deben estar entre ${VALIDATION_LIMITS.DRIVER_POINTS_MIN} y ${VALIDATION_LIMITS.DRIVER_POINTS_MAX}`
     }
   },
 
@@ -179,7 +180,7 @@ const fineSchema = new mongoose.Schema({
       min: [VALIDATION_LIMITS.SPEED_MIN, 'Velocidad límite no puede ser negativa'],
       validate: {
         validator: validateSpeed,
-        message: 'Velocidad límite debe estar entre 0 y 300 km/h'
+          message: `Velocidad límite debe estar entre ${VALIDATION_LIMITS.SPEED_MIN} y ${VALIDATION_LIMITS.SPEED_MAX} km/h`
       }
     },
     velocidadCirculacion: {
@@ -188,7 +189,7 @@ const fineSchema = new mongoose.Schema({
       min: [VALIDATION_LIMITS.SPEED_MIN, 'Velocidad de circulación no puede ser negativa'],
       validate: {
         validator: validateSpeed,
-        message: 'Velocidad de circulación debe estar entre 0 y 300 km/h'
+          message: `Velocidad de circulación debe estar entre ${VALIDATION_LIMITS.SPEED_MIN} y ${VALIDATION_LIMITS.SPEED_MAX} km/h`
       }
     },
     exceso: {

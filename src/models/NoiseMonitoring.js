@@ -17,7 +17,9 @@ const {
   NOISE_LIMITS,
   NOISE_METRIC_FIELDS,
   AGGREGATION_LIMITS,
-  MONGODB_TIMEOUTS
+  MONGODB_TIMEOUTS,
+  DATASET_YEARS,
+  VALIDATION_LIMITS
 } = require('../constants');
 
 /**
@@ -38,7 +40,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     required: true,
     validate: {
       validator: validateDatasetDate,
-      message: 'La fecha debe estar dentro del rango del dataset (2050-2052)'
+      message: `La fecha debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
     }
   },
 
@@ -47,7 +49,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     required: true,
     validate: {
       validator: validateMonth,
-      message: 'El mes debe estar entre 1 y 12'
+      message: `El mes debe estar entre ${VALIDATION_LIMITS.MONTH_MIN} y ${VALIDATION_LIMITS.MONTH_MAX}`
     }
   },
 
@@ -56,7 +58,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     required: true,
     validate: {
       validator: validateYear,
-      message: 'El año debe estar entre 2000 y 3000'
+      message: `El año debe estar entre ${VALIDATION_LIMITS.YEAR_MIN} y ${VALIDATION_LIMITS.YEAR_MAX}`
     }
   },
 
@@ -78,7 +80,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     required: false,
     validate: {
       validator: validateNoiseLevel,
-      message: 'El nivel diurno debe estar entre 0 y 150 dB'
+      message: `El nivel diurno debe estar entre ${VALIDATION_LIMITS.NOISE_MIN} y ${VALIDATION_LIMITS.NOISE_MAX} dB`
     }
   },
 
@@ -87,7 +89,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     required: false,
     validate: {
       validator: validateNoiseLevel,
-      message: 'El nivel vespertino debe estar entre 0 y 150 dB'
+      message: `El nivel vespertino debe estar entre ${VALIDATION_LIMITS.NOISE_MIN} y ${VALIDATION_LIMITS.NOISE_MAX} dB`
     }
   },
 
@@ -96,7 +98,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     required: false,
     validate: {
       validator: validateNoiseLevel,
-      message: 'El nivel nocturno debe estar entre 0 y 150 dB'
+      message: `El nivel nocturno debe estar entre ${VALIDATION_LIMITS.NOISE_MIN} y ${VALIDATION_LIMITS.NOISE_MAX} dB`
     }
   },
 
@@ -106,7 +108,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
     required: false,
     validate: {
       validator: validateNoiseLevel,
-      message: 'El LAeq24 debe estar entre 0 y 150 dB'
+      message: `El LAeq24 debe estar entre ${VALIDATION_LIMITS.NOISE_MIN} y ${VALIDATION_LIMITS.NOISE_MAX} dB`
     }
   },
 
@@ -118,7 +120,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
         required: false,
         validate: {
           validator: validateNoiseLevel,
-          message: 'El LAS01 debe estar entre 0 y 150 dB'
+          message: `El LAS01 debe estar entre ${VALIDATION_LIMITS.NOISE_MIN} y ${VALIDATION_LIMITS.NOISE_MAX} dB`
         }
       },
       las10: { // Percentil 10 (superado el 10% del tiempo)
@@ -126,7 +128,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
         required: false,
         validate: {
           validator: validateNoiseLevel,
-          message: 'El LAS10 debe estar entre 0 y 150 dB'
+          message: `El LAS10 debe estar entre ${VALIDATION_LIMITS.NOISE_MIN} y ${VALIDATION_LIMITS.NOISE_MAX} dB`
         }
       },
       las50: { // Percentil 50 (mediana)
@@ -134,7 +136,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
         required: false,
         validate: {
           validator: validateNoiseLevel,
-          message: 'El LAS50 debe estar entre 0 y 150 dB'
+          message: `El LAS50 debe estar entre ${VALIDATION_LIMITS.NOISE_MIN} y ${VALIDATION_LIMITS.NOISE_MAX} dB`
         }
       },
       las90: { // Percentil 90 (superado el 90% del tiempo)
@@ -142,7 +144,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
         required: false,
         validate: {
           validator: validateNoiseLevel,
-          message: 'El LAS90 debe estar entre 0 y 150 dB'
+          message: `El LAS90 debe estar entre ${VALIDATION_LIMITS.NOISE_MIN} y ${VALIDATION_LIMITS.NOISE_MAX} dB`
         }
       },
       las99: { // Percentil 99 (ruido de fondo)
@@ -150,7 +152,7 @@ const noiseMonitoringSchema = new mongoose.Schema({
         required: false,
         validate: {
           validator: validateNoiseLevel,
-          message: 'El LAS99 debe estar entre 0 y 150 dB'
+          message: `El LAS99 debe estar entre ${VALIDATION_LIMITS.NOISE_MIN} y ${VALIDATION_LIMITS.NOISE_MAX} dB`
         }
       }
     },

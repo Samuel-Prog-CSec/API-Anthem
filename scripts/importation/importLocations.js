@@ -18,7 +18,8 @@ const { importLocationsLogger: logger } = require('../../src/config/scriptLogger
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   LOCATION_TYPES,
-  GEO_LIMITS
+  GEO_LIMITS,
+  GEOMETRY_TYPES
 } = require('../../src/constants');
 const {
   RejectionTracker,
@@ -170,7 +171,7 @@ async function importAcousticStations() {
             direccion: cleanString(row['Dirección'] || row.direccion),
             fechaAlta: cleanString(row['Fecha alta'] || row.fechaAlta),
             geometry: isValidCoordinate(lon, lat) ? {
-              type: 'Point',
+              type: GEOMETRY_TYPES.POINT,
               coordinates: [lon, lat]
             } : undefined
           };
@@ -280,7 +281,7 @@ async function importTrafficPoints() {
             distrito: cleanString(row.distrito),
             coordenadas: { x: utmX, y: utmY },
             geometry: isValidCoordinate(lon, lat) ? {
-              type: 'Point',
+              type: GEOMETRY_TYPES.POINT,
               coordinates: [lon, lat]
             } : undefined
           };
@@ -364,7 +365,7 @@ function processGPXWaypoints(waypoints, gpxInfo, routes) {
           ruta: [{ lat, lon }] // Mantener original en lat/lon
         },
         geometry: {
-          type: 'Point',
+          type: GEOMETRY_TYPES.POINT,
           coordinates: [lon, lat] // GeoJSON usa lon/lat (WGS84)
         }
       });
@@ -493,7 +494,7 @@ function processTrackSegment(segmentData, gpxInfo, trackIndex, segmentIndex, rou
         ruta: rutaPuntos // Mantener ruta original en lat/lon
       },
       geometry: {
-        type: 'LineString',
+        type: GEOMETRY_TYPES.LINE_STRING,
         coordinates: coordinates // GeoJSON usa lon/lat (WGS84)
       }
     });

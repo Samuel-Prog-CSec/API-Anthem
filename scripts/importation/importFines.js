@@ -53,7 +53,7 @@ const REJECTION_REASONS = {
   // Validación de campos
   CALIFICACION_INVALIDA: 'Calificacion de multa invalida (esperado: LEVE, GRAVE, MUY GRAVE)',
   IMPORTE_NEGATIVO: 'Importe del boletin negativo',
-  PUNTOS_FUERA_RANGO: 'Puntos detraidos fuera de rango (0-12)',
+  PUNTOS_FUERA_RANGO: `Puntos detraidos fuera de rango (${VALIDATION_LIMITS.DRIVER_POINTS_MIN}-${VALIDATION_LIMITS.DRIVER_POINTS_MAX})`,
   COORDENADA_X_INVALIDA: 'Coordenada X invalida o fuera de rango',
   COORDENADA_Y_INVALIDA: 'Coordenada Y invalida o fuera de rango',
   VELOCIDAD_LIMITE_INVALIDA: 'Velocidad limite invalida',
@@ -194,7 +194,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
       fila: rowIndex,
       razon: REJECTION_REASONS.PUNTOS_FUERA_RANGO,
       datosOriginales: { puntos: row.PUNTOS, valor: puntos }
-    }, 'Puntos fuera de rango (0-12) - se usa valor original');
+    }, `Puntos fuera de rango (${VALIDATION_LIMITS.DRIVER_POINTS_MIN}-${VALIDATION_LIMITS.DRIVER_POINTS_MAX}) - se usa valor original`);
   }
 
   // Procesar descuento
