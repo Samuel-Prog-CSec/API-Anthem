@@ -229,14 +229,12 @@ async function processCensusFile(filePath, options = {}) {
 
     const batch = [];
     let rowIndex = 0;
+    let isProcessingBatch = false;
 
     const stream = createReadStream(filePath)
       .pipe(csv({ separator: ';' }))
       .on('data', async (row) => {
-        if (isShuttingDown) {
-          stream.destroy();
-          return;
-        }
+        if (isShuttingDown || isProcessingBatch) {return;}
 
         stats.totalRows++;
         rowIndex++;
@@ -250,11 +248,16 @@ async function processCensusFile(filePath, options = {}) {
 
             // Procesar lote cuando alcance el tamaño configurado
             if (batch.length >= options.batchSize) {
+              isProcessingBatch = true;
               stream.pause();
-              await processBatch(batch, options, stats);
-              batch.length = 0;
-              if (!isShuttingDown) {
-                stream.resume();
+              try {
+                await processBatch(batch, options, stats);
+                batch.length = 0;
+              } finally {
+                isProcessingBatch = false;
+                if (!isShuttingDown) {
+                  stream.resume();
+                }
               }
             }
           } else {
@@ -292,7 +295,12 @@ async function processCensusFile(filePath, options = {}) {
         try {
           // Procesar lote restante
           if (batch.length > 0 && !isShuttingDown) {
-            await processBatch(batch, options, stats);
+            isProcessingBatch = true;
+            try {
+              await processBatch(batch, options, stats);
+            } finally {
+              isProcessingBatch = false;
+            }
           }
 
           logger.info({

@@ -726,7 +726,7 @@ const USER_VALIDATION = {
 
   // Password
   MIN_PASSWORD_LENGTH: 8,
-  MAX_PASSWORD_LENGTH: 64,
+  MAX_PASSWORD_LENGTH: 72,
 
   // Email
   MAX_EMAIL_LENGTH: 155,
@@ -743,6 +743,14 @@ const USER_VALIDATION = {
 
   // Forbidden usernames (no permitidos para registro)
   FORBIDDEN_USERNAMES: ['admin', 'root', 'api', 'system', 'null', 'undefined']
+};
+
+/**
+ * Validación de tokens JWT
+ */
+const TOKEN_VALIDATION = {
+  JWT_REGEX: /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/,
+  MAX_TOKEN_LENGTH: 1024
 };
 
 /**
@@ -1411,6 +1419,7 @@ module.exports = {
 
   // Tokens y autenticación
   TOKEN_REVOCATION_REASONS,
+  TOKEN_VALIDATION,
 
   // Métricas de ruido
   NOISE_METRIC_FIELDS,

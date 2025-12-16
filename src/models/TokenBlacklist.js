@@ -49,7 +49,14 @@ const tokenBlacklistSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   versionKey: false,
-  collection: 'token_blacklist'
+  collection: 'token_blacklist',
+  toJSON: {
+    transform: (_doc, ret) => {
+      delete ret.createdAt;
+      delete ret.updatedAt;
+      return ret;
+    }
+  }
 });
 
 /**

@@ -29,7 +29,9 @@ const { performanceMonitor } = require('../middleware/performanceMonitor');
 const {
   validateRegistration,
   validateLogin,
-  validatePasswordChange
+  validatePasswordChange,
+  validateRefreshToken,
+  validateOptionalRefreshToken
 } = require('../middleware/validation');
 
 // Aplicar performanceMonitor a todas las rutas de autenticación
@@ -86,6 +88,7 @@ router.post('/login',
  */
 router.post('/logout',
   authenticate, // Requiere autenticación
+  validateOptionalRefreshToken,
   logout // Función del controlador
 );
 
@@ -102,6 +105,7 @@ router.post('/logout',
  */
 router.post('/refresh',
   authLimiter, // Aplicar rate limiting
+  validateRefreshToken,
   refreshAccessToken // Función del controlador
 );
 

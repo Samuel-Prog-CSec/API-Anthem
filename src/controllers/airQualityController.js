@@ -8,7 +8,7 @@
 const AirQuality = require('../models/AirQuality');
 const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange, TRANSFORMS, parseNumericParams } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange, TRANSFORMS, parseNumericParams, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, SORT_FIELDS, DATE_RANGE_LIMITS, VALIDATION_CODES } = require('../constants');
 const logger = require('../config/logger');
@@ -82,15 +82,19 @@ const getAirQualityData = async (req, res, next) => {
       createdAt: 1
     };
 
-    const [data, totalDocuments] = await Promise.all([
-      AirQuality.find(filters, projection)
-        .sort(sortOptions)
-        .skip(paginationOptions.skip)
-        .limit(paginationOptions.limit)
-        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
-        .lean(),
-      AirQuality.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
-    ]);
+    const {
+      data,
+      total: totalDocuments,
+      fallback: airQualityFacetFallback,
+      fallbackError: airQualityFacetError
+    } = await executeFacetPagination({
+      model: AirQuality,
+      filters,
+      sort: sortOptions,
+      projection,
+      pagination: paginationOptions,
+      maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS
+    });
 
     const responseData = {
       data,
@@ -100,7 +104,11 @@ const getAirQualityData = async (req, res, next) => {
         available: {
           magnitudes: AirQuality.getMagnitudes()
         }
-      }
+      },
+      performance: airQualityFacetFallback ? {
+        facetFallback: true,
+        reason: airQualityFacetError
+      } : undefined
     };
 
     res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de calidad de aire obtenidos exitosamente'));

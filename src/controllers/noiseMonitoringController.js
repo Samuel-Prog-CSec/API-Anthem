@@ -7,7 +7,7 @@
 
 const NoiseMonitoring = require('../models/NoiseMonitoring');
 const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
-const { createPaginationMeta } = require('../utils/paginationHelper');
+const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, buildResponseMetadata } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS, SEARCH_LIMITS, NOISE_THRESHOLDS, ZONE_TYPES } = require('../constants');
@@ -72,16 +72,25 @@ const getNoiseMonitoringData = async (req, res, next) => {
       'dataQuality.hasValidData': 1
     };
 
-    // Ejecutar consulta con timeouts
-    const [data, totalDocuments] = await Promise.all([
-      NoiseMonitoring.find(filters, projection)
-        .sort(sortOptions)
-        .skip(paginationOptions.skip)
-        .limit(paginationOptions.limit)
-        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
-        .lean(),
-      NoiseMonitoring.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
-    ]);
+    const { cursor } = req.query;
+    const useCursor = Boolean(cursor);
+    const primarySortField = Object.keys(sortOptions)[0] || 'fecha';
+    const sortOrder = sortOptions[primarySortField] === 1 ? 'asc' : 'desc';
+    const cursorFilter = useCursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder }) : null;
+    const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
+    const sortWithTiebreak = { ...sortOptions, _id: sortOrder === 'asc' ? 1 : -1 };
+
+    const dataPromise = NoiseMonitoring.find(combinedFilters, projection)
+      .sort(sortWithTiebreak)
+      .limit(paginationOptions.limit)
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+      .lean();
+
+    const countPromise = useCursor
+      ? Promise.resolve(null)
+      : NoiseMonitoring.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
+
+    const [data, totalDocuments] = await Promise.all([dataPromise, countPromise]);
 
     // Agregar cumplimiento normativo usando método del modelo
     const dataWithCompliance = data.map(item => ({
@@ -91,7 +100,9 @@ const getNoiseMonitoringData = async (req, res, next) => {
 
     const responseData = {
       data: dataWithCompliance,
-      pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments),
+      pagination: useCursor
+        ? createCursorMeta({ results: data, limit: paginationOptions.limit, sortField: primarySortField, sortOrder })
+        : createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments),
       filters: {
         applied: Object.keys(filters).length > 0 ? filters : null
       }

@@ -7,8 +7,8 @@
 const Traffic = require('../models/Traffic');
 const Location = require('../models/Location');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
-const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, buildResponseMetadata, parseNumericParams } = require('../utils/queryHelper');
+const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, buildResponseMetadata, parseNumericParams, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES, MONGODB_TIMEOUTS } = require('../constants');
 const logger = require('../config/logger');
@@ -37,6 +37,9 @@ const getAllTrafficData = async (req, res, next) => {
       { page, limit },
       { defaultLimit: PAGINATION.DEFAULT_LIMIT, maxLimit: PAGINATION.MAX_LIMIT }
     );
+
+    const { cursor } = req.query;
+    const useCursor = Boolean(cursor);
 
     // Construir filtros usando buildFilters
     const filterConfig = [
@@ -80,16 +83,38 @@ const getAllTrafficData = async (req, res, next) => {
       'analisis.clasificacionIntensidad': 1
     };
 
-    // Ejecutar consulta principal con timeout
-    const [trafficData, totalCount] = await Promise.all([
-      Traffic.find(filters, projection)
-        .sort(sortOptions)
-        .skip(paginationOptions.skip)
+    const primarySortField = Object.keys(sortOptions)[0] || 'fecha';
+    const sortOrder = sortOptions[primarySortField] === 1 ? 'asc' : 'desc';
+    const cursorFilter = useCursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder }) : null;
+    const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
+    const sortWithTiebreak = { ...sortOptions, _id: sortOrder === 'asc' ? 1 : -1 };
+
+    let trafficData = [];
+    let totalCount = null;
+    let trafficFacetFallback = false;
+    let trafficFacetError = null;
+
+    if (useCursor) {
+      trafficData = await Traffic.find(combinedFilters, projection)
+        .sort(sortWithTiebreak)
         .limit(paginationOptions.limit)
-        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
-        .lean(),
-      Traffic.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
-    ]);
+        .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+        .lean();
+    } else {
+      const facetResult = await executeFacetPagination({
+        model: Traffic,
+        filters,
+        sort: sortOptions,
+        projection,
+        pagination: paginationOptions,
+        maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS
+      });
+
+      trafficData = facetResult.data;
+      totalCount = facetResult.total;
+      trafficFacetFallback = facetResult.fallback;
+      trafficFacetError = facetResult.fallbackError;
+    }
 
     // Calcular estadísticas básicas para la respuesta
     const stats = await Traffic.aggregate([
@@ -119,7 +144,9 @@ const getAllTrafficData = async (req, res, next) => {
 
     const responseData = {
       data: trafficData,
-      pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalCount),
+      pagination: useCursor
+        ? createCursorMeta({ results: trafficData, limit: paginationOptions.limit, sortField: primarySortField, sortOrder })
+        : createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalCount),
       filters: {
         applied: filters,
         available: {
@@ -132,7 +159,13 @@ const getAllTrafficData = async (req, res, next) => {
         intensidadPromedio: 0,
         ocupacionPromedio: 0,
         medicionesConfiables: 0
-      }
+      },
+      performance: useCursor ? {
+        cursorPagination: true
+      } : trafficFacetFallback ? {
+        facetFallback: true,
+        reason: trafficFacetError
+      } : undefined
     };
 
     logger.info({

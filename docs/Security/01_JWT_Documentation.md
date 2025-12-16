@@ -448,6 +448,8 @@ res.status(200).json({
 
 ## Verificación de Tokens
 
+Antes de intentar verificar la firma, **bloqueamos tokens malformados** mediante un regex estricto (`TOKEN_VALIDATION.JWT_REGEX`) y una longitud máxima de 1024 caracteres. Si el formato no es `header.payload.signature`, respondemos 401 sin pasar a `jwt.verify`, mitigando ataques de CPU o fuzzing sobre el verificador.
+
 ### Verificación de Access Token
 
 Implementamos la verificación en el middleware de autenticación usando `JWT_SECRET`:
@@ -495,6 +497,13 @@ const verifyRefreshToken = async (token) => {
   }
 };
 ```
+
+Además del verificador, el endpoint `/auth/refresh` valida que el campo `refreshToken` exista, no supere 1024 caracteres y cumpla el regex JWT antes de procesarlo; los `logout` con token en el body aplican la misma validación opcional.
+
+**Cookies seguras y consistentes**
+- `accessToken` y `refreshToken` se setean con las mismas flags: `httpOnly`, `sameSite: 'strict'`, `secure` (solo en producción) y `path: '/'`.
+- En logout se limpian con exactamente las mismas opciones para garantizar su invalidación en el navegador.
+- `/auth/refresh` acepta el refresh token desde cookie o body, pero siempre con la misma validación de longitud + regex antes de tocar el verificador JWT.
 
 **Separación estricta:**
 ```javascript

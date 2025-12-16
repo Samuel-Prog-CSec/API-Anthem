@@ -519,6 +519,15 @@ airQualitySchema.statics.getTrendsOptimized = async function(provincia, municipi
   };
 };
 
+// Transformación para reducir payload
+airQualitySchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete ret.createdAt;
+    delete ret.updatedAt;
+    return ret;
+  }
+});
+
 // Crear y exportar el modelo
 const AirQuality = mongoose.model('AirQuality', airQualitySchema);
 

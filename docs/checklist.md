@@ -20,3 +20,11 @@ CONTROL DE DUPLICADOS???
 # Resto de rutas
 - [] Peatones y bicicletas
 - [] Callejero
+
+---
+
+formar JWT unicamente sabiendo la clave publica, un atacante puede generar tokens JWT de admin sabiendo el algoritmo que usamos y la clave publica. ¿Sommos vulnerables a esto? ¿Es un riesgo real en nuestra API? ¿Que medidas podemos tomar para mitigarlo en caso de que seamos vulnerables?
+
+---
+
+consider a quick import dry-run for fines to confirm no dropped rows and unchanged metrics, and run API smoke tests around auth responses to verify the new toJSON transforms don’t affect consumers.

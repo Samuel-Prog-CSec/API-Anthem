@@ -10,6 +10,9 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const compression = require('compression');
+const https = require('https');
+const http = require('http');
+const fs = require('fs');
 
 // Importar configuración y base de datos
 const { HTTP_STATUS } = require('./constants');
@@ -29,6 +32,7 @@ const {
   helmetConfig,
   sanitizeInput,
   xssProtection,
+  enforceHttps,
   customSecurityHeaders,
   validateRequest,
   securityLogger
@@ -64,6 +68,9 @@ handleUncaughtException();
  * Importante para rate limiting y detección de IP detrás de proxies inversos
  */
 app.set('trust proxy', 1);
+
+// En producción, forzar HTTPS para evitar sniffing por HTTP
+app.use(enforceHttps);
 
 /**
  * Deshabilitar header X-Powered-By
@@ -294,7 +301,11 @@ app.use(globalErrorHandler); // Manejar todos los demás errores
 
 /**
  * Función de Inicio del Servidor
- * Conecta a la base de datos e inicia el servidor HTTP
+ * Conecta a la base de datos e inicia el servidor HTTP/HTTPS
+ *
+ * Modos de operación:
+ * - SSL_ENABLED=false: Solo HTTP (desarrollo)
+ * - SSL_ENABLED=true: HTTPS + redirección HTTP opcional (producción)
  */
 const startServer = async () => {
   try {
@@ -305,16 +316,66 @@ const startServer = async () => {
     // Precalentar caché en background (no bloquea arranque del servidor)
     warmupCacheAsync();
 
-    // Iniciar servidor HTTP
-    const server = app.listen(config.server.port, config.server.host, () => {
+    let server;
+    let httpRedirectServer;
+    const protocol = config.ssl.enabled ? 'https' : 'http';
+    const port = config.ssl.enabled ? config.ssl.httpsPort : config.server.port;
+
+    if (config.ssl.enabled) {
+      // Modo HTTPS (producción)
+      try {
+        const sslOptions = {
+          key: fs.readFileSync(config.ssl.keyPath),
+          cert: fs.readFileSync(config.ssl.certPath)
+        };
+
+        // Crear servidor HTTPS
+        server = https.createServer(sslOptions, app);
+
+        // Opcional: Crear servidor HTTP que redirige a HTTPS
+        if (config.ssl.redirectHttp) {
+          const httpApp = express();
+          httpApp.use((req, res) => {
+            const httpsUrl = `https://${req.headers.host}${req.url}`;
+            res.redirect(301, httpsUrl);
+          });
+          httpRedirectServer = http.createServer(httpApp);
+          httpRedirectServer.listen(config.server.port, config.server.host, () => {
+            logger.info({
+              port: config.server.port,
+              redirectsTo: `https://${config.server.host}:${config.ssl.httpsPort}`
+            }, 'Servidor HTTP de redireccion iniciado');
+          });
+        }
+
+        logger.info('Certificados SSL cargados correctamente');
+
+      } catch (sslError) {
+        logger.fatal({
+          error: sslError.message,
+          keyPath: config.ssl.keyPath,
+          certPath: config.ssl.certPath
+        }, 'Error al cargar certificados SSL');
+        process.exit(1);
+      }
+    } else {
+      // Modo HTTP (desarrollo)
+      server = http.createServer(app);
+      logger.warn('SSL deshabilitado - usando HTTP sin cifrar (solo para desarrollo)');
+    }
+
+    // Iniciar servidor principal
+    server.listen(port, config.server.host, () => {
       logger.info({
         environment: config.server.env,
         host: config.server.host,
-        port: config.server.port,
+        port: port,
+        protocol: protocol,
+        sslEnabled: config.ssl.enabled,
         apiVersion: config.api.version,
-        baseUrl: `http://${config.server.host}:${config.server.port}`,
-        apiUrl: `http://${config.server.host}:${config.server.port}${config.api.prefix}/${config.api.version}`,
-        healthCheck: `http://${config.server.host}:${config.server.port}/health`
+        baseUrl: `${protocol}://${config.server.host}:${port}`,
+        apiUrl: `${protocol}://${config.server.host}:${port}${config.api.prefix}/${config.api.version}`,
+        healthCheck: `${protocol}://${config.server.host}:${port}/health`
       }, 'Servidor iniciado exitosamente');
 
       logger.info({
@@ -327,7 +388,8 @@ const startServer = async () => {
           'Protección XSS',
           'Headers de Seguridad (Helmet)',
           'Protección CORS',
-          'Protección de Bloqueo de Cuenta'
+          'Protección de Bloqueo de Cuenta',
+          config.ssl.enabled ? 'Conexión HTTPS/TLS' : 'HTTP (sin cifrar)'
         ]
       }, 'Funcionalidades de seguridad habilitadas');
 
@@ -338,14 +400,24 @@ const startServer = async () => {
     const gracefulShutdown = (signal) => {
       logger.info({ signal }, 'Señal de apagado recibida, iniciando apagado graceful');
 
-      server.close((err) => {
-        if (err) {
-          logger.error({ error: err.message }, 'Error durante el apagado del servidor');
-          process.exit(1);
-        }
+      const closeServer = (srv, name) => {
+        return new Promise((resolve) => {
+          if (!srv) return resolve();
+          srv.close((err) => {
+            if (err) {
+              logger.error({ error: err.message }, `Error cerrando ${name}`);
+            } else {
+              logger.info(`${name} cerrado`);
+            }
+            resolve();
+          });
+        });
+      };
 
-        logger.info('Servidor HTTP cerrado');
-
+      Promise.all([
+        closeServer(server, 'Servidor principal'),
+        closeServer(httpRedirectServer, 'Servidor HTTP de redireccion')
+      ]).then(() => {
         // Cerrar conexión a base de datos
         require('mongoose').connection.close().then(() => {
           logger.info('Conexión a base de datos cerrada');

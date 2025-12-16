@@ -7,7 +7,7 @@
 
 const Census = require('../models/Census');
 const { createInternalError } = require('../utils/errorUtils');
-const { createPaginationMeta } = require('../utils/paginationHelper');
+const { createPaginationMeta, createCursorMeta, buildCursorQuery } = require('../utils/paginationHelper');
 const { buildSortOptions, buildPaginationOptions, buildFilters, TRANSFORMS, parseNumericParams, buildResponseMetadata } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, AGE_GROUPS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS, CENSUS_DEFAULTS } = require('../constants');
@@ -125,17 +125,20 @@ const getCensusData = async (req, res, next) => {
 
     // PATRÓN HÍBRIDO: Usar método del modelo que encapsula query compleja
     // Mantiene todas las optimizaciones (.lean(), Promise.all(), proyección)
-    const { data, total: totalDocuments, stats } = await Census.findWithOptions({
+    const { cursor } = req.query;
+
+    const { data, total: totalDocuments, stats, cursor: cursorMeta } = await Census.findWithOptions({
       filters,
       sort: sortOptions,
       pagination: paginationOptions,
       projection,
       lean: true,
-      includeStats: true
+      includeStats: true,
+      cursor
     });
 
     // Calcular metadatos de paginación usando helper
-    const paginationMeta = createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
+    const paginationMeta = cursorMeta || createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
 
     // Usar estadísticas del modelo (ya calculadas en paralelo)
     const summary = stats || {

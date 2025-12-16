@@ -14,7 +14,8 @@ const {
   HTTP_STATUS,
   MONGODB_TIMEOUTS,
   TIME_CONSTANTS,
-  TOKEN_REVOCATION_REASONS
+  TOKEN_REVOCATION_REASONS,
+  TOKEN_VALIDATION
 } = require('../constants');
 const {
   createAuthError,
@@ -40,6 +41,24 @@ const {
   logAccountLockout,
   logPasswordChange
 } = require('../utils/securityLogger');
+
+const isProduction = process.env.NODE_ENV === 'production';
+const baseCookieOptions = {
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: 'strict',
+  path: '/'
+};
+
+const buildCookieOptions = (maxAgeMs) => ({
+  ...baseCookieOptions,
+  maxAge: maxAgeMs
+});
+
+const isValidTokenFormat = (token) =>
+  typeof token === 'string'
+  && token.length <= TOKEN_VALIDATION.MAX_TOKEN_LENGTH
+  && TOKEN_VALIDATION.JWT_REGEX.test(token);
 
 /**
  * Controlador de Registro de Usuario
@@ -91,19 +110,8 @@ const register = async (req, res, next) => {
     };
 
     // Establecer cookies HTTP-only seguras para los tokens
-    res.cookie('accessToken', tokens.accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE // 15 minutos
-    });
-
-    res.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY // 30 días
-    });
+    res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
+    res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
 
     req.log.info({ username, email }, 'Nuevo usuario registrado exitosamente');
 
@@ -207,19 +215,8 @@ const login = async (req, res, next) => {
     };
 
     // Establecer cookies HTTP-only seguras para los tokens
-    res.cookie('accessToken', tokens.accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE // 15 minutos
-    });
-
-    res.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY // 30 días
-    });
+    res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
+    res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
 
     req.log.info({ username: user.username, email: user.email }, 'Usuario inició sesión exitosamente');
 
@@ -258,28 +255,32 @@ const logout = async (req, res, next) => {
     // Obtener refresh token de cookies o body
     const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
 
-    // Si existe refresh token, agregarlo a lista negra
+    // Si existe refresh token, agregarlo a lista negra (solo si formato es válido)
     if (refreshToken) {
-      try {
-        const decoded = await verifyRefreshToken(refreshToken);
-        const tokenExpiration = getTokenExpiration(refreshToken);
+      if (!isValidTokenFormat(refreshToken)) {
+        authLogger.warn({ ip: req.ip }, 'Refresh token con formato inválido durante logout');
+      } else {
+        try {
+          const decoded = await verifyRefreshToken(refreshToken);
+          const tokenExpiration = getTokenExpiration(refreshToken);
 
-        await TokenBlacklist.addToken(
-          refreshToken,
-          decoded.id,
-          TOKEN_REVOCATION_REASONS.LOGOUT,
-          tokenExpiration
-        );
-      } catch (error) {
-        // El token podría estar ya expirado, continuar con logout
-        authLogger.warn({ error: error.message }, 'Refresh token inválido durante logout');
+          await TokenBlacklist.addToken(
+            refreshToken,
+            decoded.id,
+            TOKEN_REVOCATION_REASONS.LOGOUT,
+            tokenExpiration
+          );
+        } catch (error) {
+          // El token podría estar ya expirado, continuar con logout
+          authLogger.warn({ error: error.message }, 'Refresh token inválido durante logout');
+        }
       }
     }
 
-    // Limpiar cookies de autenticación
-    res.clearCookie('accessToken');
-    res.clearCookie('refreshToken');
-    res.clearCookie('token'); // Nombre de cookie legacy
+    // Limpiar cookies de autenticación (usar mismas flags que al setear)
+    res.clearCookie('accessToken', baseCookieOptions);
+    res.clearCookie('refreshToken', baseCookieOptions);
+    res.clearCookie('token', baseCookieOptions); // Nombre de cookie legacy
 
     req.log.info({ username: req.user.username }, 'Usuario cerró sesión');
 
@@ -349,10 +350,10 @@ const getProfile = async (req, res, next) => {
  */
 const refreshAccessToken = async (req, res, next) => {
   try {
-    // Extraer refresh token de la request
-    const { refreshToken } = req.body;
+    // Extraer refresh token validado (body o cookie)
+    const refreshToken = req.validatedRefreshToken || req.body?.refreshToken || req.cookies?.refreshToken;
 
-    if (!refreshToken) {
+    if (!refreshToken || !isValidTokenFormat(refreshToken)) {
       return next(createAuthError('Refresh token requerido'));
     }
 
@@ -425,19 +426,8 @@ const refreshAccessToken = async (req, res, next) => {
     const tokens = generateTokens(user);
 
     // Establecer nuevas cookies
-    res.cookie('accessToken', tokens.accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE // 15 minutos
-    });
-
-    res.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY // 30 días
-    });
+    res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
+    res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
 
     authLogger.info({ userId: user._id }, 'Refresh token rotado exitosamente');
 

@@ -260,7 +260,14 @@ const fineSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   versionKey: false,
-  collection: 'fines'
+  collection: 'fines',
+  toJSON: {
+    transform: (_doc, ret) => {
+      delete ret.createdAt;
+      delete ret.updatedAt;
+      return ret;
+    }
+  }
 });
 
 /**
@@ -388,6 +395,17 @@ fineSchema.index({
   lugar: 'text',
   descripcionInfraccion: 'text',
   denunciante: 'text'
+});
+
+// Índice cubierto para listados frecuentes (evita fetch de documento completo)
+fineSchema.index({
+  fecha: -1,
+  calificacion: 1,
+  importeFinal: -1,
+  'ubicacion.distrito': 1
+}, {
+  name: 'idx_fines_list_cover',
+  background: true
 });
 
 /**

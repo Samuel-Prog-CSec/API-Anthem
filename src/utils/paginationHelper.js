@@ -8,6 +8,87 @@
 const { PAGINATION } = require('../constants');
 
 /**
+ * Decodifica cursor en base64url a objeto
+ * @param {string} cursor
+ * @returns {Object|null}
+ */
+const decodeCursor = (cursor) => {
+  try {
+    const decoded = Buffer.from(cursor, 'base64url').toString('utf8');
+    return JSON.parse(decoded);
+  } catch (error) {
+    return null;
+  }
+};
+
+/**
+ * Construye filtro incremental para paginación por cursor
+ * @param {Object} params
+ * @param {string} params.cursor - Cursor codificado
+ * @param {string} params.sortField - Campo principal de ordenación
+ * @param {('asc'|'desc')} params.sortOrder - Dirección del ordenamiento
+ * @returns {Object|null} Filtro a combinar con el resto de filtros
+ */
+const buildCursorQuery = ({ cursor, sortField = '_id', sortOrder = 'desc' }) => {
+  if (!cursor) {
+    return null;
+  }
+
+  const parsed = decodeCursor(cursor);
+  if (!parsed || parsed.field !== sortField || !parsed.id) {
+    return null;
+  }
+
+  const operator = sortOrder === 'asc' ? '$gt' : '$lt';
+
+  // Garantizar avance estable incluso con valores duplicados en sortField
+  return {
+    $or: [
+      { [sortField]: { [operator]: parsed.value } },
+      { [sortField]: parsed.value, _id: { [operator]: parsed.id } }
+    ]
+  };
+};
+
+/**
+ * Construye metadatos de paginación por cursor
+ * @param {Object} params
+ * @param {Array<Object>} params.results - Resultados devueltos
+ * @param {number} params.limit - Límite solicitado
+ * @param {string} params.sortField - Campo principal de ordenación
+ * @param {('asc'|'desc')} params.sortOrder - Dirección del ordenamiento
+ * @returns {Object} Metadatos con nextCursor
+ */
+const createCursorMeta = ({ results, limit, sortField, sortOrder }) => {
+  const last = results[results.length - 1];
+
+  if (!last) {
+    return {
+      mode: 'cursor',
+      limit,
+      hasNextPage: false,
+      nextCursor: null
+    };
+  }
+
+  const payload = {
+    field: sortField,
+    value: last[sortField],
+    id: last._id,
+    order: sortOrder
+  };
+
+  const nextCursor = Buffer.from(JSON.stringify(payload)).toString('base64url');
+
+  return {
+    mode: 'cursor',
+    limit,
+    hasNextPage: results.length === limit,
+    nextCursor: results.length === limit ? nextCursor : null
+  };
+};
+
+/**
  * Crea objeto de metadatos de paginación para respuesta
  *
  * @param {number} currentPage - Página actual
@@ -110,5 +191,7 @@ const buildPaginationOptions = (query = {}) => {
 module.exports = {
   createPaginationMeta,
   parseDateRangeFilter,
-  buildPaginationOptions
+  buildPaginationOptions,
+  buildCursorQuery,
+  createCursorMeta
 };

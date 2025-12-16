@@ -195,56 +195,6 @@ router.get('/historical',
 );
 
 /**
- * RUTAS ADMINISTRATIVAS
- */
-
-/**
- * @route   GET /api/traffic/export
- * @desc    Exportar datos de tráfico (solo administradores)
- * @access  Admin only
- * @rateLimit 5 requests per hour
- * @todo    IMPLEMENTAR: Controller de exportación con soporte para CSV/JSON/Excel
- *          - Debe incluir metadatos de puntos de medición
- *          - Debe permitir filtros por fecha, tipo de elemento, ubicación
- *          - Debe generar archivos con formato configurable
- *          - Debe incluir agregaciones opcionales (por hora/día/mes)
- */
-router.get('/export',
-  exportLimit,
-  authenticate,
-  validateExportFormat,
-  [
-    query('includeMetadata')
-      .optional()
-      .isBoolean()
-      .withMessage('includeMetadata debe ser boolean'),
-
-    validateRequest
-  ],
-  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
-  validateTrafficFilters,
-  async (req, res, next) => {
-    try {
-      logger.info({
-        userId: req.user.id,
-        format: req.query.format || 'json',
-        filters: req.query,
-        endpoint: 'POST /api/traffic/export'
-      }, 'Exportación de datos de tráfico solicitada');
-
-      // TODO: Implementar lógica de exportación
-      res.status(HTTP_STATUS.NOT_IMPLEMENTED).json({
-        success: false,
-        message: 'Funcionalidad de exportación en desarrollo'
-      });
-
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
  * Middleware de logging para todas las rutas de tráfico
  */
 router.use((req, res, next) => {

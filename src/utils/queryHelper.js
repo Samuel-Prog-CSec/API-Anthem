@@ -6,6 +6,8 @@
  *
  */
 
+const { MONGODB_TIMEOUTS } = require('../constants');
+
 /**
  * Transformadores predefinidos para filtros
  * Elimina código repetitivo en configuración de filtros
@@ -397,6 +399,63 @@ const buildPaginationOptions = (queryParams, options = {}) => {
   return { page, limit, skip };
 };
 
+/**
+ * Ejecuta un pipeline con $facet para obtener datos paginados y total en una sola roundtrip
+ * Incluye fallback a countDocuments en caso de error/timeout en el facet
+ */
+const executeFacetPagination = async ({
+  model,
+  filters = {},
+  sort = {},
+  projection = null,
+  pagination = { page: 1, limit: 50, skip: 0 },
+  allowDiskUse = true,
+  maxTimeMS = MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS
+}) => {
+  const { skip = 0, limit = 50 } = pagination;
+  const pipeline = [
+    { $match: filters || {} }
+  ];
+
+  if (sort && Object.keys(sort).length > 0) {
+    pipeline.push({ $sort: sort });
+  }
+
+  pipeline.push({
+    $facet: {
+      data: [
+        ...(skip > 0 ? [{ $skip: skip }] : []),
+        { $limit: limit },
+        ...(projection ? [{ $project: projection }] : [])
+      ],
+      count: [{ $count: 'total' }]
+    }
+  });
+
+  try {
+    const [result] = await model.aggregate(pipeline)
+      .allowDiskUse(allowDiskUse)
+      .maxTimeMS(maxTimeMS)
+      .exec();
+
+    return {
+      data: result?.data || [],
+      total: result?.count?.[0]?.total || 0
+    };
+  } catch (error) {
+    // Fallback a countDocuments para no bloquear la respuesta completa
+    const total = await model.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
+    const data = await model.find(filters, projection || undefined)
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .maxTimeMS(maxTimeMS)
+      .lean();
+
+    return { data, total, fallback: true, fallbackError: error.message };
+  }
+};
+
 module.exports = {
   TRANSFORMS,
   parseNumericParams,
@@ -405,5 +464,6 @@ module.exports = {
   buildFilters,
   buildSortOptions,
   validateDateRange,
-  buildPaginationOptions
+  buildPaginationOptions,
+  executeFacetPagination
 };

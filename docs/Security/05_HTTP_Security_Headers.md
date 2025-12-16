@@ -14,6 +14,7 @@
 4. [Content Security Policy](#content-security-policy)
 5. [HSTS y HTTPS](#hsts-y-https)
 6. [Mejores Prácticas](#mejores-prácticas)
+7. [Redirección y Forzado de HTTPS](#redirección-y-forzado-de-https)
 
 ---
 
@@ -687,6 +688,23 @@ app.use((req, res, next) => {
   next();
 });
 ```
+
+---
+
+## Redirección y Forzado de HTTPS
+
+**Ubicación:** `middleware/security.js` (`enforceHttps`) y `server.js` (redirección HTTP→HTTPS cuando `SSL_ENABLED=true` y `SSL_REDIRECT_HTTP` por defecto).
+
+**Comportamiento:**
+- En producción, si la request llega por HTTP (`req.secure` o `x-forwarded-proto` distintos de `https`), se redirige 301 a la misma URL en HTTPS cuando SSL está habilitado.
+- Si SSL está deshabilitado en producción, la API devuelve 400 indicando que HTTPS es obligatorio (no procesa credenciales en claro).
+
+**Configuración:**
+- `.env`: `SSL_ENABLED=true`, `SSL_KEY_PATH`, `SSL_CERT_PATH`, `HTTPS_PORT`, `SSL_REDIRECT_HTTP=true` (por defecto) para levantar HTTPS y exponer redirección en el puerto HTTP.
+- `trust proxy` está activado (`app.set('trust proxy', 1)`) para honrar `x-forwarded-proto` detrás de un reverse proxy.
+
+**Mitigación:**
+- Cierra la ventana de sniffing de tokens/credenciales en la “primera visita”; toda request en producción debe terminar en HTTPS antes de servir rutas.
 
 ---
 

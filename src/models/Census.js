@@ -22,6 +22,7 @@ const {
   MONGODB_TIMEOUTS,
   AGGREGATION_LIMITS
 } = require('../constants');
+const { createCursorMeta, buildCursorQuery } = require('../utils/paginationHelper');
 
 /**
  * Sub-esquema para datos poblacionales por género
@@ -984,15 +985,25 @@ censusSchema.statics.findWithOptions = async function(options) {
     pagination = { skip: 0, limit: 50 },
     projection = null,
     lean = true,
-    includeStats = false
+    includeStats = false,
+    cursor = null
   } = options;
 
+  const primarySortField = Object.keys(sort)[0] || 'fechaCenso';
+  const sortOrder = sort[primarySortField] === 1 ? 'asc' : 'desc';
+  const cursorFilter = cursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder }) : null;
+  const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
+  const sortWithTiebreak = { ...sort, _id: sortOrder === 'asc' ? 1 : -1 };
+
   // Construir query principal con optimizaciones
-  let query = this.find(filters, projection)
-    .sort(sort)
-    .skip(pagination.skip)
+  let query = this.find(combinedFilters, projection)
+    .sort(sortWithTiebreak)
     .limit(pagination.limit)
     .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+
+  if (!cursor) {
+    query = query.skip(pagination.skip);
+  }
 
   // Aplicar .lean() si se solicita (default true para performance)
   if (lean) {
@@ -1002,7 +1013,7 @@ censusSchema.statics.findWithOptions = async function(options) {
   // Array de promises para ejecución paralela
   const promises = [
     query.exec(),
-    this.countDocuments(filters)
+    cursor ? Promise.resolve(null) : this.countDocuments(filters)
   ];
 
   // Solo agregar aggregation de stats si se solicita explícitamente
@@ -1042,7 +1053,13 @@ censusSchema.statics.findWithOptions = async function(options) {
   return {
     data: results[0],
     total: results[1],
-    stats: includeStats && results[2] ? results[2][0] : null
+    stats: includeStats && results[2] ? results[2][0] : null,
+    cursor: cursor ? createCursorMeta({
+      results: results[0],
+      limit: pagination.limit,
+      sortField: primarySortField,
+      sortOrder
+    }) : null
   };
 };
 
@@ -1258,3 +1275,14 @@ censusSchema.statics.getDemographicEvolutionOptimized = async function(options) 
 const Census = mongoose.model('Census', censusSchema);
 
 module.exports = Census;
+
+// Transformación de salida para reducir payload
+censusSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete ret.createdAt;
+    delete ret.updatedAt;
+    delete ret.__v;
+    delete ret.procesamiento;
+    return ret;
+  }
+});

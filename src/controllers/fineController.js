@@ -9,7 +9,7 @@
 const Fine = require('../models/Fine');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, buildResponseMetadata } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, buildResponseMetadata, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, TIME_CONSTANTS, FINE_CONSTANTS, DASHBOARD_PERIODS, DEFAULT_SORT_FIELDS } = require('../constants');
 const logger = require('../config/logger');
@@ -96,16 +96,20 @@ const getFines = async (req, res, next) => {
       projection.coordenadas = 1;
     }
 
-    // Ejecutar consulta con timeouts
-    const [data, totalDocuments] = await Promise.all([
-      Fine.find(filters, projection)
-        .sort(sortOptions)
-        .skip(paginationOptions.skip)
-        .limit(paginationOptions.limit)
-        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
-        .lean(),
-      Fine.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
-    ]);
+    // Ejecutar consulta con facet para datos + total en una sola operación
+    const {
+      data,
+      total: totalDocuments,
+      fallback: fineFacetFallback,
+      fallbackError: fineFacetError
+    } = await executeFacetPagination({
+      model: Fine,
+      filters,
+      sort: sortOptions,
+      projection,
+      pagination: paginationOptions,
+      maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS
+    });
 
     // Calcular metadatos de paginación usando helper
     const paginationMeta = createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
@@ -140,6 +144,10 @@ const getFines = async (req, res, next) => {
         multasGraves: 0,
         multasConDescuento: 0
       },
+      performance: fineFacetFallback ? {
+        facetFallback: true,
+        reason: fineFacetError
+      } : undefined,
       filtros: {
         aplicados: Object.keys(filters).length > 0 ? filters : null,
         disponibles: {

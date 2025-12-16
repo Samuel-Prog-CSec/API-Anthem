@@ -11,7 +11,7 @@ const { verifyToken, extractToken } = require('../utils/tokenHelper');
 const { createUnauthorizedResponse } = require('../utils/responseHelper');
 const { authLogger } = require('../config/logger');
 const { logTokenValidation } = require('../utils/securityLogger');
-const { HTTP_STATUS } = require('../constants');
+const { HTTP_STATUS, TOKEN_VALIDATION } = require('../constants');
 
 /**
  * Middleware de autenticación
@@ -40,6 +40,15 @@ const authenticate = async (req, res, next) => {
     if (!token) {
       return res.status(HTTP_STATUS.UNAUTHORIZED).json(
         createUnauthorizedResponse('Se requiere un token de acceso')
+      );
+    }
+
+    if (!TOKEN_VALIDATION.JWT_REGEX.test(token)) {
+      logTokenValidation(false, 'Formato de token inválido', {
+        tokenPrefix: token.substring(0, 10) + '...'
+      });
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
+        createUnauthorizedResponse('Formato de token inválido')
       );
     }
 

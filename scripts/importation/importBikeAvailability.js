@@ -173,6 +173,7 @@ const REJECTION_REASONS = {
   INVALID_DATE: 'FECHA_INVALIDA',
   NEGATIVE_VALUES: 'VALORES_NEGATIVOS',
   DUPLICATE_IN_DB: 'DUPLICADO_EN_BD',
+  DUPLICATE_IN_FILE: 'DUPLICADO_EN_ARCHIVO',
   DUPLICATE_KEY: 'CLAVE_DUPLICADA',
   VALIDATION_ERROR: 'ERROR_VALIDACION_MODELO'
 };
@@ -378,25 +379,75 @@ async function processCSV(options) {
   );
 
   return new Promise((resolve, reject) => {
-    const records = [];
-    const stream = fs.createReadStream(IMPORT_CONFIG.dataFile)
+    const batch = [];
+    let isProcessingBatch = false;
+    const seenDatesInFile = new Set();
+    let stream;
+
+    const flushBatch = async () => {
+      if (batch.length === 0) {return;}
+      isProcessingBatch = true;
+      stream.pause();
+
+      try {
+        let workingBatch = batch.splice(0, batch.length);
+
+        if (options.skipExisting) {
+          const dates = workingBatch.map(r => r.dia);
+          const existingSet = await checkDuplicates(dates);
+          workingBatch = workingBatch.filter(record => {
+            const isDuplicate = existingSet.has(record.dia.toISOString());
+            if (isDuplicate) {
+              totalSkipped++;
+            }
+            return !isDuplicate;
+          });
+        }
+
+        if (workingBatch.length > 0) {
+          const result = await processBatch(workingBatch, options);
+          totalInserted += result.inserted;
+          totalSkipped += result.skipped;
+        }
+      } catch (error) {
+        totalErrors++;
+        logger.error({ error: error.message }, 'Error procesando lote');
+      } finally {
+        isProcessingBatch = false;
+        if (!isShuttingDown) {
+          stream.resume();
+        }
+      }
+    };
+
+    stream = fs.createReadStream(IMPORT_CONFIG.dataFile)
       .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }));
 
-    stream.on('data', (row) => {
-      if (isShuttingDown) {
-        stream.destroy();
-        return;
-      }
+    stream.on('data', async (row) => {
+      if (isShuttingDown || isProcessingBatch) {return;}
 
       totalProcessed++;
 
       try {
         const transformedData = validateAndTransformRow(row, totalProcessed);
-        records.push(transformedData);
+        const dateKey = transformedData.dia.toISOString();
+
+        if (seenDatesInFile.has(dateKey)) {
+          totalRejected++;
+          rejectionTracker.track(REJECTION_REASONS.DUPLICATE_IN_FILE);
+          return;
+        }
+
+        seenDatesInFile.add(dateKey);
+        batch.push(transformedData);
+
+        if (batch.length >= options.batchSize) {
+          await flushBatch();
+        }
 
         if (totalProcessed % IMPORT_CONFIG.logInterval === 0) {
           logger.debug(
-            { processed: totalProcessed, valid: records.length },
+            { processed: totalProcessed, buffered: batch.length },
             'Progreso de lectura'
           );
         }
@@ -421,70 +472,14 @@ async function processCSV(options) {
 
     stream.on('end', async () => {
       logger.info(
-        { totalProcessed: totalProcessed, validRecords: records.length, errors: totalErrors },
+        { totalProcessed, buffered: batch.length, errors: totalErrors },
         'Lectura de CSV completada'
       );
 
-      if (records.length === 0) {
-        logger.warn('No hay registros validos para insertar');
-        return resolve();
-      }
-
-      // Verificar duplicados si skipExisting
-      let recordsToInsert = records;
-
-      if (options.skipExisting) {
-        logger.info('Verificando duplicados en base de datos...');
-        const dates = records.map(r => r.dia);
-        const existingDatesSet = await checkDuplicates(dates);
-
-        recordsToInsert = records.filter(record => {
-          const isDuplicate = existingDatesSet.has(record.dia.toISOString());
-          if (isDuplicate) {
-            totalSkipped++;
-            logger.debug(
-              { fecha: record.dia.toISOString().split('T')[0], razon: REJECTION_REASONS.DUPLICATE_IN_DB },
-              'Registro omitido - duplicado en BD'
-            );
-          }
-          return !isDuplicate;
-        });
-
-        logger.info(
-          { newRecords: recordsToInsert.length, duplicates: totalSkipped },
-          'Verificacion de duplicados completada'
-        );
-      }
-
-      if (recordsToInsert.length === 0) {
-        logger.info('Todos los registros ya existen en la base de datos');
-        return resolve();
-      }
-
-      // Insertar en lotes
-      logger.info(
-        { totalRecords: recordsToInsert.length, batchSize: options.batchSize },
-        'Iniciando insercion en base de datos'
-      );
-
       try {
-        for (let i = 0; i < recordsToInsert.length && !isShuttingDown; i += options.batchSize) {
-          const batch = recordsToInsert.slice(i, i + options.batchSize);
-          const result = await processBatch(batch, options);
-
-          totalInserted += result.inserted;
-          totalSkipped += result.skipped;
-
-          const progress = Math.round(((i + batch.length) / recordsToInsert.length) * 100);
-          logger.debug(
-            { inserted: totalInserted, progress: `${progress}%` },
-            'Progreso de insercion'
-          );
-        }
-
+        await flushBatch();
         resolve();
       } catch (error) {
-        logger.error({ error: error.message }, 'Error durante insercion');
         reject(error);
       }
     });

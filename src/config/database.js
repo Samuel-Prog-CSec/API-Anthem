@@ -23,9 +23,9 @@ const connectDB = async (uri) => {
   try {
     const options = {
       // Configuraciones optimizadas de conexión para alto rendimiento
-      maxPoolSize: 50, // Número máximo de conexiones en el pool (aumentado de 20)
-      minPoolSize: 10, // Número mínimo de conexiones mantenidas en el pool
-      maxIdleTimeMS: 30000, // Tiempo máximo de inactividad antes de cerrar conexión (30s)
+      maxPoolSize: 20, // Reducido para bajar uso de RAM en cargas moderadas
+      minPoolSize: 5, // Mantener algunas conexiones calientes
+      maxIdleTimeMS: 60000, // Mantener conexiones inactivas hasta 60s
       serverSelectionTimeoutMS: 5000, // Tiempo máximo para intentar conectar
       socketTimeoutMS: 60000, // Tiempo máximo que una conexión permanece abierta
 

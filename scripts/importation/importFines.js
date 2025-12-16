@@ -272,12 +272,12 @@ async function processMultasFile(filePath, options = {}) {
 
     const batch = [];
     let rowIndex = 0;
+    let isProcessingBatch = false;
 
     const stream = createReadStream(filePath)
       .pipe(csv({ separator: ';' }))
       .on('data', async (row) => {
-        if (isShuttingDown) {
-          stream.destroy();
+        if (isShuttingDown || isProcessingBatch) {
           return;
         }
 
@@ -293,10 +293,17 @@ async function processMultasFile(filePath, options = {}) {
 
             // Procesar lote cuando alcance el tamano configurado
             if (batch.length >= options.batchSize) {
+              isProcessingBatch = true;
               stream.pause();
-              await processBatch(batch, options, stats);
-              batch.length = 0;
-              stream.resume();
+              try {
+                await processBatch(batch, options, stats);
+                batch.length = 0;
+              } finally {
+                isProcessingBatch = false;
+                if (!isShuttingDown) {
+                  stream.resume();
+                }
+              }
             }
           } else {
             stats.rejectedRecords++;
@@ -334,7 +341,12 @@ async function processMultasFile(filePath, options = {}) {
         try {
           // Procesar lote restante
           if (batch.length > 0 && !isShuttingDown) {
-            await processBatch(batch, options, stats);
+            isProcessingBatch = true;
+            try {
+              await processBatch(batch, options, stats);
+            } finally {
+              isProcessingBatch = false;
+            }
           }
 
           // Actualizar contadores globales

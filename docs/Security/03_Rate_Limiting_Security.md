@@ -341,10 +341,13 @@ const {
   heavyQueryLimiter
 } = require('./middleware/security');
 
-// 1. Rate limiter general PRIMERO (aplica a todo)
-app.use('/api', generalLimiter);
+// 1. Endpoint /health SIN rate limiting (para balanceadores)
+app.get('/health', handler);
 
-// 2. Montaje de rutas con sus limiters específicos
+// 2. Rate limiter general (aplica a todo lo demás)
+app.use(generalLimiter);
+
+// 3. Montaje de rutas con sus limiters específicos
 app.use('/api/v1.0/auth', authLimiter, authRoutes);
 app.use('/api/v1.0/ubicaciones', locationRoutes); // Solo general
 app.use('/api/v1.0/accidentes', accidentRoutes);

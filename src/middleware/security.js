@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const mongoSanitize = require('express-mongo-sanitize');
 const xss = require('xss');
+const { validationResult } = require('express-validator');
 const config = require('../config/config');
 const { RATE_LIMITS, HPP_ARRAY_PARAMS_WHITELIST, HTTP_STATUS } = require('../constants');
 const { createRateLimitResponse, createErrorResponse } = require('../utils/responseHelper');
@@ -95,6 +96,7 @@ const helmetConfig = helmet({
  */
 const sanitizeInput = mongoSanitize({
   replaceWith: '_', // Reemplazar caracteres prohibidos con guión bajo
+  allowDots: false, // Bloquear acceso a propiedades anidadas vía dot-notation
   onSanitize: ({ req, key }) => {
     pinoSecurityLogger.warn({ key, ip: req.ip }, 'Entrada sanitizada - posible intento de inyección NoSQL');
   }
@@ -114,60 +116,61 @@ const xssProtection = (req, res, next) => {
    * @param {Object} obj - Objeto a sanitizar
    * @returns {Object} Objeto sanitizado
    */
-  const sanitizeObject = (obj) => {
-    if (!obj || typeof obj !== 'object') {
+  const MAX_DEPTH = 10;
+  const MAX_KEYS_PER_LEVEL = 100;
+  const MAX_ARRAY_LENGTH = 1000;
+
+  const sanitizeObject = (obj, depth = 0) => {
+    if (depth > MAX_DEPTH || obj === null || obj === undefined) {
       return obj;
     }
 
-    for (const key in obj) {
-      if (Object.prototype.hasOwnProperty.call(obj, key)) {
-        const value = obj[key];
-
-        if (typeof value === 'string') {
-          // Sanitizar valores de cadena
-          const sanitized = xss(value);
-
-          // Registrar si se detecta intento de XSS
-          if (sanitized !== value) {
-            pinoSecurityLogger.warn({
-              field: key,
-              ip: req.ip,
-              originalLength: value.length,
-              sanitizedLength: sanitized.length
-            }, 'Intento de XSS detectado y sanitizado');
-          }
-
-          obj[key] = sanitized;
-        } else if (typeof value === 'object' && value !== null) {
-          // Sanitizar recursivamente objetos anidados
-          sanitizeObject(value);
-        }
+    if (typeof obj === 'string') {
+      const sanitized = xss(obj);
+      if (sanitized !== obj) {
+        pinoSecurityLogger.warn({ ip: req.ip, depth, originalLength: obj.length, sanitizedLength: sanitized.length }, 'Intento de XSS detectado y sanitizado');
       }
+      return sanitized;
+    }
+
+    if (Array.isArray(obj)) {
+      if (obj.length > MAX_ARRAY_LENGTH) {
+        throw new Error('Payload con demasiados elementos en un array');
+      }
+      return obj.map((item) => sanitizeObject(item, depth + 1));
+    }
+
+    if (typeof obj === 'object') {
+      const keys = Object.keys(obj);
+      if (keys.length > MAX_KEYS_PER_LEVEL) {
+        throw new Error('Payload con demasiadas propiedades en un nivel');
+      }
+
+      const sanitized = {};
+      for (const key of keys) {
+        sanitized[key] = sanitizeObject(obj[key], depth + 1);
+      }
+      return sanitized;
     }
 
     return obj;
   };
 
   try {
-    // Sanitizar cuerpo de la petición
-    if (req.body) {
-      req.body = sanitizeObject(req.body);
-    }
-
-    // Sanitizar parámetros de query
-    if (req.query) {
-      req.query = sanitizeObject(req.query);
-    }
-
-    // Sanitizar parámetros de URL
-    if (req.params) {
-      req.params = sanitizeObject(req.params);
-    }
-
+    req.body = sanitizeObject(req.body);
+    req.query = sanitizeObject(req.query);
+    req.params = sanitizeObject(req.params);
     next();
   } catch (error) {
-    pinoSecurityLogger.error({ error: error.message, stack: error.stack }, 'Error en middleware de protección XSS');
-    next(error);
+    pinoSecurityLogger.warn({
+      ip: req.ip,
+      path: req.originalUrl,
+      message: error.message
+    }, 'Payload rechazado por límites de sanitización');
+
+    return res.status(HTTP_STATUS.BAD_REQUEST).json(
+      createErrorResponse('El payload enviado excede los límites permitidos')
+    );
   }
 };
 
@@ -200,6 +203,22 @@ const customSecurityHeaders = (req, res, next) => {
  * Valida la estructura de las peticiones y previene peticiones malformadas.
  */
 const validateRequest = (req, res, next) => {
+  const errors = validationResult(req);
+
+  if (!errors.isEmpty()) {
+    const formattedErrors = errors.array().map(error => ({
+      field: error.path || error.param,
+      message: error.msg,
+      value: error.value
+    }));
+
+    return res.status(HTTP_STATUS.BAD_REQUEST).json({
+      success: false,
+      message: 'Errores de validación',
+      errors: formattedErrors
+    });
+  }
+
   // Verificar peticiones sospechosamente grandes
   const maxSize = 1024 * 1024; // 1MB
   const contentLength = req.get('Content-Length');
@@ -240,10 +259,54 @@ const validateRequest = (req, res, next) => {
         );
         req.query[key] = value[0];
       }
+
+      // Bloquear objetos anidados en query (intento de inyección mediante foo[bar]=x)
+      if (value && typeof value === 'object') {
+        pinoSecurityLogger.warn(
+          { key, value, ip: req.ip },
+          'Objeto detectado en query string - posible ataque de inyección'
+        );
+        return res.status(HTTP_STATUS.BAD_REQUEST).json(
+          createErrorResponse('Estructura de query inválida: no se permiten objetos anidados')
+        );
+      }
     }
   }
 
   next();
+};
+
+/**
+ * Middleware para forzar HTTPS en producción y evitar sniffing en HTTP.
+ * Redirige a HTTPS si está habilitado; si SSL está deshabilitado en producción,
+ * responde 400 indicando la configuración requerida.
+ */
+const enforceHttps = (req, res, next) => {
+  if (config.server.env !== 'production') {
+    return next();
+  }
+
+  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+
+  if (isSecure) {
+    return next();
+  }
+
+  if (!config.ssl.enabled) {
+    return res.status(HTTP_STATUS.BAD_REQUEST).json(
+      createErrorResponse('HTTPS requerido en producción. Configure SSL_ENABLED=true y certificados válidos')
+    );
+  }
+
+  const httpsUrl = `https://${req.headers.host}${req.url}`;
+
+  if (config.ssl.redirectHttp) {
+    return res.redirect(301, httpsUrl);
+  }
+
+  return res.status(HTTP_STATUS.BAD_REQUEST).json(
+    createErrorResponse('HTTPS requerido. Accede usando https://')
+  );
 };
 
 /**
@@ -289,6 +352,7 @@ module.exports = {
   helmetConfig,
   sanitizeInput,
   xssProtection,
+  enforceHttps,
   customSecurityHeaders,
   validateRequest,
   securityLogger

@@ -8,8 +8,8 @@
 
 const Accident = require('../models/Accident');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
-const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS } = require('../utils/queryHelper');
+const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, INJURY_SEVERITY_MAPPING, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, MONGODB_TIMEOUTS, TIME_CONSTANTS, DAYS_OF_WEEK } = require('../constants');
 const logger = require('../config/logger');
@@ -59,6 +59,14 @@ const getAllAccidents = async (req, res, next) => {
       { defaultLimit: PAGINATION.DEFAULT_LIMIT, maxLimit: PAGINATION.MAX_LIMIT }
     );
 
+    const { cursor } = req.query;
+    const useCursor = Boolean(cursor);
+    const primarySortField = Object.keys(sortOptions)[0] || 'fecha';
+    const sortOrder = sortOptions[primarySortField] === 1 ? 'asc' : 'desc';
+    const cursorFilter = useCursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder }) : null;
+    const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
+    const sortWithTiebreak = { ...sortOptions, _id: sortOrder === 'asc' ? 1 : -1 };
+
     // Proyección optimizada: solo campos necesarios para listado
     // Reduce ~50% tamaño de respuesta y memoria
     const projection = {
@@ -82,41 +90,61 @@ const getAllAccidents = async (req, res, next) => {
       'analisis.factoresRiesgo': 1
     };
 
-    // Ejecutar consulta principal y estadísticas en paralelo
-    const [accidents, totalCount, stats] = await Promise.all([
-      Accident.find(filters, projection)
-        .sort(sortOptions)
-        .skip(paginationOptions.skip)
+    let accidents = [];
+    let totalCount = null;
+    let accidentsFacetFallback = false;
+    let accidentsFacetError = null;
+
+    if (useCursor) {
+      accidents = await Accident.find(combinedFilters, projection)
+        .sort(sortWithTiebreak)
         .limit(paginationOptions.limit)
-        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
-        .lean(),
-      Accident.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS), // Timeout de 5 segundos para count
-      Accident.aggregate([
-        { $match: filters },
-        // NO usar $limit antes de $group - corrompe las estadísticas globales
-        {
-          $group: {
-            _id: null,
-            accidentesGraves: {
-              $sum: { $cond: [{ $in: ['$circunstancias.gravedad', [SEVERITY_LEVELS.ACCIDENT.GRAVE, SEVERITY_LEVELS.ACCIDENT.MORTAL]] }, 1, 0] }
-            },
-            accidentesMortales: {
-              $sum: { $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0] }
-            },
-            puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' },
-            accidentesConAlcohol: {
-              $sum: { $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0] }
-            }
+        .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+        .lean();
+    } else {
+      const facetResult = await executeFacetPagination({
+        model: Accident,
+        filters,
+        sort: sortOptions,
+        projection,
+        pagination: paginationOptions,
+        maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS
+      });
+
+      accidents = facetResult.data;
+      totalCount = facetResult.total;
+      accidentsFacetFallback = facetResult.fallback;
+      accidentsFacetError = facetResult.fallbackError;
+    }
+
+    // Estadísticas agregadas separadas (mantener consistencia de negocio)
+    const stats = await Accident.aggregate([
+      { $match: filters },
+      // NO usar $limit antes de $group - corrompe las estadísticas globales
+      {
+        $group: {
+          _id: null,
+          accidentesGraves: {
+            $sum: { $cond: [{ $in: ['$circunstancias.gravedad', [SEVERITY_LEVELS.ACCIDENT.GRAVE, SEVERITY_LEVELS.ACCIDENT.MORTAL]] }, 1, 0] }
+          },
+          accidentesMortales: {
+            $sum: { $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0] }
+          },
+          puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' },
+          accidentesConAlcohol: {
+            $sum: { $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0] }
           }
         }
-      ])
-        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
-        .exec()
-    ]);
+      }
+    ])
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
+      .exec();
 
     const responseData = {
       data: accidents,
-      pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalCount),
+      pagination: useCursor
+        ? createCursorMeta({ results: accidents, limit: paginationOptions.limit, sortField: primarySortField, sortOrder })
+        : createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalCount),
       filters: {
         applied: filters,
         available: {
@@ -131,7 +159,13 @@ const getAllAccidents = async (req, res, next) => {
         accidentesMortales: 0,
         puntuacionGravedadPromedio: 0,
         accidentesConAlcohol: 0
-      }
+      },
+      performance: useCursor ? {
+        cursorPagination: true
+      } : accidentsFacetFallback ? {
+        facetFallback: true,
+        reason: accidentsFacetError
+      } : undefined
     };
 
     logger.info({

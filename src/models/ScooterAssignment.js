@@ -237,6 +237,17 @@ const scooterAssignmentSchema = new mongoose.Schema({
   collection: 'scooter_assignments'
 });
 
+// Transformación de salida para reducir payload
+scooterAssignmentSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete ret.createdAt;
+    delete ret.updatedAt;
+    delete ret.__v;
+    delete ret.procesamiento;
+    return ret;
+  }
+});
+
 /**
  * Índices para optimización de consultas
  */

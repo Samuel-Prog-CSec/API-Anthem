@@ -374,6 +374,29 @@ trafficSchema.index({
   background: true
 });
 
+// Índice cubierto para listados frecuentes (evita fetch completo del documento)
+trafficSchema.index({
+  fecha: -1,
+  puntoMedidaId: 1,
+  'metricas.intensidad': 1,
+  'metricas.ocupacion': 1,
+  'metricas.carga': 1,
+  'analisis.nivelCongestion': 1
+}, {
+  name: 'idx_traffic_list_cover',
+  background: true
+});
+
+// Transformación de salida para reducir payload en respuestas
+trafficSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete ret.createdAt;
+    delete ret.updatedAt;
+    delete ret.procesamiento;
+    return ret;
+  }
+});
+
 /**
  * ========================================
  * MÉTODOS DE INSTANCIA

@@ -247,6 +247,8 @@ app.use('/api/v1.0/auth', authRoutes);
 2. **Sanitización antes de validación:** Limpiamos datos maliciosos antes de validar
 3. **Validación antes de lógica:** Solo datos válidos llegan a controladores
 
+> Nota: `validateRequest` ahora procesa también los resultados de `express-validator` y responde 400 de forma uniforme. Esto elimina el riesgo de que validaciones silenciosas permitan payloads malformados llegar a controladores.
+
 ---
 
 ## express-validator
@@ -412,6 +414,7 @@ const mongoSanitize = require('express-mongo-sanitize');
 
 app.use(mongoSanitize({
   replaceWith: '_',  // Reemplazar $ y . con _
+  allowDots: false,  // Bloquea dot-notation para impedir proto pollution
   onSanitize: ({ req, key }) => {
     logger.warn({
       msg: 'Intento de inyección NoSQL detectado',
@@ -421,6 +424,8 @@ app.use(mongoSanitize({
     });
   }
 }));
+
+// Cualquier intento de acceso anidado (foo.bar) es bloqueado y logueado
 ```
 
 **Ejemplo de Sanitización:**
@@ -534,6 +539,8 @@ onclick, onerror, onload, onmouseover, etc.
 javascript:, data:, vbscript:
 ```
 
+**Límites defensivos aplicados:** Sanitizamos recursivamente pero con guardas para evitar payloads de denegación de servicio: profundidad máxima 10 niveles, máximo 100 propiedades por nivel y arrays limitados a 1000 elementos. Si se excede alguno de estos límites, el middleware responde 400 y registra el intento.
+
 ### 3. HTTP Parameter Pollution (HPP) Prevention
 
 **Propósito:** Prevenir parámetros duplicados con intenciones maliciosas.
@@ -567,11 +574,11 @@ const validateRequest = (req, res, next) => {
         ip: req.ip,
         path: req.path,
         param: key,
-        value: value
+        value
       });
 
-      // Convertir a string
-      req.query[key] = String(value);
+      // Rechazar petición (400) para evitar inyección vía foo[bar]=x
+      return res.status(400).json(createErrorResponse('Estructura de query inválida: no se permiten objetos anidados'));
     }
   }
 
@@ -881,7 +888,10 @@ body('confirmPassword')
 ✅ **express-mongo-sanitize** para prevenir inyecciones NoSQL
 ✅ **xss** para prevenir XSS
 ✅ **HPP prevention** personalizado
+✅ **Bloqueo de objetos en query** (rechazo 400 ante bracket-notation)
+✅ **Validación de tokens JWT** (regex + longitud máxima en refresh/logout)
 ✅ **Validaciones por dominio** específicas
+✅ **Límites seguros en credenciales** (password máximo 72 chars para evitar truncamiento bcrypt; nombre/apellido obligatorios; rol en whitelist)
 ✅ **Logging de intentos maliciosos**
 ✅ **Mensajes de error seguros e informativos**
 

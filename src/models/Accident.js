@@ -368,7 +368,14 @@ const accidentSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   versionKey: false,
-  collection: 'accidents'
+  collection: 'accidents',
+  toJSON: {
+    transform: (_doc, ret) => {
+      delete ret.createdAt;
+      delete ret.updatedAt;
+      return ret;
+    }
+  }
 });
 
 /**
@@ -386,6 +393,18 @@ const accidentSchema = new mongoose.Schema({
 // Usado en: GET /api/accidents/:numeroExpediente
 // Soporta: Búsqueda de accidentes específicos por número de expediente
 accidentSchema.index({ numeroExpediente: 1, fecha: -1 });
+
+// Índice cubierto para listados (reduce fetch de documentos)
+// Cubre: sort por fecha, filtro por distrito y gravedad, proyección básica
+accidentSchema.index({
+  fecha: -1,
+  numeroExpediente: 1,
+  'circunstancias.gravedad': 1,
+  'ubicacion.nombreDistrito': 1
+}, {
+  name: 'idx_accidents_list_cover',
+  background: true
+});
 
 // ========================================
 // ÍNDICES TEMPORALES

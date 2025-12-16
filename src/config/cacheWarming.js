@@ -17,9 +17,13 @@ const Traffic = require('../models/Traffic');
 const AirQuality = require('../models/AirQuality');
 const Census = require('../models/Census');
 const ScooterAssignment = require('../models/ScooterAssignment');
+const Accident = require('../models/Accident');
 const logger = require('./logger');
 const { cacheLogger } = logger;
 const { DATASET_YEARS } = require('../constants');
+
+const MAX_RETRY_ATTEMPTS = 2;
+const RETRY_DELAY_MS = 5000;
 
 /**
  * Precalentar caché de ubicaciones
@@ -300,6 +304,80 @@ const warmScooterAssignmentCache = async () => {
 };
 
 /**
+ * Precalentar caché de accidentes recientes
+ * Mejora la latencia inicial de los listados y estadísticas rápidas
+ */
+const warmAccidentRecentCache = async () => {
+  try {
+    cacheLogger.info('Precalentando caché de accidentes recientes...');
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    await Accident.find({ fecha: { $gte: thirtyDaysAgo } })
+      .select('numeroExpediente fecha hora ubicacion.nombreDistrito ubicacion.coordenadas analisis.puntuacionGravedad')
+      .sort({ fecha: -1 })
+      .limit(200)
+      .maxTimeMS(5000)
+      .lean();
+
+    cacheLogger.info('Caché de accidentes recientes precalentado correctamente');
+    return { success: true, resource: 'accidents-recent' };
+
+  } catch (error) {
+    cacheLogger.warn({
+      error: error.message,
+      resource: 'accidents-recent'
+    }, 'Error precalentando caché de accidentes (no crítico)');
+
+    return { success: false, resource: 'accidents-recent', error: error.message };
+  }
+};
+
+const warmupTasks = [
+  { name: 'locations', fn: warmLocationCache },
+  { name: 'districts', fn: warmDistrictCache },
+  { name: 'fines-stats', fn: warmFineStatsCache },
+  { name: 'traffic', fn: warmTrafficCache },
+  { name: 'air-quality', fn: warmAirQualityCache },
+  { name: 'census-dashboard', fn: warmCensusDashboardCache },
+  { name: 'scooter-assignment', fn: warmScooterAssignmentCache },
+  { name: 'accidents-recent', fn: warmAccidentRecentCache }
+];
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const runWarmTaskWithRetry = async (task) => {
+  let attempt = 0;
+  let lastError = null;
+
+  while (attempt < MAX_RETRY_ATTEMPTS) {
+    attempt += 1;
+    try {
+      const result = await task.fn();
+      if (result?.success) {
+        return { ...result, attempts: attempt };
+      }
+      lastError = new Error(result?.error || 'Warmup returned without exito');
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < MAX_RETRY_ATTEMPTS) {
+      cacheLogger.warn({ task: task.name, attempt, error: lastError?.message }, 'Cache warming fallido, reintentando...');
+      await sleep(RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  return {
+    success: false,
+    resource: task.name,
+    error: lastError?.message || 'Error desconocido en warmup',
+    attempts: attempt
+  };
+};
+
+/**
  * Función principal de precalentamiento de caché
  * Ejecuta todas las operaciones en paralelo
  *
@@ -314,19 +392,14 @@ const warmupCache = async () => {
 
   try {
     // Ejecutar todas las operaciones de warmup en paralelo
-    const results = await Promise.allSettled([
-      warmLocationCache(),
-      warmDistrictCache(),
-      warmFineStatsCache(),
-      warmTrafficCache(),
-      warmAirQualityCache(),
-      warmCensusDashboardCache(),
-      warmScooterAssignmentCache()
-    ]);
+    const results = await Promise.allSettled(
+      warmupTasks.map(task => runWarmTaskWithRetry(task))
+    );
 
     // Analizar resultados
-    const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-    const failed = results.filter(r => r.status === 'rejected' || !r.value.success).length;
+    const fulfilled = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+    const successful = fulfilled.filter(r => r.success).length;
+    const failed = warmupTasks.length - successful;
 
     const duration = Date.now() - startTime;
 
@@ -398,5 +471,8 @@ module.exports = {
   warmDistrictCache,
   warmFineStatsCache,
   warmTrafficCache,
-  warmAirQualityCache
+  warmAirQualityCache,
+  warmCensusDashboardCache,
+  warmScooterAssignmentCache,
+  warmAccidentRecentCache
 };

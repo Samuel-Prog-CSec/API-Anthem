@@ -715,6 +715,15 @@ bikeAvailabilitySchema.statics.getDemandPrediction = async function(options = {}
   };
 };
 
+// Transformación de salida para reducir tamaño de respuesta
+bikeAvailabilitySchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete ret.createdAt;
+    delete ret.updatedAt;
+    return ret;
+  }
+});
+
 // Crear y exportar el modelo
 const BikeAvailability = mongoose.model('BikeAvailability', bikeAvailabilitySchema);
 

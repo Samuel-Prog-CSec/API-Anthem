@@ -21,3 +21,11 @@ build/
 .cache/
 .agent/
 .github/
+
+# SSL Certificates (nunca subir claves privadas)
+certs/
+*.key
+*.crt
+*.pem
+*.pfx
+

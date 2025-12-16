@@ -421,13 +421,65 @@ async function processCSV(options) {
   );
 
   return new Promise((resolve, reject) => {
-    const records = [];
-    const stream = fs.createReadStream(IMPORT_CONFIG.dataFile, { encoding: 'utf8' })
+    const batch = [];
+    let isProcessingBatch = false;
+    let stream;
+
+    const flushBatch = async () => {
+      if (batch.length === 0) {return;}
+      isProcessingBatch = true;
+      stream.pause();
+
+      try {
+        let workingBatch = batch.splice(0, batch.length);
+
+        if (options.skipExisting) {
+          const existingContainers = await Container.find({
+            codigoInternoSituado: { $in: [...new Set(workingBatch.map(r => r.codigoInternoSituado))] }
+          })
+            .select('codigoInternoSituado tipoContenedor coordenadas')
+            .lean()
+            .maxTimeMS(30000);
+
+          const existingKeys = new Set(
+            existingContainers.map(c => generateUniqueKey({
+              codigoInternoSituado: c.codigoInternoSituado,
+              tipoContenedor: c.tipoContenedor,
+              coordenadas: c.coordenadas
+            }))
+          );
+
+          workingBatch = workingBatch.filter(record => {
+            const key = generateUniqueKey(record);
+            const isDuplicate = existingKeys.has(key);
+            if (isDuplicate) {
+              stats.totalSkipped++;
+            }
+            return !isDuplicate;
+          });
+        }
+
+        if (workingBatch.length > 0) {
+          const result = await processBatch(workingBatch, options);
+          stats.totalInserted += result.inserted;
+          stats.totalSkipped += result.skipped;
+        }
+      } catch (error) {
+        stats.totalErrors++;
+        logger.error({ error: error.message }, 'Error procesando lote');
+      } finally {
+        isProcessingBatch = false;
+        if (!isShuttingDown) {
+          stream.resume();
+        }
+      }
+    };
+
+    stream = fs.createReadStream(IMPORT_CONFIG.dataFile, { encoding: 'utf8' })
       .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }));
 
-    stream.on('data', (row) => {
-      if (isShuttingDown) {
-        stream.destroy();
+    stream.on('data', async (row) => {
+      if (isShuttingDown || isProcessingBatch) {
         return;
       }
 
@@ -435,30 +487,24 @@ async function processCSV(options) {
 
       try {
         const transformedData = validateAndTransformRow(row, stats.totalProcessed);
-
-        // Verificar duplicados en memoria
         const uniqueKey = generateUniqueKey(transformedData);
 
         if (processedKeys.has(uniqueKey)) {
           stats.duplicatesInFile++;
-          logger.debug(
-            {
-              fila: stats.totalProcessed,
-              razon: REJECTION_REASONS.DUPLICATE_IN_FILE,
-              codigo: transformedData.codigoInternoSituado,
-              tipo: transformedData.tipoContenedor
-            },
-            'Fila rechazada - duplicado en archivo CSV'
-          );
-        } else {
-          processedKeys.add(uniqueKey);
-          records.push(transformedData);
+          return;
+        }
+
+        processedKeys.add(uniqueKey);
+        batch.push(transformedData);
+
+        if (batch.length >= options.batchSize) {
+          await flushBatch();
         }
 
         if (stats.totalProcessed % IMPORT_CONFIG.logInterval === 0) {
           logger.debug({
             processed: stats.totalProcessed,
-            valid: records.length,
+            buffered: batch.length,
             duplicatesInFile: stats.duplicatesInFile,
             errors: stats.totalErrors
           }, 'Progreso de lectura');
@@ -487,89 +533,16 @@ async function processCSV(options) {
     stream.on('end', async () => {
       logger.info({
         totalProcessed: stats.totalProcessed,
-        validRecords: records.length,
+        buffered: batch.length,
         duplicatesInFile: stats.duplicatesInFile,
         errors: stats.totalErrors
       }, 'Lectura de CSV completada');
 
-      if (records.length === 0) {
-        logger.warn('No hay registros validos para insertar');
-        return resolve();
-      }
-
-      // Verificar duplicados en base de datos si skipExisting
-      let recordsToInsert = records;
-
-      if (options.skipExisting) {
-        logger.info('Verificando duplicados en base de datos...');
-
-        const codigos = [...new Set(records.map(r => r.codigoInternoSituado))];
-        const existingContainers = await Container.find({
-          codigoInternoSituado: { $in: codigos }
-        })
-          .select('codigoInternoSituado tipoContenedor coordenadas')
-          .lean()
-          .maxTimeMS(30000);
-
-        const existingKeys = new Set(
-          existingContainers.map(c =>
-            `${c.codigoInternoSituado}_${c.tipoContenedor}_${c.coordenadas.x}_${c.coordenadas.y}`
-          )
-        );
-
-        recordsToInsert = records.filter(record => {
-          const key = generateUniqueKey(record);
-          const isDuplicate = existingKeys.has(key);
-          if (isDuplicate) {
-            stats.totalSkipped++;
-            logger.debug(
-              {
-                razon: REJECTION_REASONS.DUPLICATE_IN_DB,
-                codigo: record.codigoInternoSituado,
-                tipo: record.tipoContenedor
-              },
-              'Registro omitido - duplicado en BD'
-            );
-          }
-          return !isDuplicate;
-        });
-
-        logger.info(
-          { newRecords: recordsToInsert.length, duplicatesInDB: stats.totalSkipped },
-          'Verificacion de duplicados completada'
-        );
-      }
-
-      if (recordsToInsert.length === 0) {
-        logger.info('Todos los registros ya existen en la base de datos');
-        return resolve();
-      }
-
-      // Insertar en lotes
-      logger.info(
-        { totalRecords: recordsToInsert.length, batchSize: options.batchSize },
-        'Iniciando insercion en base de datos'
-      );
-
       try {
-        for (let i = 0; i < recordsToInsert.length && !isShuttingDown; i += options.batchSize) {
-          const batch = recordsToInsert.slice(i, i + options.batchSize);
-          const result = await processBatch(batch, options);
-
-          stats.totalInserted += result.inserted;
-          stats.totalSkipped += result.skipped;
-
-          const progress = Math.round(((i + batch.length) / recordsToInsert.length) * 100);
-          logger.debug(
-            { inserted: stats.totalInserted, progress: `${progress}%` },
-            'Progreso de insercion'
-          );
-        }
-
+        await flushBatch();
         resolve();
       } catch (error) {
-        logger.error({ error: error.message }, 'Error durante insercion');
-        resolve(); // Continuar para mostrar estadisticas
+        reject(error);
       }
     });
 

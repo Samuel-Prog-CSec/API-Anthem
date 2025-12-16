@@ -191,67 +191,6 @@ router.get('/district-comparison',
 );
 
 /**
- * RUTAS ADMINISTRATIVAS
- */
-
-/**
- * @route   GET /api/accidents/export
- * @desc    Exportar datos de accidentes (solo administradores y analistas)
- * @access  Admin/Analyst only
- * @rateLimit 3 requests per hour
- * @todo    IMPLEMENTAR: Controller de exportación con soporte para CSV/JSON/Excel
- *          - Debe incluir anonimización de datos personales para no-admins
- *          - Debe permitir filtros por fecha, gravedad, tipo de accidente
- *          - Debe generar archivos con formato configurable
- */
-router.get('/export',
-  exportLimit,
-  authenticate,
-  validateExportFormat,
-  [
-    query('includePersonalData')
-      .optional()
-      .isBoolean()
-      .withMessage('includePersonalData debe ser boolean'),
-
-    query('anonymize')
-      .optional()
-      .isBoolean()
-      .withMessage('anonymize debe ser boolean'),
-
-    validateRequest
-  ],
-  validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
-  validateAccidentFilters,
-  async (req, res, next) => {
-    try {
-      logger.info({
-        userId: req.user.id,
-        format: req.query.format || 'json',
-        includePersonalData: req.query.includePersonalData === 'true',
-        anonymize: req.query.anonymize !== 'false',
-        filters: req.query,
-        endpoint: 'POST /api/accidents/export'
-      }, 'Exportación de datos de accidentes solicitada');
-
-      // Por seguridad, siempre anonimizar para no-admins
-      if (req.user.role !== 'admin' && req.query.includePersonalData === 'true') {
-        return res.status(HTTP_STATUS.FORBIDDEN).json(createForbiddenResponse('No tiene permisos para exportar datos personales'));
-      }
-
-      // TODO: Implementar lógica de exportación con anonimización
-      res.status(HTTP_STATUS.NOT_IMPLEMENTED).json({
-        success: false,
-        message: 'Funcionalidad de exportación en desarrollo'
-      });
-
-    } catch (error) {
-      next(error);
-    }
-  }
-);
-
-/**
  * Middleware de logging para todas las rutas de accidentes
  */
 router.use((req, res, next) => {

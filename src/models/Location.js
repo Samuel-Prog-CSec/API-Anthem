@@ -174,6 +174,16 @@ const locationSchema = new mongoose.Schema({
   collection: 'locations'
 });
 
+// Transformación de salida para reducir payload
+locationSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete ret.createdAt;
+    delete ret.updatedAt;
+    delete ret.__v;
+    return ret;
+  }
+});
+
 /**
  * Índices para optimización de consultas
  */

@@ -159,6 +159,24 @@ scooterAssignmentSchema.index(
 
 **Justificación:** Los índices parciales solo incluyen documentos que cumplen condiciones, reduciendo el tamaño del índice y mejorando el rendimiento para queries recientes (caso de uso más común).
 
+#### Índices de Cobertura para Listados
+
+```javascript
+// Traffic.js - listado principal con sort por fecha
+trafficSchema.index(
+  { fecha: -1, puntoMedidaId: 1, intensidad: 1 },
+  { name: 'idx_traffic_list_cover', background: true }
+);
+
+// Fine.js - listado por lugar y fecha
+fineSchema.index(
+  { lugar: 1, fecha: -1, calificacion: 1 },
+  { name: 'idx_fines_list_cover', background: true }
+);
+```
+
+**Justificación:** Evitan `fetch` adicional al cubrir campos de filtro, proyección y ordenamiento en endpoints de listado, reduciendo lecturas de disco.
+
 ### Resultados obtenidos
 
 - ✅ **COLLSCAN reducido:** De 60% a <5% de queries
@@ -171,7 +189,7 @@ scooterAssignmentSchema.index(
 
 ### ¿Qué hemos implementado?
 
-Hemos agregado proyecciones específicas en 10 de 11 controllers, seleccionando solo los campos necesarios en lugar de retornar documentos completos.
+Hemos agregado proyecciones específicas en todos los controllers de listado, seleccionando solo los campos necesarios en lugar de retornar documentos completos.
 
 ### ¿Por qué lo hemos hecho?
 
@@ -286,7 +304,7 @@ await user.save(); // Requiere Mongoose Document
 
 - ✅ **Reducción de memoria:** -40% por documento
 - ✅ **Velocidad de serialización:** -15% tiempo JSON.stringify()
-- ✅ **Cobertura:** 85% de queries de solo lectura
+- ✅ **Cobertura:** 100% de queries de solo lectura
 
 ---
 
@@ -1203,6 +1221,16 @@ Modificado todos los `$unwind` para no perder documentos:
 - ✅ **Query timeouts:** 0 hung connections
 - ✅ **Agregaciones limitadas:** 100% con $limit
 - ✅ **$unwind mejorados:** 0 pérdida de documentos
+
+---
+
+## 12. Actualizaciones recientes (Dic 2025)
+
+- **Paginación por cursor:** Añadimos cursores opacos (helpers `buildCursorQuery()` y `createCursorMeta()`) en listados de tráfico, accidentes, censo, ruido, contenedores y disponibilidad de bicis para evitar `skip` costoso y mantener orden estable.
+- **Serialización ligera:** Todos los modelos ahora usan `toJSON` para eliminar metadatos (`__v`, timestamps y campos internos) antes de responder, reduciendo payload y memoria en la serialización.
+- **Índices de cobertura para listados:** Nuevos índices compuestos orientados a listados (ej. tráfico y multas) que cubren campos proyectados y ordenados, bajando I/O y eliminando `fetch` extra.
+- **Backpressure en importaciones masivas:** Importadores pesados (censo, contenedores, bicis, multas, aire) usan `pause()/resume()` con guardas `isProcessing` para evitar lotes solapados, manteniendo métricas y logs; se conservan tamaños de lote ajustados por dataset.
+- **Coherencia en endpoints:** Los listados combinan proyecciones, `.lean()`, timeouts y cache/etag cuando aplica; todas las queries de solo lectura están alineadas con los helpers comunes.
 
 ---
 

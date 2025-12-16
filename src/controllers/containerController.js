@@ -7,7 +7,7 @@
 
 const Container = require('../models/Container');
 const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
-const { createPaginationMeta } = require('../utils/paginationHelper');
+const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, GEO_LIMITS } = require('../constants');
@@ -65,20 +65,31 @@ exports.getAllContainers = async (req, res, next) => {
       coordenadas: 1
     };
 
-    // Ejecutar consulta con paginación y timeouts
-    const [data, total] = await Promise.all([
-      Container.find(filters, projection)
-        .sort(sortOptions)
-        .skip(paginationOptions.skip)
-        .limit(paginationOptions.limit)
-        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
-        .lean(),
-      Container.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos para count
-    ]);
+    const { cursor } = req.query;
+    const useCursor = Boolean(cursor);
+    const primarySortField = Object.keys(sortOptions)[0] || 'distrito';
+    const sortOrder = sortOptions[primarySortField] === 1 ? 'asc' : 'desc';
+    const cursorFilter = useCursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder }) : null;
+    const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
+    const sortWithTiebreak = { ...sortOptions, _id: sortOrder === 'asc' ? 1 : -1 };
+
+    const dataPromise = Container.find(combinedFilters, projection)
+      .sort(sortWithTiebreak)
+      .limit(paginationOptions.limit)
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+      .lean();
+
+    const countPromise = useCursor
+      ? Promise.resolve(null)
+      : Container.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
+
+    const [data, total] = await Promise.all([dataPromise, countPromise]);
 
     const responseData = {
       data,
-      pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, total)
+      pagination: useCursor
+        ? createCursorMeta({ results: data, limit: paginationOptions.limit, sortField: primarySortField, sortOrder })
+        : createPaginationMeta(paginationOptions.page, paginationOptions.limit, total)
     };
 
     res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Contenedores obtenidos exitosamente'));

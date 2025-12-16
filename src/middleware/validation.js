@@ -19,11 +19,13 @@ const {
   TRAFFIC_ELEMENT_TYPES,
   SORT_FIELDS,
   USER_VALIDATION,
+  USER_ROLES,
   PAGINATION,
   SEARCH_LIMITS,
   GEO_LIMITS,
   DATE_RANGE_LIMITS,
-  ROUTE_SPECIFIC_LIMITS
+  ROUTE_SPECIFIC_LIMITS,
+  TOKEN_VALIDATION
 } = require('../constants');
 
 /**
@@ -62,6 +64,29 @@ const validateRegistration = [
     .withMessage(`La contraseña debe tener entre ${USER_VALIDATION.MIN_PASSWORD_LENGTH} y ${USER_VALIDATION.MAX_PASSWORD_LENGTH} caracteres`)
     .matches(USER_VALIDATION.PASSWORD_PATTERN)
     .withMessage('La contraseña debe contener al menos una letra mayúscula, una minúscula, un número y un carácter especial'),
+
+  body('nombre')
+    .trim()
+    .notEmpty()
+    .withMessage('El nombre es obligatorio')
+    .isLength({ max: 100 })
+    .withMessage('El nombre no puede exceder 100 caracteres')
+    .matches(/^[\p{L}\s'-]+$/u)
+    .withMessage('El nombre contiene caracteres inválidos'),
+
+  body('apellido')
+    .trim()
+    .notEmpty()
+    .withMessage('El apellido es obligatorio')
+    .isLength({ max: 100 })
+    .withMessage('El apellido no puede exceder 100 caracteres')
+    .matches(/^[\p{L}\s'-]+$/u)
+    .withMessage('El apellido contiene caracteres inválidos'),
+
+  body('role')
+    .optional()
+    .isIn(Object.values(USER_ROLES))
+    .withMessage('Rol inválido')
 ];
 
 /**
@@ -146,6 +171,53 @@ const validateRequest = (req, res, next) => {
 
   next();
 };
+
+const validateRefreshToken = [
+  body('refreshToken')
+    .custom((value, { req }) => {
+      const token = value || req.cookies?.refreshToken;
+
+      if (!token) {
+        throw new Error('Refresh token es obligatorio');
+      }
+
+      if (token.length > TOKEN_VALIDATION.MAX_TOKEN_LENGTH) {
+        throw new Error(`El refresh token no puede exceder ${TOKEN_VALIDATION.MAX_TOKEN_LENGTH} caracteres`);
+      }
+
+      if (!TOKEN_VALIDATION.JWT_REGEX.test(token)) {
+        throw new Error('Formato de refresh token inválido');
+      }
+
+      // Normalizar: exponer el token validado en req para el controlador
+      req.validatedRefreshToken = token;
+      return true;
+    }),
+  validateRequest
+];
+
+const validateOptionalRefreshToken = [
+  body('refreshToken')
+    .custom((value, { req }) => {
+      const token = value || req.cookies?.refreshToken;
+
+      if (!token) {
+        return true; // nada que validar
+      }
+
+      if (token.length > TOKEN_VALIDATION.MAX_TOKEN_LENGTH) {
+        throw new Error(`El refresh token no puede exceder ${TOKEN_VALIDATION.MAX_TOKEN_LENGTH} caracteres`);
+      }
+
+      if (!TOKEN_VALIDATION.JWT_REGEX.test(token)) {
+        throw new Error('Formato de refresh token inválido');
+      }
+
+      req.validatedRefreshToken = token;
+      return true;
+    }),
+  validateRequest
+];
 
 /**
  * Reglas de validación de paginación
@@ -476,6 +548,8 @@ module.exports = {
   validateRegistration,
   validateLogin,
   validatePasswordChange,
+  validateRefreshToken,
+  validateOptionalRefreshToken,
   validateObjectId,
   validatePagination,
   validateSearch,

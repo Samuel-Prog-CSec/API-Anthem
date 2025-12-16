@@ -852,3 +852,14 @@ noiseMonitoringSchema.statics.getComplianceAnalysisByZone = async function(optio
 const NoiseMonitoring = mongoose.model('NoiseMonitoring', noiseMonitoringSchema);
 
 module.exports = NoiseMonitoring;
+
+// Transformación para reducir tamaño de respuesta
+noiseMonitoringSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete ret.createdAt;
+    delete ret.updatedAt;
+    delete ret.__v;
+    delete ret.processingInfo;
+    return ret;
+  }
+});

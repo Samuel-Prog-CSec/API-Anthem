@@ -116,7 +116,18 @@ const userSchema = new mongoose.Schema(
   {
     timestamps: true, // Agrega campos createdAt y updatedAt
     versionKey: false, // Elimina el campo __v
-    collection: 'users'
+    collection: 'users',
+    toJSON: {
+      transform: (_doc, ret) => {
+        delete ret.password;
+        delete ret.lockUntil;
+        delete ret.loginAttempts;
+        delete ret.passwordChangedAt;
+        delete ret.createdAt;
+        delete ret.updatedAt;
+        return ret;
+      }
+    }
   }
 );
 
