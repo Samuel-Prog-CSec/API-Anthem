@@ -157,7 +157,7 @@ const statisticsValidation = [
     .optional()
     .toUpperCase()
     .trim()
-    .isIn([...Object.values(TIME_PERIODS), 'STATION'])
+    .isIn([...Object.values(TIME_PERIODS), 'STATION', 'HOUR', 'DAY', 'WEEK', 'MONTH', 'YEAR'])
     .withMessage('groupBy debe ser "HOUR", "DAY", "WEEK", "MONTH", "YEAR" o "STATION"'),
 
   query('provincia')

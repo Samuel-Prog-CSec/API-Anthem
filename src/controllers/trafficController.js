@@ -84,10 +84,10 @@ const getAllTrafficData = async (req, res, next) => {
     };
 
     const primarySortField = Object.keys(sortOptions)[0] || 'fecha';
-    const sortOrder = sortOptions[primarySortField] === 1 ? 'asc' : 'desc';
-    const cursorFilter = useCursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder }) : null;
+    const cursorSortOrder = sortOptions[primarySortField] === 1 ? 'asc' : 'desc';
+    const cursorFilter = useCursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder: cursorSortOrder }) : null;
     const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
-    const sortWithTiebreak = { ...sortOptions, _id: sortOrder === 'asc' ? 1 : -1 };
+    const sortWithTiebreak = { ...sortOptions, _id: cursorSortOrder === 'asc' ? 1 : -1 };
 
     let trafficData = [];
     let totalCount = null;
@@ -145,7 +145,7 @@ const getAllTrafficData = async (req, res, next) => {
     const responseData = {
       data: trafficData,
       pagination: useCursor
-        ? createCursorMeta({ results: trafficData, limit: paginationOptions.limit, sortField: primarySortField, sortOrder })
+        ? createCursorMeta({ results: trafficData, limit: paginationOptions.limit, sortField: primarySortField, sortOrder: cursorSortOrder })
         : createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalCount),
       filters: {
         applied: filters,

@@ -476,7 +476,7 @@ noiseMonitoringSchema.statics.getStatisticsOptimized = async function(filters, g
       },
       { $sort: sortStage },
       { $limit: AGGREGATION_LIMITS.SMALL }
-    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
+    ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }),
 
     // Resumen general
     this.aggregate([
@@ -500,7 +500,7 @@ noiseMonitoringSchema.statics.getStatisticsOptimized = async function(filters, g
           }
         }
       }
-    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+    ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
   ]);
 
   const resumen = resumenGeneral[0] ? {
@@ -550,7 +550,7 @@ noiseMonitoringSchema.statics.getRankingOptimized = function(filters, sortBy = '
     { $limit: limit }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  return this.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -648,7 +648,7 @@ noiseMonitoringSchema.statics.getStationComparison = function(options) {
     { $sort: { promedioNivel: -1 } }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  return this.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -747,7 +747,7 @@ noiseMonitoringSchema.statics.getTemporalTrends = function(options) {
     { $sort: sortField }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  return this.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -834,7 +834,7 @@ noiseMonitoringSchema.statics.getComplianceAnalysisByZone = async function(optio
         promedioGeneralLaeq24: { $round: ['$promedioLaeq24', 2] }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 
   const resumenGlobal = {
     totalEstaciones: estaciones.length,

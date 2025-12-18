@@ -747,6 +747,61 @@ Nuestra configuración obtiene:
 
 ---
 
-**Última actualización:** Noviembre 2025
+**Última actualización:** Diciembre 2025
 **Mantenedor:** Equipo de Desarrollo API Smart City
-**Versión:** 1.0
+**Versión:** 1.1
+
+---
+
+## Timeouts HTTP (Protección Anti-Slowloris)
+
+### ¿Qué es un ataque Slowloris?
+
+Un atacante abre muchas conexiones HTTP y envía datos muy lentamente, agotando el pool de conexiones del servidor sin consumir muchos recursos propios.
+
+### Configuración Implementada
+
+**Ubicación:** `src/server.js`
+
+```javascript
+// Configurar timeouts HTTP contra ataques Slowloris
+server.headersTimeout = 60000; // 60s para recibir headers completos
+server.keepAliveTimeout = 65000; // 65s para conexiones keep-alive
+server.requestTimeout = 30000; // 30s para completar una request
+```
+
+### ¿Qué previene cada timeout?
+
+| Timeout | Valor | Propósito |
+|---------|-------|-----------|
+| `headersTimeout` | 60s | Límite para recibir todos los headers HTTP |
+| `keepAliveTimeout` | 65s | Tiempo máximo de conexión idle en keep-alive |
+| `requestTimeout` | 30s | Tiempo total para completar una request |
+
+### Resultado
+
+- ✅ Conexiones maliciosas terminadas automáticamente
+- ✅ Pool de conexiones protegido
+- ✅ Recursos liberados de requests colgadas
+
+---
+
+## Actualización CSP Diciembre 2025
+
+### Simplificación para API REST
+
+Dado que esta API no sirve HTML/CSS/JS, hemos simplificado el CSP:
+
+```javascript
+contentSecurityPolicy: {
+  directives: {
+    defaultSrc: ["'none'"], // No cargar ningún recurso
+    frameAncestors: ["'none'"] // No embebible en iframes
+  }
+}
+```
+
+**Beneficios:**
+- ✅ Política más restrictiva (defense in depth)
+- ✅ Elimina `unsafe-inline` no necesario
+- ✅ Reduce superficie de ataque

@@ -22,6 +22,7 @@ const generalLimiter = rateLimit({
   message: createRateLimitResponse(Math.ceil(config.security.rateLimitWindowMs / 1000)),
   standardHeaders: true, // Devolver información de límite de tasa en headers
   legacyHeaders: false, // Deshabilitar headers legacy
+  skip: (_req, _res) => config.testMode.enabled, // Saltar en modo de pruebas
   handler: (req, res) => {
     pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa excedido');
     res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json(createRateLimitResponse(Math.ceil(config.security.rateLimitWindowMs / 1000)));
@@ -34,6 +35,7 @@ const authLimiter = rateLimit({
   max: RATE_LIMITS.AUTH.MAX_REQUESTS,
   message: createRateLimitResponse(RATE_LIMITS.AUTH.RETRY_AFTER),
   skipSuccessfulRequests: true, // No contar peticiones exitosas
+  skip: (_req, _res) => config.testMode.enabled, // Saltar en modo de pruebas
   handler: (req, res) => {
     pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa de autenticación excedido');
     res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json(createRateLimitResponse(RATE_LIMITS.AUTH.RETRY_AFTER));
@@ -47,6 +49,7 @@ const heavyQueryLimiter = rateLimit({
   message: createRateLimitResponse(RATE_LIMITS.HEAVY_QUERY.RETRY_AFTER),
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (_req, _res) => config.testMode.enabled, // Saltar en modo de pruebas
   handler: (req, res) => {
     pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa de consulta pesada excedido');
     res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json(createRateLimitResponse(RATE_LIMITS.HEAVY_QUERY.RETRY_AFTER));
@@ -59,18 +62,12 @@ const heavyQueryLimiter = rateLimit({
  * Establece varios headers de seguridad para proteger contra vulnerabilidades comunes.
  */
 const helmetConfig = helmet({
-  // Content Security Policy
+  // Content Security Policy - Configuración restrictiva para API REST
+  // No servimos HTML/CSS/JS, por lo que bloqueamos todo
   contentSecurityPolicy: {
     directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", 'data:', 'https:'],
-      connectSrc: ["'self'"],
-      fontSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      mediaSrc: ["'self'"],
-      frameSrc: ["'none'"],
+      defaultSrc: ["'none'"], // No cargar ningún recurso
+      frameAncestors: ["'none'"] // No permitir ser embebido en iframes
     },
   },
 
@@ -157,6 +154,7 @@ const xssProtection = (req, res, next) => {
   };
 
   try {
+    // Sanitizar req.body, req.query y req.params (mutabilidad restaurada en server.js)
     req.body = sanitizeObject(req.body);
     req.query = sanitizeObject(req.query);
     req.params = sanitizeObject(req.params);
@@ -261,7 +259,8 @@ const validateRequest = (req, res, next) => {
       }
 
       // Bloquear objetos anidados en query (intento de inyección mediante foo[bar]=x)
-      if (value && typeof value === 'object') {
+      // Permitir arrays (stations[]=1&stations[]=2) pero bloquear objetos reales
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
         pinoSecurityLogger.warn(
           { key, value, ip: req.ip },
           'Objeto detectado en query string - posible ataque de inyección'

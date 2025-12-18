@@ -607,7 +607,7 @@ accidentSchema.statics.getStatisticsByPeriod = function(startDate, endDate) {
         }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -647,7 +647,7 @@ accidentSchema.statics.getAccidentBlackSpots = function(limit = 10, startDate = 
     },
     { $sort: { indiceGravedad: -1, totalAccidentes: -1 } },
     { $limit: limit }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -685,7 +685,7 @@ accidentSchema.statics.getVehicleTypeAnalysis = function(startDate = null, endDa
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -709,7 +709,7 @@ accidentSchema.statics.getTemporalPatterns = function(groupBy = 'hora') {
       }
     },
     { $sort: { _id: 1 } }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -792,7 +792,7 @@ accidentSchema.statics.getDistrictComparisonData = function(filters = {}) {
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -843,7 +843,7 @@ accidentSchema.statics.getStreetSafetyAnalysis = function(filters = {}, limit = 
     },
     { $sort: { indiceRiesgo: -1 } },
     { $limit: limit }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -869,7 +869,7 @@ accidentSchema.statics.getTrendAnalysis = function(filters = {}) {
       }
     },
     { $sort: { '_id.año': 1, '_id.mes': 1 } }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -902,7 +902,7 @@ accidentSchema.statics.getWeatherCorrelation = function(filters = {}) {
       }
     },
     { $sort: { totalAccidentes: -1 } }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -928,7 +928,7 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
     },
     { $sort: { totalAccidentes: -1 } },
     { $limit: limit }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -949,8 +949,7 @@ accidentSchema.statics.getRiskFactorsAnalysis = function(filters = {}) {
     },
     { $sort: { cantidad: -1 } }
   ])
-    .allowDiskUse(true)
-    .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+    .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**

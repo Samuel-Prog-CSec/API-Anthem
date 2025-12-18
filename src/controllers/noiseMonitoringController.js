@@ -370,7 +370,7 @@ const searchStations = async (req, res, next) => {
     ];
 
     const estaciones = await NoiseMonitoring.aggregate(pipeline)
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos para agregación
+      .option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }) // Timeout de 10 segundos para agregación
       .exec();
 
     // Construir metadatos de respuesta
@@ -403,13 +403,15 @@ const searchStations = async (req, res, next) => {
  */
 const compareStations = async (req, res, next) => {
   try {
-    const { stations, startDate, endDate, metric = 'laeq24' } = req.query;
+    // Soporte para stations[] (array explícito) y stations (array implícito)
+    const stationsParam = req.query.stations || req.query['stations[]'];
+    const { startDate, endDate, metric = 'laeq24' } = req.query;
 
-    if (!stations) {
+    if (!stationsParam) {
       return next(createBadRequestError('Se requiere el parámetro "stations"'));
     }
 
-    const stationArray = Array.isArray(stations) ? stations.map(Number) : [Number(stations)];
+    const stationArray = Array.isArray(stationsParam) ? stationsParam.map(Number) : [Number(stationsParam)];
 
     if (stationArray.length < 2) {
       return next(createBadRequestError('Se requieren al menos 2 estaciones para comparar'));

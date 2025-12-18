@@ -95,6 +95,12 @@ const config = {
     certPath: process.env.SSL_CERT_PATH || './certs/certificate.crt',
     httpsPort: parseInt(process.env.HTTPS_PORT, 10) || 443,
     redirectHttp: process.env.SSL_REDIRECT_HTTP !== 'false' // Por defecto true
+  },
+
+  // Configuración de modo de pruebas (facilita desarrollo)
+  testMode: {
+    enabled: process.env.TEST_MODE === 'true',
+    bypassKey: process.env.TEST_BYPASS_KEY || 'dev-testing-key-123', // Key simple para bypass
   }
 };
 
@@ -103,6 +109,11 @@ try {
   validateEnvironment();
   // eslint-disable-next-line no-console
   console.log(`Configuración cargada para el entorno ${config.server.env}`);
+  
+  if (config.testMode.enabled) {
+    // eslint-disable-next-line no-console
+    console.warn(`⚠️  MODO DE PRUEBAS HABILITADO: Seguridad relajada para desarrollo`);
+  }
 } catch (error) {
   // eslint-disable-next-line no-console
   console.error('Error de configuración:', error.message);

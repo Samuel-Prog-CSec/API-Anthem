@@ -19,6 +19,7 @@ coverage/
 dist/
 build/
 .cache/
+.clinic/
 .agent/
 .github/
 

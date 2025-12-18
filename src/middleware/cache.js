@@ -207,6 +207,9 @@ const cacheMiddleware = (cacheType = 'traffic', keyGenerator = null) => {
         pendingEntry.resolve = resolve;
         pendingEntry.reject = reject;
       });
+      // Evitar Unhandled Rejection si nadie espera esta promesa (ej: si la petición falla y no hay clientes concurrentes)
+      pendingEntry.promise.catch(() => {});
+      
       pendingRequests.set(cacheKey, pendingEntry);
 
       const cleanupPending = () => {

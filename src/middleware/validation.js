@@ -307,11 +307,8 @@ const validateDateRange = (maxRangeDays = DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS) =>
     .escape()
     .custom((value) => {
       if (value) {
-        const endDate = new Date(value);
-        const now = new Date();
-        if (endDate > now) {
-          throw new Error('Fecha de fin no puede ser futura');
-        }
+        // Eliminada validación de fecha futura para permitir datos de 2051
+        return true;
       }
       return true;
     }),

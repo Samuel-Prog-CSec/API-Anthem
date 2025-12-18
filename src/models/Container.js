@@ -375,7 +375,7 @@ containerSchema.statics.getStatsByDistrict = function(distrito = null) {
     {
       $sort: { distrito: 1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -424,7 +424,7 @@ containerSchema.statics.getStatsByNeighborhood = function(distrito, barrio = nul
     {
       $sort: { barrio: 1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -456,7 +456,7 @@ containerSchema.statics.getGeneralSummary = function() {
         totalUbicaciones: { $sum: '$totalUbicaciones' }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -524,7 +524,7 @@ containerSchema.statics.getHeatmapData = function(tipoContenedor = null, limit =
       }
     },
     { $limit: limit }
-  ]).allowDiskUse(true);
+  ]).option({ allowDiskUse: true });
 };
 
 /**
@@ -568,7 +568,7 @@ containerSchema.statics.getCoverageAnalysis = function(distrito = null) {
       }
     },
     { $sort: { distrito: 1 } }
-  ]).allowDiskUse(true);
+  ]).option({ allowDiskUse: true });
 };
 
 /**
@@ -672,7 +672,7 @@ containerSchema.statics.getDensityAnalysisByDistrict = function(options = {}) {
     }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true);
+  return this.aggregate(pipeline).option({ allowDiskUse: true });
 };
 
 // Crear y exportar el modelo

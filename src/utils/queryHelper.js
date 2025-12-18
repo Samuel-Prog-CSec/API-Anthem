@@ -434,8 +434,7 @@ const executeFacetPagination = async ({
 
   try {
     const [result] = await model.aggregate(pipeline)
-      .allowDiskUse(allowDiskUse)
-      .maxTimeMS(maxTimeMS)
+      .option({ allowDiskUse, maxTimeMS })
       .exec();
 
     return {

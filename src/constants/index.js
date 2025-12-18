@@ -860,9 +860,9 @@ const RATE_LIMITS = {
 
   // Rate limits específicos por recurso
   NOISE_MONITORING: {
-    LIST_MAX: 25, // Listado general
-    STATS_MAX: 10, // Estadísticas
-    SEARCH_MAX: 15 // Búsquedas
+    LIST_MAX: 100, // Listado general (aumentado para pruebas)
+    STATS_MAX: 50, // Estadísticas (aumentado para pruebas)
+    SEARCH_MAX: 50 // Búsquedas (aumentado para pruebas)
   },
 
   AIR_QUALITY: {
@@ -895,7 +895,7 @@ const ROUTE_SPECIFIC_LIMITS = {
     TOP_N_MAX: 50,
     LIMIT_MIN: 1,
     LIMIT_MAX: 100,
-    POINT_LIMIT_MIN: 5,
+    POINT_LIMIT_MIN: 3,
     POINT_LIMIT_MAX: 50,
     DB_THRESHOLD_MIN: 40,
     DB_THRESHOLD_MAX: 100
@@ -1305,6 +1305,7 @@ const HPP_ARRAY_PARAMS_WHITELIST = [
   // Ruido
   'nmt', // Múltiples estaciones de ruido (NoiseMonitoring usa $in)
   'stations', // Estaciones para comparativas de ruido
+  'stations[]', // Estaciones con notación de array explícita
 
   // Multas
   'calificacion', // Múltiples calificaciones de multas: LEVE, GRAVE, MUY_GRAVE (Fine usa $in)

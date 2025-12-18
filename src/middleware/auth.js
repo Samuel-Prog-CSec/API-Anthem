@@ -7,6 +7,7 @@
  */
 
 const User = require('../models/User');
+const config = require('../config/config');
 const { verifyToken, extractToken } = require('../utils/tokenHelper');
 const { createUnauthorizedResponse } = require('../utils/responseHelper');
 const { authLogger } = require('../config/logger');
@@ -24,6 +25,24 @@ const { HTTP_STATUS, TOKEN_VALIDATION } = require('../constants');
  * @param {function} next - Función next de Express
  */
 const authenticate = async (req, res, next) => {
+  // MODO TEST: Bypass de autenticación si está habilitado
+  if (config.testMode.enabled) {
+    const authHeader = req.headers.authorization;
+    // Si se envía el token de test específico
+    if (authHeader && authHeader === `Bearer ${config.testMode.bypassKey}`) {
+      req.user = {
+        _id: '000000000000000000000000', // ID ficticio válido (24 hex chars)
+        username: 'TestUser',
+        email: 'test@localhost',
+        role: 'admin', // Rol admin para probar todo
+        isActive: true,
+        isLocked: false
+      };
+      req.token = config.testMode.bypassKey;
+      return next();
+    }
+  }
+
   try {
     // Extraer token de la petición
     let token;

@@ -69,10 +69,8 @@ const getLocations = async (req, res, next) => {
     });
 
     const responseData = {
-      data: {
-        ubicaciones,
-        pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, total)
-      }
+      ubicaciones,
+      pagination: createPaginationMeta(paginationOptions.page, paginationOptions.limit, total)
     };
 
     res.json(createResponse(responseData, 'Ubicaciones obtenidas exitosamente'));
@@ -106,11 +104,9 @@ const getMeasurementPoints = async (req, res, next) => {
     .lean();
 
     const responseData = {
-      data: {
-        measurementType,
-        total_puntos: puntos.length,
-        puntos
-      }
+      measurementType,
+      total_puntos: puntos.length,
+      puntos
     };
 
     res.json(createResponse(responseData, 'Puntos de medición obtenidos exitosamente'));
@@ -146,11 +142,9 @@ const getTransportRoutes = async (req, res, next) => {
       .lean();
 
     const responseData = {
-      data: {
-        transportType,
-        total_rutas: rutas.length,
-        rutas
-      }
+      transportType,
+      total_rutas: rutas.length,
+      rutas
     };
 
     res.json(createResponse(responseData, 'Rutas de transporte obtenidas exitosamente'));
@@ -211,15 +205,13 @@ const getProximityAnalysis = async (req, res, next) => {
         }
       }
     ])
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
+      .option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }) // Timeout de 10 segundos
       .exec();
 
     const responseData = {
-      data: {
-        punto_referencia: { x: parseFloat(x), y: parseFloat(y) },
-        radio_metros: parseInt(radio),
-        analisis_proximidad: ubicacionesCercanas
-      }
+      punto_referencia: { x: parseFloat(x), y: parseFloat(y) },
+      radio_metros: parseInt(radio),
+      analisis_proximidad: ubicacionesCercanas
     };
 
     res.json(createResponse(responseData, 'Análisis de proximidad obtenido exitosamente'));

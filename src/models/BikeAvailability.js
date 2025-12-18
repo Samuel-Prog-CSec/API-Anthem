@@ -275,7 +275,7 @@ bikeAvailabilitySchema.statics.getStatsByDateRange = function(startDate, endDate
         totalUsosOcasional: { $sum: '$usosAbonadoOcasional' }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -308,7 +308,7 @@ bikeAvailabilitySchema.statics.getMonthlyTrends = function(year) {
     {
       $sort: { mes: 1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -385,7 +385,7 @@ bikeAvailabilitySchema.statics.compareSubscriptionTypes = function(startDate, en
         }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -420,7 +420,7 @@ bikeAvailabilitySchema.statics.getEfficiencyAnalysisOptimized = async function(f
         promedioHorasDisponibilidad: { $round: ['$promedioHorasDisponibilidad', 2] }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 
   return analysis.length > 0 ? analysis[0] : null;
 };
@@ -491,7 +491,7 @@ bikeAvailabilitySchema.statics.getHistoricalDataOptimized = async function(filte
         registros: 1
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 
   return historicalData;
 };
@@ -606,7 +606,7 @@ bikeAvailabilitySchema.statics.getUsageTrends = function(options) {
     { $sort: sortField }
   ];
 
-  return this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  return this.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -679,7 +679,7 @@ bikeAvailabilitySchema.statics.getDemandPrediction = async function(options = {}
       }
     },
     { $sort: { probabilidadAltaDemanda: -1 } }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 
   const globalStats = await this.aggregate([
     ...(Object.keys(matchStage).length > 0 ? [{ $match: matchStage }] : []),
@@ -703,7 +703,7 @@ bikeAvailabilitySchema.statics.getDemandPrediction = async function(options = {}
         promedioTasaOcupacion: { $round: ['$promedioTasaOcupacion', 2] }
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 
   return {
     patrones: patternAnalysis,

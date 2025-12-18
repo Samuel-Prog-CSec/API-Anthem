@@ -253,7 +253,15 @@ router.get('/stations/compare',
   authenticate,
   [
     query('stations')
-      .notEmpty()
+      .custom((value, { req }) => {
+        if (value) return true;
+        // Soporte para formato array explícito stations[] si el parser no lo maneja automáticamente
+        if (req.query['stations[]']) {
+          req.query.stations = req.query['stations[]'];
+          return true;
+        }
+        return false;
+      })
       .withMessage('Se requiere el parámetro "stations"'),
     query('startDate')
       .optional()

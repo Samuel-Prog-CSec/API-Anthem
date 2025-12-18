@@ -619,7 +619,7 @@ scooterAssignmentSchema.statics.getDistrictStatistics = function(fecha = null) {
     {
       $sort: { totalPatinetes: -1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -669,7 +669,7 @@ scooterAssignmentSchema.statics.getProviderMarketAnalysis = function(fecha = nul
     {
       $sort: { totalPatinetes: -1 }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -704,7 +704,7 @@ scooterAssignmentSchema.statics.getHighestConcentrationZones = function(limite =
     {
       $limit: limite
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -773,7 +773,7 @@ scooterAssignmentSchema.statics.getDistributionDashboard = function(fecha = null
         ]
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**

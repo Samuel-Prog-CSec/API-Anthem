@@ -6,7 +6,7 @@
  *
  */
 
-const { config } = require('../config/config');
+const config = require('../config/config');
 
 /**
  * Crea una respuesta de éxito estandarizada

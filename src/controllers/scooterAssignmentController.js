@@ -114,7 +114,7 @@ const getScooterAssignments = async (req, res, next) => {
         }
       }
     ])
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
+      .option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }); // Timeout de 10 segundos
 
     // Respuesta
     const responseData = {

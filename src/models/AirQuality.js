@@ -398,8 +398,8 @@ airQualitySchema.statics.getStatisticsOptimized = async function(filters = {}, g
 
   // Ejecutar ambas agregaciones en paralelo
   const [estadisticas, resumenArray] = await Promise.all([
-    this.aggregate(pipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
-    this.aggregate(resumenPipeline).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+    this.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }),
+    this.aggregate(resumenPipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
   ]);
 
   const resumen = resumenArray[0] ? {
@@ -488,7 +488,7 @@ airQualitySchema.statics.getTrendsOptimized = async function(provincia, municipi
     },
     { $sort: { '_id.fecha': 1 } },
     { $limit: TIME_CONSTANTS.DAYS_PER_YEAR }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 
   // Calcular estadísticas de la tendencia
   const valores = tendenciaDiaria

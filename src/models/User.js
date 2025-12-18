@@ -143,20 +143,15 @@ userSchema.virtual('isLocked').get(function () {
  * Middleware pre-save para hashing de contraseñas
  * Usa bcrypt con un número configurable de rondas de salt
  */
-userSchema.pre('save', async function (next) {
+userSchema.pre('save', async function () {
   // Solo hash la contraseña si ha sido modificada (o es nueva)
   if (!this.isModified('password')) {
-    return next();
+    return;
   }
 
-  try {
-    // Genera un salt y hashea la contraseña
-    const salt = await bcrypt.genSalt(config.security.bcryptSaltRounds);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
+  // Mongoose gestiona la propagación de errores al usar async; no usar next aquí
+  const salt = await bcrypt.genSalt(config.security.bcryptSaltRounds);
+  this.password = await bcrypt.hash(this.password, salt);
 });
 
 /**

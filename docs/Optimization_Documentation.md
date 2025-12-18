@@ -25,12 +25,16 @@ El análisis inicial mostró que el 70-80% de las consultas a la base de datos e
 
 Hemos configurado diferentes TTL según la naturaleza de los datos:
 
-| Tipo de Dato | TTL | Justificación |
-|--------------|-----|---------------|
-| Contenedores, Ubicaciones | 24 horas | Datos estáticos que rara vez cambian |
-| Censo, Estadísticas | 30-60 min | Datos semi-estáticos con actualizaciones diarias |
-| Calidad Aire, Ruido | 30 min | Mediciones ambientales con cambios moderados |
-| Tráfico, Bicicletas | 5 min | Datos dinámicos que requieren actualización frecuente |
+| Tipo de Dato | TTL | maxKeys | Justificación |
+|--------------|-----|---------|---------------|
+| Demográficos (Census) | 7 días | 20,000 | Datos estáticos que cambian anualmente |
+| Estadísticas | 24 horas | 15,000 | Agregaciones que cambian diariamente |
+| Contenedores, Ubicaciones | Sin expiración | 50,000 | Datos completamente estáticos |
+| Calidad Aire, Ruido | 24 horas | 10,000-15,000 | Datos históricos que no cambian |
+| Tráfico | 24 horas | 20,000 | Datos históricos, no tiempo real |
+| Bicicletas | 24 horas | 5,000 | Datos históricos de estaciones |
+
+> **Actualización Diciembre 2025:** Se implementó la estrategia **Stale-While-Revalidate (SWR)** que permite servir datos "stale" (expirados) mientras se refresca en background, evitando latencia y el problema de "thundering herd" cuando expira un caché popular.
 
 **Implementación del middleware:**
 

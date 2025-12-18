@@ -751,7 +751,7 @@ censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
         }
       },
       { $sort: { edad: 1 } }
-    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
+    ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }),
 
     // Agregación 2: Totales y simplificada
     this.aggregate([
@@ -788,7 +788,7 @@ censusSchema.statics.getOptimizedPopulationPyramid = async function(options) {
         }
       },
       { $sort: { 'rangoEdad.minima': 1 } }
-    ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+    ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
   ]);
 
   // Calcular totales desde piramide simplificada
@@ -933,7 +933,7 @@ censusSchema.statics.getOptimizedDemographicAnalysis = async function(options) {
         ]
       }
     }
-  ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 
   return {
     distribuciones: {
@@ -1043,7 +1043,7 @@ censusSchema.statics.findWithOptions = async function(options) {
             barriosUnicos: { $addToSet: '$barrio.codigo' }
           }
         }
-      ]).allowDiskUse(true).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+      ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
     );
   }
 
@@ -1160,8 +1160,7 @@ censusSchema.statics.getDistrictStatisticsOptimized = async function(options) {
       },
       { $sort: { 'poblacion.total': -1 } }
     ])
-      .allowDiskUse(true)
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
+      .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }),
 
     // Agregación de barrios (solo si se solicita)
     incluirBarrios ? this.aggregate([
@@ -1199,8 +1198,7 @@ censusSchema.statics.getDistrictStatisticsOptimized = async function(options) {
       { $sort: { poblacionTotal: -1 } },
       { $limit: AGGREGATION_LIMITS.TOP_RESULTS }
     ])
-      .allowDiskUse(true)
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) : Promise.resolve(null)
+      .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }) : Promise.resolve(null)
   ]);
 
   return {
@@ -1265,8 +1263,7 @@ censusSchema.statics.getDemographicEvolutionOptimized = async function(options) 
     },
     { $sort: { '_id.año': 1, '_id.mes': 1 } }
   ])
-    .allowDiskUse(true)
-    .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+    .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 
   return evolucion;
 };

@@ -282,8 +282,8 @@ router.get('/analysis/density',
       .withMessage('Distrito no puede estar vacío'),
     query('tipoContenedor')
       .optional()
-      .isIn(CONTAINER_TYPES)
-      .withMessage(`Tipo de contenedor inválido. Valores permitidos: ${CONTAINER_TYPES.join(', ')}`),
+      .isIn(Object.values(CONTAINER_TYPES))
+      .withMessage(`Tipo de contenedor inválido. Valores permitidos: ${Object.values(CONTAINER_TYPES).join(', ')}`),
     query('includeBarrios')
       .optional()
       .isBoolean()

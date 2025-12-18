@@ -120,12 +120,12 @@ const register = async (req, res, next) => {
 
     res.status(HTTP_STATUS.CREATED).json(
       createResponse(
-        'Usuario registrado exitosamente',
         {
           user: userData,
           accessToken: tokens.accessToken,
           refreshToken: tokens.refreshToken
-        }
+        },
+        'Usuario registrado exitosamente'
       )
     );
 
@@ -145,7 +145,11 @@ const register = async (req, res, next) => {
       );
     }
 
-    return next(createInternalError('Error durante el registro', error));
+    // Manejo robusto: no dependemos de next para evitar TypeError en cadenas incompletas
+    const internalError = createInternalError('Error durante el registro', error);
+    return res
+      .status(internalError.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR)
+      .json(formatErrorResponse(internalError));
   }
 };
 
@@ -222,12 +226,12 @@ const login = async (req, res, next) => {
 
     res.status(HTTP_STATUS.OK).json(
       createResponse(
-        'Login exitoso',
         {
           user: userData,
           accessToken: tokens.accessToken,
           refreshToken: tokens.refreshToken
-        }
+        },
+        'Login exitoso'
       )
     );
 

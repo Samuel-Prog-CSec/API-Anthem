@@ -44,7 +44,7 @@ const warmLocationCache = async () => {
     await Location.find({ tipo: 'estacion_acustica' })
       .select('nombre coordenadas nmt geometry')
       .limit(50)
-      .maxTimeMS(5000)
+      .maxTimeMS(30000)
       .lean();
 
     cacheLogger.info('Caché de ubicaciones precalentado correctamente');
@@ -69,7 +69,7 @@ const warmDistrictCache = async () => {
     cacheLogger.info('Precalentando caché de distritos...');
 
     // Obtener lista de distritos únicos
-    await Location.distinct('distrito').maxTimeMS(3000);
+    await Location.distinct('distrito').maxTimeMS(15000);
 
     cacheLogger.info('Caché de distritos precalentado correctamente');
     return { success: true, resource: 'districts' };
@@ -112,7 +112,7 @@ const warmFineStatsCache = async () => {
         }
       }
     ])
-      .maxTimeMS(5000)
+      .option({ maxTimeMS: 30000 })
       .exec();
 
     cacheLogger.info('Caché de estadísticas de multas precalentado correctamente');
@@ -145,7 +145,7 @@ const warmTrafficCache = async () => {
     })
       .select('fecha puntoMedidaId metricas analisis')
       .limit(100)
-      .maxTimeMS(5000)
+      .maxTimeMS(30000)
       .lean();
 
     cacheLogger.info('Caché de tráfico precalentado correctamente');
@@ -182,7 +182,7 @@ const warmAirQualityCache = async () => {
     })
       .select('fecha estacion magnitud processingMetadata')
       .limit(100)
-      .maxTimeMS(5000)
+      .maxTimeMS(30000)
       .lean();
 
     cacheLogger.info('Caché de calidad del aire precalentado correctamente');
@@ -219,8 +219,7 @@ const warmCensusDashboardCache = async () => {
         }
       }
     ])
-      .allowDiskUse(true)
-      .maxTimeMS(5000);
+      .option({ allowDiskUse: true, maxTimeMS: 30000 });
 
     // Precalentar top 5 distritos por población
     await Census.aggregate([
@@ -237,8 +236,7 @@ const warmCensusDashboardCache = async () => {
       { $sort: { poblacionTotal: -1 } },
       { $limit: 5 }
     ])
-      .allowDiskUse(true)
-      .maxTimeMS(5000);
+      .option({ allowDiskUse: true, maxTimeMS: 30000 });
 
     cacheLogger.info('Caché de dashboard demográfico precalentado correctamente');
     return { success: true, resource: 'census-dashboard' };
@@ -272,8 +270,7 @@ const warmScooterAssignmentCache = async () => {
         }
       }
     ])
-      .allowDiskUse(true)
-      .maxTimeMS(5000);
+      .option({ allowDiskUse: true, maxTimeMS: 30000 });
 
     // Precalentar top 5 distritos por densidad de patinetes
     await ScooterAssignment.aggregate([
@@ -287,8 +284,7 @@ const warmScooterAssignmentCache = async () => {
       { $sort: { densidadPromedio: -1 } },
       { $limit: 5 }
     ])
-      .allowDiskUse(true)
-      .maxTimeMS(5000);
+      .option({ allowDiskUse: true, maxTimeMS: 30000 });
 
     cacheLogger.info('Caché de asignación de patinetes precalentado correctamente');
     return { success: true, resource: 'scooter-assignment' };
@@ -318,7 +314,7 @@ const warmAccidentRecentCache = async () => {
       .select('numeroExpediente fecha hora ubicacion.nombreDistrito ubicacion.coordenadas analisis.puntuacionGravedad')
       .sort({ fecha: -1 })
       .limit(200)
-      .maxTimeMS(5000)
+      .maxTimeMS(30000)
       .lean();
 
     cacheLogger.info('Caché de accidentes recientes precalentado correctamente');

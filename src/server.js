@@ -69,6 +69,11 @@ handleUncaughtException();
  */
 app.set('trust proxy', 1);
 
+// Middleware de context y logging (debe ir al principio para registrar todo)
+app.use(enrichRequestContext);
+app.use(httpLoggerMiddleware);
+
+
 // En producción, forzar HTTPS para evitar sniffing por HTTP
 app.use(enforceHttps);
 
@@ -96,6 +101,30 @@ app.use(customSecurityHeaders);
 app.use(validateRequest);
 
 // Sanitización de entrada (prevenir inyección NoSQL)
+// Workaround para Express 5: req.query es inmutable, creamos una copia mutable
+app.use((req, res, next) => {
+  if (req.query) {
+    const mutableQuery = { ...req.query };
+    // Redefinimos property para permitir modificación por sanitizers
+    Object.defineProperty(req, 'query', {
+      value: mutableQuery,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+  }
+  if (req.params) {
+    const mutableParams = { ...req.params };
+     Object.defineProperty(req, 'params', {
+      value: mutableParams,
+      writable: true,
+      enumerable: true,
+      configurable: true
+    });
+  }
+  next();
+});
+
 // Se aplica DESPUÉS de validación para limpiar datos que ya pasaron las reglas de negocio
 app.use(sanitizeInput);
 
@@ -364,6 +393,12 @@ const startServer = async () => {
       logger.warn('SSL deshabilitado - usando HTTP sin cifrar (solo para desarrollo)');
     }
 
+    // Configurar timeouts HTTP contra ataques Slowloris
+    // Previene que atacantes mantengan conexiones abiertas indefinidamente
+    server.headersTimeout = 60000; // 60s para recibir headers completos
+    server.keepAliveTimeout = 65000; // 65s para conexiones keep-alive (mayor que ALB/nginx típico)
+    server.requestTimeout = 30000; // 30s para completar una request
+
     // Iniciar servidor principal
     server.listen(port, config.server.host, () => {
       logger.info({
@@ -402,7 +437,10 @@ const startServer = async () => {
 
       const closeServer = (srv, name) => {
         return new Promise((resolve) => {
-          if (!srv) return resolve();
+          if (!srv) {
+            logger.info(`${name} no encontrado, saltando cerrado`);
+            return resolve();
+          }
           srv.close((err) => {
             if (err) {
               logger.error({ error: err.message }, `Error cerrando ${name}`);

@@ -8,7 +8,7 @@
 
 const pinoHttp = require('pino-http');
 const logger = require('../config/logger');
-const { formatError } = logger;
+const { formatErrorResponse } = require('../utils/errorUtils');
 
 /**
  * Configuración del middleware HTTP logger
@@ -64,13 +64,32 @@ const httpLoggerMiddleware = pinoHttp({
       userId: req.user?.id,
       userRole: req.user?.role
     }),
-    res: (res) => ({
-      statusCode: res.statusCode,
-      headers: {
-        contentType: res.getHeader('content-type'),
-        contentLength: res.getHeader('content-length')
-      }
-    }),
+    res: (res) => {
+      const getVal = (key) => {
+        try {
+          if (typeof res.get === 'function') {
+            return res.get(key);
+          }
+          if (typeof res.getHeader === 'function') {
+            return res.getHeader(key);
+          }
+          if (res.headers && typeof res.headers === 'object') {
+            return res.headers[key];
+          }
+        } catch (_) {
+          return undefined;
+        }
+        return undefined;
+      };
+
+      return {
+        statusCode: res.statusCode,
+        headers: {
+          contentType: getVal('content-type'),
+          contentLength: getVal('content-length')
+        }
+      };
+    },
     err: (err) => ({
       type: err.type,
       message: err.message,
@@ -83,10 +102,6 @@ const httpLoggerMiddleware = pinoHttp({
   // Rutas a ignorar (health checks, etc.)
   autoLogging: {
     ignore: (req) => {
-      // No logear health checks
-      if (req.url === '/health' || req.url === '/ping') {
-        return true;
-      }
       // No logear assets estáticos si los sirves
       if (req.url.startsWith('/public/') || req.url.startsWith('/static/')) {
         return true;
@@ -137,17 +152,8 @@ const enrichRequestContext = (req, res, next) => {
  * Middleware para logear errores no capturados
  */
 const errorLogger = (err, req, res, next) => {
-  // Usar formatError para estructurar el error consistentemente
-  const formattedError = formatError(err, {
-    request: {
-      method: req.method,
-      url: req.url,
-      params: req.params,
-      query: req.query,
-      userId: req.user?.id,
-      ip: req.ip
-    }
-  });
+  // Usar formatErrorResponse para estructurar el error consistentemente
+  const formattedError = formatErrorResponse(err, process.env.NODE_ENV === 'development');
 
   if (req.log) {
     req.log.error(formattedError, 'Error no manejado en petición');

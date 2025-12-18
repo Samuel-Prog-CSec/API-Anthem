@@ -68,7 +68,7 @@ const performanceMonitor = (req, res, next) => {
       userId: req.user?.id
     };
 
-    // Logging según severidad
+    // Logging según severidad (evitar mutar headers después de finish)
     if (severity === 'error') {
       performanceLogger.error(requestInfo, message);
     } else if (severity === 'warn') {
@@ -77,14 +77,8 @@ const performanceMonitor = (req, res, next) => {
       performanceLogger.debug(requestInfo, message);
     }
 
-    // Añadir header X-Response-Time para diagnóstico del cliente
-    res.set('X-Response-Time', `${duration}ms`);
-
-    // Métricas adicionales si la request fue lenta
+    // Métricas adicionales si la request fue lenta (solo logging)
     if (duration >= THRESHOLDS.WARNING) {
-      res.set('X-Performance-Warning', 'slow-request');
-
-      // Log detallado para debugging
       performanceLogger.warn({
         ...requestInfo,
         query: req.query,

@@ -447,8 +447,7 @@ const getDemographicEvolution = async (req, res, next) => {
       },
       { $sort: { '_id.año': 1, '_id.mes': 1 } }
     ])
-      .allowDiskUse(true)
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
+      .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }); // Timeout de 10 segundos
 
     // Calcular tendencias
     let tendencia = null;
@@ -566,8 +565,7 @@ const getDemographicDashboard = async (req, res, next) => {
         }
       }
     ])
-      .allowDiskUse(true)
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS); // Timeout de 10 segundos
+      .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }); // Timeout de 10 segundos
 
     // Ejecutar queries en paralelo para mejor rendimiento
     const [topDistritos, distribucionEdad] = await Promise.all([
@@ -587,8 +585,7 @@ const getDemographicDashboard = async (req, res, next) => {
         { $sort: { poblacionTotal: -1 } },
         { $limit: AGGREGATION_LIMITS.PREVIEW }
       ])
-        .allowDiskUse(true)
-        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS),
+        .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }),
 
       // Distribución por grupos de edad
       Census.aggregate([
@@ -601,8 +598,7 @@ const getDemographicDashboard = async (req, res, next) => {
         },
         { $sort: { poblacionTotal: -1 } }
       ])
-        .allowDiskUse(true)
-        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+        .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
     ]);
 
     const responseData = {
