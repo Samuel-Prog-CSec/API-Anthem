@@ -75,6 +75,7 @@ const getAirQualityData = async (req, res, next) => {
       estacion: 1,
       magnitud: 1,
       puntoMuestreo: 1,
+      medicionesHorarias: 1,
       'processingMetadata.validMeasurements': 1,
       'processingMetadata.averageValue': 1,
       'processingMetadata.maxValue': 1,

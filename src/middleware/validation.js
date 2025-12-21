@@ -65,24 +65,6 @@ const validateRegistration = [
     .matches(USER_VALIDATION.PASSWORD_PATTERN)
     .withMessage('La contraseña debe contener al menos una letra mayúscula, una minúscula, un número y un carácter especial'),
 
-  body('nombre')
-    .trim()
-    .notEmpty()
-    .withMessage('El nombre es obligatorio')
-    .isLength({ max: 100 })
-    .withMessage('El nombre no puede exceder 100 caracteres')
-    .matches(/^[\p{L}\s'-]+$/u)
-    .withMessage('El nombre contiene caracteres inválidos'),
-
-  body('apellido')
-    .trim()
-    .notEmpty()
-    .withMessage('El apellido es obligatorio')
-    .isLength({ max: 100 })
-    .withMessage('El apellido no puede exceder 100 caracteres')
-    .matches(/^[\p{L}\s'-]+$/u)
-    .withMessage('El apellido contiene caracteres inválidos'),
-
   body('role')
     .optional()
     .isIn(Object.values(USER_ROLES))

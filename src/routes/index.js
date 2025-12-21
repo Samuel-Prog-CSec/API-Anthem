@@ -30,13 +30,13 @@ const containerRoutes = require('./containers');
 router.use(performanceMonitor);
 
 /**
- * @route   GET /api/v1.0
+ * @route   GET /api/v1
  * @desc    API welcome and status endpoint
  * @access  Public
  *
  * Provides basic API information, version, and health status.
  */
-router.get('/api/v1.0', (req, res) => {
+router.get('/', (req, res) => {
   const uptime = process.uptime();
   const uptimeHours = Math.floor(uptime / 3600);
   const uptimeMinutes = Math.floor((uptime % 3600) / 60);
@@ -57,19 +57,19 @@ router.get('/api/v1.0', (req, res) => {
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
         endpoints: {
-          authentication: '/api/v1.0/auth',
-          airQuality: '/api/v1.0/air-quality',
-          noiseMonitoring: '/api/v1.0/noise-monitoring',
-          fines: '/api/v1.0/fines',
-          census: '/api/v1.0/census',
-          locations: '/api/v1.0/locations',
-          traffic: '/api/v1.0/traffic',
-          accidents: '/api/v1.0/accidents',
-          scooterAssignments: '/api/v1.0/scooter-assignments',
-          bikeAvailability: '/api/v1.0/bikes',
-          containers: '/api/v1.0/containers',
-          admin: '/api/v1.0/admin',
-          health: '/api/v1.0/health',
+          authentication: `/api/${config.api.version}/auth`,
+          airQuality: `/api/${config.api.version}/air-quality`,
+          noiseMonitoring: `/api/${config.api.version}/noise-monitoring`,
+          fines: `/api/${config.api.version}/fines`,
+          census: `/api/${config.api.version}/census`,
+          locations: `/api/${config.api.version}/locations`,
+          traffic: `/api/${config.api.version}/traffic`,
+          accidents: `/api/${config.api.version}/accidents`,
+          scooterAssignments: `/api/${config.api.version}/scooter-assignments`,
+          bikeAvailability: `/api/${config.api.version}/bikes`,
+          containers: `/api/${config.api.version}/containers`,
+          admin: `/api/${config.api.version}/admin`,
+          health: `/api/${config.api.version}/health`,
         }
       }
     )
@@ -77,12 +77,13 @@ router.get('/api/v1.0', (req, res) => {
 });
 
 /**
- * @route   GET /api/v1.0/health
+ * @route   GET /api/v1/health
  * @desc    Detailed health check endpoint
  * @access  Public
  *
- * Provides comprehensive health status including database connectivity,
- * system resources, and service dependencies.
+ * Proporciona un estado de salud completo, que incluye la conectividad
+ * de la base de datos, los recursos del sistema y las dependencias del
+ * servicio.
  */
 router.get('/health', (req, res) => {
   const healthData = {
@@ -136,7 +137,7 @@ router.get('/health', (req, res) => {
 });
 
 /**
- * @route   GET /api/v1.0/cors-test
+ * @route   GET /api/v1/cors-test
  * @desc    CORS diagnostic endpoint
  * @access  Public
  *

@@ -8,7 +8,13 @@ const {
   getProximityAnalysis
 } = require('../controllers/locationController');
 
-const { ROUTE_SPECIFIC_LIMITS, RATE_LIMITS } = require('../constants');
+const {
+  ROUTE_SPECIFIC_LIMITS,
+  RATE_LIMITS,
+  LOCATION_TYPES,
+  SEARCH_LIMITS,
+  MEASUREMENT_POINT_TYPES
+} = require('../constants');
 
 // Middleware
 const { authenticate } = require('../middleware/auth');
@@ -39,7 +45,7 @@ const locationsLimiter = rateLimit({
 });
 
 /**
- * @route   GET /api/v0.1/ubicaciones
+ * @route   GET /api/v1/locations
  * @desc    Obtener todas las ubicaciones con filtros
  * @access  Private (requiere autenticación)
  */
@@ -49,10 +55,10 @@ router.get('/',
   etagMiddleware, // ETags para datos estáticos de ubicaciones
   cacheMiddleware(),
   [
-    query('tipo')
+    query('type')
       .optional()
-      .isIn(['estacion_acustica', 'punto_trafico', 'ruta_cercanias', 'ruta_autobus', 'ruta_interurbano', 'ruta_metro', 'ruta_metro_ligero', 'zona_taxi'])
-      .withMessage('Tipo de ubicación no válido'),
+      .isIn(Object.values(LOCATION_TYPES))
+      .withMessage('Type de ubicación no válido'),
     query('limit')
       .optional()
       .isInt({ min: ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MAX })
@@ -75,17 +81,17 @@ router.get('/',
 );
 
 /**
- * @route   GET /api/v0.1/ubicaciones/puntos-medicion/:measurementType
+ * @route   GET /api/v1/locations/measurement-points/:measurementType
  * @desc    Obtener puntos de medición específicos
  * @access  Private (requiere autenticación)
  */
-router.get('/puntos-medicion/:measurementType',
+router.get('/measurement-points/:measurementType',
   locationsLimiter, // Rate limiting permisivo para consultas ligeras
   authenticate, // Requiere autenticación
   cacheMiddleware(),
   [
     param('measurementType')
-      .isIn(['acustica', 'trafico'])
+      .isIn(Object.values(MEASUREMENT_POINT_TYPES))
       .withMessage('Tipo de medición debe ser: acustica, trafico')
   ],
   validateRequest,
@@ -93,11 +99,11 @@ router.get('/puntos-medicion/:measurementType',
 );
 
 /**
- * @route   GET /api/v0.1/ubicaciones/transporte/:transportType
+ * @route   GET /api/v1/locations/transport/:transportType
  * @desc    Obtener rutas de transporte público
  * @access  Private (requiere autenticación)
  */
-router.get('/transporte/:transportType',
+router.get('/transport/:transportType',
   locationsLimiter, // Rate limiting permisivo para consultas ligeras
   authenticate, // Requiere autenticación
   cacheMiddleware(),
@@ -111,11 +117,11 @@ router.get('/transporte/:transportType',
 );
 
 /**
- * @route   GET /api/v0.1/ubicaciones/proximidad
+ * @route   GET /api/v1/locations/proximity
  * @desc    Análisis de proximidad a un punto
  * @access  Private (requiere autenticación)
  */
-router.get('/proximidad',
+router.get('/proximity',
   locationsLimiter, // Rate limiting permisivo para consultas ligeras
   authenticate, // Requiere autenticación
   cacheMiddleware(),
@@ -128,7 +134,7 @@ router.get('/proximidad',
       .notEmpty()
       .isFloat()
       .withMessage('Coordenada Y es requerida y debe ser numérica'),
-    query('radio')
+    query('radius')
       .optional()
       .isInt({ min: ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MIN, max: ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MAX })
       .withMessage(`El radio debe estar entre ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MIN} y ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MAX} metros`)

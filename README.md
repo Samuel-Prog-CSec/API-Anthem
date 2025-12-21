@@ -23,6 +23,23 @@ API REST para datos sintéticos de una Smart City año 2051. Construida con Node
 2) Configura `.env` (usa `.env.example` como referencia)
 3) `npm run dev` para desarrollo o `npm start` para producción
 
+## Visualización de logs (Windows)
+
+Los logs se escriben en UTF-8 en `logs/server/` y `logs/scripts/`. Para verlos correctamente sin caracteres rotos:
+
+```powershell
+# Ver logs del servidor (recomendado)
+.\scripts\view-logs.ps1
+
+# Seguir logs en tiempo real
+.\scripts\view-logs.ps1 -Follow
+
+# Ver logs de errores
+.\scripts\view-logs.ps1 -LogFile errors
+```
+
+O configura tu terminal/editor para UTF-8 (ver [docs/Logging_System.md](docs/Logging_System.md)).
+
 ## Calidad y estilo
 
 - ESLint v9 (ver `eslint.config.mjs`)

@@ -15,6 +15,7 @@ const http = require('http');
 const fs = require('fs');
 
 // Importar configuración y base de datos
+// Force restart for env update
 const { HTTP_STATUS } = require('./constants');
 const config = require('./config/config');
 const { connectDB } = require('./config/database');
@@ -133,6 +134,10 @@ app.use(sanitizeInput);
 app.use(xssProtection);
 
 /**
+ * @route   GET /health
+ * @desc    Endpoint de Health Check básico (ANTES del rate limiting)
+ * @access  Public
+ *
  * Endpoint de Health Check (ANTES del rate limiting)
  * Endpoint simple para health checks de balanceadores de carga
  * IMPORTANTE: Debe estar antes del rate limiter para evitar que los health checks
@@ -311,11 +316,9 @@ app.get('/', (req, res) => {
     success: true,
     message: 'Bienvenido a la API REST Profesional',
     version: config.api.version,
-    documentation: `${req.protocol}://${req.get('host')}${config.api.prefix}/${config.api.version}/docs`,
     endpoints: {
       health: '/health',
       api: `${config.api.prefix}/${config.api.version}`,
-      docs: `${config.api.prefix}/${config.api.version}/docs`
     }
   });
 });

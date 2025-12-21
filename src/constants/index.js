@@ -274,6 +274,11 @@ const GEOMETRY_TYPES = {
 const UTM_ZONES = [29, 30, 31];
 
 /**
+ * Zona UTM por defecto (España - Madrid mayoritariamente en zona 30)
+ */
+const DEFAULT_UTM_ZONE = 30;
+
+/**
  * Límites normativos de ruido (decibelios)
  * Basado en normativa europea de contaminación acústica
  */
@@ -1357,6 +1362,7 @@ module.exports = {
   LOCATION_TYPES,
   GEOMETRY_TYPES,
   UTM_ZONES,
+  DEFAULT_UTM_ZONE,
 
   // Ruido
   NOISE_LIMITS,
@@ -1491,6 +1497,10 @@ module.exports = {
     DEFAULT: 65
   },
   ZONE_TYPES: {
+    RESIDENTIAL: 'residential',
+    COMMERCIAL: 'commercial',
+    INDUSTRIAL: 'industrial',
+    PARKS: 'parks',
     MIXED: 'mixed'
   },
   SCOOTER_KEY_AREAS: {

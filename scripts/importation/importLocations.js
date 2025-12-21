@@ -163,12 +163,10 @@ async function importAcousticStations() {
 
           const station = {
             tipo: LOCATION_TYPES.ESTACION_ACUSTICA,
-            nmt: cleanString(row['Nº'] || row.Nº || row.id),
+            nmt: cleanString(row['N�'] || row['Nº'] || row.Nº || row.id),
             nombre: cleanString(row.Nombre || row.nombre) || `Estacion ${row['Nº'] || row.Nº || row.id}`,
             coordenadas: { x, y },
-            distrito: cleanString(row.DISTRITO || row.distrito),
-            barrio: cleanString(row.BARRIO || row.barrio),
-            direccion: cleanString(row['Dirección'] || row.direccion),
+            direccion: cleanString(row['Dirección'] || row.direccion || row['Direcci�n']),
             fechaAlta: cleanString(row['Fecha alta'] || row.fechaAlta),
             geometry: isValidCoordinate(lon, lat) ? {
               type: GEOMETRY_TYPES.POINT,
@@ -278,7 +276,6 @@ async function importTrafficPoints() {
             id_punto: cleanString(row.id),
             nombre: cleanString(row.nombre),
             tipo_elem: cleanString(row.tipo_elem),
-            distrito: cleanString(row.distrito),
             coordenadas: { x: utmX, y: utmY },
             geometry: isValidCoordinate(lon, lat) ? {
               type: GEOMETRY_TYPES.POINT,
@@ -900,20 +897,6 @@ async function generatePostImportSummary() {
       { $sort: { totalRegistros: -1 } }
     ], { maxTimeMS: 15000 });
 
-    // Distribucion por distrito (solo para los que tienen)
-    const districtDistribution = await Location.aggregate([
-      { $match: { distrito: { $exists: true, $ne: null } } },
-      {
-        $group: {
-          _id: '$distrito',
-          totalRegistros: { $sum: 1 },
-          tipos: { $addToSet: '$tipo' }
-        }
-      },
-      { $sort: { totalRegistros: -1 } },
-      { $limit: 10 }
-    ], { maxTimeMS: 15000 });
-
     // Conteo de geometrias
     const geometryStats = await Location.aggregate([
       {
@@ -930,11 +913,6 @@ async function generatePostImportSummary() {
       distribucionPorTipo: typeDistribution.map(t => ({
         tipo: t._id,
         registros: t.totalRegistros
-      })),
-      distribucionPorDistrito: districtDistribution.map(d => ({
-        distrito: d._id,
-        registros: d.totalRegistros,
-        tipos: d.tipos.length
       })),
       geometrias: geometryStats.map(g => ({
         tipo: g._id || 'Sin geometria',

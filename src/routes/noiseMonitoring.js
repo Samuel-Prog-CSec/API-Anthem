@@ -10,7 +10,13 @@ const { query, param } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 
 // Constantes
-const { RATE_LIMITS, ROUTE_SPECIFIC_LIMITS, DATE_RANGE_LIMITS } = require('../constants');
+const {
+  RATE_LIMITS,
+  ROUTE_SPECIFIC_LIMITS,
+  DATE_RANGE_LIMITS,
+  SORT_FIELDS,
+  ZONE_TYPES
+} = require('../constants');
 
 // Middleware de autenticación y seguridad
 const { authenticate } = require('../middleware/auth');
@@ -75,15 +81,15 @@ const searchLimiter = rateLimit({
  * Validaciones para consultas de datos de contaminación acústica
  */
 const noiseQueryValidation = [
-  query('año')
+  query('year')
     .optional()
     .isInt({ min: ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MAX })
-    .withMessage(`año debe ser un número válido entre ${ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MAX}`),
+    .withMessage(`year debe ser un número válido entre ${ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MAX}`),
 
-  query('mes')
+  query('month')
     .optional()
     .isInt({ min: ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MAX })
-    .withMessage(`mes debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MAX}`),
+    .withMessage(`month debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MAX}`),
 
   query('nmt')
     .optional()
@@ -95,12 +101,12 @@ const noiseQueryValidation = [
     })
     .withMessage('nmt debe ser un número entero positivo o array de números'),
 
-  query('nombre')
+  query('name')
     .optional()
     .trim()
     .escape() // Sanitización XSS ANTES de validación de longitud
     .isLength({ min: ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX })
-    .withMessage(`nombre debe tener entre ${ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX} caracteres`),
+    .withMessage(`name debe tener entre ${ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX} caracteres`),
 
   query('page')
     .optional()
@@ -114,7 +120,7 @@ const noiseQueryValidation = [
 
   query('sortBy')
     .optional()
-    .isIn(['fecha', 'nmt', 'nombre', 'laeq24', 'año', 'mes'])
+    .isIn(Object.values(SORT_FIELDS.NOISE_MONITORING))
     .withMessage('sortBy debe ser un campo válido para ordenamiento'),
 
   query('sortOrder')
@@ -254,7 +260,9 @@ router.get('/stations/compare',
   [
     query('stations')
       .custom((value, { req }) => {
-        if (value) return true;
+        if (value) {
+          return true;
+        }
         // Soporte para formato array explícito stations[] si el parser no lo maneja automáticamente
         if (req.query['stations[]']) {
           req.query.stations = req.query['stations[]'];
@@ -341,7 +349,7 @@ router.get('/compliance/zone',
       .withMessage(`threshold debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.NOISE.DB_THRESHOLD_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.DB_THRESHOLD_MAX}`),
     query('zoneType')
       .optional()
-      .isIn(['residential', 'commercial', 'industrial', 'mixed'])
+      .isIn(Object.values(ZONE_TYPES))
       .withMessage('zoneType debe ser un tipo de zona válido')
   ],
   validateRequest,

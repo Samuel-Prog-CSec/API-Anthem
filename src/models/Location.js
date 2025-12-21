@@ -6,6 +6,7 @@ const {
   UTM_ZONES,
   TRAFFIC_ELEMENT_TYPES,
   SPEED_LIMIT_ZONES,
+  DEFAULT_UTM_ZONE,
   VALIDATION_LIMITS
 } = require('../constants');
 /**
@@ -87,25 +88,11 @@ const locationSchema = new mongoose.Schema({
     }
   }],
 
-  // Metadatos geográficos
-  distrito: {
-    type: String,
-    trim: true,
-    uppercase: true,
-    index: true
-  },
-
-  barrio: {
-    type: String,
-    trim: true,
-    index: true
-  },
-
   // Zona UTM (España tiene zonas 29, 30 y 31)
   zonaUTM: {
     type: Number,
     enum: UTM_ZONES,
-    default: SPEED_LIMIT_ZONES.DEFAULT // La mayoría de Madrid está en zona 30
+    default: DEFAULT_UTM_ZONE // La mayoría de Madrid está en zona 30
   },
 
   // Para análisis geoespacial con GeoJSON
@@ -212,13 +199,12 @@ locationSchema.index({
   'coordenadas.y': 1
 });
 
-// Índice compuesto: tipo + distrito + activo
-// Usado en: GET /api/locations?tipo=X&distrito=Y&activo=true
-// Soporta: Filtrado de ubicaciones activas por distrito
-// Ejemplo: "Puntos de medida de tráfico activos en Centro"
+// Índice compuesto: tipo + activo
+// Usado en: GET /api/locations?tipo=X&activo=true
+// Soporta: Filtrado de ubicaciones activas
+// Ejemplo: "Puntos de medida de tráfico activos"
 locationSchema.index({
   tipo: 1,
-  distrito: 1,
   activo: 1
 });
 
@@ -226,13 +212,11 @@ locationSchema.index({
 // ÍNDICE DE BÚSQUEDA TEXTUAL
 // ========================================
 // Índice de texto completo para búsquedas flexibles
-// Usado en: Búsqueda con $text por nombre, descripción, distrito o barrio
+// Usado en: Búsqueda con $text por nombre, descripción
 // Soporta: "Buscar sensor en Chamberí", autocompletado
 locationSchema.index({
   nombre: 'text',
-  descripcion: 'text',
-  distrito: 'text',
-  barrio: 'text'
+  descripcion: 'text'
 });
 
 /**
@@ -254,7 +238,7 @@ locationSchema.pre('save', function(next) {
  * - Queries geoespaciales optimizadas con índice 2dsphere
  *
  * @param {Object} options - Objeto de configuración
- * @param {Object} options.filters - Filtros MongoDB base (tipo, distrito, activo, etc.)
+ * @param {Object} options.filters - Filtros MongoDB base (tipo, activo, etc.)
  * @param {Object} options.geoQuery - Query geoespacial opcional
  * @param {Object} options.geoQuery.coordinates - [longitude, latitude]
  * @param {Number} options.geoQuery.maxDistance - Distancia máxima en metros
@@ -279,7 +263,7 @@ locationSchema.pre('save', function(next) {
  * @example
  * // Búsqueda simple sin geolocalización
  * const resultado = await Location.findWithOptions({
- *   filters: { distrito: 'CENTRO', activo: true },
+ *   filters: { activo: true },
  *   sort: { nombre: 1 },
  *   pagination: { skip: 0, limit: 50 }
  * });
@@ -337,8 +321,6 @@ locationSchema.statics.findWithOptions = async function(options) {
             _id: null,
             totalRegistros: { $sum: 1 },
             tiposUnicos: { $addToSet: '$tipo' },
-            distritosUnicos: { $addToSet: '$distrito' },
-            barriosUnicos: { $addToSet: '$barrio' },
             totalActivos: {
               $sum: { $cond: ['$activo', 1, 0] }
             }

@@ -9,6 +9,7 @@
  * - Scripts de importación: logs/scripts/combined.log + logs/scripts/errors.log
  * - Desarrollo: Consola con pino-pretty + archivos
  * - Producción: Solo archivos (JSON estructurado)
+ * - Encoding: UTF-8 explícito en todos los archivos para compatibilidad con Windows
  *
  * @see https://getpino.io/#/docs/transports
  */
@@ -16,6 +17,7 @@
 const fs = require('fs');
 const path = require('path');
 const pino = require('pino');
+const { once } = require('events');
 
 /**
  * Determina el tipo de proceso actual
@@ -54,17 +56,34 @@ function ensureLogDirectories(logDir, processType) {
 }
 
 /**
- * Crea un stream de escritura de logs con rotación automática
+ * Crea un stream de escritura de logs con encoding UTF-8 explícito
+ * 
+ * Esta función crea un pino.destination() con configuración explícita de UTF-8.
+ * En Windows, esto asegura que los archivos se escriban con la codificación correcta
+ * y puedan leerse sin caracteres rotos.
+ * 
  * @param {string} filePath - Ruta del archivo de log
- * @returns {Object} Stream de pino
+ * @returns {Object} Stream de pino con encoding UTF-8
  * @private
  */
 function _createLogStream(filePath) {
+  // Asegurar que el directorio existe
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  // Crear stream con fs nativo usando encoding UTF-8 explícito
+  const stream = fs.createWriteStream(filePath, {
+    flags: 'a', // Append mode
+    encoding: 'utf8' // Forzar UTF-8 explícitamente
+  });
+
+  // Envolver en pino.destination para mejor rendimiento
   return pino.destination({
-    dest: filePath,
+    dest: stream,
     sync: false, // Asíncrono para mejor rendimiento
-    minLength: 4096, // Buffer mínimo antes de escribir (4KB)
-    mkdir: true // Crear directorios automáticamente
+    minLength: 4096 // Buffer mínimo antes de escribir (4KB)
   });
 }
 
@@ -97,8 +116,8 @@ function setupLogTransport(processType = getProcessType()) {
   /**
    * Configuración de transporte múltiple:
    * 1. Consola con pino-pretty (solo desarrollo)
-   * 2. Archivo combined.log (todos los niveles)
-   * 3. Archivo errors.log (solo errores: error, fatal)
+   * 2. Archivo combined.log (todos los niveles) - UTF-8 explícito
+   * 3. Archivo errors.log (solo errores: error, fatal) - UTF-8 explícito
    */
   const targets = [];
 
@@ -118,23 +137,25 @@ function setupLogTransport(processType = getProcessType()) {
     });
   }
 
-  // Target 2: Archivo combined.log (todos los logs)
+  // Target 2: Archivo combined.log (todos los logs) con UTF-8 explícito
   targets.push({
     target: 'pino/file',
     level: process.env.LOG_LEVEL || (isDevelopment ? 'debug' : 'info'),
     options: {
       destination: logFiles.combined,
-      mkdir: true
+      mkdir: true,
+      append: true
     }
   });
 
-  // Target 3: Archivo errors.log (solo errores)
+  // Target 3: Archivo errors.log (solo errores) con UTF-8 explícito
   targets.push({
     target: 'pino/file',
     level: 'error',
     options: {
       destination: logFiles.errors,
-      mkdir: true
+      mkdir: true,
+      append: true
     }
   });
 

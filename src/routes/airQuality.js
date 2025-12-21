@@ -157,8 +157,8 @@ const statisticsValidation = [
     .optional()
     .toUpperCase()
     .trim()
-    .isIn([...Object.values(TIME_PERIODS), 'STATION', 'HOUR', 'DAY', 'WEEK', 'MONTH', 'YEAR'])
-    .withMessage('groupBy debe ser "HOUR", "DAY", "WEEK", "MONTH", "YEAR" o "STATION"'),
+    .isIn([...Object.keys(TIME_PERIODS), 'STATION'])
+    .withMessage(`groupBy debe ser: ${Object.values(TIME_PERIODS).join(', ')} o "STATION"`),
 
   query('provincia')
     .optional()

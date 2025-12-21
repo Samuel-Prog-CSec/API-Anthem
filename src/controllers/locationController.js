@@ -17,11 +17,10 @@ const getLocations = async (req, res, next) => {
 
     // Construir filtros usando buildFilters de queryHelper
     const filterConfig = [
-      { field: 'tipo', type: 'in', param: 'tipo' },
-      { field: 'distrito', type: 'regex', param: 'distrito' },
-      { field: 'barrio', type: 'regex', param: 'barrio' }
+      { field: 'tipo', type: 'in', param: 'type' },
     ];
 
+    // Usamos exclusivamente el query param `type` (no alias `tipo` en la query)
     const filters = buildFilters(req.query, filterConfig);
 
     // Filtro por bounding box (coordenadas UTM)
@@ -52,9 +51,7 @@ const getLocations = async (req, res, next) => {
       tipo: 1,
       nombre: 1,
       'coordenadas.x': 1,
-      'coordenadas.y': 1,
-      distrito: 1,
-      barrio: 1
+      'coordenadas.y': 1
     };
 
     // PATRÓN HÍBRIDO: Usar método del modelo para query compleja

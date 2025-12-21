@@ -47,8 +47,6 @@ router.use(performanceMonitor);
  * - username (requerido): Nombre de usuario único (3-30 caracteres)
  * - email (requerido): Dirección de email válida
  * - password (requerido): Contraseña fuerte (8+ caracteres con requisitos de complejidad)
- * - firstName (opcional): Nombre del usuario
- * - lastName (opcional): Apellido del usuario
  *
  * Response: Objeto de usuario y token JWT
  */

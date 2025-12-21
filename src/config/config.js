@@ -22,13 +22,13 @@ const validateEnvironment = () => {
   const missing = required.filter(key => !process.env[key]);
 
   if (missing.length > 0) {
-    throw new Error(`Faltan variables de entorno requeridas: ${missing.join(', ')}`);
+    throw new Error(`[ERROR] Faltan variables de entorno requeridas: ${missing.join(', ')}`);
   }
 
   // Validar la fortaleza de JWT_SECRET y JWT_REFRESH_SECRET
   const MIN_JWT_SECRET_LENGTH = 32;
   if (process.env.JWT_SECRET.length < MIN_JWT_SECRET_LENGTH || process.env.JWT_REFRESH_SECRET.length < MIN_JWT_SECRET_LENGTH) {
-    const errorMessage = `SEGURIDAD CRÍTICA: JWT_SECRET debe tener al menos ${MIN_JWT_SECRET_LENGTH} caracteres para mayor seguridad`;
+    const errorMessage = `[CRITICAL SECURITY] JWT_SECRET debe tener al menos ${MIN_JWT_SECRET_LENGTH} caracteres para mayor seguridad`;
 
     // En producción, detener el servidor
     if (process.env.NODE_ENV === 'production') {
@@ -37,7 +37,7 @@ const validateEnvironment = () => {
 
     // En desarrollo, solo advertir (usar console.warn porque logger aún no está inicializado)
     // eslint-disable-next-line no-console
-    console.warn(`⚠️  ADVERTENCIA: ${errorMessage}`);
+    console.warn(`[WARNING] ${errorMessage}`);
   }
 };
 
@@ -83,7 +83,7 @@ const config = {
 
   // Configuración de la API
   api: {
-    version: 'v1.0',
+    version: 'v1',
     prefix: '/api',
     timeout: parseInt(process.env.API_TIMEOUT, 10) || 30000 // 30 segundos
   },
@@ -108,15 +108,15 @@ const config = {
 try {
   validateEnvironment();
   // eslint-disable-next-line no-console
-  console.log(`Configuración cargada para el entorno ${config.server.env}`);
-  
+  console.log(`[INFO] Configuración cargada para el entorno ${config.server.env}`);
+
   if (config.testMode.enabled) {
     // eslint-disable-next-line no-console
-    console.warn(`⚠️  MODO DE PRUEBAS HABILITADO: Seguridad relajada para desarrollo`);
+    console.warn(`[WARNING] MODO DE PRUEBAS HABILITADO: Seguridad relajada para desarrollo`);
   }
 } catch (error) {
   // eslint-disable-next-line no-console
-  console.error('Error de configuración:', error.message);
+  console.error(`[ERROR] Error de configuración: ${error.message}`);
   process.exit(1);
 }
 

@@ -158,20 +158,34 @@ userSchema.pre('save', async function () {
  * Middleware pre-update para auto-actualización de timestamps
  * Se ejecuta en operaciones findOneAndUpdate, updateOne, updateMany
  */
-userSchema.pre('findOneAndUpdate', function (next) {
-  // Auto-actualizar el campo updatedAt en updates
-  this.set({ updatedAt: new Date() });
-  next();
+userSchema.pre('findOneAndUpdate', async function () {
+  const update = this.getUpdate();
+  if (update) {
+    if (!update.$set) {
+      update.$set = {};
+    }
+    update.$set.updatedAt = new Date();
+  }
 });
 
-userSchema.pre('updateOne', function (next) {
-  this.set({ updatedAt: new Date() });
-  next();
+userSchema.pre('updateOne', async function () {
+  const update = this.getUpdate();
+  if (update) {
+    if (!update.$set) {
+      update.$set = {};
+    }
+    update.$set.updatedAt = new Date();
+  }
 });
 
-userSchema.pre('updateMany', function (next) {
-  this.set({ updatedAt: new Date() });
-  next();
+userSchema.pre('updateMany', async function () {
+  const update = this.getUpdate();
+  if (update) {
+    if (!update.$set) {
+      update.$set = {};
+    }
+    update.$set.updatedAt = new Date();
+  }
 });
 
 /**
@@ -269,6 +283,9 @@ userSchema.methods.changedPasswordAfter = function(JWTTimestamp) {
  * @returns {Promise<Document|null>} Documento del usuario o null si no se encuentra
  */
 userSchema.statics.findByEmailOrUsername = function (identifier) {
+  if (!identifier) {
+    return null;
+  }
   return this.findOne({
     $or: [{ email: identifier.toLowerCase() }, { username: identifier }],
   }).select('+password'); // Incluir password para verificación

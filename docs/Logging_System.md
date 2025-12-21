@@ -235,6 +235,67 @@ Get-Content logs\server\combined.log -Wait -Tail 20
 
 **Solución**: Asegurar que `process.env.SCRIPT_MODE = 'true';` está al inicio del script.
 
+### Caracteres rotos o símbolos extraños al leer logs en Windows
+
+**Causa**: Los archivos se escriben en UTF-8 pero VSCode/PowerShell los leen con otra codificación (ANSI/CP1252).
+
+**Solución**:
+
+**Opción 1: Script automatizado (recomendado)**
+```powershell
+# Ver logs del servidor (últimas 50 líneas)
+.\scripts\view-logs.ps1
+
+# Ver logs de scripts
+.\scripts\view-logs.ps1 -LogType script
+
+# Ver solo errores
+.\scripts\view-logs.ps1 -LogFile errors
+
+# Seguir logs en tiempo real
+.\scripts\view-logs.ps1 -Follow
+
+# Ver más líneas
+.\scripts\view-logs.ps1 -Lines 200
+```
+
+**Opción 2: Configuración manual de PowerShell**
+```powershell
+# Ejecutar antes de leer logs
+chcp 65001
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
+
+# Luego leer con encoding explícito
+Get-Content .\logs\server\combined.log -Encoding UTF8 -Tail 50
+```
+
+**Opción 3: Configuración de VSCode**
+
+1. Abre cualquier archivo `.log`
+2. En la barra de estado (abajo a la derecha), haz clic en la codificación
+3. Selecciona "Reopen with Encoding → UTF-8"
+
+O configura permanentemente en `.vscode/settings.json`:
+```json
+{
+  "files.encoding": "utf8",
+  "files.autoGuessEncoding": false,
+  "[log]": {
+    "files.encoding": "utf8"
+  }
+}
+```
+
+Existe un archivo `.vscode/settings.json.recommended` con la configuración óptima.
+
+**Opción 4: Usar PowerShell Core (pwsh)**
+
+PowerShell Core 7+ usa UTF-8 por defecto:
+```powershell
+pwsh
+Get-Content .\logs\server\combined.log -Tail 50
+```
+
 ## Referencias
 
 - [PinoJS Documentation](https://getpino.io/)

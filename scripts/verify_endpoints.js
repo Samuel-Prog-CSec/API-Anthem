@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000/api/v1.0';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000/api/v1';
 const USER = {
   username: `tester_${Date.now()}`,
   email: `tester_${Date.now()}@example.com`,
