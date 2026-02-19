@@ -266,7 +266,7 @@ async function processAirQualityFile(filePath, options = {}) {
     const batch = [];
     let isProcessing = false;
 
-    const stream = createReadStream(filePath)
+    const stream = createReadStream(filePath, { encoding: 'latin1' })
       .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }))
       .on('data', async (row) => {
         if (isProcessing || isShuttingDown) {return;}

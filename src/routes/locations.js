@@ -13,7 +13,8 @@ const {
   RATE_LIMITS,
   LOCATION_TYPES,
   SEARCH_LIMITS,
-  MEASUREMENT_POINT_TYPES
+  MEASUREMENT_POINT_TYPES,
+  TRANSPORT_ROUTE_TYPES
 } = require('../constants');
 
 // Middleware
@@ -51,22 +52,26 @@ const locationsLimiter = rateLimit({
  */
 router.get('/',
   locationsLimiter, // Rate limiting permisivo para consultas ligeras
-  authenticate, // Requiere autenticación
-  etagMiddleware, // ETags para datos estáticos de ubicaciones
+  authenticate, // Requiere autenticacion
+  etagMiddleware, // ETags para datos estaticos de ubicaciones
   cacheMiddleware(),
   [
     query('type')
       .optional()
       .isIn(Object.values(LOCATION_TYPES))
-      .withMessage('Type de ubicación no válido'),
+      .withMessage('Type de ubicacion no valido'),
+    query('distrito')
+      .optional()
+      .isInt({ min: 1, max: 21 })
+      .withMessage('Distrito debe ser un numero entre 1 y 21'),
     query('limit')
       .optional()
       .isInt({ min: ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MAX })
-      .withMessage(`El límite debe ser entre ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MAX}`),
+      .withMessage(`El limite debe ser entre ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MAX}`),
     query('page')
       .optional()
       .isInt({ min: 1 })
-      .withMessage('La página debe ser mayor a 0'),
+      .withMessage('La pagina debe ser mayor a 0'),
     query('bbox')
       .optional()
       .matches(/^-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*$/)
@@ -74,7 +79,7 @@ router.get('/',
     query('near')
       .optional()
       .matches(/^-?\d+\.?\d*,-?\d+\.?\d*,\d+$/)
-      .withMessage('Proximidad debe tener formato: x,y,radio_metros')
+      .withMessage('Proximidad debe tener formato: longitude,latitude,radio_metros (coordenadas GeoJSON WGS84)')
   ],
   validateRequest,
   getLocations
@@ -100,17 +105,17 @@ router.get('/measurement-points/:measurementType',
 
 /**
  * @route   GET /api/v1/locations/transport/:transportType
- * @desc    Obtener rutas de transporte público
- * @access  Private (requiere autenticación)
+ * @desc    Obtener rutas de transporte publico
+ * @access  Private (requiere autenticacion)
  */
 router.get('/transport/:transportType',
   locationsLimiter, // Rate limiting permisivo para consultas ligeras
-  authenticate, // Requiere autenticación
+  authenticate, // Requiere autenticacion
   cacheMiddleware(),
   [
     param('transportType')
       .isIn(['todos', 'cercanias', 'autobus', 'interurbano', 'metro', 'metro_ligero', 'taxi'])
-      .withMessage('Tipo de transporte no válido')
+      .withMessage(`Tipo de transporte no valido. Valores permitidos: todos, cercanias, autobus, interurbano, metro, metro_ligero, taxi`)
   ],
   validateRequest,
   getTransportRoutes
@@ -118,22 +123,22 @@ router.get('/transport/:transportType',
 
 /**
  * @route   GET /api/v1/locations/proximity
- * @desc    Análisis de proximidad a un punto
- * @access  Private (requiere autenticación)
+ * @desc    Analisis de proximidad a un punto (coordenadas GeoJSON WGS84)
+ * @access  Private (requiere autenticacion)
  */
 router.get('/proximity',
   locationsLimiter, // Rate limiting permisivo para consultas ligeras
-  authenticate, // Requiere autenticación
+  authenticate, // Requiere autenticacion
   cacheMiddleware(),
   [
-    query('x')
+    query('lon')
       .notEmpty()
-      .isFloat()
-      .withMessage('Coordenada X es requerida y debe ser numérica'),
-    query('y')
+      .isFloat({ min: -180, max: 180 })
+      .withMessage('Longitud (lon) es requerida y debe estar entre -180 y 180'),
+    query('lat')
       .notEmpty()
-      .isFloat()
-      .withMessage('Coordenada Y es requerida y debe ser numérica'),
+      .isFloat({ min: -90, max: 90 })
+      .withMessage('Latitud (lat) es requerida y debe estar entre -90 y 90'),
     query('radius')
       .optional()
       .isInt({ min: ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MIN, max: ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MAX })

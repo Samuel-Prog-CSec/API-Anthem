@@ -59,7 +59,17 @@ const locationSchema = new mongoose.Schema({
     sparse: true
   },
 
-  // Información general
+  // Codigo de distrito (para puntos de trafico)
+  // Usado en analisis de congestion por zona
+  distrito: {
+    type: Number,
+    index: true,
+    sparse: true,
+    min: [1, 'Codigo de distrito debe ser mayor a 0'],
+    max: [21, 'Codigo de distrito debe ser menor o igual a 21'] // Madrid tiene 21 distritos
+  },
+
+  // Informacion general
   nombre: {
     type: String,
     trim: true,
@@ -95,7 +105,10 @@ const locationSchema = new mongoose.Schema({
     default: DEFAULT_UTM_ZONE // La mayoría de Madrid está en zona 30
   },
 
-  // Para análisis geoespacial con GeoJSON
+  // Para analisis geoespacial con GeoJSON
+  // NOTA: No todos los registros tienen coordenadas geograficas validas (algunos solo UTM)
+  // Por eso geometry no es requerido - las queries geoespaciales solo funcionaran
+  // con registros que tengan geometry definido
   geometry: {
     type: {
       type: String,
@@ -103,10 +116,15 @@ const locationSchema = new mongoose.Schema({
       default: GEOMETRY_TYPES.POINT
     },
     coordinates: {
-      type: [Number], // [longitude, latitude] para Point, array de arrays para LineString
-      required: true,
+      type: mongoose.Schema.Types.Mixed, // Mixed para soportar Point [lng, lat] y LineString [[lng, lat], ...]
+      required: false, // No requerido - algunos registros solo tienen coordenadas UTM
       validate: {
         validator: function(coords) {
+          // Permitir undefined/null (campo opcional)
+          if (coords === undefined || coords === null) {
+            return true;
+          }
+
           const geomType = this.geometry?.type || GEOMETRY_TYPES.POINT;
 
           if (geomType === GEOMETRY_TYPES.POINT) {
@@ -116,27 +134,29 @@ const locationSchema = new mongoose.Schema({
             }
             // Validar rangos: lng entre -180 y 180, lat entre -90 y 90
             const [lng, lat] = coords;
-            return lng >= VALIDATION_LIMITS.LONGITUDE_MIN && lng <= VALIDATION_LIMITS.LONGITUDE_MAX &&
+            return typeof lng === 'number' && typeof lat === 'number' &&
+                   lng >= VALIDATION_LIMITS.LONGITUDE_MIN && lng <= VALIDATION_LIMITS.LONGITUDE_MAX &&
                    lat >= VALIDATION_LIMITS.LATITUDE_MIN && lat <= VALIDATION_LIMITS.LATITUDE_MAX;
           }
 
           if (geomType === GEOMETRY_TYPES.LINE_STRING) {
-            // LineString requiere array de arrays, mínimo 2 puntos
+            // LineString requiere array de arrays, minimo 2 puntos
             if (!Array.isArray(coords) || coords.length < 2) {
               return false;
             }
-            // Validar que cada punto tenga 2 coordenadas válidas
+            // Validar que cada punto tenga 2 coordenadas validas
             return coords.every(point => {
               if (!Array.isArray(point) || point.length !== 2) {return false;}
               const [lng, lat] = point;
-              return lng >= VALIDATION_LIMITS.LONGITUDE_MIN && lng <= VALIDATION_LIMITS.LONGITUDE_MAX &&
+              return typeof lng === 'number' && typeof lat === 'number' &&
+                     lng >= VALIDATION_LIMITS.LONGITUDE_MIN && lng <= VALIDATION_LIMITS.LONGITUDE_MAX &&
                      lat >= VALIDATION_LIMITS.LATITUDE_MIN && lat <= VALIDATION_LIMITS.LATITUDE_MAX;
             });
           }
 
           return false;
         },
-        message: 'Coordinates inválidas: Point requiere [lng, lat], LineString requiere array de [lng, lat] (mínimo 2 puntos)'
+        message: 'Coordenadas invalidas: Point requiere [lng, lat], LineString requiere array de [lng, lat] (minimo 2 puntos)'
       }
     }
   },

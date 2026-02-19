@@ -130,17 +130,20 @@ async function importAcousticStations() {
       return resolve([]);
     }
 
-    fsSync.createReadStream(filePath)
+    fsSync.createReadStream(filePath, { encoding: 'latin1' })
       .pipe(csv({ separator: ';' }))
       .on('data', (row) => {
         if (isShuttingDown) {return;}
         rowIndex++;
 
         try {
-          const x = parseNumber(row.Coordenada_X_ETRS89 || row.COORDENADA_X_ETRS89 || row.X);
-          const y = parseNumber(row.Coordenada_Y_ETRS89 || row.COORDENADA_Y_ETRS89 || row.Y);
-          const lon = parseNumber(row.LONGITUD_WGS84 || row.longitud || row.Coordenada_X_ETRS89);
-          const lat = parseNumber(row.LATITUD_WGS84 || row.latitud || row.Coordenada_Y_ETRS89);
+          // Coordenadas UTM (ETRS89) - usan coma decimal en el CSV
+          const x = parseNumber(row.Coordenada_X_ETRS89 || row.COORDENADA_X_ETRS89);
+          const y = parseNumber(row.Coordenada_Y_ETRS89 || row.COORDENADA_Y_ETRS89);
+
+          // Coordenadas WGS84 para GeoJSON - NO mezclar con UTM como fallback
+          const lon = parseNumber(row.LONGITUD_WGS84);
+          const lat = parseNumber(row.LATITUD_WGS84);
 
           // Validar que tiene coordenadas UTM validas
           if (x === 0 && y === 0) {
@@ -161,12 +164,15 @@ async function importAcousticStations() {
             return;
           }
 
+          // El campo NMT puede tener encoding corrupto (N°, Nº, N�)
+          const nmtValue = row['Nº'] || row.Nº || row['N°'] || row['N\uFFFD'] || row.id;
+
           const station = {
             tipo: LOCATION_TYPES.ESTACION_ACUSTICA,
-            nmt: cleanString(row['N�'] || row['Nº'] || row.Nº || row.id),
-            nombre: cleanString(row.Nombre || row.nombre) || `Estacion ${row['Nº'] || row.Nº || row.id}`,
+            nmt: cleanString(nmtValue),
+            nombre: cleanString(row.Nombre || row.nombre) || `Estacion ${nmtValue}`,
             coordenadas: { x, y },
-            direccion: cleanString(row['Dirección'] || row.direccion || row['Direcci�n']),
+            direccion: cleanString(row['Dirección'] || row.direccion || row['Direcci\uFFFD\n']),
             fechaAlta: cleanString(row['Fecha alta'] || row.fechaAlta),
             geometry: isValidCoordinate(lon, lat) ? {
               type: GEOMETRY_TYPES.POINT,
@@ -236,7 +242,7 @@ async function importTrafficPoints() {
       return resolve([]);
     }
 
-    fsSync.createReadStream(filePath)
+    fsSync.createReadStream(filePath, { encoding: 'latin1' })
       .pipe(csv({ separator: ';' }))
       .on('data', (row) => {
         if (isShuttingDown) {return;}
@@ -251,24 +257,18 @@ async function importTrafficPoints() {
           // Validar que tiene coordenadas UTM validas
           if (utmX === 0 && utmY === 0) {
             rejectedRows++;
-            // Disabled temporalmente para pruebas
-            /*
-            logger.warn(
-              {
-                fila: rowIndex,
-                razon: REJECTION_REASONS.MISSING_UTM_COORDS,
-                datosOriginales: {
-                  id: row.id,
-                  nombre: row.nombre,
-                  utm_x: row.utm_x,
-                  utm_y: row.utm_y
-                }
-              },
-              'Fila rechazada - punto de trafico sin coordenadas UTM'
-            );
-            */
-            return;
-          }
+            // Solo logear en nivel debug para evitar spam en logs
+          // (hay muchos puntos sin coordenadas UTM validas)
+          logger.debug(
+            {
+              fila: rowIndex,
+              razon: REJECTION_REASONS.MISSING_UTM_COORDS,
+              id: row.id
+            },
+            'Fila rechazada - punto de trafico sin coordenadas UTM'
+          );
+          return;
+        }
 
           const point = {
             tipo: LOCATION_TYPES.PUNTO_TRAFICO,
@@ -276,6 +276,7 @@ async function importTrafficPoints() {
             id_punto: cleanString(row.id),
             nombre: cleanString(row.nombre),
             tipo_elem: cleanString(row.tipo_elem),
+            distrito: parseNumber(row.distrito) || undefined, // Codigo de distrito (1-21)
             coordenadas: { x: utmX, y: utmY },
             geometry: isValidCoordinate(lon, lat) ? {
               type: GEOMETRY_TYPES.POINT,
@@ -350,7 +351,7 @@ function processGPXWaypoints(waypoints, gpxInfo, routes) {
     const name = nameElement?.textContent || `${gpxInfo.nombre} ${i + 1}`;
 
     if (isValidCoordinate(lon, lat)) {
-      // Convertir lat/lon a UTM para validacion
+      // Convertir lat/lon a UTM para coordenadas
       const utm = latLonToUTM30N(lat, lon);
 
       routes.push({
@@ -358,9 +359,10 @@ function processGPXWaypoints(waypoints, gpxInfo, routes) {
         nombre: cleanString(name),
         coordenadas: {
           x: utm.x, // Coordenadas UTM en metros
-          y: utm.y,
-          ruta: [{ lat, lon }] // Mantener original en lat/lon
+          y: utm.y
         },
+        // Campo 'ruta' a nivel raiz (para waypoints, es un solo punto)
+        ruta: [{ lat, lon }],
         geometry: {
           type: GEOMETRY_TYPES.POINT,
           coordinates: [lon, lat] // GeoJSON usa lon/lat (WGS84)
@@ -477,7 +479,7 @@ function processTrackSegment(segmentData, gpxInfo, trackIndex, segmentIndex, rou
   const { rutaPuntos, coordinates, invalidPoints } = segmentData;
 
   if (coordinates.length > 1) {
-    // Convertir primer punto (lat/lon) a UTM para validacion
+    // Convertir primer punto (lat/lon) a UTM para coordenadas
     const firstLon = coordinates[0][0];
     const firstLat = coordinates[0][1];
     const utm = latLonToUTM30N(firstLat, firstLon);
@@ -487,9 +489,10 @@ function processTrackSegment(segmentData, gpxInfo, trackIndex, segmentIndex, rou
       nombre: `${gpxInfo.nombre} - Ruta ${trackIndex + 1}-${segmentIndex + 1}`,
       coordenadas: {
         x: utm.x, // Coordenadas UTM en metros
-        y: utm.y,
-        ruta: rutaPuntos // Mantener ruta original en lat/lon
+        y: utm.y
       },
+      // Campo 'ruta' a nivel raiz con todos los puntos lat/lon
+      ruta: rutaPuntos,
       geometry: {
         type: GEOMETRY_TYPES.LINE_STRING,
         coordinates: coordinates // GeoJSON usa lon/lat (WGS84)
@@ -571,7 +574,7 @@ async function importGPXRoutes() {
     }
 
     try {
-      const gpxContent = await fs.readFile(filePath, 'utf8');
+      const gpxContent = await fs.readFile(filePath, 'latin1');
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(gpxContent, 'text/xml');
 
