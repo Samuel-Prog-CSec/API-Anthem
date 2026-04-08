@@ -1,9 +1,9 @@
-const Location = require('../models/Location');
+const Location = require('../models/Ubicacion');
 const { createInternalError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SPECIAL_PAGINATION_LIMITS, AGGREGATION_LIMITS, MONGODB_TIMEOUTS, MEASUREMENT_POINT_TYPES, GEO_LIMITS, TRANSPORT_ROUTE_TYPES, LOCATION_TYPES } = require('../constants');
+const { SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, MEASUREMENT_POINT_TYPES, TRANSPORT_ROUTE_TYPES, LOCATION_TYPES } = require('../constants');
 
 /**
  * Obtener todas las ubicaciones con filtros
@@ -26,7 +26,8 @@ const getLocations = async (req, res, next) => {
     // Construir filtros usando buildFilters de queryHelper
     const filterConfig = [
       { field: 'tipo', type: 'in', param: 'type' },
-      { field: 'distrito', type: 'exact', param: 'distrito' }
+      { field: 'distrito', type: 'exact', param: 'distrito' },
+      { field: 'nombre', type: 'regex', param: 'nombre' }
     ];
 
     // Usamos exclusivamente el query param `type` (no alias `tipo` en la query)
@@ -113,8 +114,8 @@ const getMeasurementPoints = async (req, res, next) => {
     .lean();
 
     const responseData = {
-      measurementType,
-      total_puntos: puntos.length,
+      tipoMedicion: measurementType,
+      totalPuntos: puntos.length,
       puntos
     };
 
@@ -158,8 +159,8 @@ const getTransportRoutes = async (req, res, next) => {
       .lean();
 
     const responseData = {
-      transportType,
-      total_rutas: rutas.length,
+      tipoTransporte: transportType,
+      totalRutas: rutas.length,
       rutas
     };
 
@@ -170,84 +171,9 @@ const getTransportRoutes = async (req, res, next) => {
   }
 };
 
-/**
- * Analisis de proximidad entre puntos
- * @route GET /api/v1/locations/proximity
- * @param {number} req.query.lon - Longitud (GeoJSON WGS84, rango: -180 a 180)
- * @param {number} req.query.lat - Latitud (GeoJSON WGS84, rango: -90 a 90)
- * @param {number} [req.query.radius] - Radio de busqueda en metros (default: 1000)
- */
-const getProximityAnalysis = async (req, res, next) => {
-  try {
-    const { lon, lat, radius = GEO_LIMITS.DEFAULT_DISTANCE_METERS } = req.query;
-
-    if (!lon || !lat) {
-      return next(createBadRequestError('Coordenadas lon (longitud) y lat (latitud) son requeridas'));
-    }
-
-    // GeoJSON usa [longitude, latitude]
-    const puntoCentral = [parseFloat(lon), parseFloat(lat)];
-
-    const ubicacionesCercanas = await Location.aggregate([
-      {
-        $geoNear: {
-          near: {
-            type: 'Point',
-            coordinates: puntoCentral
-          },
-          distanceField: 'distancia',
-          maxDistance: parseInt(radius),
-          spherical: true,
-          key: 'geometry' // Especificar el campo con índice geoespacial
-        }
-      },
-      // NO usar $limit antes de $group - limitar después si es necesario
-      {
-        $group: {
-          _id: '$tipo',
-          count: { $sum: 1 },
-          ubicaciones: {
-            $push: {
-              nombre: '$nombre',
-              coordenadas: '$coordenadas',
-              distancia: '$distancia',
-              nmt: '$nmt',
-              cod_cent: '$cod_cent'
-            }
-          }
-        }
-      },
-      {
-        $project: {
-          tipo: '$_id',
-          total: '$count',
-          ubicaciones: { $slice: ['$ubicaciones', AGGREGATION_LIMITS.TOP_RESULTS] } // Limitar a 50 por tipo
-        }
-      }
-    ])
-      .option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }) // Timeout de 10 segundos
-      .exec();
-
-    const responseData = {
-      punto_referencia: {
-        lon: parseFloat(lon),
-        lat: parseFloat(lat)
-      },
-      radio_metros: parseInt(radius),
-      analisis_proximidad: ubicacionesCercanas
-    };
-
-    res.json(createResponse(responseData, 'Análisis de proximidad obtenido exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error en análisis de proximidad', error));
-  }
-};
-
 module.exports = {
   getLocations,
   getMeasurementPoints,
-  getTransportRoutes,
-  getProximityAnalysis
+  getTransportRoutes
 };
 

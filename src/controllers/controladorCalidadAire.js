@@ -5,12 +5,12 @@
  * Incluye filtrado avanzado, agregaciones y análisis estadístico para el dashboard.
  */
 
-const AirQuality = require('../models/AirQuality');
-const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
+const AirQuality = require('../models/CalidadAire');
+const { createInternalError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRange, TRANSFORMS, parseNumericParams, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, SORT_FIELDS, DATE_RANGE_LIMITS, VALIDATION_CODES } = require('../constants');
+const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, SORT_FIELDS, DATE_RANGE_LIMITS } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -126,73 +126,6 @@ const getAirQualityData = async (req, res, next) => {
 };
 
 /**
- * Obtener datos detallados de calidad de aire por ID
- * GET /api/v1/air-quality/:id
- */
-const getAirQualityById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    const data = await AirQuality.findById(id)
-      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos
-      .lean();
-
-    if (!data) {
-      return next(createNotFoundError('Registro de calidad de aire', id));
-    }
-
-    // Convertir mediciones horarias para respuesta
-    const medicionesArray = [];
-    const valores = [];
-
-    if (data.medicionesHorarias) {
-      for (const [hora, medicion] of Object.entries(data.medicionesHorarias)) {
-        const horaNum = parseInt(hora.substring(1), 10);
-        const esValido = medicion.validationCode === VALIDATION_CODES.VALID;
-        medicionesArray.push({
-          hora: horaNum,
-          valor: medicion.value,
-          codigoValidacion: medicion.validationCode,
-          esValido
-        });
-        if (esValido && medicion.value !== null) {
-          valores.push(medicion.value);
-        }
-      }
-    }
-
-    // Calcular estadísticas
-    const statistics = valores.length > 0 ? {
-      promedio: valores.reduce((sum, val) => sum + val, 0) / valores.length,
-      maximo: Math.max(...valores),
-      minimo: Math.min(...valores),
-      mediana: valores.sort((a, b) => a - b)[Math.floor(valores.length / 2)],
-      medicionesValidas: valores.length,
-      totalMediciones: 24,
-      porcentajeValidez: (valores.length / 24) * 100
-    } : null;
-
-    const responseData = {
-      ...data,
-      medicionesHorarias: medicionesArray,
-      estadisticas: statistics,
-      magnitudDescripcion: AirQuality.getMagnitudes()[data.magnitud] || 'Desconocida'
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Detalles de calidad de aire obtenidos exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      airQualityId: req.params.id,
-      endpoint: 'GET /api/v1/air-quality/:id'
-    }, 'Error obteniendo detalles de calidad de aire');
-    next(createInternalError('Error al obtener registro por ID', error));
-  }
-};
-
-/**
  * Obtener estadísticas agregadas de calidad de aire
  * GET /api/v1/air-quality/statistics
  */
@@ -290,7 +223,6 @@ const getAirQualityTrends = async (req, res, next) => {
 
 module.exports = {
   getAirQualityData,
-  getAirQualityById,
   getAirQualityStatistics,
   getAirQualityTrends
 };

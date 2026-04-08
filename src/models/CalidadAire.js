@@ -107,10 +107,12 @@ const airQualitySchema = new mongoose.Schema({
     validate: [
       {
         validator: function(v) {
-          // Validar que haya exactamente 24 mediciones horarias (H01-H24)
-          return v.size === 24;
+          // Validar que haya exactamente 24 mediciones con claves H01-H24
+          if (v.size !== 24) return false;
+          const validKeys = new Set([...Array(24)].map((_, i) => `H${String(i + 1).padStart(2, '0')}`));
+          return [...v.keys()].every(k => validKeys.has(k));
         },
-        message: 'Debe haber exactamente 24 mediciones horarias (H01-H24)'
+        message: 'Debe haber exactamente 24 mediciones horarias con claves H01-H24'
       },
       {
         validator: function(v) {

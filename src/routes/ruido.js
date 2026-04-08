@@ -6,7 +6,7 @@
  */
 
 const express = require('express');
-const { query, param } = require('express-validator');
+const { query } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 
 // Constantes
@@ -31,14 +31,11 @@ const { cacheMiddleware } = require('../middleware/cache');
 // Controladores
 const {
   getNoiseMonitoringData,
-  getNoiseMonitoringById,
   getNoiseStatistics,
   getNoiseRanking,
-  searchStations,
-  compareStations,
-  getTemporalTrends,
-  getComplianceByZone
-} = require('../controllers/noiseMonitoringController');
+  getComplianceByZone,
+  obtenerTendenciasTemporales
+} = require('../controllers/controladorRuido');
 
 const router = express.Router();
 
@@ -68,28 +65,19 @@ const noiseStatisticsLimiter = rateLimit({
   }
 });
 
-const searchLimiter = rateLimit({
-  windowMs: RATE_LIMITS.WINDOWS.ONE_MINUTE,
-  max: RATE_LIMITS.NOISE_MONITORING.SEARCH_MAX,
-  message: {
-    success: false,
-    message: 'Demasiadas búsquedas, intente nuevamente en 1 minuto'
-  }
-});
-
 /**
  * Validaciones para consultas de datos de contaminación acústica
  */
 const noiseQueryValidation = [
-  query('year')
+  query('año')
     .optional()
     .isInt({ min: ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MAX })
-    .withMessage(`year debe ser un número válido entre ${ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MAX}`),
+    .withMessage(`año debe ser un número válido entre ${ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.YEAR_MAX}`),
 
-  query('month')
+  query('mes')
     .optional()
     .isInt({ min: ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MAX })
-    .withMessage(`month debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MAX}`),
+    .withMessage(`mes debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.MONTH_MAX}`),
 
   query('nmt')
     .optional()
@@ -101,12 +89,12 @@ const noiseQueryValidation = [
     })
     .withMessage('nmt debe ser un número entero positivo o array de números'),
 
-  query('name')
+  query('nombre')
     .optional()
     .trim()
     .escape() // Sanitización XSS ANTES de validación de longitud
     .isLength({ min: ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX })
-    .withMessage(`name debe tener entre ${ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX} caracteres`),
+    .withMessage(`nombre debe tener entre ${ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX} caracteres`),
 
   query('page')
     .optional()
@@ -175,33 +163,6 @@ const rankingValidation = [
 ];
 
 /**
- * Validaciones para búsqueda de estaciones
- */
-const searchValidation = [
-  query('q')
-    .notEmpty()
-    .withMessage('Parámetro de búsqueda "q" es requerido')
-    .trim()
-    .escape() // Sanitización XSS ANTES de validación de longitud
-    .isLength({ min: ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX })
-    .withMessage(`Búsqueda debe tener entre ${ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MAX} caracteres`),
-
-  query('limit')
-    .optional()
-    .isInt({ min: ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MAX })
-    .withMessage(`limit debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.NOISE.LIMIT_MIN} y ${ROUTE_SPECIFIC_LIMITS.NOISE.POINT_LIMIT_MAX}`)
-];
-
-/**
- * Validación para parámetro ID
- */
-const idValidation = [
-  param('id')
-    .isMongoId()
-    .withMessage('ID debe ser un ObjectId válido de MongoDB')
-];
-
-/**
  * RUTAS DE CONTAMINACIÓN ACÚSTICA
  */
 
@@ -215,29 +176,31 @@ router.get('/',
   authenticate,
   validateDateRange(DATE_RANGE_LIMITS.NOISE_MAX_DAYS),
   noiseQueryValidation,
+  validateRequest,
   cacheMiddleware('noise'), // Cache por 3 minutos
   getNoiseMonitoringData
 );
 
 /**
- * @route   GET /api/v1/noise-monitoring/statistics
- * @desc    Obtener estadísticas de contaminación acústica
- * @access  Privado (requiere autenticación)
+ * @route   GET /api/v1/ruido/estadisticas
+ * @desc    Obtener estadisticas de contaminacion acustica
+ * @access  Privado (requiere autenticacion)
  */
-router.get('/statistics',
+router.get('/estadisticas',
   noiseStatisticsLimiter,
   authenticate,
   validateDateRange(DATE_RANGE_LIMITS.NOISE_MAX_DAYS),
   noiseStatisticsValidation,
+  validateRequest,
   etagMiddleware, // ETags para estadísticas agregadas (datos estables)
   cacheMiddleware('noise'), // Cache por 1 hora
   getNoiseStatistics
 );
 
 /**
- * @route   GET /api/v1/noise-monitoring/ranking
+ * @route   GET /api/v1/ruido/ranking
  * @desc    Obtener ranking de estaciones por nivel de ruido
- * @access  Privado (requiere autenticación)
+ * @access  Privado (requiere autenticacion)
  */
 router.get('/ranking',
   noiseStatisticsLimiter,
@@ -250,88 +213,11 @@ router.get('/ranking',
 );
 
 /**
- * @route   GET /api/v1/noise-monitoring/stations/compare
- * @desc    Comparar niveles de ruido entre estaciones
- * @access  Privado (requiere autenticación)
+ * @route   GET /api/v1/ruido/cumplimiento/zona
+ * @desc    Analisis de cumplimiento normativo por zona
+ * @access  Privado (requiere autenticacion)
  */
-router.get('/stations/compare',
-  noiseStatisticsLimiter,
-  authenticate,
-  [
-    query('stations')
-      .custom((value, { req }) => {
-        if (value) {
-          return true;
-        }
-        // Soporte para formato array explícito stations[] si el parser no lo maneja automáticamente
-        if (req.query['stations[]']) {
-          req.query.stations = req.query['stations[]'];
-          return true;
-        }
-        return false;
-      })
-      .withMessage('Se requiere el parámetro "stations"'),
-    query('startDate')
-      .optional()
-      .isISO8601()
-      .withMessage('startDate debe ser una fecha válida'),
-    query('endDate')
-      .optional()
-      .isISO8601()
-      .withMessage('endDate debe ser una fecha válida'),
-    query('metric')
-      .optional()
-      .isIn(['laeq24', 'diurno', 'vespertino', 'nocturno'])
-      .withMessage('metric debe ser un tipo válido')
-  ],
-  validateRequest,
-  etagMiddleware, // ETags para comparación de estaciones (datos agregados)
-  cacheMiddleware('noise'),
-  compareStations
-);
-
-/**
- * @route   GET /api/v1/noise-monitoring/trends/temporal
- * @desc    Obtener tendencias temporales de ruido
- * @access  Privado (requiere autenticación)
- */
-router.get('/trends/temporal',
-  noiseStatisticsLimiter,
-  authenticate,
-  [
-    query('nmt')
-      .optional()
-      .isInt({ min: 1 })
-      .withMessage('nmt debe ser un número entero positivo'),
-    query('startDate')
-      .optional()
-      .isISO8601()
-      .withMessage('startDate debe ser una fecha válida'),
-    query('endDate')
-      .optional()
-      .isISO8601()
-      .withMessage('endDate debe ser una fecha válida'),
-    query('groupBy')
-      .optional()
-      .isIn(['day', 'week', 'month', 'year'])
-      .withMessage('groupBy debe ser "day", "week", "month" o "year"'),
-    query('metric')
-      .optional()
-      .isIn(['laeq24', 'diurno', 'vespertino', 'nocturno'])
-      .withMessage('metric debe ser un tipo válido')
-  ],
-  validateRequest,
-  etagMiddleware, // ETags para tendencias temporales (datos agregados estables)
-  cacheMiddleware('noise'),
-  getTemporalTrends
-);
-
-/**
- * @route   GET /api/v1/noise-monitoring/compliance/zone
- * @desc    Análisis de cumplimiento normativo por zona
- * @access  Privado (requiere autenticación)
- */
-router.get('/compliance/zone',
+router.get('/cumplimiento/zona',
   noiseStatisticsLimiter,
   authenticate,
   [
@@ -359,31 +245,23 @@ router.get('/compliance/zone',
 );
 
 /**
- * @route   GET /api/v1/noise-monitoring/stations/search
- * @desc    Buscar estaciones de monitoreo por nombre
- * @access  Privado (requiere autenticación)
+ * @route   GET /api/v1/ruido/tendencias/temporal
+ * @desc    Obtener tendencias temporales de ruido
+ * @access  Privado
  */
-router.get('/stations/search',
-  searchLimiter,
+router.get('/tendencias/temporal',
+  noiseStatisticsLimiter,
   authenticate,
-  searchValidation,
+  [
+    query('startDate').notEmpty().isISO8601().withMessage('startDate es obligatorio en formato ISO 8601'),
+    query('endDate').notEmpty().isISO8601().withMessage('endDate es obligatorio en formato ISO 8601'),
+    query('nmt').optional().isInt({ min: 1 }).withMessage('nmt debe ser un entero positivo'),
+    query('groupBy').optional().isIn(['day', 'month', 'year']).withMessage('groupBy debe ser: day, month, year'),
+    query('metric').optional().isIn(['laeq24', 'nivelDiurno', 'nivelVespertino', 'nivelNocturno']).withMessage('metric debe ser: laeq24, nivelDiurno, nivelVespertino, nivelNocturno')
+  ],
   validateRequest,
-  cacheMiddleware('noise'), // Cache por 10 minutos (búsquedas cambian poco)
-  searchStations
-);
-
-/**
- * @route   GET /api/v1/noise-monitoring/:id
- * @desc    Obtener datos detallados de contaminación acústica por ID
- * @access  Privado (requiere autenticación)
- */
-router.get('/:id',
-  noiseDataLimiter,
-  authenticate,
-  idValidation,
-  validateRequest,
-  cacheMiddleware('noise'), // Cache por 5 minutos
-  getNoiseMonitoringById
+  cacheMiddleware('noise'),
+  obtenerTendenciasTemporales
 );
 
 module.exports = router;

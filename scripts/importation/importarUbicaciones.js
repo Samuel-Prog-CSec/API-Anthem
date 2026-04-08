@@ -1,7 +1,7 @@
 /**
  * @fileoverview Script de importacion de ubicaciones (CSV y GPX)
  * Importa estaciones acusticas, puntos de trafico y rutas de transporte
- * @module scripts/importation/importLocations
+ * @module scripts/importation/importarUbicaciones
  */
 
 process.env.SCRIPT_MODE = 'true';
@@ -11,7 +11,7 @@ const fsSync = require('fs');
 const csv = require('csv-parser');
 const path = require('path');
 const mongoose = require('mongoose');
-const Location = require('../../src/models/Location');
+const Location = require('../../src/models/Ubicacion');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
 const { importLocationsLogger: logger } = require('../../src/config/scriptLogger');
@@ -227,14 +227,19 @@ async function importTrafficPoints() {
   return new Promise((resolve, reject) => {
     let resolved = false; // Bandera para evitar resolve multiple
 
-    // Timeout de seguridad: 30 segundos
+    // Timeout de seguridad: 60 segundos (incrementado para datasets grandes)
     const timeout = setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        logger.warn({ count: points.length, rechazadas: rejectedRows, fila: rowIndex }, 'Timeout procesando puntos de trafico - usando datos parciales');
+        logger.error({
+          count: points.length,
+          rechazadas: rejectedRows,
+          fila: rowIndex,
+          datosIncompletos: true
+        }, 'TIMEOUT procesando puntos de trafico - datos PARCIALES importados. Considerar aumentar timeout o revisar archivo CSV');
         resolve(points);
       }
-    }, 30000);
+    }, 60000);
 
     if (!fsSync.existsSync(filePath)) {
       clearTimeout(timeout);

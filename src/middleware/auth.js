@@ -25,13 +25,19 @@ const { HTTP_STATUS, TOKEN_VALIDATION } = require('../constants');
  * @param {function} next - Función next de Express
  */
 const authenticate = async (req, res, next) => {
-  // MODO TEST: Bypass de autenticación si está habilitado
+  // MODO TEST: Bypass de autenticacion si esta habilitado
+  // SEGURIDAD: Desactivar en produccion (TEST_MODE=false en .env)
   if (config.testMode.enabled) {
     const authHeader = req.headers.authorization;
-    // Si se envía el token de test específico
+    // Si se envia el token de test especifico
     if (authHeader && authHeader === `Bearer ${config.testMode.bypassKey}`) {
+      authLogger.warn({
+        ip: req.ip,
+        method: req.method,
+        url: req.originalUrl
+      }, 'Acceso via bypass de test mode - NO usar en produccion');
       req.user = {
-        _id: '000000000000000000000000', // ID ficticio válido (24 hex chars)
+        _id: '000000000000000000000000', // ID ficticio valido (24 hex chars)
         username: 'TestUser',
         email: 'test@localhost',
         role: 'admin', // Rol admin para probar todo

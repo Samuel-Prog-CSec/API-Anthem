@@ -78,12 +78,8 @@ const helmetConfig = helmet({
   // Referrer Policy
   referrerPolicy: { policy: 'no-referrer' },
 
-  // HTTP Strict Transport Security (solo HTTPS)
-  hsts: {
-    maxAge: 31536000, // 1 año
-    includeSubDomains: true,
-    preload: true
-  }
+  // HSTS deshabilitado - proyecto universitario sin HTTPS
+  hsts: false
 });
 
 /**
@@ -276,39 +272,6 @@ const validateRequest = (req, res, next) => {
 };
 
 /**
- * Middleware para forzar HTTPS en producción y evitar sniffing en HTTP.
- * Redirige a HTTPS si está habilitado; si SSL está deshabilitado en producción,
- * responde 400 indicando la configuración requerida.
- */
-const enforceHttps = (req, res, next) => {
-  if (config.server.env !== 'production') {
-    return next();
-  }
-
-  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
-
-  if (isSecure) {
-    return next();
-  }
-
-  if (!config.ssl.enabled) {
-    return res.status(HTTP_STATUS.BAD_REQUEST).json(
-      createErrorResponse('HTTPS requerido en producción. Configure SSL_ENABLED=true y certificados válidos')
-    );
-  }
-
-  const httpsUrl = `https://${req.headers.host}${req.url}`;
-
-  if (config.ssl.redirectHttp) {
-    return res.redirect(301, httpsUrl);
-  }
-
-  return res.status(HTTP_STATUS.BAD_REQUEST).json(
-    createErrorResponse('HTTPS requerido. Accede usando https://')
-  );
-};
-
-/**
  * Logging de peticiones para monitoreo de seguridad
  */
 const securityLogger = (req, res, next) => {
@@ -351,7 +314,6 @@ module.exports = {
   helmetConfig,
   sanitizeInput,
   xssProtection,
-  enforceHttps,
   customSecurityHeaders,
   validateRequest,
   securityLogger

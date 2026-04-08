@@ -6,7 +6,7 @@
  */
 
 const express = require('express');
-const { query, param } = require('express-validator');
+const { query } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 
 // Middleware de autenticación y seguridad
@@ -29,10 +29,9 @@ const {
 // Controladores
 const {
   getAirQualityData,
-  getAirQualityById,
   getAirQualityStatistics,
   getAirQualityTrends
-} = require('../controllers/airQualityController');
+} = require('../controllers/controladorCalidadAire');
 
 const router = express.Router();
 
@@ -178,15 +177,6 @@ const statisticsValidation = [
 ];
 
 /**
- * Validación para parámetro ID
- */
-const idValidation = [
-  param('id')
-    .isMongoId()
-    .withMessage('ID debe ser un ObjectId válido de MongoDB')
-];
-
-/**
  * RUTAS DE CALIDAD DE AIRE
  */
 
@@ -205,11 +195,11 @@ router.get('/',
 );
 
 /**
- * @route   GET /api/v1/air-quality/statistics
- * @desc    Obtener estadísticas agregadas de calidad de aire
- * @access  Privado (requiere autenticación)
+ * @route   GET /api/v1/calidad-aire/estadisticas
+ * @desc    Obtener estadisticas agregadas de calidad de aire
+ * @access  Privado (requiere autenticacion)
  */
-router.get('/statistics',
+router.get('/estadisticas',
   heavyQueryLimiter,
   authenticate,
   statisticsValidation,
@@ -219,11 +209,11 @@ router.get('/statistics',
 );
 
 /**
- * @route   GET /api/v1/air-quality/trends
+ * @route   GET /api/v1/calidad-aire/tendencias
  * @desc    Obtener tendencias de calidad de aire
- * @access  Privado (requiere autenticación)
+ * @access  Privado (requiere autenticacion)
  */
-router.get('/trends',
+router.get('/tendencias',
   heavyQueryLimiter,
   authenticate,
   [
@@ -236,20 +226,6 @@ router.get('/trends',
   validateRequest,
   cacheMiddleware('airQuality'), // Cache por 30 minutos
   getAirQualityTrends
-);
-
-/**
- * @route   GET /api/v1/air-quality/:id
- * @desc    Obtener datos detallados de calidad de aire por ID
- * @access  Privado (requiere autenticación)
- */
-router.get('/:id',
-  dataQueryLimiter,
-  authenticate,
-  idValidation,
-  validateRequest,
-  cacheMiddleware('airQuality'), // Cache por 30 minutos
-  getAirQualityById
 );
 
 module.exports = router;

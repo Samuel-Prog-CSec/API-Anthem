@@ -1,16 +1,16 @@
 /**
- * Script de Importacion de Disponibilidad de Bicicletas
+ * Script de Importacion de Aforo de Bicicletas
  *
- * Procesa y carga datos de disponibilidad de bicicletas desde CSV a MongoDB.
+ * Procesa y carga datos de conteo horario de trafico de bicicletas desde CSV a MongoDB.
  * Optimizado para rendimiento con manejo robusto de errores y cierre de conexiones.
  *
- * Uso: node scripts/importation/importBikeAvailability.js [--force] [--batch=N]
+ * Uso: node scripts/importation/importarAforoBicicletas.js [--force] [--batch=N]
  *
  * Opciones:
  *   --force    Sobrescribir registros existentes (upsert)
- *   --batch=N  Tamano del lote para inserciones (default: 50)
+ *   --batch=N  Tamano del lote para inserciones (default: 500)
  *
- * @module scripts/importation/importBikeAvailability
+ * @module scripts/importation/importarAforoBicicletas
  */
 
 // Configurar modo script para evitar reconexiones infinitas
@@ -24,9 +24,9 @@ const mongoose = require('mongoose');
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const { importBikesLogger: logger } = require('../../src/config/scriptLogger');
+const { importBikeTrafficLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
-const { DATASET_YEARS, VALIDATION_LIMITS } = require('../../src/constants');
+const { DATASET_YEARS, VALIDATION_LIMITS, DAY_PERIODS } = require('../../src/constants');
 const {
   RejectionTracker,
   formatDuration,
@@ -34,16 +34,16 @@ const {
 } = require('./helpers/importHelpers');
 
 // Modelo
-const BikeAvailability = require('../../src/models/BikeAvailability');
+const BikeTrafficCount = require('../../src/models/AforoBicicletas');
 
 /**
  * Configuracion del importador
  * @constant {Object}
  */
 const IMPORT_CONFIG = {
-  batchSize: 50,
-  dataFile: path.join(__dirname, '../../datos_hpe/Anthem_CTC_Bicicletas_Disponibilidad.csv'),
-  logInterval: 50,
+  batchSize: 500,
+  dataFile: path.join(__dirname, '../../datos_hpe/Anthem_CTC_BicicletasAforo.csv'),
+  logInterval: 5000,
   csvSeparator: ';'
 };
 
@@ -68,7 +68,7 @@ let isShuttingDown = false;
  * Parsear argumentos de linea de comandos
  * @returns {Object} Opciones parseadas
  */
-function parseArguments() {
+function parsearArgumentos() {
   const args = process.argv.slice(2);
   const options = {
     skipExisting: true,
@@ -92,7 +92,7 @@ function parseArguments() {
 /**
  * Registrar manejadores de senales para cierre graceful
  */
-function registerSignalHandlers() {
+function registrarManejadoresSenales() {
   const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
   signals.forEach(signal => {
@@ -145,22 +145,6 @@ function registerSignalHandlers() {
 }
 
 /**
- * Parsear numero con formato espanol (coma decimal, punto miles)
- * @param {string|number} value - Valor a parsear
- * @returns {number} Valor numerico o 0 si invalido
- */
-function parseSpanishNumber(value) {
-  if (value === null || value === undefined || value === '') {return 0;}
-
-  const normalized = value.toString()
-    .replace(/\./g, '')
-    .replace(/,/g, '.');
-
-  const parsed = parseFloat(normalized);
-  return isNaN(parsed) ? 0 : parsed;
-}
-
-/**
  * Codigos de razon de rechazo para trazabilidad
  * @constant {Object}
  */
@@ -171,25 +155,30 @@ const REJECTION_REASONS = {
   MONTH_OUT_OF_RANGE: 'MES_FUERA_RANGO',
   YEAR_OUT_OF_RANGE: 'ANO_FUERA_RANGO_DATASET',
   INVALID_DATE: 'FECHA_INVALIDA',
+  INVALID_HOUR: 'HORA_INVALIDA',
   NEGATIVE_VALUES: 'VALORES_NEGATIVOS',
   DUPLICATE_IN_DB: 'DUPLICADO_EN_BD',
   DUPLICATE_IN_FILE: 'DUPLICADO_EN_ARCHIVO',
   DUPLICATE_KEY: 'CLAVE_DUPLICADA',
-  VALIDATION_ERROR: 'ERROR_VALIDACION_MODELO'
+  VALIDATION_ERROR: 'ERROR_VALIDACION_MODELO',
+  MISSING_IDENTIFIER: 'IDENTIFICADOR_VACIO'
 };
 
 /**
- * Parsear fecha en formato DD/MM/YYYY
- * @param {string} dateStr - Fecha en formato DD/MM/YYYY
- * @returns {Date} Objeto Date
+ * Parsear fecha en formato DD/MM/YYYY (puede incluir hora despues de espacio)
+ * @param {string} dateStr - Fecha en formato "DD/MM/YYYY H:MM" o "DD/MM/YYYY"
+ * @returns {Date} Objeto Date (solo parte de fecha, sin hora)
  * @throws {Error} Si el formato es invalido o la fecha no esta en rango del dataset
  */
-function parseDate(dateStr) {
+function parsearFecha(dateStr) {
   if (!dateStr || typeof dateStr !== 'string') {
     throw new Error(`${REJECTION_REASONS.EMPTY_DATE}: valor='${dateStr}'`);
   }
 
-  const parts = dateStr.trim().split('/');
+  // Separar fecha de hora (formato "DD/MM/YYYY H:MM")
+  const datePart = dateStr.trim().split(' ')[0];
+
+  const parts = datePart.split('/');
   if (parts.length !== 3) {
     throw new Error(`${REJECTION_REASONS.INVALID_DATE_FORMAT}: valor='${dateStr}'`);
   }
@@ -218,96 +207,138 @@ function parseDate(dateStr) {
 }
 
 /**
+ * Parsear hora del campo HORA (formato "H:MM" o "HH:MM")
+ * @param {string} horaStr - Hora en formato "H:MM"
+ * @returns {number} Hora como entero (0-23)
+ * @throws {Error} Si la hora no es valida
+ */
+function parseHour(horaStr) {
+  if (!horaStr || typeof horaStr !== 'string') {
+    throw new Error(`${REJECTION_REASONS.INVALID_HOUR}: valor='${horaStr}'`);
+  }
+
+  const hour = parseInt(horaStr.trim().split(':')[0], 10);
+
+  if (isNaN(hour) || hour < 0 || hour > 23) {
+    throw new Error(`${REJECTION_REASONS.INVALID_HOUR}: valor='${horaStr}', parseado=${hour}`);
+  }
+
+  return hour;
+}
+
+/**
+ * Parsear coordenada en formato espanol (coma como separador decimal)
+ * @param {string} value - Coordenada en formato espanol (ej: "40,40547173")
+ * @returns {number|null} Coordenada como float o null si invalido
+ */
+function parseSpanishCoordinate(value) {
+  if (value === null || value === undefined || value === '') {return null;}
+
+  const normalized = value.toString().replace(',', '.');
+  const parsed = parseFloat(normalized);
+  return isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Determinar franja horaria a partir de la hora
+ * @param {number} hora - Hora (0-23)
+ * @returns {string} Franja horaria
+ */
+function getFranjaHoraria(hora) {
+  if (hora >= 0 && hora <= 5) {
+    return DAY_PERIODS.MADRUGADA;
+  } else if (hora >= 6 && hora <= 11) {
+    return DAY_PERIODS.MAÑANA;
+  } else if (hora >= 12 && hora <= 14) {
+    return DAY_PERIODS.MEDIODIA;
+  } else if (hora >= 15 && hora <= 20) {
+    return DAY_PERIODS.TARDE;
+  }
+  return DAY_PERIODS.NOCHE;
+}
+
+/**
  * Validar y transformar una fila de datos CSV
  * @param {Object} row - Fila del CSV
  * @param {number} rowIndex - Indice de la fila
  * @returns {Object} Datos transformados para el modelo
  * @throws {Error} Si la validacion falla
  */
-function validateAndTransformRow(row, rowIndex) {
-  // Parsear fecha
-  const dia = parseDate(row.DIA);
+function validarYTransformarFila(row, rowIndex) {
+  // Manejar BOM en primera columna: la primera columna puede tener \uFEFF al inicio
+  const fechaKey = Object.keys(row).find(k => k.includes('FECHA')) || 'FECHA';
+  const fechaValue = row[fechaKey];
 
-  // Parsear valores numericos (manejar espacios en nombres de columna del CSV)
-  const horasTotalesUsosBicicletas = parseSpanishNumber(row.HORAS_TOTALES_USOS_BICICLETAS);
+  // Parsear fecha (formato "DD/MM/YYYY H:MM")
+  const fecha = parsearFecha(fechaValue);
 
-  // Nota: El CSV tiene un espacio extra en el nombre de esta columna
-  const horasTotalesDisponibilidadBicicletasEnAnclajes = parseSpanishNumber(
-    row['HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN _ANCLAJES'] ||
-    row.HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN_ANCLAJES
-  );
+  // Parsear hora
+  const hora = parseHour(row.HORA);
 
-  const totalHorasServicioBicicletas = parseSpanishNumber(row.TOTAL_HORAS_SERVICIO_BICICLETAS);
-  const mediaBicicletasDisponibles = parseSpanishNumber(row.MEDIA_BICICLETAS_DISPONIBLES);
-  const usosAbonadoAnual = parseInt(row.USOS_ABONADO_ANUAL, 10) || 0;
-  const usosAbonadoOcasional = parseInt(row.USOS_ABONADO_OCASIONAL, 10) || 0;
-  const totalUsos = parseInt(row.TOTAL_USOS, 10) || 0;
-
-  // Validar valores no negativos
-  if (horasTotalesUsosBicicletas < 0 ||
-      horasTotalesDisponibilidadBicicletasEnAnclajes < 0 ||
-      totalHorasServicioBicicletas < 0 ||
-      mediaBicicletasDisponibles < 0) {
-    const valoresNegativos = [];
-    if (horasTotalesUsosBicicletas < 0) {valoresNegativos.push(`horasTotalesUsosBicicletas=${horasTotalesUsosBicicletas}`);}
-    if (horasTotalesDisponibilidadBicicletasEnAnclajes < 0) {valoresNegativos.push(`horasDisponibilidad=${horasTotalesDisponibilidadBicicletasEnAnclajes}`);}
-    if (totalHorasServicioBicicletas < 0) {valoresNegativos.push(`totalHorasServicio=${totalHorasServicioBicicletas}`);}
-    if (mediaBicicletasDisponibles < 0) {valoresNegativos.push(`mediaBicicletasDisponibles=${mediaBicicletasDisponibles}`);}
-    throw new Error(`${REJECTION_REASONS.NEGATIVE_VALUES}: ${valoresNegativos.join(', ')}`);
+  // Validar identificador
+  const identificador = (row.IDENTIFICADOR || '').trim();
+  if (!identificador) {
+    throw new Error(`${REJECTION_REASONS.MISSING_IDENTIFIER}: fila=${rowIndex}`);
   }
 
-  // Validar coherencia de usos (modelo valida que totalUsos = anual + ocasional)
-  const sumUsos = usosAbonadoAnual + usosAbonadoOcasional;
-  if (totalUsos !== sumUsos && totalUsos !== 0) {
-    logger.debug(
-      { rowIndex, totalUsos, sumUsos },
-      'Discrepancia en suma de usos, usando valor calculado'
-    );
+  // Parsear bicicletas
+  const bicicletas = parseInt(row.BICICLETAS, 10);
+  if (isNaN(bicicletas) || bicicletas < 0) {
+    throw new Error(`${REJECTION_REASONS.NEGATIVE_VALUES}: bicicletas=${row.BICICLETAS}`);
   }
+
+  // Parsear coordenadas (formato espanol con coma decimal)
+  const latitud = parseSpanishCoordinate(row.LATITUD);
+  const longitud = parseSpanishCoordinate(row.LONGITUD);
+
+  // Campos calculados
+  const franjaHoraria = getFranjaHoraria(hora);
+  const ano = fecha.getFullYear();
+  const mes = fecha.getMonth() + 1;
+  const diaSemana = fecha.getDay();
 
   return {
-    dia,
-    horasTotalesUsosBicicletas,
-    horasTotalesDisponibilidadBicicletasEnAnclajes,
-    totalHorasServicioBicicletas,
-    mediaBicicletasDisponibles,
-    usosAbonadoAnual,
-    usosAbonadoOcasional,
-    totalUsos: sumUsos || totalUsos
+    fecha,
+    hora,
+    identificador,
+    bicicletas,
+    ubicacion: {
+      numeroDistrito: parseInt(row['NUMERO_DISTRITO'] || row['N\u00daMERO_DISTRITO'], 10) || null,
+      distrito: (row.DISTRITO || '').trim() || null,
+      nombreVial: (row.NOMBRE_VIAL || '').trim() || null,
+      numero: (row['NUMERO'] || row['N\u00daMERO'] || '').toString().trim() || null,
+      codigoPostal: (row['CODIGO_POSTAL'] || row['C\u00d3DIGO_POSTAL'] || '').toString().trim() || null,
+      observacionesDireccion: (row.OBSERVACIONES_DIRECCION || '').trim() || null,
+      coordenadas: {
+        latitud,
+        longitud
+      }
+    },
+    franjaHoraria,
+    ano,
+    mes,
+    diaSemana,
+    procesamiento: {
+      archivoOrigen: 'Anthem_CTC_BicicletasAforo.csv',
+      importadoEn: new Date()
+    }
   };
 }
 
 /**
- * Verificar duplicados en base de datos
- * @param {Array<Date>} dates - Array de fechas a verificar
- * @returns {Promise<Set<string>>} Set con fechas existentes en formato ISO
- */
-async function checkDuplicates(dates) {
-  const existingDocs = await BikeAvailability.find({
-    dia: { $in: dates }
-  })
-    .select('dia')
-    .lean()
-    .maxTimeMS(10000);
-
-  return new Set(existingDocs.map(doc => doc.dia.toISOString()));
-}
-
-/**
- * Procesar lote de registros con bulkWrite
+ * Procesar lote de registros con insertMany
  * @param {Array<Object>} batch - Lote de registros a insertar
  * @param {Object} options - Opciones de procesamiento
  * @returns {Promise<Object>} Resultado de la operacion
  */
-async function processBatch(batch, options) {
+async function procesarLote(batch, options) {
   const result = { inserted: 0, skipped: 0, errors: 0 };
 
   if (batch.length === 0) {return result;}
 
   if (options.skipExisting) {
-    // Insertar solo nuevos registros
     try {
-      const insertResult = await BikeAvailability.insertMany(batch, {
+      const insertResult = await BikeTrafficCount.insertMany(batch, {
         ordered: false,
         lean: true
       });
@@ -319,21 +350,15 @@ async function processBatch(batch, options) {
         result.inserted = insertedCount;
         result.skipped = batch.length - insertedCount;
 
-        // Loguear cada duplicado individual
+        // Loguear duplicados a nivel debug (muchos esperados en archivo grande)
         if (error.writeErrors) {
-          error.writeErrors.forEach(writeErr => {
-            if (writeErr.code === 11000) {
-              const duplicateDoc = batch[writeErr.index];
-              logger.warn(
-                {
-                  fecha: duplicateDoc?.dia?.toISOString().split('T')[0],
-                  razon: REJECTION_REASONS.DUPLICATE_KEY,
-                  detalle: 'Clave unica ya existe en BD'
-                },
-                'Registro rechazado - duplicado'
-              );
-            }
-          });
+          const duplicateCount = error.writeErrors.filter(e => e.code === 11000).length;
+          if (duplicateCount > 0) {
+            logger.debug(
+              { duplicados: duplicateCount },
+              'Registros duplicados omitidos en lote'
+            );
+          }
         }
       } else {
         const handledError = handleMongoError(error);
@@ -346,14 +371,18 @@ async function processBatch(batch, options) {
     // Modo upsert - actualizar si existe
     const operations = batch.map(record => ({
       updateOne: {
-        filter: { dia: record.dia },
+        filter: {
+          identificador: record.identificador,
+          fecha: record.fecha,
+          hora: record.hora
+        },
         update: { $set: record },
         upsert: true
       }
     }));
 
     try {
-      const bulkResult = await BikeAvailability.bulkWrite(operations, { ordered: false });
+      const bulkResult = await BikeTrafficCount.bulkWrite(operations, { ordered: false });
       result.inserted = (bulkResult.upsertedCount || 0) + (bulkResult.modifiedCount || 0);
       result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);
     } catch (error) {
@@ -372,7 +401,7 @@ async function processBatch(batch, options) {
  * @param {Object} options - Opciones de procesamiento
  * @returns {Promise<void>}
  */
-async function processCSV(options) {
+async function procesarCSV(options) {
   logger.info(
     { file: IMPORT_CONFIG.dataFile },
     'Iniciando procesamiento de archivo CSV'
@@ -381,7 +410,7 @@ async function processCSV(options) {
   return new Promise((resolve, reject) => {
     const batch = [];
     let isProcessingBatch = false;
-    const seenDatesInFile = new Set();
+    const seenKeysInFile = new Set();
     let stream;
 
     const flushBatch = async () => {
@@ -390,22 +419,10 @@ async function processCSV(options) {
       stream.pause();
 
       try {
-        let workingBatch = batch.splice(0, batch.length);
-
-        if (options.skipExisting) {
-          const dates = workingBatch.map(r => r.dia);
-          const existingSet = await checkDuplicates(dates);
-          workingBatch = workingBatch.filter(record => {
-            const isDuplicate = existingSet.has(record.dia.toISOString());
-            if (isDuplicate) {
-              totalSkipped++;
-            }
-            return !isDuplicate;
-          });
-        }
+        const workingBatch = batch.splice(0, batch.length);
 
         if (workingBatch.length > 0) {
-          const result = await processBatch(workingBatch, options);
+          const result = await procesarLote(workingBatch, options);
           totalInserted += result.inserted;
           totalSkipped += result.skipped;
         }
@@ -429,16 +446,18 @@ async function processCSV(options) {
       totalProcessed++;
 
       try {
-        const transformedData = validateAndTransformRow(row, totalProcessed);
-        const dateKey = transformedData.dia.toISOString();
+        const transformedData = validarYTransformarFila(row, totalProcessed);
 
-        if (seenDatesInFile.has(dateKey)) {
+        // Clave unica para detectar duplicados en el archivo
+        const recordKey = `${transformedData.identificador}_${transformedData.fecha.toISOString()}_${transformedData.hora}`;
+
+        if (seenKeysInFile.has(recordKey)) {
           totalRejected++;
           rejectionTracker.track(REJECTION_REASONS.DUPLICATE_IN_FILE);
           return;
         }
 
-        seenDatesInFile.add(dateKey);
+        seenKeysInFile.add(recordKey);
         batch.push(transformedData);
 
         if (batch.length >= options.batchSize) {
@@ -446,27 +465,37 @@ async function processCSV(options) {
         }
 
         if (totalProcessed % IMPORT_CONFIG.logInterval === 0) {
-          logger.debug(
-            { processed: totalProcessed, buffered: batch.length },
-            'Progreso de lectura'
+          const elapsed = Date.now() - startTime;
+          logger.info(
+            {
+              procesadas: totalProcessed,
+              insertadas: totalInserted,
+              rechazadas: totalRejected,
+              velocidad: calculateProcessingSpeed(totalProcessed, elapsed)
+            },
+            'Progreso de importacion'
           );
         }
       } catch (error) {
         totalErrors++;
         totalRejected++;
         rejectionTracker.track(error.message.split(':')[0] || 'ERROR_DESCONOCIDO');
-        logger.warn(
-          {
-            fila: totalProcessed,
-            razon: error.message,
-            datosOriginales: {
-              DIA: row.DIA,
-              TOTAL_USOS: row.TOTAL_USOS,
-              USOS_ABONADO_ANUAL: row.USOS_ABONADO_ANUAL
-            }
-          },
-          'Fila rechazada - no insertada en BD'
-        );
+
+        // Solo loguear las primeras ocurrencias a nivel warn, despues debug
+        if (totalRejected <= 20) {
+          logger.warn(
+            {
+              fila: totalProcessed,
+              razon: error.message,
+              datosOriginales: {
+                FECHA: row[Object.keys(row).find(k => k.includes('FECHA'))] || row.FECHA,
+                IDENTIFICADOR: row.IDENTIFICADOR,
+                BICICLETAS: row.BICICLETAS
+              }
+            },
+            'Fila rechazada - no insertada en BD'
+          );
+        }
       }
     });
 
@@ -495,14 +524,15 @@ async function processCSV(options) {
  * Mostrar estadisticas finales
  * @returns {Promise<void>}
  */
-async function showStatistics() {
+async function mostrarEstadisticas() {
   const durationMs = Date.now() - startTime;
 
   // Estadisticas de la base de datos
-  const [totalInDB, minDateDoc, maxDateDoc] = await Promise.all([
-    BikeAvailability.countDocuments().maxTimeMS(5000),
-    BikeAvailability.findOne().sort({ dia: 1 }).select('dia').lean().maxTimeMS(5000),
-    BikeAvailability.findOne().sort({ dia: -1 }).select('dia').lean().maxTimeMS(5000)
+  const [totalInDB, minDateDoc, maxDateDoc, stationCount] = await Promise.all([
+    BikeTrafficCount.countDocuments().maxTimeMS(5000),
+    BikeTrafficCount.findOne().sort({ fecha: 1 }).select('fecha').lean().maxTimeMS(5000),
+    BikeTrafficCount.findOne().sort({ fecha: -1 }).select('fecha').lean().maxTimeMS(5000),
+    BikeTrafficCount.distinct('identificador').maxTimeMS(5000)
   ]);
 
   logger.info({
@@ -514,9 +544,10 @@ async function showStatistics() {
     registrosRechazados: totalRejected,
     errores: totalErrors,
     totalEnBD: totalInDB,
-    fechaMinima: minDateDoc?.dia?.toISOString().split('T')[0] || 'N/A',
-    fechaMaxima: maxDateDoc?.dia?.toISOString().split('T')[0] || 'N/A'
-  }, 'Importacion de disponibilidad de bicicletas completada');
+    estacionesUnicas: stationCount.length,
+    fechaMinima: minDateDoc?.fecha?.toISOString().split('T')[0] || 'N/A',
+    fechaMaxima: maxDateDoc?.fecha?.toISOString().split('T')[0] || 'N/A'
+  }, 'Importacion de aforo de bicicletas completada');
 
   // Resumen de rechazos por tipo
   const rejectionSummary = rejectionTracker.getSortedSummary();
@@ -535,16 +566,16 @@ async function main() {
   startTime = Date.now();
 
   // Registrar manejadores de senales
-  registerSignalHandlers();
+  registrarManejadoresSenales();
 
   // Parsear argumentos
-  const options = parseArguments();
+  const options = parsearArgumentos();
 
   logger.info({
     skipExisting: options.skipExisting,
     batchSize: options.batchSize,
     dataFile: IMPORT_CONFIG.dataFile
-  }, 'Iniciando importacion de disponibilidad de bicicletas');
+  }, 'Iniciando importacion de aforo de bicicletas');
 
   try {
     // Verificar que el archivo existe
@@ -558,14 +589,14 @@ async function main() {
     logger.info('Conexion a MongoDB establecida');
 
     // Verificar estado inicial
-    const initialCount = await BikeAvailability.countDocuments().maxTimeMS(5000);
+    const initialCount = await BikeTrafficCount.countDocuments().maxTimeMS(5000);
     logger.info({ registrosActuales: initialCount }, 'Estado inicial de la coleccion');
 
     // Procesar CSV
-    await processCSV(options);
+    await procesarCSV(options);
 
     // Mostrar estadisticas finales
-    await showStatistics();
+    await mostrarEstadisticas();
 
   } catch (error) {
     const handledError = handleMongoError(error);
@@ -604,8 +635,10 @@ if (require.main === module) {
 }
 
 module.exports = {
-  parseSpanishNumber,
-  parseDate,
-  validateAndTransformRow,
+  parsearFecha,
+  parseHour,
+  parseSpanishCoordinate,
+  getFranjaHoraria,
+  validarYTransformarFila,
   REJECTION_REASONS
 };

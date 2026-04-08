@@ -6,12 +6,12 @@
  * con análisis de seguridad vial, puntos negros y estadísticas de accidentes.
  */
 
-const Accident = require('../models/Accident');
+const Accidente = require('../models/Accidente');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, ACCIDENT_TYPES, VEHICLE_TYPES, INJURY_TYPES, INJURY_SEVERITY_MAPPING, BINARY_INDICATORS, SEVERITY_LEVELS, PERSON_TYPES, MONGODB_TIMEOUTS, TIME_CONSTANTS, DAYS_OF_WEEK } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, TIPOS_ACCIDENTE, TIPOS_VEHICULO, TIPOS_LESION, MAPEO_SEVERIDAD_LESIONES, BINARY_INDICATORS, SEVERITY_LEVELS, TIPOS_PERSONA, MONGODB_TIMEOUTS, TIME_CONSTANTS, DAYS_OF_WEEK } = require('../constants');
 const logger = require('../config/logger');
 
 
@@ -19,7 +19,7 @@ const logger = require('../config/logger');
  * Obtener todos los accidentes con filtros avanzados
  * GET /api/accidents
  */
-const getAllAccidents = async (req, res, next) => {
+const obtenerAccidentes = async (req, res, next) => {
   try {
     req.log.debug({
       query: req.query,
@@ -75,7 +75,7 @@ const getAllAccidents = async (req, res, next) => {
       hora: 1,
       'ubicacion.codigoDistrito': 1,
       'ubicacion.nombreDistrito': 1,
-      'ubicacion.localizacion': 1,
+      'ubicacion.calle': 1,
       'circunstancias.tipoAccidente': 1,
       'circunstancias.gravedad': 1,
       'circunstancias.estadoMeteorologico': 1,
@@ -90,20 +90,20 @@ const getAllAccidents = async (req, res, next) => {
       'analisis.factoresRiesgo': 1
     };
 
-    let accidents = [];
+    let accidentes = [];
     let totalCount = null;
-    let accidentsFacetFallback = false;
-    let accidentsFacetError = null;
+    let facetFallback = false;
+    let facetError = null;
 
     if (useCursor) {
-      accidents = await Accident.find(combinedFilters, projection)
+      accidentes = await Accidente.find(combinedFilters, projection)
         .sort(sortWithTiebreak)
         .limit(paginationOptions.limit)
         .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
         .lean();
     } else {
       const facetResult = await executeFacetPagination({
-        model: Accident,
+        model: Accidente,
         filters,
         sort: sortOptions,
         projection,
@@ -111,14 +111,14 @@ const getAllAccidents = async (req, res, next) => {
         maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS
       });
 
-      accidents = facetResult.data;
+      accidentes = facetResult.data;
       totalCount = facetResult.total;
-      accidentsFacetFallback = facetResult.fallback;
-      accidentsFacetError = facetResult.fallbackError;
+      facetFallback = facetResult.fallback;
+      facetError = facetResult.fallbackError;
     }
 
     // Estadísticas agregadas separadas (mantener consistencia de negocio)
-    const stats = await Accident.aggregate([
+    const stats = await Accidente.aggregate([
       { $match: filters },
       // NO usar $limit antes de $group - corrompe las estadísticas globales
       {
@@ -141,17 +141,17 @@ const getAllAccidents = async (req, res, next) => {
       .exec();
 
     const responseData = {
-      data: accidents,
+      data: accidentes,
       pagination: useCursor
-        ? createCursorMeta({ results: accidents, limit: paginationOptions.limit, sortField: primarySortField, sortOrder })
+        ? createCursorMeta({ results: accidentes, limit: paginationOptions.limit, sortField: primarySortField, sortOrder })
         : createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalCount),
       filters: {
         applied: filters,
         available: {
           gravedad: Object.values(SEVERITY_LEVELS.ACCIDENT),
-          tipoAccidente: Object.values(ACCIDENT_TYPES),
-          tipoVehiculo: Object.values(VEHICLE_TYPES),
-          tipoLesion: Object.values(INJURY_TYPES)
+          tipoAccidente: Object.values(TIPOS_ACCIDENTE),
+          tipoVehiculo: Object.values(TIPOS_VEHICULO),
+          tipoLesion: Object.values(TIPOS_LESION)
         }
       },
       stats: stats[0] || {
@@ -162,9 +162,9 @@ const getAllAccidents = async (req, res, next) => {
       },
       performance: useCursor ? {
         cursorPagination: true
-      } : accidentsFacetFallback ? {
+      } : facetFallback ? {
         facetFallback: true,
-        reason: accidentsFacetError
+        reason: facetError
       } : undefined
     };
 
@@ -192,17 +192,17 @@ const getAllAccidents = async (req, res, next) => {
  * Obtener un accidente específico por número de expediente
  * GET /api/accidents/expediente/:numero
  */
-const getAccidentByFileNumber = async (req, res, next) => {
+const obtenerAccidentePorExpediente = async (req, res, next) => {
   try {
     const { numero } = req.params;
 
     logger.debug({
-      fileNumber: numero,
+      numeroExpediente: numero,
       endpoint: 'GET /api/accidents/expediente/:numero'
     }, 'Obteniendo accidente por expediente');
 
     // Buscar todas las personas afectadas en el mismo expediente
-    const accidentData = await Accident.find({ numeroExpediente: numero })
+    const accidentData = await Accidente.find({ numeroExpediente: numero })
       .sort({ 'personaAfectada.tipoPersona': 1 })
       .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos
       .lean();
@@ -223,15 +223,15 @@ const getAccidentByFileNumber = async (req, res, next) => {
     }));
 
     const summary = personasAfectadas.reduce((acc, persona) => {
-      if (persona.tipoPersona === PERSON_TYPES.CONDUCTOR) { acc.conductores++; }
-      if (persona.tipoPersona === PERSON_TYPES.PEATÓN) { acc.peatones++; }
-      if (INJURY_SEVERITY_MAPPING.GRAVES.includes(persona.tipoLesion)) { acc.personasGraves++; }
+      if (persona.tipoPersona === TIPOS_PERSONA.CONDUCTOR) { acc.conductores++; }
+      if (persona.tipoPersona === TIPOS_PERSONA.PEATÓN) { acc.peatones++; }
+      if (MAPEO_SEVERIDAD_LESIONES.GRAVES.includes(persona.tipoLesion)) { acc.personasGraves++; }
       if (persona.positivaAlcohol === BINARY_INDICATORS.YES) { acc.conAlcohol++; }
       return acc;
     }, { totalPersonas: accidentData.length, conductores: 0, peatones: 0, personasGraves: 0, conAlcohol: 0 });
 
     const accidentInfo = {
-      fileNumber: accidente.numeroExpediente,
+      numeroExpediente: accidente.numeroExpediente,
       fecha: accidente.fecha,
       hora: accidente.hora,
       ubicacion: accidente.ubicacion,
@@ -248,7 +248,7 @@ const getAccidentByFileNumber = async (req, res, next) => {
     logger.error({
       error: error.message,
       stack: error.stack,
-      fileNumber: req.params.numero,
+      numeroExpediente: req.params.numero,
       endpoint: 'GET /api/accidents/expediente/:numero'
     }, 'Error al obtener accidente por expediente');
     return next(createInternalError('Error al obtener el accidente', error));
@@ -259,7 +259,7 @@ const getAccidentByFileNumber = async (req, res, next) => {
  * Obtener estadísticas generales de accidentalidad
  * GET /api/accidents/stats
  */
-const getAccidentStats = async (req, res, next) => {
+const obtenerEstadisticasAccidentes = async (req, res, next) => {
   try {
     const { distrito } = req.query;
 
@@ -276,30 +276,30 @@ const getAccidentStats = async (req, res, next) => {
     const filters = buildFilters(req.query, filterConfig);
 
     // Estadísticas generales
-    const generalStats = await Accident.getStatisticsByPeriod(
+    const generalStats = await Accidente.obtenerEstadisticasPorPeriodo(
       filters.fecha?.$gte || new Date(Date.now() - 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY),
       filters.fecha?.$lte || new Date()
     );
 
     // Puntos negros (zonas con más accidentes)
-    const blackSpots = await Accident.getAccidentBlackSpots(
+    const blackSpots = await Accidente.obtenerPuntosNegros(
       10,
       filters.fecha?.$gte,
       filters.fecha?.$lte
     );
 
     // Análisis por tipo de vehículo
-    const vehicleAnalysis = await Accident.getVehicleTypeAnalysis(
+    const vehicleAnalysis = await Accidente.obtenerAnalisisPorVehiculo(
       filters.fecha?.$gte,
       filters.fecha?.$lte
     );
 
     // Patrones temporales, distribución por distrito y factores de riesgo
     const [hourlyPatterns, weeklyPatterns, districtDistribution, riskFactorsAnalysis] = await Promise.all([
-      Accident.getTemporalPatterns('hora'),
-      Accident.getTemporalPatterns('diaSemana'),
-      Accident.getDistrictDistribution(filters),
-      Accident.getRiskFactorsAnalysis(filters)
+      Accidente.obtenerPatronesTemporales('hora'),
+      Accidente.obtenerPatronesTemporales('diaSemana'),
+      Accidente.obtenerDistribucionDistritos(filters),
+      Accidente.obtenerAnalisisFactoresRiesgo(filters)
     ]);
 
     const responseData = {
@@ -336,104 +336,10 @@ const getAccidentStats = async (req, res, next) => {
 };
 
 /**
- * Obtener mapa de calor de accidentes (coordenadas geográficas)
- * GET /api/accidents/heatmap
- */
-const getAccidentHeatmap = async (req, res, next) => {
-  try {
-    const { limite = 500 } = req.query;
-
-    // Construir filtros usando queryHelper
-    const filterConfig = [
-      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: TRANSFORMS.toUpperCase }
-    ];
-    const filters = buildFilters(req.query, filterConfig);
-
-    // Obtener datos del heatmap desde el modelo
-    const heatmapResult = await Accident.getHeatmapDataOptimized(filters, limite);
-
-    const responseData = {
-      data: {
-        ...heatmapResult,
-        estadisticas: {
-          ...heatmapResult.estadisticas,
-          periodo: {
-            inicio: filters.fecha?.$gte,
-            fin: filters.fecha?.$lte
-          }
-        }
-      }
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Mapa de calor generado exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/accidents/heatmap'
-    }, 'Error al generar mapa de calor');
-    next(createInternalError('Error al generar el mapa de calor', error));
-  }
-};
-
-/**
- * Obtener análisis de seguridad vial por zona
- * GET /api/accidents/safety-analysis
- */
-const getSafetyAnalysis = async (req, res, next) => {
-  try {
-    const { distrito } = req.query;
-
-    // Construir filtros usando queryHelper
-    const filterConfig = [
-      { field: 'ubicacion.nombreDistrito', type: 'regex', param: 'distrito' },
-      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
-    ];
-    const filters = buildFilters(req.query, filterConfig);
-
-    // Ejecutar todos los análisis en paralelo
-    const [streetSafety, trendAnalysis, commonRiskFactors, weatherCorrelation] = await Promise.all([
-      Accident.getStreetSafetyAnalysis(filters),
-      Accident.getTrendAnalysis(filters),
-      Accident.getRiskFactorsAnalysis(filters),
-      Accident.getWeatherCorrelation(filters)
-    ]);
-
-    const responseData = {
-      data: {
-        seguridadCalles: streetSafety,
-        tendencias: trendAnalysis,
-        factoresRiesgoComunes: commonRiskFactors,
-        correlacionMeteorologica: weatherCorrelation,
-        periodo: {
-          inicio: filters.fecha?.$gte,
-          fin: filters.fecha?.$lte,
-          distrito: distrito || 'TODOS'
-        }
-      }
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Puntos negros analizados exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/accidents/black-spots'
-    }, 'Error en análisis de seguridad vial');
-    next(createInternalError('Error al realizar el análisis de seguridad vial', error));
-  }
-};
-
-/**
  * Obtener comparativa entre distritos
  * GET /api/accidents/district-comparison
  */
-const getDistrictComparison = async (req, res, next) => {
+const obtenerComparativaDistritos = async (req, res, next) => {
   try {
     // Construir filtros usando queryHelper
     const filterConfig = [
@@ -442,7 +348,7 @@ const getDistrictComparison = async (req, res, next) => {
     const filters = buildFilters(req.query, filterConfig);
 
     // Obtener comparativa de distritos desde el modelo
-    const districtComparison = await Accident.getDistrictComparisonData(filters);
+    const districtComparison = await Accidente.obtenerComparativaDistritos(filters);
 
     // Calcular rankings
     const rankings = {
@@ -479,12 +385,43 @@ const getDistrictComparison = async (req, res, next) => {
   }
 };
 
+/**
+ * Obtener datos para mapa de calor de accidentes
+ * GET /api/v1/accidentes/mapa-calor
+ */
+const obtenerMapaCalorAccidentes = async (req, res, next) => {
+  try {
+    const { limite = 500, precision = 100 } = req.query;
+
+    logger.debug({ query: req.query, endpoint: 'GET /api/accidents/heatmap' }, 'Obteniendo datos de mapa de calor');
+
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'ubicacion.nombreDistrito', type: 'regex', param: 'distrito' },
+      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad' }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
+
+    const heatmapData = await Accidente.obtenerDatosMapaCalor(filters, limite, precision);
+
+    const responseData = {
+      data: heatmapData,
+      total: Array.isArray(heatmapData) ? heatmapData.length : 0
+    };
+
+    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de mapa de calor obtenidos exitosamente'));
+
+  } catch (error) {
+    logger.error({ error: error.message, endpoint: 'GET /api/accidents/heatmap' }, 'Error al obtener datos de mapa de calor');
+    next(createInternalError('Error al obtener datos de mapa de calor', error));
+  }
+};
+
 module.exports = {
-  getAllAccidents,
-  getAccidentByFileNumber,
-  getAccidentStats,
-  getAccidentHeatmap,
-  getSafetyAnalysis,
-  getDistrictComparison
+  obtenerAccidentes,
+  obtenerAccidentePorExpediente,
+  obtenerEstadisticasAccidentes,
+  obtenerComparativaDistritos,
+  obtenerMapaCalorAccidentes
 };
 

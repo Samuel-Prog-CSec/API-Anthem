@@ -5,12 +5,12 @@
  * con la disponibilidad de bicicletas eléctricas.
  */
 
-const BikeAvailability = require('../models/BikeAvailability');
-const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
+const BikeAvailability = require('../models/DisponibilidadBicicletas');
+const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, parseNumericParams } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS, MONTH_NAMES, BIKE_THRESHOLDS, AGGREGATION_LIMITS } = require('../constants');
+const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, DATASET_YEARS, MONTH_NAMES, AGGREGATION_LIMITS } = require('../constants');
 
 /**
  * Obtener todos los registros de disponibilidad con filtros y paginación
@@ -18,7 +18,7 @@ const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, DA
  * @route GET /api/bikes
  * @access Private
  */
-exports.getAllBikeAvailability = async (req, res, next) => {
+exports.obtenerDisponibilidad = async (req, res, next) => {
   try {
     // Configuración de filtros usando queryHelper
     const filterConfig = [
@@ -30,9 +30,9 @@ exports.getAllBikeAvailability = async (req, res, next) => {
     // Configurar ordenamiento usando queryHelper
     const sortMapping = {
       dia: 'dia',
-      totalUsos: 'estadisticas.utilizacionTotal',
-      mediaBicicletasDisponibles: 'estadisticas.totalBicicletasDisponibles',
-      tasaOcupacion: 'estadisticas.tasaOcupacion'
+      totalUsos: 'totalUsos',
+      mediaBicicletasDisponibles: 'mediaBicicletasDisponibles',
+      tasaOcupacion: 'tasaOcupacion'
     };
     const sortOptions = buildSortOptions(
       req.query,
@@ -48,18 +48,15 @@ exports.getAllBikeAvailability = async (req, res, next) => {
       maxLimit: PAGINATION.MAX_LIMIT
     });
 
-    // Proyección optimizada: solo campos necesarios para listado
-    // Reduce ~35% tamaño de respuesta
+    // Proyeccion optimizada: solo campos necesarios para listado
     const projection = {
       dia: 1,
-      fecha: 1,
-      'estadisticas.totalBicicletasDisponibles': 1,
-      'estadisticas.totalAnclajes': 1,
-      'estadisticas.utilizacionTotal': 1,
-      'estadisticas.tasaOcupacion': 1,
-      'detalleAbonados.tipo': 1,
-      'detalleAbonados.totalUsos': 1,
-      'detalleAbonados.totalBases': 1
+      mediaBicicletasDisponibles: 1,
+      totalUsos: 1,
+      usosAbonadoAnual: 1,
+      usosAbonadoOcasional: 1,
+      tasaOcupacion: 1,
+      promedioUsosPorBicicleta: 1
     };
 
     const { cursor } = req.query;
@@ -97,48 +94,12 @@ exports.getAllBikeAvailability = async (req, res, next) => {
 };
 
 /**
- * Obtener registro de disponibilidad de una fecha específica
- *
- * @route GET /api/bikes/date/:date
- * @access Private
- */
-exports.getBikeAvailabilityByDate = async (req, res, next) => {
-  try {
-    const { date } = req.params;
-    const targetDate = new Date(date);
-
-    // Validar fecha
-    if (isNaN(targetDate.getTime())) {
-      return next(createBadRequestError('Formato de fecha no válido'));
-    }
-
-    const data = await BikeAvailability.findOne({ dia: targetDate })
-      .select('-__v')
-      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos
-      .lean();
-
-    if (!data) {
-      return next(createNotFoundError('Datos de disponibilidad de bicicletas', date));
-    }
-
-    const responseData = {
-      data
-    };
-
-    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos obtenidos exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al obtener disponibilidad por fecha', error));
-  }
-};
-
-/**
  * Obtener estadísticas generales de disponibilidad
  *
  * @route GET /api/bikes/stats
  * @access Private
  */
-exports.getBikeStats = async (req, res, next) => {
+exports.obtenerEstadisticas = async (req, res, next) => {
   try {
     const { startDate, endDate } = req.query;
 
@@ -146,7 +107,7 @@ exports.getBikeStats = async (req, res, next) => {
     const start = startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE);
     const end = endDate ? new Date(endDate) : new Date(DATASET_YEARS.DEFAULT_END_DATE);
 
-    const stats = await BikeAvailability.getStatsByDateRange(start, end);
+    const stats = await BikeAvailability.obtenerEstadisticasPorRangoFechas(start, end);
 
     if (!stats || stats.length === 0) {
       return next(createNotFoundError('Estadísticas de bicicletas', `rango ${start.toISOString().split('T')[0]} - ${end.toISOString().split('T')[0]}`));
@@ -175,7 +136,7 @@ exports.getBikeStats = async (req, res, next) => {
  * @route GET /api/bikes/trends/monthly
  * @access Private
  */
-exports.getMonthlyTrends = async (req, res, next) => {
+exports.obtenerTendenciasMensuales = async (req, res, next) => {
   try {
     // Parsear parámetros numéricos
     const { year } = parseNumericParams(
@@ -184,7 +145,7 @@ exports.getMonthlyTrends = async (req, res, next) => {
       { year: DATASET_YEARS.DEFAULT_YEAR }
     );
 
-    const trends = await BikeAvailability.getMonthlyTrends(year);
+    const trends = await BikeAvailability.obtenerTendenciasMensuales(year);
 
     if (!trends || trends.length === 0) {
       return next(createNotFoundError('Tendencias mensuales', `año ${year}`));
@@ -221,7 +182,7 @@ exports.getMonthlyTrends = async (req, res, next) => {
  * @route GET /api/bikes/top-usage
  * @access Private
  */
-exports.getTopUsageDays = async (req, res, next) => {
+exports.obtenerDiasMayorUso = async (req, res, next) => {
   try {
     // Parsear parámetros numéricos
     const { limit } = parseNumericParams(
@@ -230,7 +191,7 @@ exports.getTopUsageDays = async (req, res, next) => {
       { limit: AGGREGATION_LIMITS.TOP_RESULTS }
     );
 
-    const topDays = await BikeAvailability.getTopUsageDays(limit);
+    const topDays = await BikeAvailability.obtenerDiasMayorUso(limit);
 
     const responseData = {
       data: {
@@ -252,7 +213,7 @@ exports.getTopUsageDays = async (req, res, next) => {
  * @route GET /api/bikes/subscription-comparison
  * @access Private
  */
-exports.getSubscriptionComparison = async (req, res, next) => {
+exports.obtenerComparativaSuscripciones = async (req, res, next) => {
   try {
     const { startDate, endDate } = req.query;
 
@@ -260,7 +221,7 @@ exports.getSubscriptionComparison = async (req, res, next) => {
     const start = startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE);
     const end = endDate ? new Date(endDate) : new Date(DATASET_YEARS.DEFAULT_END_DATE);
 
-    const comparison = await BikeAvailability.compareSubscriptionTypes(start, end);
+    const comparison = await BikeAvailability.compararTiposSuscripcion(start, end);
 
     if (!comparison || comparison.length === 0) {
       return next(createNotFoundError('Datos de comparación', `rango ${start.toISOString().split('T')[0]} - ${end.toISOString().split('T')[0]}`));
@@ -280,159 +241,6 @@ exports.getSubscriptionComparison = async (req, res, next) => {
 
   } catch (error) {
     next(createInternalError('Error al comparar tipos de abonado', error));
-  }
-};
-
-/**
- * Obtener análisis de eficiencia del servicio
- *
- * @route GET /api/bikes/efficiency
- * @access Private
- */
-exports.getEfficiencyAnalysis = async (req, res, next) => {
-  try {
-    // Construir filtros usando queryHelper
-    const filterConfig = [
-      { field: 'dia', type: 'dateRange', params: ['startDate', 'endDate'] }
-    ];
-    const filters = buildFilters(req.query, filterConfig);
-
-    // Llamar al método optimizado del modelo
-    const analysis = await BikeAvailability.getEfficiencyAnalysisOptimized(filters);
-
-    if (!analysis) {
-      return next(createNotFoundError('Datos de análisis de eficiencia'));
-    }
-
-    const responseData = {
-      data: analysis
-    };
-
-    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de eficiencia obtenido exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al analizar eficiencia', error));
-  }
-};
-
-/**
- * Obtener datos históricos agregados para gráficos
- *
- * @route GET /api/bikes/historical
- * @access Private
- */
-exports.getHistoricalData = async (req, res, next) => {
-  try {
-    const { aggregation = 'day' } = req.query;
-
-    // Construir filtros usando queryHelper
-    const filterConfig = [
-      { field: 'dia', type: 'dateRange', params: ['startDate', 'endDate'] }
-    ];
-    const filters = buildFilters(req.query, filterConfig);
-
-    // Llamar al método optimizado del modelo
-    const historicalData = await BikeAvailability.getHistoricalDataOptimized(filters, aggregation);
-
-    const responseData = {
-      data: {
-        aggregation,
-        total: historicalData.length,
-        historico: historicalData
-      }
-    };
-
-    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos históricos obtenidos exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al obtener datos históricos', error));
-  }
-};
-
-/**
- * Tendencias de uso de bicicletas con agregación flexible
- *
- * @route GET /api/bikes/trends/usage
- * @access Private
- */
-exports.getUsageTrendsAnalysis = async (req, res, next) => {
-  try {
-    const { startDate, endDate, groupBy = 'month', includeUserTypes = 'true' } = req.query;
-
-    if (!startDate || !endDate) {
-      return next(createBadRequestError('Se requieren los parámetros startDate y endDate'));
-    }
-
-    const options = {
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
-      groupBy,
-      includeUserTypes: includeUserTypes === 'true'
-    };
-
-    const usageTrends = await BikeAvailability.getUsageTrends(options);
-
-    if (!usageTrends || usageTrends.length === 0) {
-      return next(createNotFoundError('Tendencias de uso'));
-    }
-
-    const responseData = {
-      data: {
-        periodo: {
-          inicio: startDate,
-          fin: endDate
-        },
-        agrupacion: groupBy,
-        includeDistribucionUsuarios: options.includeUserTypes,
-        tendencias: usageTrends,
-        totalPeriodos: usageTrends.length
-      }
-    };
-
-    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Tendencias de uso obtenidas exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al obtener tendencias de uso', error));
-  }
-};
-
-/**
- * @route GET /api/bikes/prediction/demand
- * @access Private
- */
-exports.getDemandPredictionAnalysis = async (req, res, next) => {
-  try {
-    const { startDate, endDate, threshold = BIKE_THRESHOLDS.DEMAND_PREDICTION } = req.query;
-
-    const options = {
-      startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
-      threshold: Number(threshold)
-    };
-
-    const demandPrediction = await BikeAvailability.getDemandPrediction(options);
-
-    if (!demandPrediction) {
-      return next(createNotFoundError('Datos de predicción de demanda'));
-    }
-
-    const responseData = {
-      data: {
-        ...(startDate && endDate && {
-          periodo: {
-            inicio: startDate,
-            fin: endDate
-          }
-        }),
-        umbralAltaDemanda: options.threshold,
-        prediccion: demandPrediction
-      }
-    };
-
-    return res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Predicción de demanda obtenida exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al predecir demanda', error));
   }
 };
 

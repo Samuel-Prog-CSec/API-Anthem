@@ -22,7 +22,7 @@ const { cacheLogger } = logger;
 
 /**
  * Generar ETag basado en el contenido de la respuesta
- * Usa MD5 hash para generar un identificador único del contenido
+ * Usa SHA-256 truncado para generar un identificador unico del contenido
  *
  * @param {*} data - Datos de la respuesta (objeto, array, string)
  * @returns {string} ETag hash en formato hexadecimal
@@ -32,11 +32,12 @@ const generateETag = (data) => {
     // Convertir datos a string JSON si es objeto
     const content = typeof data === 'string' ? data : JSON.stringify(data);
 
-    // Generar hash MD5 (suficiente para ETags, no se requiere seguridad criptográfica)
+    // Generar hash SHA-256 truncado (mas robusto que MD5, suficiente para ETags)
     const hash = crypto
-      .createHash('md5')
+      .createHash('sha256')
       .update(content)
-      .digest('hex');
+      .digest('hex')
+      .substring(0, 32);
 
     // Formato estándar de ETag: "hash" (con comillas)
     return `"${hash}"`;

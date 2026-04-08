@@ -10,9 +10,9 @@ const { body, param, query, validationResult } = require('express-validator');
 const {
   HTTP_STATUS,
   SEVERITY_LEVELS,
-  ACCIDENT_TYPES,
-  VEHICLE_TYPES,
-  INJURY_TYPES,
+  TIPOS_ACCIDENTE,
+  TIPOS_VEHICULO,
+  TIPOS_LESION,
   CONTAINER_TYPES,
   CONGESTION_LEVELS,
   DATA_QUALITY_LEVELS,
@@ -356,7 +356,7 @@ const validateAccidentFilters = [
   query('tipoAccidente')
     .optional()
     .trim()
-    .isIn(Object.values(ACCIDENT_TYPES))
+    .isIn(Object.values(TIPOS_ACCIDENTE))
     .withMessage('Tipo de accidente no válido')
     .escape(), // Sanitización XSS
 
@@ -370,14 +370,14 @@ const validateAccidentFilters = [
   query('tipoVehiculo')
     .optional()
     .trim()
-    .isIn(Object.values(VEHICLE_TYPES))
+    .isIn(Object.values(TIPOS_VEHICULO))
     .withMessage('Tipo de vehículo no válido')
     .escape(), // Sanitización XSS
 
   query('tipoLesion')
     .optional()
     .trim()
-    .isIn(Object.values(INJURY_TYPES))
+    .isIn(Object.values(TIPOS_LESION))
     .withMessage('Tipo de lesión no válido')
     .escape(), // Sanitización XSS
 

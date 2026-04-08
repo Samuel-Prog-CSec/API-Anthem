@@ -5,7 +5,7 @@
  */
 
 const Traffic = require('../models/Traffic');
-const Location = require('../models/Location');
+const Location = require('../models/Ubicacion');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, buildResponseMetadata, parseNumericParams, executeFacetPagination } = require('../utils/queryHelper');

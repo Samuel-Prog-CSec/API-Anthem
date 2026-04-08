@@ -5,14 +5,14 @@
  * electricos a la base de datos MongoDB. Procesa el archivo de asignacion
  * del directorio datos_hpe/
  *
- * Uso: node scripts/importation/importScooterAssignments.js [opciones]
+ * Uso: node scripts/importation/importarPatinetes.js [opciones]
  *
  * Opciones:
  *   --force         Sobrescribir datos existentes (upsert)
  *   --batch=N       Tamano del lote (default: 50)
  *   --help          Mostrar ayuda
  *
- * @module scripts/importation/importScooterAssignments
+ * @module scripts/importation/importarPatinetes
  */
 
 // Configurar modo script para evitar reconexiones infinitas
@@ -29,7 +29,7 @@ const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
 const { importScootersLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
-const ScooterAssignment = require('../../src/models/ScooterAssignment');
+const AsignacionPatinetes = require('../../src/models/AsignacionPatinetes');
 const {
   RejectionTracker,
   formatDuration,
@@ -37,8 +37,18 @@ const {
   cleanString
 } = require('./helpers/importHelpers');
 const {
-  SCOOTER_PROVIDERS,
-  DATASET_YEARS
+  PROVEEDORES_PATINETES,
+  DATASET_YEARS,
+  UMBRALES_DENSIDAD_PATINETES,
+  NIVELES_DENSIDAD_PATINETES,
+  UMBRALES_DEMANDA_PATINETES,
+  NIVELES_DEMANDA_PATINETES,
+  DOMINANCIA_PROVEEDORES_PATINETES,
+  CONCENTRACION_MERCADO_PATINETES,
+  UMBRALES_CONCENTRACION_MERCADO,
+  TIPOS_ZONA_PATINETES,
+  NIVELES_PRIORIDAD_PATINETES,
+  AREAS_CLAVE_PATINETES
 } = require('../../src/constants');
 
 // ============================================================================
@@ -81,25 +91,25 @@ const REJECTION_REASONS = {
 
 /**
  * Mapeo de nombres de proveedores para normalizacion
- * Mapea desde nombres en CSV a valores de constantes SCOOTER_PROVIDERS
+ * Mapea desde nombres en CSV a valores de constantes PROVEEDORES_PATINETES
  * @constant {Object}
  */
 const PROVIDER_NAME_MAPPING = {
-  'ACCIONA': SCOOTER_PROVIDERS.ACCIONA,
-  'Taxify': SCOOTER_PROVIDERS.TAXIFY,
-  'KOKO': SCOOTER_PROVIDERS.KOKO,
-  'UFO': SCOOTER_PROVIDERS.UFO,
-  'RIDECONGA': SCOOTER_PROVIDERS.RIDECONGA,
-  'FLASH': SCOOTER_PROVIDERS.FLASH,
-  'LIME': SCOOTER_PROVIDERS.LIME,
-  'WIND ': SCOOTER_PROVIDERS.WIND,
-  'WIND': SCOOTER_PROVIDERS.WIND,
-  'BIRD': SCOOTER_PROVIDERS.BIRD,
-  'REBY RIDES': SCOOTER_PROVIDERS.REBY_RIDES,
-  'MOVO': SCOOTER_PROVIDERS.MOVO,
-  'MYGO': SCOOTER_PROVIDERS.MYGO,
-  'JUMP UBER': SCOOTER_PROVIDERS.JUMP_UBER,
-  'SJV CONSULTING': SCOOTER_PROVIDERS.SJV_CONSULTING
+  'ACCIONA': PROVEEDORES_PATINETES.ACCIONA,
+  'Taxify': PROVEEDORES_PATINETES.TAXIFY,
+  'KOKO': PROVEEDORES_PATINETES.KOKO,
+  'UFO': PROVEEDORES_PATINETES.UFO,
+  'RIDECONGA': PROVEEDORES_PATINETES.RIDECONGA,
+  'FLASH': PROVEEDORES_PATINETES.FLASH,
+  'LIME': PROVEEDORES_PATINETES.LIME,
+  'WIND ': PROVEEDORES_PATINETES.WIND,
+  'WIND': PROVEEDORES_PATINETES.WIND,
+  'BIRD': PROVEEDORES_PATINETES.BIRD,
+  'REBY RIDES': PROVEEDORES_PATINETES.REBY_RIDES,
+  'MOVO': PROVEEDORES_PATINETES.MOVO,
+  'MYGO': PROVEEDORES_PATINETES.MYGO,
+  'JUMP UBER': PROVEEDORES_PATINETES.JUMP_UBER,
+  'SJV CONSULTING': PROVEEDORES_PATINETES.SJV_CONSULTING
 };
 
 /**
@@ -140,7 +150,7 @@ const rejectionTracker = new RejectionTracker();
  * @param {number} defaultValue - Valor por defecto
  * @returns {number}
  */
-function parseNumber(value, defaultValue = 0) {
+function parsearNumero(value, defaultValue = 0) {
   if (!value || value.toString().trim() === '') {
     return defaultValue;
   }
@@ -150,13 +160,165 @@ function parseNumber(value, defaultValue = 0) {
 }
 
 /**
+ * Calcular campos computados para una asignacion de patinetes.
+ * Replica la logica del pre-save hook del modelo (calcularEstadisticas,
+ * analizarDistribucion, clasificarArea, validarDatos) para que los documentos
+ * insertados via bulkWrite contengan todos los campos derivados.
+ *
+ * @param {Object} data - Objeto de datos de asignacion (se muta in-place)
+ */
+function calcularCamposPatinetes(data) {
+  // ------------------------------------------------------------------
+  // 1. Estadisticas (calcularEstadisticas)
+  // ------------------------------------------------------------------
+  data.estadisticas.totalProveedores = data.proveedores.length;
+  data.estadisticas.proveedoresActivos = data.proveedores.filter(
+    p => p.activo && p.cantidad > 0
+  ).length;
+  data.estadisticas.promedioPatinetesPorProveedor =
+    data.estadisticas.proveedoresActivos > 0
+      ? data.estadisticas.totalPatinetes / data.estadisticas.proveedoresActivos
+      : 0;
+
+  // Clasificar densidad basada en total de patinetes
+  if (data.estadisticas.totalPatinetes >= UMBRALES_DENSIDAD_PATINETES.MUY_ALTA) {
+    data.estadisticas.densidadPatinetes = NIVELES_DENSIDAD_PATINETES.MUY_ALTA;
+  } else if (data.estadisticas.totalPatinetes >= UMBRALES_DENSIDAD_PATINETES.ALTA) {
+    data.estadisticas.densidadPatinetes = NIVELES_DENSIDAD_PATINETES.ALTA;
+  } else if (data.estadisticas.totalPatinetes >= UMBRALES_DENSIDAD_PATINETES.MEDIA) {
+    data.estadisticas.densidadPatinetes = NIVELES_DENSIDAD_PATINETES.MEDIA;
+  } else {
+    data.estadisticas.densidadPatinetes = NIVELES_DENSIDAD_PATINETES.BAJA;
+  }
+
+  // ------------------------------------------------------------------
+  // 2. Analisis de distribucion (analizarDistribucion)
+  // ------------------------------------------------------------------
+  const proveedoresActivos = data.proveedores.filter(p => p.activo && p.cantidad > 0);
+
+  if (!data.analisisDistribucion) {
+    data.analisisDistribucion = {};
+  }
+
+  if (proveedoresActivos.length > 0) {
+    // Ordenar por cantidad descendente
+    const sorted = [...proveedoresActivos].sort((a, b) => b.cantidad - a.cantidad);
+
+    // Proveedor dominante
+    data.analisisDistribucion.proveedorDominante = {
+      nombre: sorted[0].nombre,
+      cantidad: sorted[0].cantidad,
+      porcentaje: (sorted[0].cantidad / data.estadisticas.totalPatinetes) * 100
+    };
+
+    // Proveedor secundario (si hay 2+ proveedores activos)
+    if (sorted.length > 1) {
+      data.analisisDistribucion.proveedorSecundario = {
+        nombre: sorted[1].nombre,
+        cantidad: sorted[1].cantidad,
+        porcentaje: (sorted[1].cantidad / data.estadisticas.totalPatinetes) * 100
+      };
+    }
+
+    // Indice Herfindahl-Hirschman (HHI)
+    const hhi = proveedoresActivos.reduce((sum, p) => {
+      const share = (p.cantidad / data.estadisticas.totalPatinetes) * 100;
+      return sum + (share * share);
+    }, 0);
+    data.analisisDistribucion.indiceHerfindahl = Math.round(hhi);
+
+    // Clasificar concentracion del mercado
+    if (hhi >= UMBRALES_CONCENTRACION_MERCADO.HIGH) {
+      data.analisisDistribucion.concentracionMercado = CONCENTRACION_MERCADO_PATINETES.ALTA_CONCENTRACION;
+      data.estadisticas.dominanciaProveedores = DOMINANCIA_PROVEEDORES_PATINETES.MONOPOLIO;
+    } else if (hhi >= UMBRALES_CONCENTRACION_MERCADO.MODERATE) {
+      data.analisisDistribucion.concentracionMercado = CONCENTRACION_MERCADO_PATINETES.CONCENTRADA;
+      data.estadisticas.dominanciaProveedores = proveedoresActivos.length === 2
+        ? DOMINANCIA_PROVEEDORES_PATINETES.DUOPOLIO
+        : DOMINANCIA_PROVEEDORES_PATINETES.OLIGOPOLIO;
+    } else if (hhi >= UMBRALES_CONCENTRACION_MERCADO.LOW) {
+      data.analisisDistribucion.concentracionMercado = CONCENTRACION_MERCADO_PATINETES.MODERADA;
+      data.estadisticas.dominanciaProveedores = DOMINANCIA_PROVEEDORES_PATINETES.OLIGOPOLIO;
+    } else {
+      data.analisisDistribucion.concentracionMercado = CONCENTRACION_MERCADO_PATINETES.COMPETITIVA;
+      data.estadisticas.dominanciaProveedores = DOMINANCIA_PROVEEDORES_PATINETES.EQUILIBRADA;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // 3. Clasificacion de area (clasificarArea)
+  // ------------------------------------------------------------------
+  const distrito = data.distrito.nombre.toUpperCase();
+  const barrio = data.barrio.nombre.toUpperCase();
+  const totalPatinetes = data.estadisticas.totalPatinetes;
+
+  if (!data.clasificacionArea) {
+    data.clasificacionArea = {};
+  }
+
+  // Clasificar tipo de zona basado en distrito/barrio
+  if (AREAS_CLAVE_PATINETES.CENTRAL.some(loc => distrito.includes(loc) || barrio.includes(loc))) {
+    data.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.CENTRO_URBANO;
+    data.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.CRITICA;
+  } else if (AREAS_CLAVE_PATINETES.UNIVERSITY.some(loc => barrio.includes(loc))) {
+    data.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_UNIVERSITARIA;
+    data.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.ALTA;
+  } else if (AREAS_CLAVE_PATINETES.TRANSPORT.some(loc => barrio.includes(loc))) {
+    data.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_TRANSPORTE;
+    data.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.ALTA;
+  } else if (AREAS_CLAVE_PATINETES.COMMERCIAL.some(loc => distrito.includes(loc))) {
+    data.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_COMERCIAL;
+    data.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.ALTA;
+  } else {
+    data.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_RESIDENCIAL;
+    data.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.MEDIA;
+  }
+
+  // Estimar demanda basada en densidad de patinetes
+  if (totalPatinetes >= UMBRALES_DEMANDA_PATINETES.MUY_ALTA) {
+    data.clasificacionArea.demandaEstimada = NIVELES_DEMANDA_PATINETES.MUY_ALTA;
+  } else if (totalPatinetes >= UMBRALES_DEMANDA_PATINETES.ALTA) {
+    data.clasificacionArea.demandaEstimada = NIVELES_DEMANDA_PATINETES.ALTA;
+  } else if (totalPatinetes >= UMBRALES_DEMANDA_PATINETES.MEDIA) {
+    data.clasificacionArea.demandaEstimada = NIVELES_DEMANDA_PATINETES.MEDIA;
+  } else {
+    data.clasificacionArea.demandaEstimada = NIVELES_DEMANDA_PATINETES.BAJA;
+  }
+
+  // ------------------------------------------------------------------
+  // 4. Validacion de datos (validarDatos)
+  // ------------------------------------------------------------------
+  const sumaProveedores = data.proveedores.reduce((sum, p) => sum + p.cantidad, 0);
+  const nombresProveedores = data.proveedores.map(p => p.nombre);
+
+  data.metadatos = {
+    calidadDatos: {
+      esCompleto: true,
+      camposFaltantes: [],
+      puntuacionCalidad: 1
+    },
+    validacionDatos: {
+      sumaCorrecta: sumaProveedores === data.estadisticas.totalPatinetes,
+      proveedoresDuplicados: nombresProveedores.length !== new Set(nombresProveedores).size,
+      datosConsistentes: true
+    }
+  };
+
+  // Recalcular consistencia despues de establecer los campos anteriores
+  data.metadatos.validacionDatos.datosConsistentes =
+    data.metadatos.validacionDatos.sumaCorrecta &&
+    !data.metadatos.validacionDatos.proveedoresDuplicados &&
+    data.proveedores.every(p => p.cantidad >= 0);
+}
+
+/**
  * Parsear datos de una fila CSV de asignacion de patinetes
  * @param {Object} row - Fila del CSV
  * @param {string} sourceFile - Archivo origen
  * @param {number} rowIndex - Indice de fila para logging
  * @returns {Object|null} - Datos procesados o null si se rechaza
  */
-function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
+function parsearFilaAsignacion(row, sourceFile, rowIndex) {
   // Limpiar y validar campos basicos
   const distrito = cleanString(row.DISTRITO, '').toUpperCase();
   const barrio = cleanString(row.BARRIO, '');
@@ -212,7 +374,7 @@ function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
                            cleanColumnName;
 
     if (proveedorNombre && proveedorNombre.length > 0) {
-      const cantidad = parseNumber(row[columnName]);
+      const cantidad = parsearNumero(row[columnName]);
 
       if (cantidad >= 0) {
         proveedores.push({
@@ -237,18 +399,19 @@ function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
   }
 
   // Verificar discrepancia en total
-  const totalCSV = parseNumber(row.TOTAL);
+  const totalCSV = parsearNumero(row.TOTAL);
   if (totalCSV > 0 && totalCalculado !== totalCSV) {
-    logger.debug({
+    logger.warn({
       fila: rowIndex,
       distrito,
       barrio,
       totalCalculado,
-      totalCSV
-    }, 'Discrepancia en total, usando valor calculado');
+      totalCSV,
+      diferencia: Math.abs(totalCalculado - totalCSV)
+    }, 'Discrepancia en total de patinetes: suma proveedores != TOTAL CSV. Usando valor calculado');
   }
 
-  return {
+  const data = {
     fechaAsignacion: new Date(DATASET_YEARS.DEFAULT_START_DATE),
     distrito: {
       nombre: distrito
@@ -266,6 +429,11 @@ function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
       versionDatos: '1.0'
     }
   };
+
+  // Calcular campos derivados (replica pre-save hook, necesario para bulkWrite)
+  calcularCamposPatinetes(data);
+
+  return data;
 }
 
 // ============================================================================
@@ -278,7 +446,7 @@ function parseScooterAssignmentRow(row, sourceFile, rowIndex) {
  * @param {Object} options - Opciones de procesamiento
  * @returns {Promise<Object>} - Estadisticas de procesamiento
  */
-async function processScooterFile(filePath, options = {}) {
+async function procesarArchivoPatinetes(filePath, options = {}) {
   const fileName = path.basename(filePath);
   logger.info({ archivo: fileName }, 'Procesando archivo de asignacion de patinetes');
 
@@ -310,7 +478,7 @@ async function processScooterFile(filePath, options = {}) {
         rowIndex++;
 
         try {
-          const assignmentData = parseScooterAssignmentRow(row, fileName, rowIndex);
+          const assignmentData = parsearFilaAsignacion(row, fileName, rowIndex);
 
           if (assignmentData) {
             batch.push(assignmentData);
@@ -319,7 +487,7 @@ async function processScooterFile(filePath, options = {}) {
             // Procesar lote cuando alcance el tamano configurado
             if (batch.length >= options.batchSize) {
               stream.pause();
-              const batchResult = await processBatch(batch, options);
+              const batchResult = await procesarLote(batch, options);
               stats.insertedRecords += batchResult.inserted;
               stats.updatedRecords += batchResult.updated;
               stats.skippedRecords += batchResult.skipped;
@@ -364,7 +532,7 @@ async function processScooterFile(filePath, options = {}) {
         try {
           // Procesar lote restante
           if (batch.length > 0 && !isShuttingDown) {
-            const batchResult = await processBatch(batch, options);
+            const batchResult = await procesarLote(batch, options);
             stats.insertedRecords += batchResult.inserted;
             stats.updatedRecords += batchResult.updated;
             stats.skippedRecords += batchResult.skipped;
@@ -414,7 +582,7 @@ async function processScooterFile(filePath, options = {}) {
  * @param {Object} failedDoc - Documento que fallo
  * @param {Object} result - Objeto de resultado para actualizar
  */
-function handleWriteError(writeError, failedDoc, result) {
+function manejarErrorEscritura(writeError, failedDoc, result) {
   const errorCode = writeError.err?.code || writeError.code;
 
   if (errorCode === 11000) {
@@ -444,7 +612,7 @@ function handleWriteError(writeError, failedDoc, result) {
  * @param {Array} batch - Lote de documentos
  * @param {Object} result - Objeto de resultado para actualizar
  */
-function processBulkWriteErrors(bulkError, batch, result) {
+function procesarErroresBulkWrite(bulkError, batch, result) {
   if (!bulkError.writeErrors) {
     return;
   }
@@ -452,7 +620,7 @@ function processBulkWriteErrors(bulkError, batch, result) {
   for (const writeError of bulkError.writeErrors) {
     const operationIndex = writeError.index;
     const failedDoc = batch[operationIndex];
-    handleWriteError(writeError, failedDoc, result);
+    manejarErrorEscritura(writeError, failedDoc, result);
   }
 }
 
@@ -462,7 +630,7 @@ function processBulkWriteErrors(bulkError, batch, result) {
  * @param {Object} options - Opciones de procesamiento
  * @returns {Promise<Object>} - Resultado del procesamiento
  */
-async function processBatch(batch, options) {
+async function procesarLote(batch, options) {
   const result = { inserted: 0, updated: 0, skipped: 0, errors: 0 };
 
   if (batch.length === 0) {
@@ -470,10 +638,10 @@ async function processBatch(batch, options) {
   }
 
   if (options.skipExisting) {
-    return processBatchInsert(batch, result);
+    return procesarLoteInsercion(batch, result);
   }
 
-  return processBatchUpsert(batch, result);
+  return procesarLoteUpsert(batch, result);
 }
 
 /**
@@ -482,19 +650,19 @@ async function processBatch(batch, options) {
  * @param {Object} result - Objeto de resultado
  * @returns {Promise<Object>}
  */
-async function processBatchInsert(batch, result) {
+async function procesarLoteInsercion(batch, result) {
   const operations = batch.map(assignmentData => ({
     insertOne: { document: assignmentData }
   }));
 
   try {
-    const bulkResult = await ScooterAssignment.bulkWrite(operations, {
+    const bulkResult = await AsignacionPatinetes.bulkWrite(operations, {
       ordered: false,
       bypassDocumentValidation: false
     });
     result.inserted = bulkResult.insertedCount || 0;
   } catch (bulkError) {
-    processBulkWriteErrors(bulkError, batch, result);
+    procesarErroresBulkWrite(bulkError, batch, result);
 
     // Contar inserciones exitosas del bulkWrite
     if (bulkError.result) {
@@ -511,7 +679,7 @@ async function processBatchInsert(batch, result) {
  * @param {Object} result - Objeto de resultado
  * @returns {Promise<Object>}
  */
-async function processBatchUpsert(batch, result) {
+async function procesarLoteUpsert(batch, result) {
   const operations = batch.map(assignmentData => ({
     updateOne: {
       filter: {
@@ -524,7 +692,7 @@ async function processBatchUpsert(batch, result) {
   }));
 
   try {
-    const bulkResult = await ScooterAssignment.bulkWrite(operations, { ordered: false });
+    const bulkResult = await AsignacionPatinetes.bulkWrite(operations, { ordered: false });
     result.inserted = bulkResult.upsertedCount || 0;
     result.updated = bulkResult.modifiedCount || 0;
     result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);
@@ -554,7 +722,7 @@ async function processBatchUpsert(batch, result) {
  * @param {Object} options - Opciones de importacion
  * @returns {Promise<Object>} - Estadisticas finales
  */
-async function importScooterData(options = {}) {
+async function importarDatosPatinetes(options = {}) {
   const importConfig = { ...IMPORT_CONFIG, ...options };
 
   logger.info({
@@ -583,7 +751,7 @@ async function importScooterData(options = {}) {
     };
 
     // Procesar archivo
-    const fileStats = await processScooterFile(importConfig.dataFile, importConfig);
+    const fileStats = await procesarArchivoPatinetes(importConfig.dataFile, importConfig);
 
     // Acumular estadisticas
     globalStats.totalRows = fileStats.totalRows;
@@ -613,7 +781,7 @@ async function importScooterData(options = {}) {
  * Manejador de cierre graceful
  * @param {string} signal - Senal recibida
  */
-async function handleShutdown(signal) {
+async function manejarCierre(signal) {
   if (isShuttingDown) {
     return;
   }
@@ -644,8 +812,8 @@ async function handleShutdown(signal) {
 }
 
 // Registrar manejadores de senales
-process.on('SIGINT', () => handleShutdown('SIGINT'));
-process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+process.on('SIGINT', () => manejarCierre('SIGINT'));
+process.on('SIGTERM', () => manejarCierre('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
   logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
@@ -672,7 +840,7 @@ async function main() {
     logger.info(`
 Script de Importacion de Asignacion de Patinetes
 
-Uso: node scripts/importation/importScooterAssignments.js [opciones]
+Uso: node scripts/importation/importarPatinetes.js [opciones]
 
 Opciones:
   --force         Sobrescribir datos existentes (upsert)
@@ -680,9 +848,9 @@ Opciones:
   --help, -h      Mostrar esta ayuda
 
 Ejemplos:
-  node scripts/importation/importScooterAssignments.js
-  node scripts/importation/importScooterAssignments.js --force
-  node scripts/importation/importScooterAssignments.js --batch=50
+  node scripts/importation/importarPatinetes.js
+  node scripts/importation/importarPatinetes.js --force
+  node scripts/importation/importarPatinetes.js --batch=50
     `);
     return;
   }
@@ -704,11 +872,11 @@ Ejemplos:
     logger.info('Conexion establecida con MongoDB');
 
     // Verificar modelo
-    const assignmentsCount = await ScooterAssignment.countDocuments().maxTimeMS(10000);
+    const assignmentsCount = await AsignacionPatinetes.countDocuments().maxTimeMS(10000);
     logger.info({ registrosActuales: assignmentsCount }, 'Estado actual de la coleccion de asignaciones');
 
     // Ejecutar importacion
-    const result = await importScooterData(options);
+    const result = await importarDatosPatinetes(options);
 
     // Mostrar resultados finales
     logger.info({
@@ -723,7 +891,7 @@ Ejemplos:
     }, 'Importacion de asignacion de patinetes completada');
 
     // Estadisticas finales de la base de datos
-    const finalCount = await ScooterAssignment.countDocuments().maxTimeMS(10000);
+    const finalCount = await AsignacionPatinetes.countDocuments().maxTimeMS(10000);
     logger.info({ totalAsignacionesBD: finalCount }, 'Total de asignaciones en la base de datos');
 
     // Resumen de rechazos por tipo
@@ -736,7 +904,7 @@ Ejemplos:
     }
 
     // Estadisticas adicionales
-    const totalPatinetes = await ScooterAssignment.aggregate([
+    const totalPatinetes = await AsignacionPatinetes.aggregate([
       {
         $group: {
           _id: null,
@@ -788,7 +956,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  importScooterData,
-  parseScooterAssignmentRow,
+  importarDatosPatinetes,
+  parsearFilaAsignacion,
   REJECTION_REASONS
 };

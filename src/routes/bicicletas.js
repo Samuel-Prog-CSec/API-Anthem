@@ -7,11 +7,11 @@
  */
 
 const express = require('express');
-const { param, query } = require('express-validator');
+const { query } = require('express-validator');
 const rateLimit = require('express-rate-limit');
-const { RATE_LIMITS, ROUTE_SPECIFIC_LIMITS, HTTP_STATUS } = require('../constants');
+const { RATE_LIMITS, ROUTE_SPECIFIC_LIMITS, HTTP_STATUS, USER_ROLES } = require('../constants');
 
-const bikeController = require('../controllers/bikeAvailabilityController');
+const bikeController = require('../controllers/controladorBicicletas');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
@@ -43,7 +43,7 @@ const generalLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.user && req.user.role === 'admin'
+  skip: (req) => req.user && req.user.role === USER_ROLES.ADMIN
 });
 
 /**
@@ -53,7 +53,7 @@ const generalLimit = rateLimit({
 /**
  * @route   GET /api/bikes
  * @desc    Obtener todos los registros de disponibilidad con filtros
- * @access  Private
+ * @access  Privado
  */
 router.get('/',
   generalLimit,
@@ -62,47 +62,29 @@ router.get('/',
   validatePagination,
   validateBikeFilters,
   cacheMiddleware('bikes'), // Cache por 5 minutos
-  bikeController.getAllBikeAvailability
-);
-
-/**
- * @route   GET /api/bikes/date/:date
- * @desc    Obtener disponibilidad de una fecha específica
- * @access  Private
- */
-router.get('/date/:date',
-  generalLimit,
-  authenticate,
-  [
-    param('date')
-      .isISO8601()
-      .withMessage('Fecha debe estar en formato ISO8601 (YYYY-MM-DD)'),
-    validateRequest
-  ],
-  cacheMiddleware('bikes'), // Cache por 5 minutos
-  bikeController.getBikeAvailabilityByDate
+  bikeController.obtenerDisponibilidad
 );
 
 /**
  * @route   GET /api/bikes/stats
  * @desc    Obtener estadísticas generales de disponibilidad
- * @access  Private
+ * @access  Privado
  */
-router.get('/stats',
+router.get('/estadisticas',
   generalLimit,
   authenticate,
   validateDateRange,
   etagMiddleware, // ETags para estadísticas (datos agregados relativamente estables)
   cacheMiddleware('bikes'), // Cache por 5 minutos
-  bikeController.getBikeStats
+  bikeController.obtenerEstadisticas
 );
 
 /**
  * @route   GET /api/bikes/trends/monthly
  * @desc    Obtener tendencias mensuales
- * @access  Private
+ * @access  Privado
  */
-router.get('/trends/monthly',
+router.get('/tendencias/mensual',
   generalLimit,
   authenticate,
   [
@@ -114,15 +96,15 @@ router.get('/trends/monthly',
   ],
   etagMiddleware, // ETags para tendencias mensuales (datos agregados estables)
   cacheMiddleware('bikes'), // Cache por 5 minutos
-  bikeController.getMonthlyTrends
+  bikeController.obtenerTendenciasMensuales
 );
 
 /**
  * @route   GET /api/bikes/top-usage
  * @desc    Obtener días con mayor y menor uso
- * @access  Private
+ * @access  Privado
  */
-router.get('/top-usage',
+router.get('/mayor-uso',
   generalLimit,
   authenticate,
   [
@@ -133,115 +115,21 @@ router.get('/top-usage',
     validateRequest
   ],
   cacheMiddleware('bikes'), // Cache por 5 minutos
-  bikeController.getTopUsageDays
+  bikeController.obtenerDiasMayorUso
 );
 
 /**
  * @route   GET /api/bikes/subscription-comparison
  * @desc    Comparar uso por tipo de abonado
- * @access  Private
+ * @access  Privado
  */
-router.get('/subscription-comparison',
+router.get('/comparativa-suscripciones',
   generalLimit,
   authenticate,
   validateDateRange,
   etagMiddleware, // ETags para comparación de suscripciones (datos agregados)
   cacheMiddleware('bikes'), // Cache por 5 minutos
-  bikeController.getSubscriptionComparison
-);
-
-/**
- * @route   GET /api/bikes/efficiency
- * @desc    Obtener análisis de eficiencia del servicio
- * @access  Private
- */
-router.get('/efficiency',
-  generalLimit,
-  authenticate,
-  validateDateRange,
-  etagMiddleware, // ETags para análisis de eficiencia (datos agregados)
-  cacheMiddleware('bikes'), // Cache por 5 minutos
-  bikeController.getEfficiencyAnalysis
-);
-
-/**
- * @route   GET /api/bikes/historical
- * @desc    Obtener datos históricos agregados para gráficos
- * @access  Private
- */
-router.get('/historical',
-  generalLimit,
-  authenticate,
-  [
-    query('aggregation')
-      .optional()
-      .isIn(['day', 'week', 'month'])
-      .withMessage('Agregación debe ser day, week o month'),
-    validateRequest
-  ],
-  validateDateRange,
-  cacheMiddleware('bikes'), // Cache por 5 minutos
-  bikeController.getHistoricalData
-);
-
-/**
- * @route   GET /api/bikes/trends/usage
- * @desc    Obtener tendencias de uso con agregación flexible
- * @access  Private
- */
-router.get('/trends/usage',
-  generalLimit,
-  authenticate,
-  [
-    query('startDate')
-      .notEmpty()
-      .withMessage('startDate es requerido')
-      .isISO8601()
-      .withMessage('startDate debe ser una fecha válida'),
-    query('endDate')
-      .notEmpty()
-      .withMessage('endDate es requerido')
-      .isISO8601()
-      .withMessage('endDate debe ser una fecha válida'),
-    query('groupBy')
-      .optional()
-      .isIn(['day', 'week', 'month'])
-      .withMessage('groupBy debe ser day, week o month'),
-    query('includeUserTypes')
-      .optional()
-      .isBoolean()
-      .withMessage('includeUserTypes debe ser true o false'),
-    validateRequest
-  ],
-  cacheMiddleware('bikes'), // Cache por 10 minutos
-  bikeController.getUsageTrendsAnalysis
-);
-
-/**
- * @route   GET /api/bikes/prediction/demand
- * @desc    Obtener predicción de demanda basada en patrones históricos
- * @access  Private
- */
-router.get('/prediction/demand',
-  generalLimit,
-  authenticate,
-  [
-    query('startDate')
-      .optional()
-      .isISO8601()
-      .withMessage('startDate debe ser una fecha válida'),
-    query('endDate')
-      .optional()
-      .isISO8601()
-      .withMessage('endDate debe ser una fecha válida'),
-    query('threshold')
-      .optional()
-      .isInt({ min: ROUTE_SPECIFIC_LIMITS.BIKE.OCCUPANCY_MIN, max: ROUTE_SPECIFIC_LIMITS.BIKE.OCCUPANCY_MAX })
-      .withMessage(`threshold debe ser un número entre ${ROUTE_SPECIFIC_LIMITS.BIKE.OCCUPANCY_MIN} y ${ROUTE_SPECIFIC_LIMITS.BIKE.OCCUPANCY_MAX}`),
-    validateRequest
-  ],
-  cacheMiddleware('bikes'), // Cache por 30 minutos
-  bikeController.getDemandPredictionAnalysis
+  bikeController.obtenerComparativaSuscripciones
 );
 
 /**

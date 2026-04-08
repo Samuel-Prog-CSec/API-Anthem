@@ -7,28 +7,22 @@
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { query } = require('express-validator');
 const {
-  SEVERITY_LEVELS,
   USER_ROLES,
   RATE_LIMITS,
   DATE_RANGE_LIMITS,
-  ROUTE_SPECIFIC_LIMITS,
   HTTP_STATUS
 } = require('../constants');
 
-const accidentController = require('../controllers/accidentController');
+const accidentController = require('../controllers/controladorAccidentes');
 const { authenticate } = require('../middleware/auth');
-const { validateRequest } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
 const { etagMiddleware } = require('../middleware/etag');
-const { createForbiddenResponse } = require('../utils/responseHelper');
 const logger = require('../config/logger');
 const {
   validateDateRange,
   validateDistrictQuery,
-  validateExportFormat,
   validatePagination,
   validateAccidentFilters,
   validateFileNumber
@@ -59,26 +53,6 @@ const generalLimit = rateLimit({
   }
 });
 
-// Para mapas de calor y análisis pesados
-const heavyAnalysisLimit = rateLimit({
-  windowMs: RATE_LIMITS.HEAVY_QUERY.WINDOW_MS,
-  max: RATE_LIMITS.ACCIDENTS.HEATMAP_MAX,
-  message: {
-    error: 'Demasiadas consultas de análisis intensivo. Intente nuevamente en 5 minutos.',
-    retryAfter: RATE_LIMITS.HEAVY_QUERY.RETRY_AFTER
-  }
-});
-
-// Para exportaciones
-const exportLimit = rateLimit({
-  windowMs: RATE_LIMITS.EXPORT.WINDOW_MS,
-  max: RATE_LIMITS.ACCIDENTS.EXPORT_MAX,
-  message: {
-    error: 'Límite de exportaciones de accidentes alcanzado. Intente nuevamente en 1 hora.',
-    retryAfter: RATE_LIMITS.EXPORT.RETRY_AFTER
-  }
-});
-
 /**
  * RUTAS PRINCIPALES
  */
@@ -86,7 +60,7 @@ const exportLimit = rateLimit({
 /**
  * @route   GET /api/v1/accidents
  * @desc    Obtener datos de accidentalidad con filtros avanzados
- * @access  Private (requiere autenticación)
+ * @access  Privado (requiere autenticación)
  * @rateLimit 100 requests por 15 minutos
  * @query   {string} startDate - Fecha de inicio (ISO8601)
  * @query   {string} endDate - Fecha de fin (ISO8601)
@@ -102,92 +76,50 @@ router.get('/',
   validatePagination,
   validateAccidentFilters,
   cacheMiddleware('statistics', (req) => `accidents:list:${JSON.stringify(req.query)}`),
-  accidentController.getAllAccidents
+  accidentController.obtenerAccidentes
 );
 
 /**
  * @route   GET /api/accidents/expediente/:numero
  * @desc    Obtener accidente específico por número de expediente
- * @access  Private
+ * @access  Privado
  * @rateLimit 100 requests per 15 minutes
  */
 router.get('/expediente/:numero',
   generalLimit,
   authenticate,
   validateFileNumber,
-  accidentController.getAccidentByFileNumber
+  accidentController.obtenerAccidentePorExpediente
 );
 
 /**
  * @route   GET /api/accidents/stats
  * @desc    Obtener estadísticas generales de accidentalidad
- * @access  Private
+ * @access  Privado
  * @rateLimit 100 requests per 15 minutes
  */
-router.get('/stats',
+router.get('/estadisticas',
   generalLimit,
   authenticate,
   validateDistrictQuery,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   etagMiddleware, // ETags para estadísticas agregadas (datos estables)
   cacheMiddleware('statistics', (req) => `accidents:stats:${JSON.stringify(req.query)}`),
-  accidentController.getAccidentStats
-);
-
-/**
- * @route   GET /api/accidents/heatmap
- * @desc    Obtener mapa de calor de accidentes
- * @access  Private (requiere rol analyst o admin)
- * @rateLimit 10 requests per 5 minutes
- */
-router.get('/heatmap',
-  heavyAnalysisLimit,
-  authenticate,
-  [
-    query('gravedad')
-      .optional()
-      .isIn(Object.values(SEVERITY_LEVELS.ACCIDENT))
-      .withMessage(`Gravedad debe ser uno de: ${Object.values(SEVERITY_LEVELS.ACCIDENT).join(', ')}`),
-
-    query('limite')
-      .optional()
-      .isInt({ min: ROUTE_SPECIFIC_LIMITS.ACCIDENTS.DISTANCE_MIN, max: ROUTE_SPECIFIC_LIMITS.ACCIDENTS.DISTANCE_MAX })
-      .withMessage(`Límite debe ser entre ${ROUTE_SPECIFIC_LIMITS.ACCIDENTS.DISTANCE_MIN} y ${ROUTE_SPECIFIC_LIMITS.ACCIDENTS.DISTANCE_MAX}`),
-
-    validateRequest
-  ],
-  validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
-  cacheMiddleware('statistics', (req) => `accidents:heatmap:${JSON.stringify(req.query)}`),
-  accidentController.getAccidentHeatmap
-);
-
-/**
- * @route   GET /api/accidents/safety-analysis
- * @desc    Obtener análisis de seguridad vial por zona
- * @access  Private (requiere rol analyst o admin)
- * @rateLimit 10 requests per 5 minutes
- */
-router.get('/safety-analysis',
-  heavyAnalysisLimit,
-  authenticate,
-  validateDistrictQuery,
-  validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
-  cacheMiddleware('statistics', (req) => `accidents:safety:${JSON.stringify(req.query)}`),
-  accidentController.getSafetyAnalysis
+  accidentController.obtenerEstadisticasAccidentes
 );
 
 /**
  * @route   GET /api/accidents/district-comparison
  * @desc    Obtener comparativa entre distritos
- * @access  Private
+ * @access  Privado
  * @rateLimit 100 requests per 15 minutes
  */
-router.get('/district-comparison',
+router.get('/comparativa-distritos',
   generalLimit,
   authenticate,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   cacheMiddleware('statistics', (req) => `accidents:district-comp:${JSON.stringify(req.query)}`),
-  accidentController.getDistrictComparison
+  accidentController.obtenerComparativaDistritos
 );
 
 /**
@@ -239,5 +171,17 @@ router.use((error, req, res, _next) => {
     requestId: req.id || Date.now()
   });
 });
+
+/**
+ * @route   GET /api/v1/accidentes/mapa-calor
+ * @desc    Obtener datos agrupados para mapa de calor de accidentes
+ * @access  Privado
+ */
+router.get('/mapa-calor',
+  generalLimit,
+  authenticate,
+  cacheMiddleware('accidents'),
+  accidentController.obtenerMapaCalorAccidentes
+);
 
 module.exports = router;

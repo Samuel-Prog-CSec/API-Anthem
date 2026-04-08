@@ -4,17 +4,14 @@ const { query, param } = require('express-validator');
 const {
   getLocations,
   getMeasurementPoints,
-  getTransportRoutes,
-  getProximityAnalysis
-} = require('../controllers/locationController');
+  getTransportRoutes
+} = require('../controllers/controladorUbicaciones');
 
 const {
   ROUTE_SPECIFIC_LIMITS,
   RATE_LIMITS,
   LOCATION_TYPES,
-  SEARCH_LIMITS,
-  MEASUREMENT_POINT_TYPES,
-  TRANSPORT_ROUTE_TYPES
+  MEASUREMENT_POINT_TYPES
 } = require('../constants');
 
 // Middleware
@@ -48,7 +45,7 @@ const locationsLimiter = rateLimit({
 /**
  * @route   GET /api/v1/locations
  * @desc    Obtener todas las ubicaciones con filtros
- * @access  Private (requiere autenticación)
+ * @access  Privado (requiere autenticacion)
  */
 router.get('/',
   locationsLimiter, // Rate limiting permisivo para consultas ligeras
@@ -59,11 +56,17 @@ router.get('/',
     query('type')
       .optional()
       .isIn(Object.values(LOCATION_TYPES))
-      .withMessage('Type de ubicacion no valido'),
+      .withMessage('Tipo de ubicacion no valido'),
     query('distrito')
       .optional()
       .isInt({ min: 1, max: 21 })
       .withMessage('Distrito debe ser un numero entre 1 y 21'),
+    query('nombre')
+      .optional()
+      .trim()
+      .escape()
+      .isLength({ min: 2, max: 100 })
+      .withMessage('nombre debe tener entre 2 y 100 caracteres'),
     query('limit')
       .optional()
       .isInt({ min: ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MIN, max: ROUTE_SPECIFIC_LIMITS.LOCATIONS.LIMIT_MAX })
@@ -86,11 +89,11 @@ router.get('/',
 );
 
 /**
- * @route   GET /api/v1/locations/measurement-points/:measurementType
- * @desc    Obtener puntos de medición específicos
- * @access  Private (requiere autenticación)
+ * @route   GET /api/v1/ubicaciones/puntos-medicion/:measurementType
+ * @desc    Obtener puntos de medicion especificos
+ * @access  Privado (requiere autenticacion)
  */
-router.get('/measurement-points/:measurementType',
+router.get('/puntos-medicion/:measurementType',
   locationsLimiter, // Rate limiting permisivo para consultas ligeras
   authenticate, // Requiere autenticación
   cacheMiddleware(),
@@ -104,11 +107,11 @@ router.get('/measurement-points/:measurementType',
 );
 
 /**
- * @route   GET /api/v1/locations/transport/:transportType
+ * @route   GET /api/v1/ubicaciones/transporte/:transportType
  * @desc    Obtener rutas de transporte publico
- * @access  Private (requiere autenticacion)
+ * @access  Privado (requiere autenticacion)
  */
-router.get('/transport/:transportType',
+router.get('/transporte/:transportType',
   locationsLimiter, // Rate limiting permisivo para consultas ligeras
   authenticate, // Requiere autenticacion
   cacheMiddleware(),
@@ -119,33 +122,6 @@ router.get('/transport/:transportType',
   ],
   validateRequest,
   getTransportRoutes
-);
-
-/**
- * @route   GET /api/v1/locations/proximity
- * @desc    Analisis de proximidad a un punto (coordenadas GeoJSON WGS84)
- * @access  Private (requiere autenticacion)
- */
-router.get('/proximity',
-  locationsLimiter, // Rate limiting permisivo para consultas ligeras
-  authenticate, // Requiere autenticacion
-  cacheMiddleware(),
-  [
-    query('lon')
-      .notEmpty()
-      .isFloat({ min: -180, max: 180 })
-      .withMessage('Longitud (lon) es requerida y debe estar entre -180 y 180'),
-    query('lat')
-      .notEmpty()
-      .isFloat({ min: -90, max: 90 })
-      .withMessage('Latitud (lat) es requerida y debe estar entre -90 y 90'),
-    query('radius')
-      .optional()
-      .isInt({ min: ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MIN, max: ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MAX })
-      .withMessage(`El radio debe estar entre ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MIN} y ${ROUTE_SPECIFIC_LIMITS.LOCATIONS.DISTANCE_MAX} metros`)
-  ],
-  validateRequest,
-  getProximityAnalysis
 );
 
 module.exports = router;

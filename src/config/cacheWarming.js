@@ -11,13 +11,13 @@
  * - Logging detallado del proceso
  */
 
-const Location = require('../models/Location');
+const Location = require('../models/Ubicacion');
 const Fine = require('../models/Fine');
 const Traffic = require('../models/Traffic');
-const AirQuality = require('../models/AirQuality');
+const AirQuality = require('../models/CalidadAire');
 const Census = require('../models/Census');
-const ScooterAssignment = require('../models/ScooterAssignment');
-const Accident = require('../models/Accident');
+const AsignacionPatinetes = require('../models/AsignacionPatinetes');
+const Accidente = require('../models/Accidente');
 const logger = require('./logger');
 const { cacheLogger } = logger;
 const { DATASET_YEARS } = require('../constants');
@@ -255,12 +255,12 @@ const warmCensusDashboardCache = async () => {
  * Precalentar caché de asignación de patinetes
  * Datos de patinetes eléctricos consultados frecuentemente
  */
-const warmScooterAssignmentCache = async () => {
+const warmAsignacionPatinetesCache = async () => {
   try {
     cacheLogger.info('Precalentando caché de asignación de patinetes...');
 
     // Precalentar estadísticas generales de patinetes
-    await ScooterAssignment.aggregate([
+    await AsignacionPatinetes.aggregate([
       {
         $group: {
           _id: null,
@@ -273,7 +273,7 @@ const warmScooterAssignmentCache = async () => {
       .option({ allowDiskUse: true, maxTimeMS: 30000 });
 
     // Precalentar top 5 distritos por densidad de patinetes
-    await ScooterAssignment.aggregate([
+    await AsignacionPatinetes.aggregate([
       {
         $group: {
           _id: '$distrito',
@@ -310,7 +310,7 @@ const warmAccidentRecentCache = async () => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    await Accident.find({ fecha: { $gte: thirtyDaysAgo } })
+    await Accidente.find({ fecha: { $gte: thirtyDaysAgo } })
       .select('numeroExpediente fecha hora ubicacion.nombreDistrito ubicacion.coordenadas analisis.puntuacionGravedad')
       .sort({ fecha: -1 })
       .limit(200)
@@ -337,7 +337,7 @@ const warmupTasks = [
   { name: 'traffic', fn: warmTrafficCache },
   { name: 'air-quality', fn: warmAirQualityCache },
   { name: 'census-dashboard', fn: warmCensusDashboardCache },
-  { name: 'scooter-assignment', fn: warmScooterAssignmentCache },
+  { name: 'scooter-assignment', fn: warmAsignacionPatinetesCache },
   { name: 'accidents-recent', fn: warmAccidentRecentCache }
 ];
 
@@ -469,6 +469,6 @@ module.exports = {
   warmTrafficCache,
   warmAirQualityCache,
   warmCensusDashboardCache,
-  warmScooterAssignmentCache,
+  warmAsignacionPatinetesCache,
   warmAccidentRecentCache
 };

@@ -44,7 +44,7 @@ const {
 } = require('./helpers/importHelpers');
 
 // Modelo
-const AirQuality = require('../../src/models/AirQuality');
+const AirQuality = require('../../src/models/CalidadAire');
 
 /**
  * Codigos de razon de rechazo para trazabilidad

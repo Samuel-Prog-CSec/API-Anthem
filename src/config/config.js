@@ -88,15 +88,6 @@ const config = {
     timeout: parseInt(process.env.API_TIMEOUT, 10) || 30000 // 30 segundos
   },
 
-  // Configuración SSL/HTTPS
-  ssl: {
-    enabled: process.env.SSL_ENABLED === 'true',
-    keyPath: process.env.SSL_KEY_PATH || './certs/private.key',
-    certPath: process.env.SSL_CERT_PATH || './certs/certificate.crt',
-    httpsPort: parseInt(process.env.HTTPS_PORT, 10) || 443,
-    redirectHttp: process.env.SSL_REDIRECT_HTTP !== 'false' // Por defecto true
-  },
-
   // Configuración de modo de pruebas (facilita desarrollo)
   testMode: {
     enabled: process.env.TEST_MODE === 'true',

@@ -4,7 +4,7 @@
  * Procesa y carga datos de accidentes desde el archivo CSV a la base de datos MongoDB.
  * Incluye validación de datos, transformación, normalización y manejo de errores.
  *
- * Uso: node scripts/importation/importAccidentData.js
+ * Uso: node scripts/importation/importarAccidentes.js
  */
 
 process.env.SCRIPT_MODE = 'true';
@@ -16,7 +16,7 @@ const fs = require('fs').promises;
 const mongoose = require('mongoose');
 
 // Importar modelos, configuración y utilidades
-const Accident = require('../../src/models/Accident');
+const Accidente = require('../../src/models/Accidente');
 const connectDB = require('../../src/config/database');
 const config = require('../../src/config/config');
 const { importAccidentsLogger: logger } = require('../../src/config/scriptLogger');
@@ -25,10 +25,15 @@ const {
   GENDERS,
   WEATHER_CONDITIONS,
   BINARY_INDICATORS,
-  ACCIDENT_TYPES,
-  VEHICLE_TYPES,
-  PERSON_TYPES,
-  INJURY_TYPES
+  TIPOS_ACCIDENTE,
+  TIPOS_VEHICULO,
+  TIPOS_PERSONA,
+  TIPOS_LESION,
+  DAY_PERIODS,
+  WORKDAY_TYPES,
+  FACTORES_RIESGO,
+  MAPEO_SEVERIDAD_LESIONES,
+  SEVERITY_LEVELS
 } = require('../../src/constants');
 const {
   RejectionTracker,
@@ -82,7 +87,6 @@ const REJECTION_REASONS = {
 
 let totalProcessed = 0;
 let totalInserted = 0;
-let totalUpdated = 0;
 let totalRejected = 0;
 let totalErrors = 0;
 let isShuttingDown = false;
@@ -99,27 +103,27 @@ const rejectionTracker = new RejectionTracker();
  * Mapea valores del CSV a valores del enum del modelo (usando constantes centralizadas)
  */
 const TIPO_ACCIDENTE_MAP = {
-  'alcance': ACCIDENT_TYPES.ALCANCE,
-  'atropello a animal': ACCIDENT_TYPES.ATROPELLO_A_ANIMAL,
-  'atropello a persona': ACCIDENT_TYPES.ATROPELLO_A_PERSONA,
-  'caída': ACCIDENT_TYPES.CAIDA,
-  'caida': ACCIDENT_TYPES.CAIDA,
-  'choque contra obstáculo fijo': ACCIDENT_TYPES.CHOQUE_CONTRA_OBSTACULO_FIJO,
-  'choque contra obstaculo fijo': ACCIDENT_TYPES.CHOQUE_CONTRA_OBSTACULO_FIJO,
-  'colisión frontal': ACCIDENT_TYPES.COLISION_FRONTAL,
-  'colision frontal': ACCIDENT_TYPES.COLISION_FRONTAL,
-  'colisión fronto-lateral': ACCIDENT_TYPES.COLISION_FRONTO_LATERAL,
-  'colision fronto-lateral': ACCIDENT_TYPES.COLISION_FRONTO_LATERAL,
-  'colisión lateral': ACCIDENT_TYPES.COLISION_LATERAL,
-  'colision lateral': ACCIDENT_TYPES.COLISION_LATERAL,
-  'colisión múltiple': ACCIDENT_TYPES.COLISION_MULTIPLE,
-  'colision multiple': ACCIDENT_TYPES.COLISION_MULTIPLE,
-  'despeñamiento': ACCIDENT_TYPES.DESPEÑAMIENTO,
-  'despenamiento': ACCIDENT_TYPES.DESPEÑAMIENTO,
-  'otro': ACCIDENT_TYPES.OTRO,
-  'solo salida de la vía': ACCIDENT_TYPES.SOLO_SALIDA_DE_LA_VIA,
-  'solo salida de la via': ACCIDENT_TYPES.SOLO_SALIDA_DE_LA_VIA,
-  'vuelco': ACCIDENT_TYPES.VUELCO
+  'alcance': TIPOS_ACCIDENTE.ALCANCE,
+  'atropello a animal': TIPOS_ACCIDENTE.ATROPELLO_A_ANIMAL,
+  'atropello a persona': TIPOS_ACCIDENTE.ATROPELLO_A_PERSONA,
+  'caída': TIPOS_ACCIDENTE.CAIDA,
+  'caida': TIPOS_ACCIDENTE.CAIDA,
+  'choque contra obstáculo fijo': TIPOS_ACCIDENTE.CHOQUE_CONTRA_OBSTACULO_FIJO,
+  'choque contra obstaculo fijo': TIPOS_ACCIDENTE.CHOQUE_CONTRA_OBSTACULO_FIJO,
+  'colisión frontal': TIPOS_ACCIDENTE.COLISION_FRONTAL,
+  'colision frontal': TIPOS_ACCIDENTE.COLISION_FRONTAL,
+  'colisión fronto-lateral': TIPOS_ACCIDENTE.COLISION_FRONTO_LATERAL,
+  'colision fronto-lateral': TIPOS_ACCIDENTE.COLISION_FRONTO_LATERAL,
+  'colisión lateral': TIPOS_ACCIDENTE.COLISION_LATERAL,
+  'colision lateral': TIPOS_ACCIDENTE.COLISION_LATERAL,
+  'colisión múltiple': TIPOS_ACCIDENTE.COLISION_MULTIPLE,
+  'colision multiple': TIPOS_ACCIDENTE.COLISION_MULTIPLE,
+  'despeñamiento': TIPOS_ACCIDENTE.DESPEÑAMIENTO,
+  'despenamiento': TIPOS_ACCIDENTE.DESPEÑAMIENTO,
+  'otro': TIPOS_ACCIDENTE.OTRO,
+  'solo salida de la vía': TIPOS_ACCIDENTE.SOLO_SALIDA_DE_LA_VIA,
+  'solo salida de la via': TIPOS_ACCIDENTE.SOLO_SALIDA_DE_LA_VIA,
+  'vuelco': TIPOS_ACCIDENTE.VUELCO
 };
 
 /**
@@ -127,55 +131,55 @@ const TIPO_ACCIDENTE_MAP = {
  * Mapea valores del CSV a valores del enum del modelo (usando constantes centralizadas)
  */
 const TIPO_VEHICULO_MAP = {
-  'ambulancia samur': VEHICLE_TYPES.AMBULANCIA_SAMUR,
-  'autobús': VEHICLE_TYPES.AUTOBUS,
-  'autobus': VEHICLE_TYPES.AUTOBUS,
-  'autobús articulado': VEHICLE_TYPES.AUTOBUS_ARTICULADO,
-  'autobus articulado': VEHICLE_TYPES.AUTOBUS_ARTICULADO,
-  'autobús articulado emt': VEHICLE_TYPES.AUTOBUS_ARTICULADO_EMT,
-  'autobus articulado emt': VEHICLE_TYPES.AUTOBUS_ARTICULADO_EMT,
-  'autobus emt': VEHICLE_TYPES.AUTOBUS_EMT,
-  'autocaravana': VEHICLE_TYPES.AUTOCARAVANA,
-  'bicicleta': VEHICLE_TYPES.BICICLETA,
-  'bicicleta epac (pedaleo asistido)': VEHICLE_TYPES.BICICLETA_EPAC,
-  'camión de bomberos': VEHICLE_TYPES.CAMION_DE_BOMBEROS,
-  'camion de bomberos': VEHICLE_TYPES.CAMION_DE_BOMBEROS,
-  'camión rígido': VEHICLE_TYPES.CAMION_RIGIDO,
-  'camion rígido': VEHICLE_TYPES.CAMION_RIGIDO,
-  'camion rigido': VEHICLE_TYPES.CAMION_RIGIDO,
-  'ciclo': VEHICLE_TYPES.CICLO,
-  'ciclomotor': VEHICLE_TYPES.CICLOMOTOR,
-  'ciclomotor de dos ruedas l1e-b': VEHICLE_TYPES.CICLOMOTOR_DOS_RUEDAS,
-  'ciclomotor de tres ruedas': VEHICLE_TYPES.CICLOMOTOR_TRES_RUEDAS,
-  'cuadriciclo ligero': VEHICLE_TYPES.CUADRICICLO_LIGERO,
-  'cuadriciclo no ligero': VEHICLE_TYPES.CUADRICICLO_NO_LIGERO,
-  'furgoneta': VEHICLE_TYPES.FURGONETA,
-  'maquinaria agrícola': VEHICLE_TYPES.MAQUINARIA_AGRICOLA,
-  'maquinaria agricola': VEHICLE_TYPES.MAQUINARIA_AGRICOLA,
-  'maquinaria de obras': VEHICLE_TYPES.MAQUINARIA_DE_OBRAS,
-  'motocicleta hasta 125cc': VEHICLE_TYPES.MOTOCICLETA_HASTA_125CC,
-  'motocicleta > 125cc': VEHICLE_TYPES.MOTOCICLETA_MAS_125CC,
-  'moto de tres ruedas hasta 125cc': VEHICLE_TYPES.MOTO_TRES_RUEDAS_HASTA_125CC,
-  'moto de tres ruedas > 125cc': VEHICLE_TYPES.MOTO_TRES_RUEDAS_MAS_125CC,
-  'otros vehículos con motor': VEHICLE_TYPES.OTROS_VEHICULOS_CON_MOTOR,
-  'otros vehiculos con motor': VEHICLE_TYPES.OTROS_VEHICULOS_CON_MOTOR,
-  'otros vehículos sin motor': VEHICLE_TYPES.OTROS_VEHICULOS_SIN_MOTOR,
-  'otros vehiculos sin motor': VEHICLE_TYPES.OTROS_VEHICULOS_SIN_MOTOR,
-  'patinete': VEHICLE_TYPES.PATINETE,
-  'remolque': VEHICLE_TYPES.REMOLQUE,
-  'semiremolque': VEHICLE_TYPES.SEMIREMOLQUE,
-  'sin especificar': VEHICLE_TYPES.SIN_ESPECIFICAR,
-  'taxi': VEHICLE_TYPES.TAXI,
-  'todo terreno': VEHICLE_TYPES.TODO_TERRENO,
-  'tractocamión': VEHICLE_TYPES.TRACTOCAMION,
-  'tractocamion': VEHICLE_TYPES.TRACTOCAMION,
-  'tren/metro': VEHICLE_TYPES.TREN_METRO,
-  'turismo': VEHICLE_TYPES.TURISMO,
-  'vehículo articulado': VEHICLE_TYPES.VEHICULO_ARTICULADO,
-  'vehiculo articulado': VEHICLE_TYPES.VEHICULO_ARTICULADO,
-  'vmu eléctrico': VEHICLE_TYPES.VMU_ELECTRICO,
-  'vmu electrico': VEHICLE_TYPES.VMU_ELECTRICO,
-  'null': VEHICLE_TYPES.SIN_ESPECIFICAR
+  'ambulancia samur': TIPOS_VEHICULO.AMBULANCIA_SAMUR,
+  'autobús': TIPOS_VEHICULO.AUTOBUS,
+  'autobus': TIPOS_VEHICULO.AUTOBUS,
+  'autobús articulado': TIPOS_VEHICULO.AUTOBUS_ARTICULADO,
+  'autobus articulado': TIPOS_VEHICULO.AUTOBUS_ARTICULADO,
+  'autobús articulado emt': TIPOS_VEHICULO.AUTOBUS_ARTICULADO_EMT,
+  'autobus articulado emt': TIPOS_VEHICULO.AUTOBUS_ARTICULADO_EMT,
+  'autobus emt': TIPOS_VEHICULO.AUTOBUS_EMT,
+  'autocaravana': TIPOS_VEHICULO.AUTOCARAVANA,
+  'bicicleta': TIPOS_VEHICULO.BICICLETA,
+  'bicicleta epac (pedaleo asistido)': TIPOS_VEHICULO.BICICLETA_EPAC,
+  'camión de bomberos': TIPOS_VEHICULO.CAMION_DE_BOMBEROS,
+  'camion de bomberos': TIPOS_VEHICULO.CAMION_DE_BOMBEROS,
+  'camión rígido': TIPOS_VEHICULO.CAMION_RIGIDO,
+  'camion rígido': TIPOS_VEHICULO.CAMION_RIGIDO,
+  'camion rigido': TIPOS_VEHICULO.CAMION_RIGIDO,
+  'ciclo': TIPOS_VEHICULO.CICLO,
+  'ciclomotor': TIPOS_VEHICULO.CICLOMOTOR,
+  'ciclomotor de dos ruedas l1e-b': TIPOS_VEHICULO.CICLOMOTOR_DOS_RUEDAS,
+  'ciclomotor de tres ruedas': TIPOS_VEHICULO.CICLOMOTOR_TRES_RUEDAS,
+  'cuadriciclo ligero': TIPOS_VEHICULO.CUADRICICLO_LIGERO,
+  'cuadriciclo no ligero': TIPOS_VEHICULO.CUADRICICLO_NO_LIGERO,
+  'furgoneta': TIPOS_VEHICULO.FURGONETA,
+  'maquinaria agrícola': TIPOS_VEHICULO.MAQUINARIA_AGRICOLA,
+  'maquinaria agricola': TIPOS_VEHICULO.MAQUINARIA_AGRICOLA,
+  'maquinaria de obras': TIPOS_VEHICULO.MAQUINARIA_DE_OBRAS,
+  'motocicleta hasta 125cc': TIPOS_VEHICULO.MOTOCICLETA_HASTA_125CC,
+  'motocicleta > 125cc': TIPOS_VEHICULO.MOTOCICLETA_MAS_125CC,
+  'moto de tres ruedas hasta 125cc': TIPOS_VEHICULO.MOTO_TRES_RUEDAS_HASTA_125CC,
+  'moto de tres ruedas > 125cc': TIPOS_VEHICULO.MOTO_TRES_RUEDAS_MAS_125CC,
+  'otros vehículos con motor': TIPOS_VEHICULO.OTROS_VEHICULOS_CON_MOTOR,
+  'otros vehiculos con motor': TIPOS_VEHICULO.OTROS_VEHICULOS_CON_MOTOR,
+  'otros vehículos sin motor': TIPOS_VEHICULO.OTROS_VEHICULOS_SIN_MOTOR,
+  'otros vehiculos sin motor': TIPOS_VEHICULO.OTROS_VEHICULOS_SIN_MOTOR,
+  'patinete': TIPOS_VEHICULO.PATINETE,
+  'remolque': TIPOS_VEHICULO.REMOLQUE,
+  'semiremolque': TIPOS_VEHICULO.SEMIREMOLQUE,
+  'sin especificar': TIPOS_VEHICULO.SIN_ESPECIFICAR,
+  'taxi': TIPOS_VEHICULO.TAXI,
+  'todo terreno': TIPOS_VEHICULO.TODO_TERRENO,
+  'tractocamión': TIPOS_VEHICULO.TRACTOCAMION,
+  'tractocamion': TIPOS_VEHICULO.TRACTOCAMION,
+  'tren/metro': TIPOS_VEHICULO.TREN_METRO,
+  'turismo': TIPOS_VEHICULO.TURISMO,
+  'vehículo articulado': TIPOS_VEHICULO.VEHICULO_ARTICULADO,
+  'vehiculo articulado': TIPOS_VEHICULO.VEHICULO_ARTICULADO,
+  'vmu eléctrico': TIPOS_VEHICULO.VMU_ELECTRICO,
+  'vmu electrico': TIPOS_VEHICULO.VMU_ELECTRICO,
+  'null': TIPOS_VEHICULO.SIN_ESPECIFICAR
 };
 
 /**
@@ -183,12 +187,12 @@ const TIPO_VEHICULO_MAP = {
  * Mapea valores del CSV a valores del enum del modelo (usando constantes centralizadas)
  */
 const TIPO_PERSONA_MAP = {
-  'conductor': PERSON_TYPES.CONDUCTOR,
-  'peatón': PERSON_TYPES.PEATÓN,
-  'peaton': PERSON_TYPES.PEATÓN,
-  'testigo': PERSON_TYPES.TESTIGO,
-  'viajero': PERSON_TYPES.VIAJERO,
-  'pasajero': PERSON_TYPES.PASAJERO
+  'conductor': TIPOS_PERSONA.CONDUCTOR,
+  'peatón': TIPOS_PERSONA.PEATÓN,
+  'peaton': TIPOS_PERSONA.PEATÓN,
+  'testigo': TIPOS_PERSONA.TESTIGO,
+  'viajero': TIPOS_PERSONA.VIAJERO,
+  'pasajero': TIPOS_PERSONA.PASAJERO
 };
 
 /**
@@ -222,12 +226,12 @@ const ESTADO_METEOROLOGICO_MAP = {
  * @param {string} tipo - Tipo de accidente original del CSV
  * @returns {string} - Tipo normalizado
  */
-function normalizeAccidentType(tipo) {
+function normalizarTipoAccidente(tipo) {
   if (!tipo || tipo.trim() === '') {
-    return ACCIDENT_TYPES.OTRO;
+    return TIPOS_ACCIDENTE.OTRO;
   }
   const normalized = tipo.toLowerCase().trim();
-  return TIPO_ACCIDENTE_MAP[normalized] || ACCIDENT_TYPES.OTRO;
+  return TIPO_ACCIDENTE_MAP[normalized] || TIPOS_ACCIDENTE.OTRO;
 }
 
 /**
@@ -235,12 +239,12 @@ function normalizeAccidentType(tipo) {
  * @param {string} tipo - Tipo de vehículo original del CSV
  * @returns {string} - Tipo normalizado
  */
-function normalizeVehicleType(tipo) {
+function normalizarTipoVehiculo(tipo) {
   if (!tipo || tipo.trim() === '' || tipo.toLowerCase() === 'null') {
-    return VEHICLE_TYPES.SIN_ESPECIFICAR;
+    return TIPOS_VEHICULO.SIN_ESPECIFICAR;
   }
   const normalized = tipo.toLowerCase().trim();
-  return TIPO_VEHICULO_MAP[normalized] || VEHICLE_TYPES.SIN_ESPECIFICAR;
+  return TIPO_VEHICULO_MAP[normalized] || TIPOS_VEHICULO.SIN_ESPECIFICAR;
 }
 
 /**
@@ -248,12 +252,12 @@ function normalizeVehicleType(tipo) {
  * @param {string} tipo - Tipo de persona original del CSV
  * @returns {string} - Tipo normalizado
  */
-function normalizePersonType(tipo) {
+function normalizarTipoPersona(tipo) {
   if (!tipo || tipo.trim() === '') {
-    return PERSON_TYPES.CONDUCTOR;
+    return TIPOS_PERSONA.CONDUCTOR;
   }
   const normalized = tipo.toLowerCase().trim();
-  return TIPO_PERSONA_MAP[normalized] || PERSON_TYPES.CONDUCTOR;
+  return TIPO_PERSONA_MAP[normalized] || TIPOS_PERSONA.CONDUCTOR;
 }
 
 /**
@@ -261,7 +265,7 @@ function normalizePersonType(tipo) {
  * @param {string} estado - Estado meteorológico original del CSV
  * @returns {string} - Estado normalizado
  */
-function normalizeWeatherState(estado) {
+function normalizarEstadoMeteorologico(estado) {
   if (!estado || estado.trim() === '') {
     return WEATHER_CONDITIONS.SE_DESCONOCE;
   }
@@ -274,7 +278,7 @@ function normalizeWeatherState(estado) {
  * @param {string} rango - Rango de edad original del CSV
  * @returns {string} - Rango normalizado (ej: "18-25", "65+", "DESCONOCIDO")
  */
-function normalizeAgeRange(rango) {
+function normalizarRangoEdad(rango) {
   if (!rango || rango.trim() === '' || rango.toLowerCase() === 'desconocido') {
     return 'DESCONOCIDO';
   }
@@ -314,7 +318,7 @@ function normalizeAgeRange(rango) {
  * @param {number} rowIndex - Índice de fila para logging
  * @returns {Object|null} - Coordenadas {x, y} o null si inválidas
  */
-function parseCoordinates(xStr, yStr, rowIndex) {
+function parsearCoordenadas(xStr, yStr, rowIndex) {
   if (!xStr || !yStr || xStr.trim() === '' || yStr.trim() === '') {
     return null;
   }
@@ -359,7 +363,7 @@ function parseCoordinates(xStr, yStr, rowIndex) {
  * @returns {Date} - Objeto Date
  * @throws {Error} - Si la fecha es inválida
  */
-function parseDate(fechaStr, rowIndex) {
+function parsearFecha(fechaStr, rowIndex) {
   if (!fechaStr || fechaStr.trim() === '') {
     rejectionTracker.track(REJECTION_REASONS.FECHA_FALTANTE);
     logger.warn({
@@ -420,30 +424,147 @@ function parseDate(fechaStr, rowIndex) {
 }
 
 // ============================================================================
-// VALIDACIÓN Y TRANSFORMACIÓN
+// CAMPOS DE ANALISIS COMPUTADOS
+// ============================================================================
+
+/**
+ * Computar campos de analisis derivados de los datos base del accidente.
+ * Replica la logica del pre-save hook del modelo, ya que bulkWrite no ejecuta middleware.
+ *
+ * @param {Object} data - Datos del accidente ya transformados
+ * @returns {Object} - Datos con campos de analisis computados (merged)
+ */
+function calcularCamposAnalisis(data) {
+  const { fecha, hora, personaAfectada, circunstancias, vehiculo } = data;
+
+  // Campos temporales basicos
+  const año = fecha.getFullYear();
+  const mes = fecha.getMonth() + 1;
+  const dia = fecha.getDate();
+  const franjaHoraria = parseInt(hora.split(':')[0], 10);
+
+  // Periodo del dia segun franja horaria
+  let periodoDia;
+  if (franjaHoraria >= 0 && franjaHoraria <= 5) {
+    periodoDia = DAY_PERIODS.MADRUGADA;
+  } else if (franjaHoraria >= 6 && franjaHoraria <= 11) {
+    periodoDia = DAY_PERIODS.MAÑANA;
+  } else if (franjaHoraria >= 12 && franjaHoraria <= 14) {
+    periodoDia = DAY_PERIODS.MEDIODIA;
+  } else if (franjaHoraria >= 15 && franjaHoraria <= 20) {
+    periodoDia = DAY_PERIODS.TARDE;
+  } else {
+    periodoDia = DAY_PERIODS.NOCHE;
+  }
+
+  // Dia de la semana y tipo de jornada
+  const diaSemana = fecha.getDay();
+  let tipoJornada;
+  if (diaSemana === 0) {
+    tipoJornada = WORKDAY_TYPES.DOMINGO_FESTIVO;
+  } else if (diaSemana === 6) {
+    tipoJornada = WORKDAY_TYPES.SABADO;
+  } else {
+    tipoJornada = WORKDAY_TYPES.LABORABLE;
+  }
+
+  // Factores de riesgo
+  const factoresRiesgo = [];
+  if (personaAfectada.positivaAlcohol === BINARY_INDICATORS.YES) {
+    factoresRiesgo.push(FACTORES_RIESGO.ALCOHOL);
+  }
+  if (personaAfectada.positivaDroga === BINARY_INDICATORS.YES) {
+    factoresRiesgo.push(FACTORES_RIESGO.DROGAS);
+  }
+  if (franjaHoraria >= 0 && franjaHoraria <= 5) {
+    factoresRiesgo.push(FACTORES_RIESGO.HORA_MADRUGADA);
+  }
+  const weather = circunstancias.estadoMeteorologico;
+  if (weather !== WEATHER_CONDITIONS.DESPEJADO &&
+      weather !== WEATHER_CONDITIONS.SE_DESCONOCE &&
+      weather !== WEATHER_CONDITIONS.NULL) {
+    factoresRiesgo.push(FACTORES_RIESGO.CONDICIONES_METEOROLOGICAS);
+  }
+  const tipoVehiculo = vehiculo.tipo;
+  if (tipoVehiculo &&
+      (tipoVehiculo.includes('BICICLETA') ||
+       tipoVehiculo.includes('MOTOCICLETA') ||
+       tipoVehiculo.includes('CICLOMOTOR') ||
+       tipoVehiculo.includes('PATINETE'))) {
+    factoresRiesgo.push(FACTORES_RIESGO.VEHICULO_DOS_RUEDAS);
+  }
+
+  // Puntuacion de gravedad (escala 0-10) segun tipo de lesion
+  const tipoLesion = personaAfectada.tipoLesion;
+  const gravityScores = {
+    'FALLECIDO_24_HORAS': 10,
+    'INGRESO_SUPERIOR_A_24_HORAS': 7,
+    'INGRESO_INFERIOR_O_IGUAL_A_24_HORAS': 5,
+    'ATENCI\u00d3N_EN_URGENCIAS_SIN_POSTERIOR_INGRESO': 4,
+    'ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD': 3,
+    'ASISTENCIA_SANITARIA_INMEDIATA_EN_CENTRO_DE_SALUD_O_MUTUA': 3,
+    'ASISTENCIA_SANITARIA_S\u00d3LO_EN_EL_LUGAR_DEL_ACCIDENTE': 2,
+    'SIN_ASISTENCIA_SANITARIA': 1
+  };
+  const puntuacionGravedad = gravityScores[tipoLesion] || 0;
+
+  // Clasificacion de gravedad en circunstancias
+  let gravedad;
+  if (tipoLesion === 'FALLECIDO_24_HORAS') {
+    gravedad = SEVERITY_LEVELS.ACCIDENT.MORTAL;
+  } else if (
+    tipoLesion === 'INGRESO_SUPERIOR_A_24_HORAS' ||
+    tipoLesion === 'INGRESO_INFERIOR_O_IGUAL_A_24_HORAS' ||
+    tipoLesion === 'ATENCI\u00d3N_EN_URGENCIAS_SIN_POSTERIOR_INGRESO'
+  ) {
+    gravedad = SEVERITY_LEVELS.ACCIDENT.GRAVE;
+  } else {
+    gravedad = SEVERITY_LEVELS.ACCIDENT.LEVE;
+  }
+
+  // Merge de campos computados
+  data.año = año;
+  data.mes = mes;
+  data.dia = dia;
+  data.franjaHoraria = franjaHoraria;
+  data.analisis = {
+    periodoDia,
+    diaSemana,
+    tipoJornada,
+    factoresRiesgo,
+    puntuacionGravedad
+  };
+  data.circunstancias.gravedad = gravedad;
+
+  return data;
+}
+
+// ============================================================================
+// VALIDACION Y TRANSFORMACION
 // ============================================================================
 
 /**
  * Validar y transformar una fila de datos de accidente
  * @param {Object} row - Fila del CSV
- * @param {number} rowIndex - Índice de fila
+ * @param {number} rowIndex - Indice de fila
  * @returns {Object} - Datos transformados para insertar
- * @throws {Error} - Si los datos son inválidos
+ * @throws {Error} - Si los datos son invalidos
  */
-function validateAndTransformRow(row, rowIndex) {
-  // Campos por índice del CSV:
-  // 0: num_expediente, 1: fecha, 2: hora, 3: localizacion, 4: numero
-  // 5: cod_distrito, 6: distrito, 7: tipo_accidente, 8: estado_meteorológico, 9: tipo_vehiculo
-  // 10: tipo_persona, 11: rango_edad, 12: sexo, 13: cod_lesividad, 14: lesividad
-  // 15: coordenada_x_utm, 16: coordenada_y_utm, 17: positiva_alcohol, 18: positiva_droga
+function validarYTransformarFila(row, rowIndex) {
+  // Campos por nombre de columna del CSV (con fallback BOM para primera columna):
+  // num_expediente, fecha, hora, localizacion, numero, cod_distrito, distrito,
+  // tipo_accidente, estado_meteorologico, tipo_vehiculo, tipo_persona, rango_edad,
+  // sexo, cod_lesividad, lesividad, coordenada_x_utm, coordenada_y_utm,
+  // positiva_alcohol, positiva_droga
 
-  const numeroExpediente = row['0']?.toString().trim();
+  const numExpedienteRaw = row['num_expediente'] || row['\uFEFFnum_expediente'];
+  const numeroExpediente = numExpedienteRaw?.toString().trim();
   if (!numeroExpediente) {
     rejectionTracker.track(REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE);
     logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE,
-      datosOriginales: { numeroExpediente: row['0'] }
+      datosOriginales: { numeroExpediente: numExpedienteRaw }
     }, 'Fila rechazada: numero de expediente faltante');
     throw new Error(REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE);
   }
@@ -459,11 +580,11 @@ function validateAndTransformRow(row, rowIndex) {
   }
 
   // Parsear fecha
-  const fechaStr = row['1']?.toString().trim();
-  const fecha = parseDate(fechaStr, rowIndex);
+  const fechaStr = row['fecha']?.toString().trim();
+  const fecha = parsearFecha(fechaStr, rowIndex);
 
   // Parsear hora
-  const hora = row['2']?.toString().trim();
+  const hora = row['hora']?.toString().trim();
   if (!hora || !/^\d{1,2}:\d{2}:\d{2}$/.test(hora)) {
     rejectionTracker.track(REJECTION_REASONS.HORA_FORMATO_INVALIDO);
     logger.warn({
@@ -474,21 +595,21 @@ function validateAndTransformRow(row, rowIndex) {
     throw new Error(REJECTION_REASONS.HORA_FORMATO_INVALIDO);
   }
 
-  // Datos de ubicación
-  const calle = row['3']?.toString().trim();
+  // Datos de ubicacion
+  const calle = row['localizacion']?.toString().trim();
   if (!calle) {
     rejectionTracker.track(REJECTION_REASONS.LOCALIZACION_FALTANTE);
     logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.LOCALIZACION_FALTANTE,
-      datosOriginales: { localizacion: row['3'] }
+      datosOriginales: { localizacion: row['localizacion'] }
     }, 'Fila rechazada: localizacion faltante');
     throw new Error(REJECTION_REASONS.LOCALIZACION_FALTANTE);
   }
 
-  const numero = row['4']?.toString().trim() || null;
-  const codigoDistrito = row['5']?.toString().trim();
-  const nombreDistrito = row['6']?.toString().trim().toUpperCase();
+  const numero = row['numero']?.toString().trim() || null;
+  const codigoDistrito = row['cod_distrito']?.toString().trim();
+  const nombreDistrito = row['distrito']?.toString().trim().toUpperCase();
 
   if (!codigoDistrito || !nombreDistrito) {
     rejectionTracker.track(REJECTION_REASONS.DISTRITO_INCOMPLETO);
@@ -500,66 +621,67 @@ function validateAndTransformRow(row, rowIndex) {
     throw new Error(REJECTION_REASONS.DISTRITO_INCOMPLETO);
   }
 
-  // Parsear coordenadas (no críticas, pueden ser null)
-  const coordenadas = parseCoordinates(row['15'], row['16'], rowIndex);
+  // Parsear coordenadas (no criticas, pueden ser null)
+  const coordenadas = parsearCoordenadas(row['coordenada_x_utm'], row['coordenada_y_utm'], rowIndex);
 
   // Datos del accidente
-  const tipoAccidenteOriginal = row['7']?.toString().trim();
-  const tipoAccidente = normalizeAccidentType(tipoAccidenteOriginal);
-  const estadoMeteorologico = normalizeWeatherState(row['8']?.toString().trim());
+  const tipoAccidenteOriginal = row['tipo_accidente']?.toString().trim();
+  const tipoAccidente = normalizarTipoAccidente(tipoAccidenteOriginal);
+  const estadoMeteorologico = normalizarEstadoMeteorologico(row['estado_meteorol\u00f3gico']?.toString().trim());
 
-  // Datos del vehículo
-  const tipoVehiculoOriginal = row['9']?.toString().trim();
-  const tipoVehiculo = normalizeVehicleType(tipoVehiculoOriginal);
+  // Datos del vehiculo
+  const tipoVehiculoOriginal = row['tipo_vehiculo']?.toString().trim();
+  const tipoVehiculo = normalizarTipoVehiculo(tipoVehiculoOriginal);
 
   // Datos de la persona afectada
-  const tipoPersona = normalizePersonType(row['10']?.toString().trim());
-  const rangoEdadRaw = row['11']?.toString().trim();
-  const rangoEdad = normalizeAgeRange(rangoEdadRaw);
-  const sexoRaw = row['12']?.toString().trim().toUpperCase();
+  const tipoPersona = normalizarTipoPersona(row['tipo_persona']?.toString().trim());
+  const rangoEdadRaw = row['rango_edad']?.toString().trim();
+  const rangoEdad = normalizarRangoEdad(rangoEdadRaw);
+  const sexoRaw = row['sexo']?.toString().trim().toUpperCase();
   const sexo = (sexoRaw === 'MUJER') ? GENDERS.MUJER :
     (sexoRaw === 'HOMBRE') ? GENDERS.HOMBRE : GENDERS.DESCONOCIDO;
 
   // Datos de lesividad
-  const codigoLesividad = row['13']?.toString().trim();
-  const lesividad = row['14']?.toString().trim();
+  const codigoLesividad = row['cod_lesividad']?.toString().trim();
+  const lesividad = row['lesividad']?.toString().trim();
 
   // Mapear tipo de lesion basado en codigo o descripcion (usando constantes centralizadas)
-  let tipoLesion = INJURY_TYPES.SE_DESCONOCE;
+  let tipoLesion = TIPOS_LESION.SE_DESCONOCE;
   if (codigoLesividad && codigoLesividad !== 'NULL') {
+    // Mapeo segun dataset_information.md (seccion Lesividad, lineas 115-124)
     const codigoMap = {
-      '01': INJURY_TYPES.ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD,
-      '02': INJURY_TYPES.ASISTENCIA_SANITARIA_INMEDIATA_EN_CENTRO_DE_SALUD_O_MUTUA,
-      '05': INJURY_TYPES.ATENCIÓN_EN_URGENCIAS_SIN_POSTERIOR_INGRESO,
-      '06': INJURY_TYPES.INGRESO_INFERIOR_O_IGUAL_A_24_HORAS,
-      '07': INJURY_TYPES.ASISTENCIA_SANITARIA_SÓLO_EN_EL_LUGAR_DEL_ACCIDENTE,
-      '03': INJURY_TYPES.INGRESO_SUPERIOR_A_24_HORAS,
-      '04': INJURY_TYPES.FALLECIDO_24_HORAS,
-      '14': INJURY_TYPES.SIN_ASISTENCIA_SANITARIA,
-      '77': INJURY_TYPES.SE_DESCONOCE
+      '01': TIPOS_LESION.ATENCIÓN_EN_URGENCIAS_SIN_POSTERIOR_INGRESO,
+      '02': TIPOS_LESION.INGRESO_INFERIOR_O_IGUAL_A_24_HORAS,
+      '03': TIPOS_LESION.INGRESO_SUPERIOR_A_24_HORAS,
+      '04': TIPOS_LESION.FALLECIDO_24_HORAS,
+      '05': TIPOS_LESION.ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD,
+      '06': TIPOS_LESION.ASISTENCIA_SANITARIA_INMEDIATA_EN_CENTRO_DE_SALUD_O_MUTUA,
+      '07': TIPOS_LESION.ASISTENCIA_SANITARIA_SÓLO_EN_EL_LUGAR_DEL_ACCIDENTE,
+      '14': TIPOS_LESION.SIN_ASISTENCIA_SANITARIA,
+      '77': TIPOS_LESION.SE_DESCONOCE
     };
-    tipoLesion = codigoMap[codigoLesividad] || INJURY_TYPES.SE_DESCONOCE;
+    tipoLesion = codigoMap[codigoLesividad] || TIPOS_LESION.SE_DESCONOCE;
   } else if (lesividad && lesividad !== 'NULL') {
     if (lesividad.toLowerCase().includes('fallec')) {
-      tipoLesion = INJURY_TYPES.FALLECIDO_24_HORAS;
+      tipoLesion = TIPOS_LESION.FALLECIDO_24_HORAS;
     } else if (lesividad.toLowerCase().includes('grave') || lesividad.toLowerCase().includes('ingreso')) {
-      tipoLesion = INJURY_TYPES.INGRESO_SUPERIOR_A_24_HORAS;
+      tipoLesion = TIPOS_LESION.INGRESO_SUPERIOR_A_24_HORAS;
     } else if (lesividad.toLowerCase().includes('leve') || lesividad.toLowerCase().includes('ambulat')) {
-      tipoLesion = INJURY_TYPES.ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD;
+      tipoLesion = TIPOS_LESION.ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD;
     }
   }
 
   // Datos de sustancias
-  const alcoholRaw = row['17']?.toString().trim().toUpperCase();
+  const alcoholRaw = row['positiva_alcohol']?.toString().trim().toUpperCase();
   const positivaAlcohol = (alcoholRaw === 'S') ? BINARY_INDICATORS.YES :
     (alcoholRaw === 'N') ? BINARY_INDICATORS.NO : BINARY_INDICATORS.NULL;
 
-  const drogaRaw = row['18']?.toString().trim().toUpperCase();
+  const drogaRaw = row['positiva_droga']?.toString().trim().toUpperCase();
   const positivaDroga = (drogaRaw === 'S' || drogaRaw === '1') ? BINARY_INDICATORS.YES :
     (drogaRaw === 'N' || drogaRaw === '0') ? BINARY_INDICATORS.NO : BINARY_INDICATORS.NULL;
 
   // Construir objeto de accidente
-  return {
+  const accidentData = {
     numeroExpediente,
     fecha,
     hora,
@@ -598,6 +720,9 @@ function validateAndTransformRow(row, rowIndex) {
       importadoEn: new Date()
     }
   };
+
+  // Computar campos de analisis (bypass de middleware pre-save en bulkWrite)
+  return calcularCamposAnalisis(accidentData);
 }
 
 // ============================================================================
@@ -609,35 +734,29 @@ function validateAndTransformRow(row, rowIndex) {
  * @param {Array} batch - Lote de datos de accidentes
  * @returns {Promise<Object>} - Resultados del procesamiento
  */
-async function processBatch(batch) {
+async function procesarLote(batch) {
   if (batch.length === 0) {
-    return { nuevos: 0, actualizados: 0, errores: 0 };
+    return { nuevos: 0, errores: 0 };
   }
 
   try {
     const bulkOps = batch.map(accidentData => ({
-      updateOne: {
-        filter: { numeroExpediente: accidentData.numeroExpediente },
-        update: { $set: accidentData },
-        upsert: true
-      }
+      insertOne: { document: accidentData }
     }));
 
-    const result = await Accident.bulkWrite(bulkOps, { ordered: false });
+    const result = await Accidente.bulkWrite(bulkOps, { ordered: false });
 
-    const nuevos = result.upsertedCount || 0;
-    const actualizados = result.modifiedCount || 0;
+    const nuevos = result.insertedCount || 0;
 
     totalInserted += nuevos;
-    totalUpdated += actualizados;
 
-    if (nuevos > 0 || actualizados > 0) {
+    if (nuevos > 0) {
       logger.debug({
-        lote: { nuevos, actualizados, total: batch.length }
+        lote: { nuevos, total: batch.length }
       }, 'Lote procesado correctamente');
     }
 
-    return { nuevos, actualizados, errores: 0 };
+    return { nuevos, errores: 0 };
 
   } catch (error) {
     // Si el bulkWrite falla completamente, intentar procesar documentos individuales
@@ -647,25 +766,14 @@ async function processBatch(batch) {
     }, 'Error en bulkWrite, procesando documentos individualmente');
 
     let nuevos = 0;
-    let actualizados = 0;
     let errores = 0;
 
     // Procesar cada documento individualmente
     for (const accidentData of batch) {
       try {
-        const result = await Accident.updateOne(
-          { numeroExpediente: accidentData.numeroExpediente },
-          { $set: accidentData },
-          { upsert: true }
-        );
-
-        if (result.upsertedCount > 0) {
-          nuevos++;
-          totalInserted++;
-        } else if (result.modifiedCount > 0) {
-          actualizados++;
-          totalUpdated++;
-        }
+        await Accidente.create(accidentData);
+        nuevos++;
+        totalInserted++;
       } catch (individualError) {
         errores++;
         totalErrors++;
@@ -686,7 +794,7 @@ async function processBatch(batch) {
       }, 'Errores adicionales omitidos en logs');
     }
 
-    return { nuevos, actualizados, errores };
+    return { nuevos, errores };
   }
 }
 
@@ -694,7 +802,7 @@ async function processBatch(batch) {
  * Procesar el archivo CSV de accidentes
  * @returns {Promise<Object>} - Estadísticas de procesamiento
  */
-async function processAccidentFile() {
+async function procesarArchivoAccidentes() {
   return new Promise((resolve, reject) => {
     const batch = [];
     let rowCount = 0;
@@ -710,7 +818,6 @@ async function processAccidentFile() {
       .pipe(csv({
         separator: ';',
         skipEmptyLines: true,
-        headers: false,
         strict: false,
         quote: '"',
         escape: '"'
@@ -724,20 +831,15 @@ async function processAccidentFile() {
         rowCount++;
         totalProcessed++;
 
-        // Saltar la primera fila (header)
-        if (rowCount === 1) {
-          return;
-        }
-
         try {
-          const accidentData = validateAndTransformRow(row, rowCount);
+          const accidentData = validarYTransformarFila(row, rowCount);
           batch.push(accidentData);
           processedCount++;
 
           // Procesar lote cuando alcance el tamaño configurado
           if (batch.length >= BATCH_SIZE) {
             stream.pause();
-            processBatch(batch.splice(0))
+            procesarLote(batch.splice(0))
               .then(() => {
                 if (!isShuttingDown) {
                   stream.resume();
@@ -756,22 +858,21 @@ async function processAccidentFile() {
             logger.info({
               procesadas: processedCount.toLocaleString(),
               errores: errorCount,
-              insertadas: totalInserted,
-              actualizadas: totalUpdated
+              insertadas: totalInserted
             }, 'Progreso de importacion');
           }
 
         } catch (_error) {
           errorCount++;
           totalRejected++;
-          // El error ya fue loggeado en validateAndTransformRow o parseDate
+          // El error ya fue loggeado en validarYTransformarFila o parsearFecha
         }
       })
       .on('end', async () => {
         try {
           // Procesar lote final
           if (batch.length > 0 && !isShuttingDown) {
-            await processBatch(batch);
+            await procesarLote(batch);
           }
 
           logger.info({
@@ -802,7 +903,7 @@ async function processAccidentFile() {
  * Verificar que el archivo de datos existe
  * @returns {Promise<boolean>}
  */
-async function checkDataFile() {
+async function verificarArchivoDatos() {
   try {
     await fs.access(DATA_FILE);
     return true;
@@ -815,7 +916,7 @@ async function checkDataFile() {
  * Mostrar resumen final
  * @param {number} startTime - Tiempo de inicio en ms
  */
-function showSummary(startTime) {
+function mostrarResumen(startTime) {
   const endTime = Date.now();
   const durationMs = endTime - startTime;
 
@@ -825,11 +926,10 @@ function showSummary(startTime) {
       velocidad: calculateProcessingSpeed(totalProcessed, durationMs),
       registrosProcesados: totalProcessed.toLocaleString(),
       registrosInsertados: totalInserted.toLocaleString(),
-      registrosActualizados: totalUpdated.toLocaleString(),
       registrosRechazados: totalRejected.toLocaleString(),
       errores: totalErrors.toLocaleString(),
       tasaExito: totalProcessed > 0 ?
-        `${((totalInserted + totalUpdated) / totalProcessed * 100).toFixed(2)}%` : '0%'
+        `${(totalInserted / totalProcessed * 100).toFixed(2)}%` : '0%'
     }
   }, 'Importacion de accidentes completada');
 
@@ -857,7 +957,7 @@ async function main() {
 
   try {
     // Verificar archivo de datos
-    await checkDataFile();
+    await verificarArchivoDatos();
     logger.info({ archivo: DATA_FILE }, 'Archivo de datos verificado');
 
     // Conectar a MongoDB
@@ -866,19 +966,19 @@ async function main() {
     logger.info('Conexion a MongoDB establecida');
 
     // Verificar modelo
-    const countAntes = await Accident.countDocuments().maxTimeMS(10000);
+    const countAntes = await Accidente.countDocuments().maxTimeMS(10000);
     logger.info({
       registrosExistentes: countAntes.toLocaleString()
     }, 'Modelo de accidentes verificado');
 
     // Procesar archivo
-    await processAccidentFile();
+    await procesarArchivoAccidentes();
 
     // Mostrar resumen
-    showSummary(startTime);
+    mostrarResumen(startTime);
 
     // Contar registros finales
-    const countDespues = await Accident.countDocuments().maxTimeMS(10000);
+    const countDespues = await Accidente.countDocuments().maxTimeMS(10000);
     logger.info({
       registrosFinales: countDespues.toLocaleString(),
       incremento: (countDespues - countAntes).toLocaleString()
@@ -919,7 +1019,7 @@ async function main() {
  * Manejador de señales de terminación
  * @param {string} signal - Señal recibida
  */
-async function handleShutdown(signal) {
+async function manejarCierre(signal) {
   if (isShuttingDown) {
     return;
   }
@@ -939,8 +1039,8 @@ async function handleShutdown(signal) {
   process.exit(0);
 }
 
-process.on('SIGINT', () => handleShutdown('SIGINT'));
-process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+process.on('SIGINT', () => manejarCierre('SIGINT'));
+process.on('SIGTERM', () => manejarCierre('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
   logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
@@ -965,7 +1065,7 @@ if (require.main === module) {
 
 module.exports = {
   main,
-  processAccidentFile,
-  validateAndTransformRow,
+  procesarArchivoAccidentes,
+  validarYTransformarFila,
   REJECTION_REASONS
 };

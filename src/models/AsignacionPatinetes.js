@@ -9,22 +9,22 @@
 const mongoose = require('mongoose');
 const { validateDatasetDate } = require('./schemas/commonSchemas');
 const {
-  SCOOTER_DENSITY_LEVELS,
-  SCOOTER_PROVIDER_DOMINANCE,
-  SCOOTER_MARKET_CONCENTRATION,
-  SCOOTER_ZONE_TYPES,
-  SCOOTER_PRIORITY_LEVELS,
-  SCOOTER_DEMAND_LEVELS,
-  SCOOTER_REPORT_TYPES,
+  NIVELES_DENSIDAD_PATINETES,
+  DOMINANCIA_PROVEEDORES_PATINETES,
+  CONCENTRACION_MERCADO_PATINETES,
+  TIPOS_ZONA_PATINETES,
+  NIVELES_PRIORIDAD_PATINETES,
+  NIVELES_DEMANDA_PATINETES,
+  TIPOS_INFORME_PATINETES,
   AGGREGATION_LIMITS,
-  SCOOTER_DENSITY_THRESHOLDS,
-  SCOOTER_DEMAND_THRESHOLDS,
-  MARKET_CONCENTRATION_THRESHOLDS,
+  UMBRALES_DENSIDAD_PATINETES,
+  UMBRALES_DEMANDA_PATINETES,
+  UMBRALES_CONCENTRACION_MERCADO,
   TIME_CONSTANTS,
   VALIDATION_LIMITS,
   DATASET_YEARS,
   MONGODB_TIMEOUTS,
-  SCOOTER_KEY_AREAS
+  AREAS_CLAVE_PATINETES
 } = require('../constants');
 
 /**
@@ -128,13 +128,13 @@ const scooterAssignmentSchema = new mongoose.Schema({
     },
     densidadPatinetes: {
       type: String,
-      enum: Object.values(SCOOTER_DENSITY_LEVELS),
-      default: SCOOTER_DENSITY_LEVELS.MEDIA
+      enum: Object.values(NIVELES_DENSIDAD_PATINETES),
+      default: NIVELES_DENSIDAD_PATINETES.MEDIA
     },
     dominanciaProveedores: {
       type: String,
-      enum: Object.values(SCOOTER_PROVIDER_DOMINANCE),
-      default: SCOOTER_PROVIDER_DOMINANCE.EQUILIBRADA
+      enum: Object.values(DOMINANCIA_PROVEEDORES_PATINETES),
+      default: DOMINANCIA_PROVEEDORES_PATINETES.EQUILIBRADA
     }
   },
 
@@ -155,8 +155,8 @@ const scooterAssignmentSchema = new mongoose.Schema({
     },
     concentracionMercado: {
       type: String,
-      enum: Object.values(SCOOTER_MARKET_CONCENTRATION),
-      default: SCOOTER_MARKET_CONCENTRATION.COMPETITIVA
+      enum: Object.values(CONCENTRACION_MERCADO_PATINETES),
+      default: CONCENTRACION_MERCADO_PATINETES.COMPETITIVA
     }
   },
 
@@ -164,18 +164,18 @@ const scooterAssignmentSchema = new mongoose.Schema({
   clasificacionArea: {
     tipoZona: {
       type: String,
-      enum: Object.values(SCOOTER_ZONE_TYPES),
-      default: SCOOTER_ZONE_TYPES.ZONA_RESIDENCIAL
+      enum: Object.values(TIPOS_ZONA_PATINETES),
+      default: TIPOS_ZONA_PATINETES.ZONA_RESIDENCIAL
     },
     prioridadServicio: {
       type: String,
-      enum: Object.values(SCOOTER_PRIORITY_LEVELS),
-      default: SCOOTER_PRIORITY_LEVELS.MEDIA
+      enum: Object.values(NIVELES_PRIORIDAD_PATINETES),
+      default: NIVELES_PRIORIDAD_PATINETES.MEDIA
     },
     demandaEstimada: {
       type: String,
-      enum: Object.values(SCOOTER_DEMAND_LEVELS),
-      default: SCOOTER_DEMAND_LEVELS.MEDIA
+      enum: Object.values(NIVELES_DEMANDA_PATINETES),
+      default: NIVELES_DEMANDA_PATINETES.MEDIA
     }
   },
 
@@ -188,7 +188,7 @@ const scooterAssignmentSchema = new mongoose.Schema({
       },
       camposFaltantes: [{
         type: String,
-        enum: Object.values(SCOOTER_REPORT_TYPES)
+        enum: Object.values(TIPOS_INFORME_PATINETES)
       }],
       puntuacionCalidad: {
         type: Number,
@@ -325,7 +325,7 @@ scooterAssignmentSchema.index({ 'proveedores.cantidad': -1 });
 // ========================================
 
 // Índice compuesto: fecha + proveedor (análisis temporal específico)
-// Usado en: ScooterAssignment métodos estáticos - Evolución por proveedor
+// Usado en: AsignacionPatinetes métodos estáticos - Evolución por proveedor
 // Soporta: "Crecimiento de LIME en últimos 6 meses"
 scooterAssignmentSchema.index({ fechaAsignacion: 1, 'proveedores.nombre': 1 }, {
   name: 'idx_scooters_date_provider_analysis',
@@ -371,7 +371,7 @@ scooterAssignmentSchema.index({
  * Calcular estadísticas para la asignación
  * Actualiza: estadisticas.*
  */
-scooterAssignmentSchema.methods.calculateStatistics = function() {
+scooterAssignmentSchema.methods.calcularEstadisticas = function() {
   // Total de proveedores
   this.estadisticas.totalProveedores = this.proveedores.length;
 
@@ -387,14 +387,14 @@ scooterAssignmentSchema.methods.calculateStatistics = function() {
       : 0;
 
   // Clasificar densidad basada en total de patinetes
-  if (this.estadisticas.totalPatinetes >= SCOOTER_DENSITY_THRESHOLDS.MUY_ALTA) {
-    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS.MUY_ALTA;
-  } else if (this.estadisticas.totalPatinetes >= SCOOTER_DENSITY_THRESHOLDS.ALTA) {
-    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS.ALTA;
-  } else if (this.estadisticas.totalPatinetes >= SCOOTER_DENSITY_THRESHOLDS.MEDIA) {
-    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS.MEDIA;
+  if (this.estadisticas.totalPatinetes >= UMBRALES_DENSIDAD_PATINETES.MUY_ALTA) {
+    this.estadisticas.densidadPatinetes = NIVELES_DENSIDAD_PATINETES.MUY_ALTA;
+  } else if (this.estadisticas.totalPatinetes >= UMBRALES_DENSIDAD_PATINETES.ALTA) {
+    this.estadisticas.densidadPatinetes = NIVELES_DENSIDAD_PATINETES.ALTA;
+  } else if (this.estadisticas.totalPatinetes >= UMBRALES_DENSIDAD_PATINETES.MEDIA) {
+    this.estadisticas.densidadPatinetes = NIVELES_DENSIDAD_PATINETES.MEDIA;
   } else {
-    this.estadisticas.densidadPatinetes = SCOOTER_DENSITY_LEVELS.BAJA;
+    this.estadisticas.densidadPatinetes = NIVELES_DENSIDAD_PATINETES.BAJA;
   }
 };
 
@@ -402,7 +402,7 @@ scooterAssignmentSchema.methods.calculateStatistics = function() {
  * Analizar distribución y concentración de mercado
  * Actualiza: analisisDistribucion.*
  */
-scooterAssignmentSchema.methods.analyzeDistribution = function() {
+scooterAssignmentSchema.methods.analizarDistribucion = function() {
   const proveedoresActivos = this.proveedores.filter(p => p.activo && p.cantidad > 0);
 
   if (proveedoresActivos.length === 0) {
@@ -437,18 +437,18 @@ scooterAssignmentSchema.methods.analyzeDistribution = function() {
   this.analisisDistribucion.indiceHerfindahl = Math.round(hhi);
 
   // Clasificar concentración del mercado
-  if (hhi >= MARKET_CONCENTRATION_THRESHOLDS.HIGH) {
-    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION.ALTA_CONCENTRACION;
-    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE.MONOPOLIO;
-  } else if (hhi >= MARKET_CONCENTRATION_THRESHOLDS.MODERATE) {
-    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION.CONCENTRADA;
-    this.estadisticas.dominanciaProveedores = proveedoresActivos.length === 2 ? SCOOTER_PROVIDER_DOMINANCE.DUOPOLIO : SCOOTER_PROVIDER_DOMINANCE.OLIGOPOLIO;
-  } else if (hhi >= MARKET_CONCENTRATION_THRESHOLDS.LOW) {
-    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION.MODERADA;
-    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE.OLIGOPOLIO;
+  if (hhi >= UMBRALES_CONCENTRACION_MERCADO.HIGH) {
+    this.analisisDistribucion.concentracionMercado = CONCENTRACION_MERCADO_PATINETES.ALTA_CONCENTRACION;
+    this.estadisticas.dominanciaProveedores = DOMINANCIA_PROVEEDORES_PATINETES.MONOPOLIO;
+  } else if (hhi >= UMBRALES_CONCENTRACION_MERCADO.MODERATE) {
+    this.analisisDistribucion.concentracionMercado = CONCENTRACION_MERCADO_PATINETES.CONCENTRADA;
+    this.estadisticas.dominanciaProveedores = proveedoresActivos.length === 2 ? DOMINANCIA_PROVEEDORES_PATINETES.DUOPOLIO : DOMINANCIA_PROVEEDORES_PATINETES.OLIGOPOLIO;
+  } else if (hhi >= UMBRALES_CONCENTRACION_MERCADO.LOW) {
+    this.analisisDistribucion.concentracionMercado = CONCENTRACION_MERCADO_PATINETES.MODERADA;
+    this.estadisticas.dominanciaProveedores = DOMINANCIA_PROVEEDORES_PATINETES.OLIGOPOLIO;
   } else {
-    this.analisisDistribucion.concentracionMercado = SCOOTER_MARKET_CONCENTRATION.COMPETITIVA;
-    this.estadisticas.dominanciaProveedores = SCOOTER_PROVIDER_DOMINANCE.EQUILIBRADA;
+    this.analisisDistribucion.concentracionMercado = CONCENTRACION_MERCADO_PATINETES.COMPETITIVA;
+    this.estadisticas.dominanciaProveedores = DOMINANCIA_PROVEEDORES_PATINETES.EQUILIBRADA;
   }
 };
 
@@ -456,38 +456,38 @@ scooterAssignmentSchema.methods.analyzeDistribution = function() {
  * Classify area type based on location and density
  * Updates: clasificacionArea.*
  */
-scooterAssignmentSchema.methods.classifyArea = function() {
+scooterAssignmentSchema.methods.clasificarArea = function() {
   const distrito = this.distrito.nombre.toUpperCase();
   const barrio = this.barrio.nombre.toUpperCase();
   const totalPatinetes = this.estadisticas.totalPatinetes;
 
   // Clasificar tipo de zona (basado en distritos conocidos de Madrid)
-  if (SCOOTER_KEY_AREAS.CENTRAL.some(loc => distrito.includes(loc) || barrio.includes(loc))) {
-    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.CENTRO_URBANO;
-    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.CRITICA;
-  } else if (SCOOTER_KEY_AREAS.UNIVERSITY.some(loc => barrio.includes(loc))) {
-    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.ZONA_UNIVERSITARIA;
-    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.ALTA;
-  } else if (SCOOTER_KEY_AREAS.TRANSPORT.some(loc => barrio.includes(loc))) {
-    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.ZONA_TRANSPORTE;
-    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.ALTA;
-  } else if (SCOOTER_KEY_AREAS.COMMERCIAL.some(loc => distrito.includes(loc))) {
-    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.ZONA_COMERCIAL;
-    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.ALTA;
+  if (AREAS_CLAVE_PATINETES.CENTRAL.some(loc => distrito.includes(loc) || barrio.includes(loc))) {
+    this.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.CENTRO_URBANO;
+    this.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.CRITICA;
+  } else if (AREAS_CLAVE_PATINETES.UNIVERSITY.some(loc => barrio.includes(loc))) {
+    this.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_UNIVERSITARIA;
+    this.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.ALTA;
+  } else if (AREAS_CLAVE_PATINETES.TRANSPORT.some(loc => barrio.includes(loc))) {
+    this.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_TRANSPORTE;
+    this.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.ALTA;
+  } else if (AREAS_CLAVE_PATINETES.COMMERCIAL.some(loc => distrito.includes(loc))) {
+    this.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_COMERCIAL;
+    this.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.ALTA;
   } else {
-    this.clasificacionArea.tipoZona = SCOOTER_ZONE_TYPES.ZONA_RESIDENCIAL;
-    this.clasificacionArea.prioridadServicio = SCOOTER_PRIORITY_LEVELS.MEDIA;
+    this.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_RESIDENCIAL;
+    this.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.MEDIA;
   }
 
   // Estimar demanda basada en densidad
-  if (totalPatinetes >= SCOOTER_DEMAND_THRESHOLDS.MUY_ALTA) {
-    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS.MUY_ALTA;
-  } else if (totalPatinetes >= SCOOTER_DEMAND_THRESHOLDS.ALTA) {
-    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS.ALTA;
-  } else if (totalPatinetes >= SCOOTER_DEMAND_THRESHOLDS.MEDIA) {
-    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS.MEDIA;
+  if (totalPatinetes >= UMBRALES_DEMANDA_PATINETES.MUY_ALTA) {
+    this.clasificacionArea.demandaEstimada = NIVELES_DEMANDA_PATINETES.MUY_ALTA;
+  } else if (totalPatinetes >= UMBRALES_DEMANDA_PATINETES.ALTA) {
+    this.clasificacionArea.demandaEstimada = NIVELES_DEMANDA_PATINETES.ALTA;
+  } else if (totalPatinetes >= UMBRALES_DEMANDA_PATINETES.MEDIA) {
+    this.clasificacionArea.demandaEstimada = NIVELES_DEMANDA_PATINETES.MEDIA;
   } else {
-    this.clasificacionArea.demandaEstimada = SCOOTER_DEMAND_LEVELS.BAJA;
+    this.clasificacionArea.demandaEstimada = NIVELES_DEMANDA_PATINETES.BAJA;
   }
 };
 
@@ -495,7 +495,7 @@ scooterAssignmentSchema.methods.classifyArea = function() {
  * Validate data consistency
  * Updates: metadatos.validacionDatos.*
  */
-scooterAssignmentSchema.methods.validateData = function() {
+scooterAssignmentSchema.methods.validarDatos = function() {
   // Verificar suma correcta
   const sumaProveedores = this.proveedores.reduce((sum, p) => sum + p.cantidad, 0);
   this.metadatos.validacionDatos.sumaCorrecta =
@@ -533,10 +533,10 @@ scooterAssignmentSchema.pre('save', function(next) {
   }
 
   // Calcular estadísticas antes de guardar
-  this.calculateStatistics();
-  this.analyzeDistribution();
-  this.classifyArea();
-  this.validateData();
+  this.calcularEstadisticas();
+  this.analizarDistribucion();
+  this.clasificarArea();
+  this.validarDatos();
 
   // Actualizar timestamp
   this.procesamiento.ultimaActualizacion = new Date();
@@ -549,7 +549,7 @@ scooterAssignmentSchema.pre('save', function(next) {
  * @param {Object} doc - Documento de asignación (puede ser lean o instancia)
  * @returns {Object} Resumen de la asignación
  */
-scooterAssignmentSchema.statics.getAssignmentSummary = function(doc) {
+scooterAssignmentSchema.statics.obtenerResumenAsignacion = function(doc) {
   return {
     ubicacion: {
       distrito: doc.distrito?.nombre || doc.distrito,
@@ -587,7 +587,7 @@ scooterAssignmentSchema.statics.getAssignmentSummary = function(doc) {
 /**
  * Obtener estadísticas por distrito
  */
-scooterAssignmentSchema.statics.getDistrictStatistics = function(fecha = null) {
+scooterAssignmentSchema.statics.obtenerEstadisticasDistrito = function(fecha = null) {
   const matchCondition = {};
   if (fecha) {
     matchCondition.fechaAsignacion = {
@@ -608,7 +608,7 @@ scooterAssignmentSchema.statics.getDistrictStatistics = function(fecha = null) {
         zonasMayorDemanda: {
           $sum: {
             $cond: [
-              { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.MUY_ALTA] },
+              { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.MUY_ALTA] },
               1,
               0
             ]
@@ -625,7 +625,7 @@ scooterAssignmentSchema.statics.getDistrictStatistics = function(fecha = null) {
 /**
  * Obtener análisis de mercado por proveedor
  */
-scooterAssignmentSchema.statics.getProviderMarketAnalysis = function(fecha = null) {
+scooterAssignmentSchema.statics.obtenerAnalisisMercadoProveedores = function(fecha = null) {
   const matchCondition = {};
   if (fecha) {
     matchCondition.fechaAsignacion = {
@@ -653,7 +653,7 @@ scooterAssignmentSchema.statics.getProviderMarketAnalysis = function(fecha = nul
         zonasAlta: {
           $sum: {
             $cond: [
-              { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.MUY_ALTA] },
+              { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.MUY_ALTA] },
               1,
               0
             ]
@@ -675,7 +675,7 @@ scooterAssignmentSchema.statics.getProviderMarketAnalysis = function(fecha = nul
 /**
  * Obtener zonas de mayor concentración
  */
-scooterAssignmentSchema.statics.getHighestConcentrationZones = function(limite = 20, fecha = null) {
+scooterAssignmentSchema.statics.obtenerZonasMayorConcentracion = function(limite = 20, fecha = null) {
   const matchCondition = {};
   if (fecha) {
     matchCondition.fechaAsignacion = {
@@ -710,7 +710,7 @@ scooterAssignmentSchema.statics.getHighestConcentrationZones = function(limite =
 /**
  * Obtener dashboard de distribución
  */
-scooterAssignmentSchema.statics.getDistributionDashboard = function(fecha = null) {
+scooterAssignmentSchema.statics.obtenerPanelDistribucion = function(fecha = null) {
   const matchCondition = {};
   if (fecha) {
     matchCondition.fechaAsignacion = {
@@ -733,7 +733,7 @@ scooterAssignmentSchema.statics.getDistributionDashboard = function(fecha = null
               areasAltaDensidad: {
                 $sum: {
                   $cond: [
-                    { $in: ['$estadisticas.densidadPatinetes', [SCOOTER_DENSITY_LEVELS.ALTA, SCOOTER_DENSITY_LEVELS.MUY_ALTA]] },
+                    { $in: ['$estadisticas.densidadPatinetes', [NIVELES_DENSIDAD_PATINETES.ALTA, NIVELES_DENSIDAD_PATINETES.MUY_ALTA]] },
                     1,
                     0
                   ]
@@ -780,7 +780,7 @@ scooterAssignmentSchema.statics.getDistributionDashboard = function(fecha = null
  * Obtener análisis de optimización de distribución
  * Identifica áreas sobreabastecidas y subabastecidas con recomendaciones
  */
-scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = null) {
+scooterAssignmentSchema.statics.obtenerDatosAnalisisOptimizacion = function(fecha = null) {
   const matchCondition = {};
   if (fecha) {
     const fechaInicio = new Date(fecha);
@@ -797,10 +797,10 @@ scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = n
           demandaNumerica: {
             $switch: {
               branches: [
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.BAJA] }, then: 1 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.MEDIA] }, then: 2 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.ALTA] }, then: 3 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', SCOOTER_DEMAND_LEVELS.MUY_ALTA] }, then: 4 }
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.BAJA] }, then: 1 },
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.MEDIA] }, then: 2 },
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.ALTA] }, then: 3 },
+                { case: { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.MUY_ALTA] }, then: 4 }
               ],
               default: 2
             }
@@ -808,10 +808,10 @@ scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = n
           ofertaNumerica: {
             $switch: {
               branches: [
-                { case: { $eq: ['$estadisticas.densidadPatinetes', SCOOTER_DENSITY_LEVELS.BAJA] }, then: 1 },
-                { case: { $eq: ['$estadisticas.densidadPatinetes', SCOOTER_DENSITY_LEVELS.MEDIA] }, then: 2 },
-                { case: { $eq: ['$estadisticas.densidadPatinetes', SCOOTER_DENSITY_LEVELS.ALTA] }, then: 3 },
-                { case: { $eq: ['$estadisticas.densidadPatinetes', SCOOTER_DENSITY_LEVELS.MUY_ALTA] }, then: 4 }
+                { case: { $eq: ['$estadisticas.densidadPatinetes', NIVELES_DENSIDAD_PATINETES.BAJA] }, then: 1 },
+                { case: { $eq: ['$estadisticas.densidadPatinetes', NIVELES_DENSIDAD_PATINETES.MEDIA] }, then: 2 },
+                { case: { $eq: ['$estadisticas.densidadPatinetes', NIVELES_DENSIDAD_PATINETES.ALTA] }, then: 3 },
+                { case: { $eq: ['$estadisticas.densidadPatinetes', NIVELES_DENSIDAD_PATINETES.MUY_ALTA] }, then: 4 }
               ],
               default: 2
             }
@@ -872,9 +872,9 @@ scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = n
         $addFields: {
           necesitaAtencion: {
             $or: [
-              { $and: [{ $in: ['$demanda', [SCOOTER_DEMAND_LEVELS.ALTA, SCOOTER_DEMAND_LEVELS.MUY_ALTA]] }, { $eq: ['$densidad', SCOOTER_DENSITY_LEVELS.BAJA] }] },
-              { $and: [{ $eq: ['$demanda', SCOOTER_DEMAND_LEVELS.BAJA] }, { $in: ['$densidad', [SCOOTER_DENSITY_LEVELS.ALTA, SCOOTER_DENSITY_LEVELS.MUY_ALTA]] }] },
-              { $eq: ['$concentracion', SCOOTER_MARKET_CONCENTRATION.ALTA_CONCENTRACION] }
+              { $and: [{ $in: ['$demanda', [NIVELES_DEMANDA_PATINETES.ALTA, NIVELES_DEMANDA_PATINETES.MUY_ALTA]] }, { $eq: ['$densidad', NIVELES_DENSIDAD_PATINETES.BAJA] }] },
+              { $and: [{ $eq: ['$demanda', NIVELES_DEMANDA_PATINETES.BAJA] }, { $in: ['$densidad', [NIVELES_DENSIDAD_PATINETES.ALTA, NIVELES_DENSIDAD_PATINETES.MUY_ALTA]] }] },
+              { $eq: ['$concentracion', CONCENTRACION_MERCADO_PATINETES.ALTA_CONCENTRACION] }
             ]
           }
         }
@@ -898,7 +898,7 @@ scooterAssignmentSchema.statics.getOptimizationAnalysisData = function(fecha = n
  * @param {Object} projection - Proyección condicional de campos
  * @returns {Promise<Object>} - Datos paginados con metadata
  */
-scooterAssignmentSchema.statics.getAssignmentsWithFilters = async function(filters, sortOptions, pagination, projection = {}) {
+scooterAssignmentSchema.statics.obtenerAsignacionesConFiltros = async function(filters, sortOptions, pagination, projection = {}) {
   const { skip, limit } = pagination;
 
   // Consulta principal con projection
@@ -932,7 +932,7 @@ scooterAssignmentSchema.statics.getAssignmentsWithFilters = async function(filte
  * @param {Date|null} fecha - Fecha específica o null para más reciente
  * @returns {Promise<Object>} - Detalles completos del área
  */
-scooterAssignmentSchema.statics.getAreaDetailsOptimized = async function(distrito, barrio, fecha = null) {
+scooterAssignmentSchema.statics.obtenerDetallesAreaOptimizado = async function(distrito, barrio, fecha = null) {
   // Construir filtro base usando búsqueda exacta (case-insensitive)
   // NO usamos $text aquí porque necesitamos match exacto de distrito+barrio
   // $text haría búsqueda parcial, no exacta
@@ -1013,7 +1013,7 @@ scooterAssignmentSchema.statics.getAreaDetailsOptimized = async function(distrit
  * @param {String} agrupacion - Tipo de agrupación: 'distrito' o 'barrio'
  * @returns {Promise<Object>} - Datos procesados listos para frontend
  */
-scooterAssignmentSchema.statics.getTemporalComparisonData = async function(fechaInicio, fechaFin, distrito = null, agrupacion = 'distrito') {
+scooterAssignmentSchema.statics.obtenerDatosComparativaTemporal = async function(fechaInicio, fechaFin, distrito = null, agrupacion = 'distrito') {
   // Construir condición de match
   const matchCondition = {
     fechaAsignacion: {
@@ -1084,6 +1084,6 @@ scooterAssignmentSchema.statics.getTemporalComparisonData = async function(fecha
 };
 
 // Crear y exportar el modelo
-const ScooterAssignment = mongoose.model('ScooterAssignment', scooterAssignmentSchema);
+const AsignacionPatinetes = mongoose.model('AsignacionPatinetes', scooterAssignmentSchema);
 
-module.exports = ScooterAssignment;
+module.exports = AsignacionPatinetes;

@@ -9,26 +9,21 @@ const express = require('express');
 const { query, param } = require('express-validator');
 
 const {
-  SCOOTER_ZONE_TYPES,
-  SCOOTER_DENSITY_LEVELS,
-  SCOOTER_DEMAND_LEVELS,
-  SCOOTER_MARKET_CONCENTRATION,
+  TIPOS_ZONA_PATINETES,
+  NIVELES_DENSIDAD_PATINETES,
+  NIVELES_DEMANDA_PATINETES,
+  CONCENTRACION_MERCADO_PATINETES,
   ROUTE_SPECIFIC_LIMITS,
-  DATE_RANGE_LIMITS,
-  SORT_FIELDS,
-  SCOOTER_AGGREGATION_FIELDS
+  SORT_FIELDS
 } = require('../constants');
 
 const {
-  getScooterAssignments,
-  getDistrictStatistics,
-  getProviderMarketAnalysis,
-  getConcentrationZones,
-  getDistributionDashboard,
-  getAreaDetails,
-  getOptimizationAnalysis,
-  getTemporalComparison
-} = require('../controllers/scooterAssignmentController');
+  obtenerAsignaciones,
+  obtenerEstadisticasDistritos,
+  obtenerAnalisisMercadoProveedores,
+  obtenerZonasConcentracion,
+  obtenerDetallesArea
+} = require('../controllers/controladorPatinetes');
 
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
@@ -36,7 +31,6 @@ const { cacheMiddleware } = require('../middleware/cache');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
 const { etagMiddleware } = require('../middleware/etag');
 const {
-  validateDateRange,
   validateDistrictQuery,
   validateNeighborhoodQuery
 } = require('../middleware/validation');
@@ -109,19 +103,19 @@ const geographicValidation = [
 const categoryValidation = [
   query('tipoZona')
     .optional()
-    .isIn(SCOOTER_ZONE_TYPES)
+    .isIn(TIPOS_ZONA_PATINETES)
     .withMessage('Tipo de zona no válido'),
   query('densidad')
     .optional()
-    .isIn(Object.values(SCOOTER_DENSITY_LEVELS))
+    .isIn(Object.values(NIVELES_DENSIDAD_PATINETES))
     .withMessage('Densidad no válida'),
   query('demanda')
     .optional()
-    .isIn(SCOOTER_DEMAND_LEVELS)
+    .isIn(NIVELES_DEMANDA_PATINETES)
     .withMessage('Demanda no válida'),
   query('concentracion')
     .optional()
-    .isIn(Object.values(SCOOTER_MARKET_CONCENTRATION))
+    .isIn(Object.values(CONCENTRACION_MERCADO_PATINETES))
     .withMessage('Concentración no válida')
 ];
 
@@ -156,8 +150,8 @@ const providerValidation = [
     .trim()
     .isLength({ min: ROUTE_SPECIFIC_LIMITS.SCOOTER.PROVIDER_MIN_LENGTH, max: ROUTE_SPECIFIC_LIMITS.SCOOTER.PROVIDER_MAX_LENGTH })
     .withMessage(`Proveedor debe tener entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PROVIDER_MIN_LENGTH} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.PROVIDER_MAX_LENGTH} caracteres`)
-    .matches(/^[a-zA-Z0-9\s-]+$/)
-    .withMessage('Proveedor solo puede contener letras, números, espacios y guiones')
+    .matches(/^[a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ\s-]+$/)
+    .withMessage('Proveedor solo puede contener letras, numeros, espacios y guiones')
     .escape(), // Sanitización XSS
   query('soloProveedoresActivos')
     .optional()
@@ -175,14 +169,14 @@ const paramValidation = [
     .withMessage('Distrito es obligatorio')
     .isLength({ min: ROUTE_SPECIFIC_LIMITS.SCOOTER.DISTRICT_MIN_LENGTH, max: ROUTE_SPECIFIC_LIMITS.SCOOTER.DISTRICT_MAX_LENGTH })
     .withMessage(`Distrito debe tener entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.DISTRICT_MIN_LENGTH} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.DISTRICT_MAX_LENGTH} caracteres`)
-    .matches(/^[a-zA-ZáéíóúüñÁÉÍÓÚÜÑs-]+$/)
+    .matches(/^[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ\s-]+$/)
     .withMessage('Distrito solo puede contener letras, espacios y guiones'),
   param('barrio')
     .notEmpty()
     .withMessage('Barrio es obligatorio')
     .isLength({ min: ROUTE_SPECIFIC_LIMITS.SCOOTER.NEIGHBORHOOD_MIN_LENGTH, max: ROUTE_SPECIFIC_LIMITS.SCOOTER.NEIGHBORHOOD_MAX_LENGTH })
     .withMessage(`Barrio debe tener entre ${ROUTE_SPECIFIC_LIMITS.SCOOTER.NEIGHBORHOOD_MIN_LENGTH} y ${ROUTE_SPECIFIC_LIMITS.SCOOTER.NEIGHBORHOOD_MAX_LENGTH} caracteres`)
-    .matches(/^[a-zA-ZáéíóúüñÁÉÍÓÚÜÑs-]+$/)
+    .matches(/^[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ\s-]+$/)
     .withMessage('Barrio solo puede contener letras, espacios y guiones')
 ];
 
@@ -191,10 +185,10 @@ const paramValidation = [
  */
 
 /**
- * @route   GET /api/v1/scooter-assignments
+ * @route   GET /api/v1/patinetes
  * @desc    Obtener datos de asignación de patinetes con filtros
- * @access  Private
- * @example GET /api/v1/scooter-assignments?distrito=Centro&page=1&limit=20
+ * @access  Privado
+ * @example GET /api/v1/patinetes?distrito=Centro&page=1&limit=20
  */
 router.get('/',
   authenticate,
@@ -214,16 +208,16 @@ router.get('/',
   ],
   validateRequest,
   cacheMiddleware('traffic', (req) => `scooters:list:${JSON.stringify(req.query)}`),
-  getScooterAssignments
+  obtenerAsignaciones
 );
 
 /**
- * @route   GET /api/v1/scooter-assignments/statistics/districts
+ * @route   GET /api/v1/patinetes/estadisticas/distritos
  * @desc    Obtener estadísticas por distrito
- * @access  Private
- * @example GET /api/v1/scooter-assignments/statistics/districts?fecha=2024-01-15
+ * @access  Privado
+ * @example GET /api/v1/patinetes/estadisticas/distritos?fecha=2024-01-15
  */
-router.get('/statistics/districts',
+router.get('/estadisticas/distritos',
   authenticate,
   heavyQueryLimiter,
   [
@@ -232,16 +226,16 @@ router.get('/statistics/districts',
   validateRequest,
   etagMiddleware, // ETags para estadísticas agregadas (datos estables)
   cacheMiddleware('traffic', (req) => `scooters:stats:districts:${req.query.fecha || 'all'}`),
-  getDistrictStatistics
+  obtenerEstadisticasDistritos
 );
 
 /**
- * @route   GET /api/v1/scooter-assignments/market-analysis/providers
+ * @route   GET /api/v1/patinetes/analisis-mercado/proveedores
  * @desc    Obtener análisis de mercado por proveedor
- * @access  Private
- * @example GET /api/v1/scooter-assignments/market-analysis/providers
+ * @access  Privado
+ * @example GET /api/v1/patinetes/analisis-mercado/proveedores
  */
-router.get('/market-analysis/providers',
+router.get('/analisis-mercado/proveedores',
   authenticate,
   heavyQueryLimiter,
   [
@@ -250,16 +244,16 @@ router.get('/market-analysis/providers',
   validateRequest,
   etagMiddleware, // ETags para análisis de mercado (datos agregados estables)
   cacheMiddleware('traffic', (req) => `scooters:market:providers:${req.query.fecha || 'all'}`),
-  getProviderMarketAnalysis
+  obtenerAnalisisMercadoProveedores
 );
 
 /**
- * @route   GET /api/v1/scooter-assignments/concentration-zones
+ * @route   GET /api/v1/patinetes/zonas-concentracion
  * @desc    Obtener zonas de mayor concentración
- * @access  Private
- * @example GET /api/v1/scooter-assignments/concentration-zones?limite=10
+ * @access  Privado
+ * @example GET /api/v1/patinetes/zonas-concentracion?limite=10
  */
-router.get('/concentration-zones',
+router.get('/zonas-concentracion',
   authenticate,
   [
     ...dateValidation,
@@ -272,32 +266,14 @@ router.get('/concentration-zones',
   validateRequest,
   etagMiddleware, // ETags para zonas de concentración (datos agregados)
   cacheMiddleware('traffic', (req) => `scooters:concentration:${req.query.fecha || 'all'}:${req.query.limite || 10}`),
-  getConcentrationZones
+  obtenerZonasConcentracion
 );
 
 /**
- * @route   GET /api/v1/scooter-assignments/dashboard
- * @desc    Obtener dashboard completo de distribución
- * @access  Private
- * @example GET /api/v1/scooter-assignments/dashboard?fecha=2024-01-15
- */
-router.get('/dashboard',
-  authenticate,
-  heavyQueryLimiter,
-  [
-    ...dateValidation
-  ],
-  validateRequest,
-  etagMiddleware, // ETags para dashboard (datos agregados estables)
-  cacheMiddleware('traffic', (req) => `scooters:dashboard:${req.query.fecha || 'all'}`),
-  getDistributionDashboard
-);
-
-/**
- * @route   GET /api/v1/scooter-assignments/area/:distrito/:barrio
+ * @route   GET /api/v1/patinetes/area/:distrito/:barrio
  * @desc    Obtener detalles de un área específica
- * @access  Private
- * @example GET /api/v1/scooter-assignments/area/Centro/Sol?fecha=2024-01-15
+ * @access  Privado
+ * @example GET /api/v1/patinetes/area/Centro/Sol?fecha=2024-01-15
  */
 router.get('/area/:distrito/:barrio',
   authenticate,
@@ -307,44 +283,7 @@ router.get('/area/:distrito/:barrio',
   ],
   validateRequest,
   cacheMiddleware('traffic', (req) => `scooters:area:${req.params.distrito}:${req.params.barrio}:${req.query.fecha || 'all'}`),
-  getAreaDetails
-);
-
-/**
- * @route   GET /api/v1/scooter-assignments/optimization-analysis
- * @desc    Obtener análisis de optimización y recomendaciones
- * @access  Private
- * @example GET /api/v1/scooter-assignments/optimization-analysis?fecha=2024-01-15
- */
-router.get('/optimization-analysis',
-  authenticate,
-  [
-    ...dateValidation
-  ],
-  validateRequest,
-  cacheMiddleware('traffic', (req) => `scooters:optimization:${req.query.fecha || 'all'}`),
-  getOptimizationAnalysis
-);
-
-/**
- * @route   GET /api/v1/scooter-assignments/temporal-comparison
- * @desc    Obtener comparativa temporal entre fechas
- * @access  Private
- * @example GET /api/v1/scooter-assignments/temporal-comparison?fechaInicio=2024-01-01&fechaFin=2024-01-31
- */
-router.get('/temporal-comparison',
-  authenticate,
-  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
-  validateDistrictQuery,
-  [
-    query('agrupacion')
-      .optional()
-      .isIn(Object.values(SCOOTER_AGGREGATION_FIELDS))
-      .withMessage('Agrupación debe ser "distrito" o "barrio"'),
-    validateRequest
-  ],
-  cacheMiddleware('traffic', (req) => `scooters:temporal:${req.query.fechaInicio}:${req.query.fechaFin}:${req.query.agrupacion || 'distrito'}`),
-  getTemporalComparison
+  obtenerDetallesArea
 );
 
 /**

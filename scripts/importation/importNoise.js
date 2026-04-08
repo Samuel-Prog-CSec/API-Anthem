@@ -44,7 +44,7 @@ const {
 } = require('./helpers/importHelpers');
 
 // Modelo
-const NoiseMonitoring = require('../../src/models/NoiseMonitoring');
+const NoiseMonitoring = require('../../src/models/Ruido');
 
 /**
  * Codigos de razon de rechazo para trazabilidad

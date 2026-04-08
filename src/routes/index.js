@@ -14,17 +14,18 @@ const { performanceMonitor } = require('../middleware/performanceMonitor');
 
 // Import route modules
 const authRoutes = require('./auth');
-const airQualityRoutes = require('./airQuality');
-const noiseMonitoringRoutes = require('./noiseMonitoring');
+const calidadAireRoutes = require('./calidadAire');
+const ruidoRoutes = require('./ruido');
 const fineRoutes = require('./fines');
 const censusRoutes = require('./census');
 const adminRoutes = require('./admin');
-const locationRoutes = require('./locations');
+const ubicacionesRoutes = require('./ubicaciones');
 const trafficRoutes = require('./traffic');
-const accidentRoutes = require('./accidents');
-const scooterAssignmentRoutes = require('./scooterAssignments');
-const bikeAvailabilityRoutes = require('./bikeAvailability');
+const accidentRoutes = require('./accidentes');
+const scooterAssignmentRoutes = require('./patinetes');
+const bikeAvailabilityRoutes = require('./bicicletas');
 const containerRoutes = require('./containers');
+const bikeTrafficCountRoutes = require('./aforoBicicletas');
 
 // Aplicar performanceMonitor GLOBALMENTE a todas las rutas de la API
 router.use(performanceMonitor);
@@ -64,9 +65,10 @@ router.get('/', (req, res) => {
           census: `/api/${config.api.version}/census`,
           locations: `/api/${config.api.version}/locations`,
           traffic: `/api/${config.api.version}/traffic`,
-          accidents: `/api/${config.api.version}/accidents`,
-          scooterAssignments: `/api/${config.api.version}/scooter-assignments`,
-          bikeAvailability: `/api/${config.api.version}/bikes`,
+          accidentes: `/api/${config.api.version}/accidentes`,
+          patinetes: `/api/${config.api.version}/patinetes`,
+          bicicletas: `/api/${config.api.version}/bicicletas`,
+          aforoBicicletas: `/api/${config.api.version}/aforo-bicicletas`,
           containers: `/api/${config.api.version}/containers`,
           admin: `/api/${config.api.version}/admin`,
           health: `/api/${config.api.version}/health`,
@@ -175,20 +177,21 @@ router.get('/cors-test', (req, res) => {
 // Mount authentication routes
 router.use('/auth', authRoutes);
 
-// Mount environmental data routes
-router.use('/air-quality', airQualityRoutes);
-router.use('/noise-monitoring', noiseMonitoringRoutes);
+// Rutas de datos medioambientales
+router.use('/calidad-aire', calidadAireRoutes);
+router.use('/ruido', ruidoRoutes);
 
-// Mount city data routes
+// Rutas de datos de ciudad
 router.use('/fines', fineRoutes);
 router.use('/census', censusRoutes);
-router.use('/locations', locationRoutes);
+router.use('/ubicaciones', ubicacionesRoutes);
 router.use('/traffic', trafficRoutes);
-router.use('/accidents', accidentRoutes);
-router.use('/scooter-assignments', scooterAssignmentRoutes);
+router.use('/accidentes', accidentRoutes);
+router.use('/patinetes', scooterAssignmentRoutes);
 
 // Mount mobility and infrastructure routes
-router.use('/bikes', bikeAvailabilityRoutes);
+router.use('/bicicletas', bikeAvailabilityRoutes);
+router.use('/aforo-bicicletas', bikeTrafficCountRoutes);
 router.use('/containers', containerRoutes);
 
 // Mount administration routes

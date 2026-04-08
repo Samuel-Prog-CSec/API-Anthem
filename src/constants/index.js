@@ -123,7 +123,7 @@ const SPECIAL_PAGINATION_LIMITS = {
  * IMPORTANTE: Valores con formato exacto del CSV (espacios → guiones bajos, tildes preservadas)
  * ESTRUCTURA: Objeto clave-valor para eliminar hardcoded strings
  */
-const ACCIDENT_TYPES = {
+const TIPOS_ACCIDENTE = {
   ALCANCE: 'ALCANCE',
   ATROPELLO_A_ANIMAL: 'ATROPELLO_A_ANIMAL',
   ATROPELLO_A_PERSONA: 'ATROPELLO_A_PERSONA',
@@ -146,7 +146,7 @@ const ACCIDENT_TYPES = {
  * IMPORTANTE: Formato exacto del CSV (espacios → guiones bajos, tildes/símbolos preservados)
  * ESTRUCTURA: Objeto clave-valor para eliminar hardcoded strings
  */
-const VEHICLE_TYPES = {
+const TIPOS_VEHICULO = {
   AMBULANCIA_SAMUR: 'AMBULANCIA_SAMUR',
   AUTOBUS_EMT: 'AUTOBUS_EMT',
   AUTOBUS: 'AUTOBÚS',
@@ -292,7 +292,7 @@ const NOISE_LIMITS = {
  * Niveles de densidad de patinetes
  * ESTRUCTURA: Objeto clave-valor para eliminar accesos por índice
  */
-const SCOOTER_DENSITY_LEVELS = {
+const NIVELES_DENSIDAD_PATINETES = {
   BAJA: 'BAJA',
   MEDIA: 'MEDIA',
   ALTA: 'ALTA',
@@ -303,7 +303,7 @@ const SCOOTER_DENSITY_LEVELS = {
  * Tipos de dominancia de proveedores de patinetes
  * ESTRUCTURA: Objeto clave-valor para eliminar accesos por índice
  */
-const SCOOTER_PROVIDER_DOMINANCE = {
+const DOMINANCIA_PROVEEDORES_PATINETES = {
   EQUILIBRADA: 'EQUILIBRADA',
   MONOPOLIO: 'MONOPOLIO',
   DUOPOLIO: 'DUOPOLIO',
@@ -314,7 +314,7 @@ const SCOOTER_PROVIDER_DOMINANCE = {
  * Concentración de mercado de patinetes
  * ESTRUCTURA: Objeto clave-valor para eliminar accesos por índice
  */
-const SCOOTER_MARKET_CONCENTRATION = {
+const CONCENTRACION_MERCADO_PATINETES = {
   COMPETITIVA: 'COMPETITIVA',
   MODERADA: 'MODERADA',
   CONCENTRADA: 'CONCENTRADA',
@@ -324,7 +324,7 @@ const SCOOTER_MARKET_CONCENTRATION = {
 /**
  * Tipos de zona urbana para patinetes
  */
-const SCOOTER_ZONE_TYPES = {
+const TIPOS_ZONA_PATINETES = {
   CENTRO_URBANO: 'CENTRO_URBANO',
   ZONA_COMERCIAL: 'ZONA_COMERCIAL',
   ZONA_RESIDENCIAL: 'ZONA_RESIDENCIAL',
@@ -338,7 +338,7 @@ const SCOOTER_ZONE_TYPES = {
 /**
  * Niveles de prioridad de servicio de patinetes
  */
-const SCOOTER_PRIORITY_LEVELS = {
+const NIVELES_PRIORIDAD_PATINETES = {
   BAJA: 'BAJA',
   MEDIA: 'MEDIA',
   ALTA: 'ALTA',
@@ -348,7 +348,7 @@ const SCOOTER_PRIORITY_LEVELS = {
 /**
  * Niveles de demanda estimada de patinetes
  */
-const SCOOTER_DEMAND_LEVELS = {
+const NIVELES_DEMANDA_PATINETES = {
   BAJA: 'BAJA',
   MEDIA: 'MEDIA',
   ALTA: 'ALTA',
@@ -359,7 +359,7 @@ const SCOOTER_DEMAND_LEVELS = {
  * Proveedores de patinetes eléctricos
  * Valores extraídos del CSV Anthem_CTC_AsignaciónPatinetes.csv
  */
-const SCOOTER_PROVIDERS = {
+const PROVEEDORES_PATINETES = {
   ACCIONA: 'ACCIONA',
   BIRD: 'BIRD',
   FLASH: 'FLASH',
@@ -414,7 +414,7 @@ const HTTP_STATUS = {
  * - TESTIGO: Testigos presenciales de accidentes (no aparece en CSV actual)
  * - VIAJERO: Viajeros de transporte público (no aparece en CSV actual, alias de PASAJERO)
  */
-const PERSON_TYPES = {
+const TIPOS_PERSONA = {
   CONDUCTOR: 'CONDUCTOR',
   PEATÓN: 'PEATÓN',
   TESTIGO: 'TESTIGO',
@@ -432,7 +432,7 @@ const PERSON_TYPES = {
  * - FALLECIDO: Fallecido en 24 horas
  * - DESCONOCIDO: Se desconoce el tipo de lesión
  */
-const INJURY_TYPES = {
+const TIPOS_LESION = {
   // Valores exactos del CSV
   ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD: 'ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD',
   ASISTENCIA_SANITARIA_INMEDIATA_EN_CENTRO_DE_SALUD_O_MUTUA: 'ASISTENCIA_SANITARIA_INMEDIATA_EN_CENTRO_DE_SALUD_O_MUTUA',
@@ -458,7 +458,7 @@ const INJURY_TYPES = {
  * IMPORTANTE: Este mapeo agrupa los valores descriptivos del CSV por severidad
  * para facilitar consultas y estadísticas sin depender de alias individuales
  */
-const INJURY_SEVERITY_MAPPING = {
+const MAPEO_SEVERIDAD_LESIONES = {
   GRAVES: [
     'FALLECIDO_24_HORAS',
     'INGRESO_SUPERIOR_A_24_HORAS',
@@ -557,7 +557,7 @@ const MONTH_NAMES = [
 /**
  * Factores de riesgo en accidentes
  */
-const RISK_FACTORS = {
+const FACTORES_RIESGO = {
   ALCOHOL: 'ALCOHOL',
   DROGAS: 'DROGAS',
   VELOCIDAD_INADECUADA: 'VELOCIDAD_INADECUADA',
@@ -1030,7 +1030,7 @@ const VALIDATION_CODES = {
  * Tipos de reporte de scooters
  * Usaedos en ScooterAssignment para campos faltants
  */
-const SCOOTER_REPORT_TYPES = {
+const TIPOS_INFORME_PATINETES = {
   PROVEEDORES: 'proveedores',
   UBICACION: 'ubicacion',
   TOTALES: 'totales'
@@ -1102,7 +1102,7 @@ const FINE_DENOUNCER_TYPES = {
  * Thresholds de densidad de patinetes eléctricos
  * Usados para clasificar zonas según número de patinetes disponibles
  */
-const SCOOTER_DENSITY_THRESHOLDS = {
+const UMBRALES_DENSIDAD_PATINETES = {
   MUY_ALTA: 200, // >= 200 patinetes
   ALTA: 100, // >= 100 patinetes
   MEDIA: 50, // >= 50 patinetes
@@ -1113,7 +1113,7 @@ const SCOOTER_DENSITY_THRESHOLDS = {
  * Thresholds de demanda estimada de patinetes
  * Basados en análisis de uso y disponibilidad por zona
  */
-const SCOOTER_DEMAND_THRESHOLDS = {
+const UMBRALES_DEMANDA_PATINETES = {
   MUY_ALTA: 150, // >= 150 patinetes (demanda crítica)
   ALTA: 100, // >= 100 patinetes
   MEDIA: 50, // >= 50 patinetes
@@ -1126,7 +1126,7 @@ const SCOOTER_DEMAND_THRESHOLDS = {
  * HHI = suma de cuadrados de participaciones de mercado (0-10000)
  * Fuente: Directrices de Concentración Horizontal (UE, DOJ/FTC)
  */
-const MARKET_CONCENTRATION_THRESHOLDS = {
+const UMBRALES_CONCENTRACION_MERCADO = {
   HIGH: 5000, // HHI >= 5000: Monopolio o alta concentración
   MODERATE: 2500, // HHI >= 2500: Concentración moderada
   LOW: 1500, // HHI >= 1500: Baja concentración
@@ -1148,7 +1148,7 @@ const CULTURAL_DIVERSITY_THRESHOLDS = {
  * Thresholds de uso de bicicletas eléctricas
  * Basados en porcentaje de ocupación y patrones de demanda
  */
-const BIKE_USAGE_THRESHOLDS = {
+const UMBRALES_USO_BICICLETAS = {
   HIGH_DEMAND_OCCUPANCY: 80, // > 80% ocupación = Alta demanda
   MEDIUM_DEMAND_OCCUPANCY: 60, // > 60% ocupación = Media demanda
   LOW_DEMAND_OCCUPANCY: 40, // > 40% ocupación = Baja demanda
@@ -1343,12 +1343,12 @@ module.exports = {
   DEFAULT_VALUES,
 
   // Accidentes
-  ACCIDENT_TYPES,
-  VEHICLE_TYPES,
-  PERSON_TYPES,
-  INJURY_TYPES,
-  INJURY_SEVERITY_MAPPING,
-  RISK_FACTORS,
+  TIPOS_ACCIDENTE,
+  TIPOS_VEHICULO,
+  TIPOS_PERSONA,
+  TIPOS_LESION,
+  MAPEO_SEVERIDAD_LESIONES,
+  FACTORES_RIESGO,
 
   // Calidad del aire
   AIR_QUALITY_MAGNITUDES,
@@ -1368,14 +1368,14 @@ module.exports = {
   NOISE_LIMITS,
 
   // Patinetes
-  SCOOTER_DENSITY_LEVELS,
-  SCOOTER_PROVIDER_DOMINANCE,
-  SCOOTER_MARKET_CONCENTRATION,
-  SCOOTER_ZONE_TYPES,
-  SCOOTER_PRIORITY_LEVELS,
-  SCOOTER_DEMAND_LEVELS,
-  SCOOTER_PROVIDERS,
-  SCOOTER_REPORT_TYPES,
+  NIVELES_DENSIDAD_PATINETES,
+  DOMINANCIA_PROVEEDORES_PATINETES,
+  CONCENTRACION_MERCADO_PATINETES,
+  TIPOS_ZONA_PATINETES,
+  NIVELES_PRIORIDAD_PATINETES,
+  NIVELES_DEMANDA_PATINETES,
+  PROVEEDORES_PATINETES,
+  TIPOS_INFORME_PATINETES,
 
   // Periodos temporales
   DAY_PERIODS,
@@ -1439,15 +1439,15 @@ module.exports = {
   FINE_DENOUNCER_TYPES,
 
   // Patinetes - Thresholds
-  SCOOTER_DENSITY_THRESHOLDS,
-  SCOOTER_DEMAND_THRESHOLDS,
-  MARKET_CONCENTRATION_THRESHOLDS,
+  UMBRALES_DENSIDAD_PATINETES,
+  UMBRALES_DEMANDA_PATINETES,
+  UMBRALES_CONCENTRACION_MERCADO,
 
   // Censo - Thresholds
   CULTURAL_DIVERSITY_THRESHOLDS,
 
   // Bicicletas - Thresholds
-  BIKE_USAGE_THRESHOLDS,
+  UMBRALES_USO_BICICLETAS,
 
   // Dataset - Años de los datos
   DATASET_YEARS,
@@ -1503,7 +1503,7 @@ module.exports = {
     PARKS: 'parks',
     MIXED: 'mixed'
   },
-  SCOOTER_KEY_AREAS: {
+  AREAS_CLAVE_PATINETES: {
     CENTRAL: ['CENTRO', 'SOL'],
     UNIVERSITY: ['UNIVERSIDAD', 'CAMPUS'],
     TRANSPORT: ['ATOCHA', 'CHAMARTIN'],

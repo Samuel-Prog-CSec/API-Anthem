@@ -83,33 +83,6 @@ const isValidUrlFormat = (origin) => {
 };
 
 /**
- * Valida que el protocolo sea HTTPS en producción
- * @param {string} origin - Origin normalizado
- * @returns {boolean}
- */
-const isProtocolSecure = (origin) => {
-  if (!isProduction()) {
-    return true;
-  }
-
-  try {
-    const originUrl = new URL(origin);
-
-    if (originUrl.protocol === 'http:') {
-      corsLogger.warn(
-        { origin },
-        'Origen HTTP bloqueado en producción - solo HTTPS permitido'
-      );
-      return false;
-    }
-
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-/**
  * Verifica coincidencia exacta con allowlist
  * @param {string} origin - Origin normalizado
  * @returns {boolean}
@@ -218,10 +191,6 @@ const validateCorsOrigin = (origin, callback) => {
   }
 
   if (!isValidUrlFormat(normalizedOrigin)) {
-    return callback(new Error('Not allowed by CORS'));
-  }
-
-  if (!isProtocolSecure(normalizedOrigin)) {
     return callback(new Error('Not allowed by CORS'));
   }
 

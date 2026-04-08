@@ -9,7 +9,7 @@ const mongoose = require('mongoose');
 const { validateDatasetDate } = require('./schemas/commonSchemas');
 const {
   TIME_CONSTANTS,
-  BIKE_USAGE_THRESHOLDS,
+  UMBRALES_USO_BICICLETAS,
   VALIDATION_LIMITS,
   MONGODB_TIMEOUTS,
   DATASET_YEARS
@@ -253,7 +253,7 @@ bikeAvailabilitySchema.index({
  * @param {Date} endDate - Fecha de fin
  * @returns {Promise<Object>} Estadísticas agregadas
  */
-bikeAvailabilitySchema.statics.getStatsByDateRange = function(startDate, endDate) {
+bikeAvailabilitySchema.statics.obtenerEstadisticasPorRangoFechas = function(startDate, endDate) {
   return this.aggregate([
     {
       $match: {
@@ -284,7 +284,7 @@ bikeAvailabilitySchema.statics.getStatsByDateRange = function(startDate, endDate
  * @param {number} year - Año para el análisis
  * @returns {Promise<Array>} Tendencias por mes
  */
-bikeAvailabilitySchema.statics.getMonthlyTrends = function(year) {
+bikeAvailabilitySchema.statics.obtenerTendenciasMensuales = function(year) {
   const startDate = new Date(year, 0, 1);
   const endDate = new Date(year, 11, 31, 23, 59, 59);
 
@@ -317,7 +317,7 @@ bikeAvailabilitySchema.statics.getMonthlyTrends = function(year) {
  * @param {number} limit - Número de registros a retornar
  * @returns {Promise<Object>} Top días de mayor y menor uso
  */
-bikeAvailabilitySchema.statics.getTopUsageDays = async function(limit = 10) {
+bikeAvailabilitySchema.statics.obtenerDiasMayorUso = async function(limit = 10) {
   const [topDays, bottomDays] = await Promise.all([
     this.find()
       .sort({ totalUsos: -1 })
@@ -344,7 +344,7 @@ bikeAvailabilitySchema.statics.getTopUsageDays = async function(limit = 10) {
  * @param {Date} endDate - Fecha de fin
  * @returns {Promise<Object>} Comparación de usos por tipo de abonado
  */
-bikeAvailabilitySchema.statics.compareSubscriptionTypes = function(startDate, endDate) {
+bikeAvailabilitySchema.statics.compararTiposSuscripcion = function(startDate, endDate) {
   return this.aggregate([
     {
       $match: {
@@ -395,7 +395,7 @@ bikeAvailabilitySchema.statics.compareSubscriptionTypes = function(startDate, en
  * @param {Object} filters - Filtros opcionales (fechas, etc.)
  * @returns {Promise<Object>} Análisis de eficiencia
  */
-bikeAvailabilitySchema.statics.getEfficiencyAnalysisOptimized = async function(filters = {}) {
+bikeAvailabilitySchema.statics.obtenerAnalisisEficienciaOptimizado = async function(filters = {}) {
   const analysis = await this.aggregate([
     { $match: filters },
     {
@@ -433,7 +433,7 @@ bikeAvailabilitySchema.statics.getEfficiencyAnalysisOptimized = async function(f
  * @param {String} aggregation - Tipo de agregación: 'day', 'week', 'month'
  * @returns {Promise<Array>} Datos históricos agregados
  */
-bikeAvailabilitySchema.statics.getHistoricalDataOptimized = async function(filters = {}, aggregation = 'day') {
+bikeAvailabilitySchema.statics.obtenerDatosHistoricosOptimizado = async function(filters = {}, aggregation = 'day') {
   // Configurar agrupación según el nivel de agregación
   let groupBy = {};
   let sortBy = {};
@@ -518,7 +518,7 @@ bikeAvailabilitySchema.statics.getHistoricalDataOptimized = async function(filte
  *   includeUserTypes: true
  * });
  */
-bikeAvailabilitySchema.statics.getUsageTrends = function(options) {
+bikeAvailabilitySchema.statics.obtenerTendenciasUso = function(options) {
   const { startDate, endDate, groupBy = 'month', includeUserTypes = true } = options;
 
   if (!startDate || !endDate) {
@@ -630,8 +630,8 @@ bikeAvailabilitySchema.statics.getUsageTrends = function(options) {
  *   threshold: 80
  * });
  */
-bikeAvailabilitySchema.statics.getDemandPrediction = async function(options = {}) {
-  const { startDate, endDate, threshold = BIKE_USAGE_THRESHOLDS.HIGH_DEMAND_OCCUPANCY } = options;
+bikeAvailabilitySchema.statics.obtenerPrediccionDemanda = async function(options = {}) {
+  const { startDate, endDate, threshold = UMBRALES_USO_BICICLETAS.HIGH_DEMAND_OCCUPANCY } = options;
 
   const matchStage = {};
   if (startDate && endDate) {

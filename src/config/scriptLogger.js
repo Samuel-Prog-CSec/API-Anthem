@@ -82,6 +82,7 @@ const importAirQualityLogger = scriptLogger.child({ scriptType: 'import-air-qual
 const importScootersLogger = scriptLogger.child({ scriptType: 'import-scooters' });
 const importBikesLogger = scriptLogger.child({ scriptType: 'import-bikes' });
 const importContainersLogger = scriptLogger.child({ scriptType: 'import-containers' });
+const importBikeTrafficLogger = scriptLogger.child({ scriptType: 'import-bike-traffic' });
 const importAllLogger = scriptLogger.child({ scriptType: 'import-all' });
 
 module.exports = scriptLogger;
@@ -95,4 +96,5 @@ module.exports.importAirQualityLogger = importAirQualityLogger;
 module.exports.importScootersLogger = importScootersLogger;
 module.exports.importBikesLogger = importBikesLogger;
 module.exports.importContainersLogger = importContainersLogger;
+module.exports.importBikeTrafficLogger = importBikeTrafficLogger;
 module.exports.importAllLogger = importAllLogger;

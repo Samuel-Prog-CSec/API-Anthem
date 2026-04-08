@@ -145,10 +145,14 @@ const getPerformanceStats = () => {
 const performanceHeaderOnly = (req, res, next) => {
   const startTime = Date.now();
 
-  res.on('finish', () => {
+  // Interceptar res.json para setear header ANTES de enviar la respuesta
+  // (res.on('finish') se ejecuta despues de enviar, cuando headers ya no se pueden modificar)
+  const originalJson = res.json.bind(res);
+  res.json = function(data) {
     const duration = Date.now() - startTime;
     res.set('X-Response-Time', `${duration}ms`);
-  });
+    return originalJson(data);
+  };
 
   next();
 };

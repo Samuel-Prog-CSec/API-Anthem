@@ -42,10 +42,9 @@ const {
   logPasswordChange
 } = require('../utils/securityLogger');
 
-const isProduction = process.env.NODE_ENV === 'production';
 const baseCookieOptions = {
   httpOnly: true,
-  secure: isProduction,
+  secure: false,
   sameSite: 'strict',
   path: '/'
 };

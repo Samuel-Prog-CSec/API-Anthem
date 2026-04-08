@@ -9,15 +9,15 @@
 const mongoose = require('mongoose');
 const { coordinatesUTMSchema, validateTimeFormat, validateDatasetDate } = require('./schemas/commonSchemas');
 const {
-  ACCIDENT_TYPES,
-  VEHICLE_TYPES,
-  PERSON_TYPES,
-  INJURY_TYPES,
-  INJURY_SEVERITY_MAPPING,
+  TIPOS_ACCIDENTE,
+  TIPOS_VEHICULO,
+  TIPOS_PERSONA,
+  TIPOS_LESION,
+  MAPEO_SEVERIDAD_LESIONES,
   WEATHER_CONDITIONS,
   DAY_PERIODS,
   WORKDAY_TYPES,
-  RISK_FACTORS,
+  FACTORES_RIESGO,
   SEVERITY_LEVELS,
   GENDERS,
   BINARY_INDICATORS,
@@ -33,7 +33,7 @@ const personaAfectadaSchema = new mongoose.Schema({
   tipoPersona: {
     type: String,
     required: true,
-    enum: Object.values(PERSON_TYPES),
+    enum: Object.values(TIPOS_PERSONA),
     uppercase: true
   },
 
@@ -73,12 +73,12 @@ const personaAfectadaSchema = new mongoose.Schema({
         const codigosFallecido = ['14', '04', 'FALLECIDO'];
 
         // No permitir códigos de fallecido en lesiones leves
-        if (this.tipoLesion === INJURY_TYPES.LEVE && codigosFallecido.includes(v)) {
+        if (this.tipoLesion === TIPOS_LESION.LEVE && codigosFallecido.includes(v)) {
           return false;
         }
 
         // Validar que fallecidos tengan códigos apropiados
-        if (this.tipoLesion === INJURY_TYPES.FALLECIDO && !codigosFallecido.includes(v)) {
+        if (this.tipoLesion === TIPOS_LESION.FALLECIDO && !codigosFallecido.includes(v)) {
           return false;
         }
 
@@ -90,9 +90,9 @@ const personaAfectadaSchema = new mongoose.Schema({
 
   tipoLesion: {
     type: String,
-    enum: Object.values(INJURY_TYPES),
+    enum: Object.values(TIPOS_LESION),
     uppercase: true,
-    default: INJURY_TYPES.DESCONOCIDO
+    default: TIPOS_LESION.DESCONOCIDO
   },
 
   // Análisis de sustancias
@@ -256,9 +256,9 @@ const accidentSchema = new mongoose.Schema({
       type: String,
       required: true,
       trim: true,
-      enum: Object.values(ACCIDENT_TYPES),
+      enum: Object.values(TIPOS_ACCIDENTE),
       index: true,
-      default: ACCIDENT_TYPES.OTRO
+      default: TIPOS_ACCIDENTE.OTRO
     },
 
     // Campo temporal para procesar
@@ -291,10 +291,10 @@ const accidentSchema = new mongoose.Schema({
       type: String,
       required: true,
       trim: true,
-      enum: Object.values(VEHICLE_TYPES),
+      enum: Object.values(TIPOS_VEHICULO),
       uppercase: true,
       index: true,
-      default: VEHICLE_TYPES.SIN_ESPECIFICAR
+      default: TIPOS_VEHICULO.SIN_ESPECIFICAR
     },
 
     tipoVehiculoOriginal: {
@@ -335,7 +335,7 @@ const accidentSchema = new mongoose.Schema({
     // Factores de riesgo
     factoresRiesgo: [{
       type: String,
-      enum: Object.values(RISK_FACTORS)
+      enum: Object.values(FACTORES_RIESGO)
     }],
 
     // Puntuación de gravedad (0-10)
@@ -574,7 +574,7 @@ accidentSchema.pre('save', function(next) {
 /**
  * Obtener estadísticas por periodo
  */
-accidentSchema.statics.getStatisticsByPeriod = function(startDate, endDate) {
+accidentSchema.statics.obtenerEstadisticasPorPeriodo = function(startDate, endDate) {
   return this.aggregate([
     {
       $match: {
@@ -587,7 +587,7 @@ accidentSchema.statics.getStatisticsByPeriod = function(startDate, endDate) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
           }
         },
         accidentesMortales: {
@@ -597,7 +597,7 @@ accidentSchema.statics.getStatisticsByPeriod = function(startDate, endDate) {
         },
         atropellos: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', ACCIDENT_TYPES.ATROPELLO_A_PERSONA] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.tipoAccidente', TIPOS_ACCIDENTE.ATROPELLO_A_PERSONA] }, 1, 0]
           }
         },
         accidentesConAlcohol: {
@@ -613,7 +613,7 @@ accidentSchema.statics.getStatisticsByPeriod = function(startDate, endDate) {
 /**
  * Obtener puntos negros de accidentes
  */
-accidentSchema.statics.getAccidentBlackSpots = function(limit = 10, startDate = null, endDate = null) {
+accidentSchema.statics.obtenerPuntosNegros = function(limit = 10, startDate = null, endDate = null) {
   const matchConditions = {};
 
   if (startDate && endDate) {
@@ -631,7 +631,7 @@ accidentSchema.statics.getAccidentBlackSpots = function(limit = 10, startDate = 
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
           }
         },
         tiposAccidente: { $addToSet: '$circunstancias.tipoAccidente' },
@@ -653,7 +653,7 @@ accidentSchema.statics.getAccidentBlackSpots = function(limit = 10, startDate = 
 /**
  * Obtener análisis por tipo de vehículo
  */
-accidentSchema.statics.getVehicleTypeAnalysis = function(startDate = null, endDate = null) {
+accidentSchema.statics.obtenerAnalisisPorVehiculo = function(startDate = null, endDate = null) {
   const matchConditions = {};
 
   if (startDate && endDate) {
@@ -668,7 +668,7 @@ accidentSchema.statics.getVehicleTypeAnalysis = function(startDate = null, endDa
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
           }
         },
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
@@ -691,7 +691,7 @@ accidentSchema.statics.getVehicleTypeAnalysis = function(startDate = null, endDa
 /**
  * Obtener patrones temporales
  */
-accidentSchema.statics.getTemporalPatterns = function(groupBy = 'hora') {
+accidentSchema.statics.obtenerPatronesTemporales = function(groupBy = 'hora') {
   const groupField = groupBy === 'hora' ? '$franjaHoraria' :
                     groupBy === 'diaSemana' ? '$analisis.diaSemana' :
                     '$analisis.periodoDia';
@@ -703,7 +703,7 @@ accidentSchema.statics.getTemporalPatterns = function(groupBy = 'hora') {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
           }
         }
       }
@@ -717,7 +717,7 @@ accidentSchema.statics.getTemporalPatterns = function(groupBy = 'hora') {
  * @param {Object} filters - Filtros de consulta
  * @returns {Promise<Array>} Comparativa de distritos con métricas y porcentajes
  */
-accidentSchema.statics.getDistrictComparisonData = function(filters = {}) {
+accidentSchema.statics.obtenerComparativaDistritos = function(filters = {}) {
   return this.aggregate([
     { $match: filters },
     {
@@ -726,7 +726,7 @@ accidentSchema.statics.getDistrictComparisonData = function(filters = {}) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
           }
         },
         accidentesMortales: {
@@ -736,7 +736,7 @@ accidentSchema.statics.getDistrictComparisonData = function(filters = {}) {
         },
         atropellos: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', ACCIDENT_TYPES.ATROPELLO_A_PERSONA] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.tipoAccidente', TIPOS_ACCIDENTE.ATROPELLO_A_PERSONA] }, 1, 0]
           }
         },
         accidentesAlcohol: {
@@ -747,17 +747,17 @@ accidentSchema.statics.getDistrictComparisonData = function(filters = {}) {
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' },
         turismos: {
           $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', VEHICLE_TYPES.TURISMO] }, 1, 0]
+            $cond: [{ $eq: ['$vehiculo.tipo', TIPOS_VEHICULO.TURISMO] }, 1, 0]
           }
         },
         motocicletas: {
           $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', VEHICLE_TYPES.MOTOCICLETA_MAS_125CC] }, 1, 0]
+            $cond: [{ $eq: ['$vehiculo.tipo', TIPOS_VEHICULO.MOTOCICLETA_MAS_125CC] }, 1, 0]
           }
         },
         bicicletas: {
           $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', VEHICLE_TYPES.BICICLETA] }, 1, 0]
+            $cond: [{ $eq: ['$vehiculo.tipo', TIPOS_VEHICULO.BICICLETA] }, 1, 0]
           }
         }
       }
@@ -801,7 +801,7 @@ accidentSchema.statics.getDistrictComparisonData = function(filters = {}) {
  * @param {Number} limit - Límite de calles a retornar
  * @returns {Promise<Array>} Calles ordenadas por índice de riesgo
  */
-accidentSchema.statics.getStreetSafetyAnalysis = function(filters = {}, limit = 20) {
+accidentSchema.statics.obtenerAnalisisSeguridadCalles = function(filters = {}, limit = 20) {
   return this.aggregate([
     { $match: filters },
     {
@@ -813,12 +813,12 @@ accidentSchema.statics.getStreetSafetyAnalysis = function(filters = {}, limit = 
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
           }
         },
         atropellos: {
           $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', ACCIDENT_TYPES.ATROPELLO_A_PERSONA] }, 1, 0]
+            $cond: [{ $eq: ['$circunstancias.tipoAccidente', TIPOS_ACCIDENTE.ATROPELLO_A_PERSONA] }, 1, 0]
           }
         },
         accidentesAlcohol: {
@@ -851,7 +851,7 @@ accidentSchema.statics.getStreetSafetyAnalysis = function(filters = {}, limit = 
  * @param {Object} filters - Filtros de consulta
  * @returns {Promise<Array>} Tendencias ordenadas cronológicamente
  */
-accidentSchema.statics.getTrendAnalysis = function(filters = {}) {
+accidentSchema.statics.obtenerAnalisisTendencias = function(filters = {}) {
   return this.aggregate([
     { $match: filters },
     {
@@ -863,7 +863,7 @@ accidentSchema.statics.getTrendAnalysis = function(filters = {}) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
           }
         }
       }
@@ -877,7 +877,7 @@ accidentSchema.statics.getTrendAnalysis = function(filters = {}) {
  * @param {Object} filters - Filtros de consulta
  * @returns {Promise<Array>} Estadísticas por condición meteorológica
  */
-accidentSchema.statics.getWeatherCorrelation = function(filters = {}) {
+accidentSchema.statics.obtenerCorrelacionMeteorologica = function(filters = {}) {
   return this.aggregate([
     { $match: filters },
     {
@@ -886,7 +886,7 @@ accidentSchema.statics.getWeatherCorrelation = function(filters = {}) {
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
           }
         }
       }
@@ -911,7 +911,7 @@ accidentSchema.statics.getWeatherCorrelation = function(filters = {}) {
  * @param {Number} limit - Límite de distritos a retornar
  * @returns {Promise<Array>} Distribución por distrito ordenada por total de accidentes
  */
-accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 15) {
+accidentSchema.statics.obtenerDistribucionDistritos = function(filters = {}, limit = 15) {
   return this.aggregate([
     { $match: filters },
     {
@@ -920,7 +920,7 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
         totalAccidentes: { $sum: 1 },
         accidentesGraves: {
           $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', INJURY_SEVERITY_MAPPING.GRAVES] }, 1, 0]
+            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
           }
         },
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
@@ -936,7 +936,7 @@ accidentSchema.statics.getDistrictDistribution = function(filters = {}, limit = 
  * @param {Object} filters - Filtros de consulta
  * @returns {Promise<Array>} Factores de riesgo ordenados por frecuencia
  */
-accidentSchema.statics.getRiskFactorsAnalysis = function(filters = {}) {
+accidentSchema.statics.obtenerAnalisisFactoresRiesgo = function(filters = {}) {
   return this.aggregate([
     { $match: filters },
     // NO usar $limit antes de $unwind/$group - corrompe las estadísticas
@@ -960,7 +960,7 @@ accidentSchema.statics.getRiskFactorsAnalysis = function(filters = {}) {
  * @param {Number} precision - Distancia en metros para agrupar puntos (default: 100m)
  * @returns {Promise<Object>} Datos del heatmap con puntos agrupados y estadísticas
  */
-accidentSchema.statics.getHeatmapDataOptimized = async function(filters = {}, limite = 500, precision = 100) {
+accidentSchema.statics.obtenerDatosMapaCalor = async function(filters = {}, limite = 500, precision = 100) {
   // Añadir filtros obligatorios de coordenadas válidas
   const queryFilters = {
     ...filters,
@@ -1001,7 +1001,7 @@ accidentSchema.statics.getHeatmapDataOptimized = async function(filters = {}, li
     groupedPoints[key].accidentes.push(accident);
     groupedPoints[key].totalAccidentes++;
 
-    if (INJURY_SEVERITY_MAPPING.GRAVES.includes(accident.circunstancias.gravedad)) {
+    if (MAPEO_SEVERIDAD_LESIONES.GRAVES.includes(accident.circunstancias.gravedad)) {
       groupedPoints[key].accidentesGraves++;
     }
 
@@ -1033,6 +1033,6 @@ accidentSchema.statics.getHeatmapDataOptimized = async function(filters = {}, li
 };
 
 // Crear y exportar el modelo
-const Accident = mongoose.model('Accidents', accidentSchema);
+const Accidente = mongoose.model('Accidente', accidentSchema);
 
-module.exports = Accident;
+module.exports = Accidente;
