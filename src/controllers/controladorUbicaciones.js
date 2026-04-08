@@ -16,7 +16,7 @@ const { SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, MEASUREMENT_POINT_TYPES, TR
  * @param {number} [req.query.page] - Numero de pagina
  * @param {number} [req.query.limit] - Limite de resultados por pagina
  */
-const getLocations = async (req, res, next) => {
+const obtenerUbicaciones = async (req, res, next) => {
   try {
     const {
       bbox, // bounding box UTM: "minX,minY,maxX,maxY" (coordenadas UTM en metros)
@@ -36,6 +36,14 @@ const getLocations = async (req, res, next) => {
     // Filtro por bounding box (coordenadas UTM)
     if (bbox) {
       const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
+
+      if ([minX, minY, maxX, maxY].some(v => !Number.isFinite(v))) {
+        return next(createBadRequestError('Coordenadas de bounding box deben ser numeros validos'));
+      }
+      if (minX > maxX || minY > maxY) {
+        return next(createBadRequestError('Bounding box invalido: las coordenadas minimas deben ser menores que las maximas'));
+      }
+
       filters['coordenadas.x'] = { $gte: minX, $lte: maxX };
       filters['coordenadas.y'] = { $gte: minY, $lte: maxY };
     }
@@ -93,7 +101,7 @@ const getLocations = async (req, res, next) => {
  * @route GET /api/v1/locations/measurement-points/:measurementType
  * @param {string} req.params.measurementType - Tipo de medicion: 'acustica' | 'trafico'
  */
-const getMeasurementPoints = async (req, res, next) => {
+const obtenerPuntosMedicion = async (req, res, next) => {
   try {
     const { measurementType } = req.params;
 
@@ -131,7 +139,7 @@ const getMeasurementPoints = async (req, res, next) => {
  * @route GET /api/v1/locations/transport/:transportType
  * @param {string} req.params.transportType - Tipo de transporte: 'todos' | 'cercanias' | 'autobus' | 'interurbano' | 'metro' | 'metro_ligero' | 'taxi'
  */
-const getTransportRoutes = async (req, res, next) => {
+const obtenerRutasTransporte = async (req, res, next) => {
   try {
     const { transportType } = req.params;
 
@@ -172,8 +180,8 @@ const getTransportRoutes = async (req, res, next) => {
 };
 
 module.exports = {
-  getLocations,
-  getMeasurementPoints,
-  getTransportRoutes
+  obtenerUbicaciones,
+  obtenerPuntosMedicion,
+  obtenerRutasTransporte
 };
 

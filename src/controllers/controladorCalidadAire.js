@@ -17,7 +17,7 @@ const logger = require('../config/logger');
  * Obtener datos de calidad de aire con filtros
  * GET /api/v1/air-quality
  */
-const getAirQualityData = async (req, res, next) => {
+const obtenerDatosCalidadAire = async (req, res, next) => {
   try {
     // Configuración de filtros usando queryHelper
     const filterConfig = [
@@ -77,6 +77,7 @@ const getAirQualityData = async (req, res, next) => {
       puntoMuestreo: 1,
       medicionesHorarias: 1,
       'processingMetadata.validMeasurements': 1,
+      'processingMetadata.dataQualityScore': 1,
       'processingMetadata.averageValue': 1,
       'processingMetadata.maxValue': 1,
       'processingMetadata.minValue': 1,
@@ -129,7 +130,7 @@ const getAirQualityData = async (req, res, next) => {
  * Obtener estadísticas agregadas de calidad de aire
  * GET /api/v1/air-quality/statistics
  */
-const getAirQualityStatistics = async (req, res, next) => {
+const obtenerEstadisticasCalidadAire = async (req, res, next) => {
   try {
     const { groupBy = 'day' } = req.query;
 
@@ -171,7 +172,7 @@ const getAirQualityStatistics = async (req, res, next) => {
  * Obtener tendencias de calidad de aire
  * GET /api/v1/air-quality/trends
  */
-const getAirQualityTrends = async (req, res, next) => {
+const obtenerTendenciasCalidadAire = async (req, res, next) => {
   try {
     const { provincia, municipio, magnitud, startDate, endDate } = req.query;
 
@@ -222,7 +223,7 @@ const getAirQualityTrends = async (req, res, next) => {
 };
 
 module.exports = {
-  getAirQualityData,
-  getAirQualityStatistics,
-  getAirQualityTrends
+  obtenerDatosCalidadAire,
+  obtenerEstadisticasCalidadAire,
+  obtenerTendenciasCalidadAire
 };

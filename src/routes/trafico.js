@@ -9,7 +9,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { query, param } = require('express-validator');
 
-const trafficController = require('../controllers/trafficController');
+const controladorTrafico = require('../controllers/controladorTrafico');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
@@ -82,7 +82,7 @@ router.get('/',
   validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
   validatePagination,
   validateTrafficFilters,
-  trafficController.getAllTrafficData
+  controladorTrafico.obtenerDatosTrafico
 );
 
 /**
@@ -107,7 +107,7 @@ router.get('/punto/:id',
     validateRequest
   ],
   validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
-  trafficController.getTrafficByPoint
+  controladorTrafico.obtenerTraficoPorPunto
 );
 
 /**
@@ -135,7 +135,7 @@ router.get('/stats',
   cacheMiddleware('traffic', (req) =>
     `traffic-stats-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.tipoElemento || 'all'}`
   ),
-  trafficController.getTrafficStats
+  controladorTrafico.obtenerEstadisticasTrafico
 );
 
 /**
@@ -160,7 +160,7 @@ router.get('/congestion-analysis',
   cacheMiddleware('traffic', (req) =>
     `traffic-congestion-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.groupBy || 'distrito'}`
   ),
-  trafficController.getCongestionAnalysis
+  controladorTrafico.obtenerAnalisisCongestion
 );
 
 /**
@@ -191,7 +191,7 @@ router.get('/historical',
   cacheMiddleware('traffic', (req) =>
     `traffic-historical-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.aggregation || 'hour'}-${req.query.puntoMedidaId || 'all'}-${req.query.tipoElemento || 'all'}`
   ),
-  trafficController.getHistoricalData
+  controladorTrafico.obtenerDatosHistoricos
 );
 
 /**

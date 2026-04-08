@@ -442,15 +442,13 @@ accidentSchema.index({ 'ubicacion.coordenadas.x': 1, 'ubicacion.coordenadas.y': 
   sparse: true
 });
 
-// Índice geoespacial 2dsphere para consultas avanzadas
-// Usado en: $near, $geoWithin - Heatmaps, búsquedas por radio
-// Soporta: "Accidentes en radio de 500m", análisis geográfico
-// SPARSE: Solo documentos con coordenadas válidas
-accidentSchema.index({ 'ubicacion.coordenadas': '2dsphere' }, {
-  name: 'idx_accidents_geo_heatmap',
-  background: true,
-  sparse: true
-});
+// Índice compuesto para consultas por rango de coordenadas UTM
+// Las coordenadas son UTM (metros), no GeoJSON, por lo que no se puede usar 2dsphere
+// Para consultas por area: $gte/$lte sobre coordenadas.x y coordenadas.y
+accidentSchema.index(
+  { 'ubicacion.coordenadas.x': 1, 'ubicacion.coordenadas.y': 1 },
+  { name: 'idx_accidents_coordenadas_utm', background: true, sparse: true }
+);
 
 // ========================================
 // ÍNDICES POR CIRCUNSTANCIAS DEL ACCIDENTE

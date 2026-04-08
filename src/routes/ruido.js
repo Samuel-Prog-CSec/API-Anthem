@@ -30,10 +30,10 @@ const { cacheMiddleware } = require('../middleware/cache');
 
 // Controladores
 const {
-  getNoiseMonitoringData,
-  getNoiseStatistics,
-  getNoiseRanking,
-  getComplianceByZone,
+  obtenerDatosRuido,
+  obtenerEstadisticasRuido,
+  obtenerRankingRuido,
+  obtenerCumplimientoPorZona,
   obtenerTendenciasTemporales
 } = require('../controllers/controladorRuido');
 
@@ -178,7 +178,7 @@ router.get('/',
   noiseQueryValidation,
   validateRequest,
   cacheMiddleware('noise'), // Cache por 3 minutos
-  getNoiseMonitoringData
+  obtenerDatosRuido
 );
 
 /**
@@ -194,7 +194,7 @@ router.get('/estadisticas',
   validateRequest,
   etagMiddleware, // ETags para estadísticas agregadas (datos estables)
   cacheMiddleware('noise'), // Cache por 1 hora
-  getNoiseStatistics
+  obtenerEstadisticasRuido
 );
 
 /**
@@ -209,7 +209,7 @@ router.get('/ranking',
   validateRequest,
   etagMiddleware, // ETags para ranking (datos agregados estables)
   cacheMiddleware('noise'), // Cache por 1 hora
-  getNoiseRanking
+  obtenerRankingRuido
 );
 
 /**
@@ -241,7 +241,7 @@ router.get('/cumplimiento/zona',
   validateRequest,
   etagMiddleware, // ETags para análisis de cumplimiento (datos agregados)
   cacheMiddleware('noise'),
-  getComplianceByZone
+  obtenerCumplimientoPorZona
 );
 
 /**

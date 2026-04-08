@@ -15,12 +15,16 @@ const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 
 // Importar modelos, configuración y utilidades
-const Traffic = require('../../src/models/Traffic');
+const Traffic = require('../../src/models/Trafico');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
 const { importTrafficLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
-const { TRAFFIC_ERROR_CODES, TRAFFIC_ELEMENT_TYPES } = require('../../src/constants');
+const {
+  TRAFFIC_ERROR_CODES, TRAFFIC_ELEMENT_TYPES,
+  DATA_QUALITY_LEVELS, CONGESTION_LEVELS, TRAFFIC_INTENSITY_LEVELS,
+  DAY_PERIODS, WORKDAY_TYPES
+} = require('../../src/constants');
 const {
   RejectionTracker,
   formatDuration,
@@ -213,9 +217,13 @@ function validateAndTransformRow(row, rowIndex) {
   }
 
   // Parsear métricas (valores negativos indican ausencia de datos)
-  const intensidad = parseInt(row.intensidad) || -1;
-  const ocupacion = parseInt(row.ocupacion) || -1;
-  const carga = parseInt(row.carga) || -1;
+  // Usar isNaN en lugar de || para preservar valores validos de 0
+  const rawIntensidad = parseInt(row.intensidad);
+  const intensidad = isNaN(rawIntensidad) ? -1 : rawIntensidad;
+  const rawOcupacion = parseInt(row.ocupacion);
+  const ocupacion = isNaN(rawOcupacion) ? -1 : rawOcupacion;
+  const rawCarga = parseInt(row.carga);
+  const carga = isNaN(rawCarga) ? -1 : rawCarga;
   const velocidadMedia = row.vmed ? parseInt(row.vmed) : (tipoElemento === TRAFFIC_ELEMENT_TYPES.M30 ? -1 : null);
 
   // Datos de calidad
@@ -224,6 +232,74 @@ function validateAndTransformRow(row, rowIndex) {
     ? errorCode
     : TRAFFIC_ERROR_CODES.NO_ERROR;
   const periodoIntegracion = parseInt(row.periodo_integracion) || 0;
+
+  // Calcular campos de analisis derivados
+  // Calidad general basada en error code y periodo de integracion
+  let calidadGeneral;
+  if (error === TRAFFIC_ERROR_CODES.NO_ERROR && periodoIntegracion >= 3) {
+    calidadGeneral = DATA_QUALITY_LEVELS.ALTA;
+  } else if (error === TRAFFIC_ERROR_CODES.NO_ERROR) {
+    calidadGeneral = DATA_QUALITY_LEVELS.MEDIA;
+  } else if (error === TRAFFIC_ERROR_CODES.SIN_DATOS) {
+    calidadGeneral = DATA_QUALITY_LEVELS.SIN_DATOS;
+  } else {
+    calidadGeneral = DATA_QUALITY_LEVELS.BAJA;
+  }
+
+  // Nivel de congestion basado en ocupacion
+  let nivelCongestion;
+  if (ocupacion < 0 || carga < 0) {
+    nivelCongestion = CONGESTION_LEVELS.SIN_DATOS;
+  } else if (ocupacion >= 80 || carga >= 90) {
+    nivelCongestion = CONGESTION_LEVELS.COLAPSADO;
+  } else if (ocupacion >= 60 || carga >= 70) {
+    nivelCongestion = CONGESTION_LEVELS.CONGESTIONADO;
+  } else if (ocupacion >= 30 || carga >= 40) {
+    nivelCongestion = CONGESTION_LEVELS.DENSO;
+  } else {
+    nivelCongestion = CONGESTION_LEVELS.FLUIDO;
+  }
+
+  // Clasificacion por intensidad
+  let clasificacionIntensidad;
+  if (intensidad < 0) {
+    clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.SIN_DATOS;
+  } else if (intensidad >= 3000) {
+    clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.MUY_ALTA;
+  } else if (intensidad >= 2000) {
+    clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.ALTA;
+  } else if (intensidad >= 1000) {
+    clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.MEDIA;
+  } else if (intensidad >= 300) {
+    clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.BAJA;
+  } else {
+    clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.MUY_BAJA;
+  }
+
+  // Periodo del dia basado en hora
+  let periodoDia;
+  if (hora >= 0 && hora < 7) {
+    periodoDia = DAY_PERIODS.MADRUGADA;
+  } else if (hora >= 7 && hora < 12) {
+    periodoDia = DAY_PERIODS.MAÑANA;
+  } else if (hora >= 12 && hora < 15) {
+    periodoDia = DAY_PERIODS.MEDIODIA;
+  } else if (hora >= 15 && hora < 21) {
+    periodoDia = DAY_PERIODS.TARDE;
+  } else {
+    periodoDia = DAY_PERIODS.NOCHE;
+  }
+
+  // Tipo de jornada basado en dia de la semana
+  const dayOfWeek = fecha.getDay(); // 0=domingo, 6=sabado
+  let tipoJornada;
+  if (dayOfWeek === 0) {
+    tipoJornada = WORKDAY_TYPES.DOMINGO_FESTIVO;
+  } else if (dayOfWeek === 6) {
+    tipoJornada = WORKDAY_TYPES.SABADO;
+  } else {
+    tipoJornada = WORKDAY_TYPES.LABORABLE;
+  }
 
   // Construir objeto de datos
   return {
@@ -243,7 +319,14 @@ function validateAndTransformRow(row, rowIndex) {
     },
     calidadDatos: {
       error,
-      periodoIntegracion
+      periodoIntegracion,
+      calidadGeneral
+    },
+    analisis: {
+      nivelCongestion,
+      clasificacionIntensidad,
+      periodoDia,
+      tipoJornada
     },
     procesamiento: {
       archivoOrigen: currentFile,

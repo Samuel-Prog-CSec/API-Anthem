@@ -13,7 +13,7 @@
 
 const Location = require('../models/Ubicacion');
 const Fine = require('../models/Fine');
-const Traffic = require('../models/Traffic');
+const Traffic = require('../models/Trafico');
 const AirQuality = require('../models/CalidadAire');
 const Census = require('../models/Census');
 const AsignacionPatinetes = require('../models/AsignacionPatinetes');

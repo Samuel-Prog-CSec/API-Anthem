@@ -2,9 +2,9 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { query, param } = require('express-validator');
 const {
-  getLocations,
-  getMeasurementPoints,
-  getTransportRoutes
+  obtenerUbicaciones,
+  obtenerPuntosMedicion,
+  obtenerRutasTransporte
 } = require('../controllers/controladorUbicaciones');
 
 const {
@@ -85,7 +85,7 @@ router.get('/',
       .withMessage('Proximidad debe tener formato: longitude,latitude,radio_metros (coordenadas GeoJSON WGS84)')
   ],
   validateRequest,
-  getLocations
+  obtenerUbicaciones
 );
 
 /**
@@ -103,7 +103,7 @@ router.get('/puntos-medicion/:measurementType',
       .withMessage('Tipo de medición debe ser: acustica, trafico')
   ],
   validateRequest,
-  getMeasurementPoints
+  obtenerPuntosMedicion
 );
 
 /**
@@ -121,7 +121,7 @@ router.get('/transporte/:transportType',
       .withMessage(`Tipo de transporte no valido. Valores permitidos: todos, cercanias, autobus, interurbano, metro, metro_ligero, taxi`)
   ],
   validateRequest,
-  getTransportRoutes
+  obtenerRutasTransporte
 );
 
 module.exports = router;

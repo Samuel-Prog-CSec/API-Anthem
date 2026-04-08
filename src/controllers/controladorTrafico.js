@@ -4,7 +4,7 @@
  * Gestiona las operaciones CRUD y consultas especializadas para datos de tráfico.
  */
 
-const Traffic = require('../models/Traffic');
+const Traffic = require('../models/Trafico');
 const Location = require('../models/Ubicacion');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
@@ -17,7 +17,7 @@ const logger = require('../config/logger');
  * Obtener todas las mediciones de tráfico con filtros avanzados
  * GET /api/traffic
  */
-const getAllTrafficData = async (req, res, next) => {
+const obtenerDatosTrafico = async (req, res, next) => {
   try {
     logger.debug({
       query: req.query,
@@ -78,7 +78,6 @@ const getAllTrafficData = async (req, res, next) => {
       'metricas.ocupacion': 1,
       'metricas.carga': 1,
       'calidadDatos.calidadGeneral': 1,
-      'calidadDatos.porcentajeValido': 1,
       'analisis.nivelCongestion': 1,
       'analisis.clasificacionIntensidad': 1
     };
@@ -192,7 +191,7 @@ const getAllTrafficData = async (req, res, next) => {
  * Obtener datos de un punto de medida específico
  * GET /api/traffic/punto/:id
  */
-const getTrafficByPoint = async (req, res, next) => {
+const obtenerTraficoPorPunto = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -297,7 +296,7 @@ const getTrafficByPoint = async (req, res, next) => {
  * Obtener estadísticas generales de tráfico
  * GET /api/traffic/stats
  */
-const getTrafficStats = async (req, res, next) => {
+const obtenerEstadisticasTrafico = async (req, res, next) => {
   try {
     const { tipoElemento: _tipoElemento } = req.query;
 
@@ -341,7 +340,7 @@ const getTrafficStats = async (req, res, next) => {
  * Obtener análisis de congestión por zonas
  * GET /api/traffic/congestion-analysis
  */
-const getCongestionAnalysis = async (req, res, next) => {
+const obtenerAnalisisCongestion = async (req, res, next) => {
   try {
     const { groupBy = 'distrito' } = req.query;
 
@@ -352,7 +351,7 @@ const getCongestionAnalysis = async (req, res, next) => {
     const filters = buildFilters(req.query, filterConfig);
 
     // Llamar al método optimizado del modelo
-    const analysis = await Traffic.getCongestionAnalysisOptimized(filters, groupBy);
+    const analysis = await Traffic.obtenerAnalisisCongestionOptimized(filters, groupBy);
 
     const responseData = {
       data: {
@@ -383,7 +382,7 @@ const getCongestionAnalysis = async (req, res, next) => {
  * Obtener datos históricos para gráficos (agregados por periodo)
  * GET /api/traffic/historical
  */
-const getHistoricalData = async (req, res, next) => {
+const obtenerDatosHistoricos = async (req, res, next) => {
   try {
     const {
       aggregation = 'hour', // hour, day, week, month
@@ -400,7 +399,7 @@ const getHistoricalData = async (req, res, next) => {
     const filters = buildFilters(req.query, filterConfig);
 
     // Llamar al método optimizado del modelo
-    const historicalData = await Traffic.getHistoricalDataOptimized(filters, aggregation);
+    const historicalData = await Traffic.obtenerDatosHistoricosOptimized(filters, aggregation);
 
     const responseData = {
       data: {
@@ -431,10 +430,10 @@ const getHistoricalData = async (req, res, next) => {
 };
 
 module.exports = {
-  getAllTrafficData,
-  getTrafficByPoint,
-  getTrafficStats,
-  getCongestionAnalysis,
-  getHistoricalData
+  obtenerDatosTrafico,
+  obtenerTraficoPorPunto,
+  obtenerEstadisticasTrafico,
+  obtenerAnalisisCongestion,
+  obtenerDatosHistoricos
 };
 

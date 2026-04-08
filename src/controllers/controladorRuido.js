@@ -6,7 +6,7 @@
  */
 
 const NoiseMonitoring = require('../models/Ruido');
-const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
+const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, buildResponseMetadata } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
@@ -17,7 +17,7 @@ const logger = require('../config/logger');
  * Obtener datos de contaminación acústica con filtros
  * GET /api/v1.0/noise-monitoring
  */
-const getNoiseMonitoringData = async (req, res, next) => {
+const obtenerDatosRuido = async (req, res, next) => {
   try {
     // Configuración de filtros usando queryHelper
     const filterConfig = [
@@ -125,7 +125,7 @@ const getNoiseMonitoringData = async (req, res, next) => {
  * Obtener estadísticas de contaminación acústica
  * GET /api/v1/noise-monitoring/statistics
  */
-const getNoiseStatistics = async (req, res, next) => {
+const obtenerEstadisticasRuido = async (req, res, next) => {
   try {
     const { groupBy = 'station' } = req.query;
 
@@ -174,7 +174,7 @@ const getNoiseStatistics = async (req, res, next) => {
  * Obtener ranking de estaciones por nivel de ruido
  * GET /api/v1/noise-monitoring/ranking
  */
-const getNoiseRanking = async (req, res, next) => {
+const obtenerRankingRuido = async (req, res, next) => {
   try {
     const { orderBy = 'laeq24' } = req.query;
 
@@ -232,7 +232,7 @@ const getNoiseRanking = async (req, res, next) => {
  * Análisis de cumplimiento normativo por zona
  * GET /api/v1/noise-monitoring/compliance/zone
  */
-const getComplianceByZone = async (req, res, next) => {
+const obtenerCumplimientoPorZona = async (req, res, next) => {
   try {
     const { startDate, endDate, threshold = NOISE_THRESHOLDS.DEFAULT, zoneType = ZONE_TYPES.MIXED } = req.query;
 
@@ -284,7 +284,7 @@ const obtenerTendenciasTemporales = async (req, res, next) => {
     logger.debug({ query: req.query, endpoint: 'GET /api/v1/ruido/tendencias/temporal' }, 'Obteniendo tendencias temporales');
 
     if (!startDate || !endDate) {
-      return next(createInternalError('Se requieren parametros startDate y endDate'));
+      return next(createBadRequestError('Se requieren parametros startDate y endDate'));
     }
 
     const options = {
@@ -315,10 +315,10 @@ const obtenerTendenciasTemporales = async (req, res, next) => {
 };
 
 module.exports = {
-  getNoiseMonitoringData,
-  getNoiseStatistics,
-  getNoiseRanking,
-  getComplianceByZone,
+  obtenerDatosRuido,
+  obtenerEstadisticasRuido,
+  obtenerRankingRuido,
+  obtenerCumplimientoPorZona,
   obtenerTendenciasTemporales
 };
 

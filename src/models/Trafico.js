@@ -350,7 +350,7 @@ trafficSchema.index({ 'analisis.periodoDia': 1, tipoElemento: 1 }, {
 // ========================================
 
 // Índice compuesto para análisis de patrones de tráfico
-// Usado en: Traffic.getCongestionAnalysisOptimized() - Agregaciones complejas
+// Usado en: Traffic.obtenerAnalisisCongestionOptimizado() - Agregaciones complejas
 // Soporta: $group por tipoElemento + periodoDia + tipoJornada
 trafficSchema.index({
   tipoElemento: 1,
@@ -523,7 +523,7 @@ trafficSchema.pre('save', function(next) {
  * @param {string} groupBy - Criterio de agrupación ('distrito' o 'tipoElemento')
  * @returns {Promise<Array>} Análisis de congestión por zona
  */
-trafficSchema.statics.getCongestionAnalysisOptimized = async function(filters = {}, groupBy = 'distrito') {
+trafficSchema.statics.obtenerAnalisisCongestionOptimizado = async function(filters = {}, groupBy = 'distrito') {
   const pipeline = [
     { $match: filters }
   ];
@@ -655,7 +655,7 @@ trafficSchema.statics.getCongestionAnalysisOptimized = async function(filters = 
  * @returns {Promise<Array>} Datos históricos agregados
  */
 // eslint-disable-next-line max-lines-per-function
-trafficSchema.statics.getHistoricalDataOptimized = async function(filters = {}, aggregation = 'hour') {
+trafficSchema.statics.obtenerDatosHistoricosOptimizado = async function(filters = {}, aggregation = 'hour') {
   // Configurar agrupación temporal según el tipo
   let dateGrouping;
   let sortFields;

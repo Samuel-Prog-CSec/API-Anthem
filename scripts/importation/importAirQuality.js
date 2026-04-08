@@ -225,6 +225,25 @@ function parseAirQualityRow(row, _sourceFile, _rowIndex) {
   // Calcular score de calidad de datos
   const dataQualityScore = validMeasurements / 24;
 
+  // Calcular estadisticas de mediciones validas (averageValue, maxValue, minValue)
+  let averageValue = null;
+  let maxValue = null;
+  let minValue = null;
+
+  if (validMeasurements > 0) {
+    const validValues = [];
+    for (const [, measurement] of medicionesHorarias) {
+      if (measurement.validationCode === VALIDATION_CODES.VALID && measurement.value !== null) {
+        validValues.push(measurement.value);
+      }
+    }
+    if (validValues.length > 0) {
+      averageValue = validValues.reduce((sum, v) => sum + v, 0) / validValues.length;
+      maxValue = Math.max(...validValues);
+      minValue = Math.min(...validValues);
+    }
+  }
+
   return {
     provincia,
     municipio,
@@ -236,7 +255,10 @@ function parseAirQualityRow(row, _sourceFile, _rowIndex) {
     processingMetadata: {
       importedAt: new Date(),
       validMeasurements,
-      dataQualityScore
+      dataQualityScore,
+      averageValue,
+      maxValue,
+      minValue
     }
   };
 }

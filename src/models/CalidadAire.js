@@ -138,6 +138,18 @@ const airQualitySchema = new mongoose.Schema({
     dataQualityScore: {
       type: Number,
       default: 0
+    },
+    averageValue: {
+      type: Number,
+      default: null
+    },
+    maxValue: {
+      type: Number,
+      default: null
+    },
+    minValue: {
+      type: Number,
+      default: null
     }
   }
 

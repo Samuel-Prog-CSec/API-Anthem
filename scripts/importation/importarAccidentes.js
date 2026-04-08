@@ -17,7 +17,7 @@ const mongoose = require('mongoose');
 
 // Importar modelos, configuración y utilidades
 const Accidente = require('../../src/models/Accidente');
-const connectDB = require('../../src/config/database');
+const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
 const { importAccidentsLogger: logger } = require('../../src/config/scriptLogger');
 const {
@@ -583,17 +583,20 @@ function validarYTransformarFila(row, rowIndex) {
   const fechaStr = row['fecha']?.toString().trim();
   const fecha = parsearFecha(fechaStr, rowIndex);
 
-  // Parsear hora
-  const hora = row['hora']?.toString().trim();
-  if (!hora || !/^\d{1,2}:\d{2}:\d{2}$/.test(hora)) {
+  // Parsear hora (CSV tiene formato H:MM:SS o HH:MM:SS, modelo espera HH:MM)
+  const horaRaw = row['hora']?.toString().trim();
+  if (!horaRaw || !/^\d{1,2}:\d{2}(:\d{2})?$/.test(horaRaw)) {
     rejectionTracker.track(REJECTION_REASONS.HORA_FORMATO_INVALIDO);
     logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.HORA_FORMATO_INVALIDO,
-      datosOriginales: { hora, formatoEsperado: 'HH:MM:SS' }
+      datosOriginales: { hora: horaRaw, formatoEsperado: 'H:MM:SS o HH:MM:SS' }
     }, 'Fila rechazada: formato de hora invalido');
     throw new Error(REJECTION_REASONS.HORA_FORMATO_INVALIDO);
   }
+  // Convertir a formato HH:MM (sin segundos, con padding)
+  const partes = horaRaw.split(':');
+  const hora = partes[0].padStart(2, '0') + ':' + partes[1];
 
   // Datos de ubicacion
   const calle = row['localizacion']?.toString().trim();
@@ -805,6 +808,7 @@ async function procesarLote(batch) {
 async function procesarArchivoAccidentes() {
   return new Promise((resolve, reject) => {
     const batch = [];
+    const pendingBatches = [];
     let rowCount = 0;
     let processedCount = 0;
     let errorCount = 0;
@@ -839,7 +843,7 @@ async function procesarArchivoAccidentes() {
           // Procesar lote cuando alcance el tamaño configurado
           if (batch.length >= BATCH_SIZE) {
             stream.pause();
-            procesarLote(batch.splice(0))
+            const batchPromise = procesarLote(batch.splice(0))
               .then(() => {
                 if (!isShuttingDown) {
                   stream.resume();
@@ -851,6 +855,7 @@ async function procesarArchivoAccidentes() {
                   stream.resume();
                 }
               });
+            pendingBatches.push(batchPromise);
           }
 
           // Mostrar progreso
@@ -870,6 +875,11 @@ async function procesarArchivoAccidentes() {
       })
       .on('end', async () => {
         try {
+          // Esperar a que todos los lotes pendientes terminen
+          if (pendingBatches.length > 0) {
+            await Promise.all(pendingBatches);
+          }
+
           // Procesar lote final
           if (batch.length > 0 && !isShuttingDown) {
             await procesarLote(batch);

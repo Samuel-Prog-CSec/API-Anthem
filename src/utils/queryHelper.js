@@ -136,8 +136,13 @@ const buildFilters = (queryParams, filterConfig) => {
       case 'regex': {
         const value = queryParams[param];
         if (value) {
+          // Limitar longitud de entrada para prevenir abuso de regex
+          const maxRegexLength = 200;
+          const truncatedValue = typeof value === 'string' && value.length > maxRegexLength
+            ? value.substring(0, maxRegexLength)
+            : value;
           // Sanitizar entrada de usuario para prevenir ataques ReDoS
-          const sanitizedValue = escapeRegex(value);
+          const sanitizedValue = escapeRegex(truncatedValue);
           filters[field] = new RegExp(sanitizedValue, 'i');
         }
         break;

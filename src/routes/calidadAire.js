@@ -28,9 +28,9 @@ const {
 
 // Controladores
 const {
-  getAirQualityData,
-  getAirQualityStatistics,
-  getAirQualityTrends
+  obtenerDatosCalidadAire,
+  obtenerEstadisticasCalidadAire,
+  obtenerTendenciasCalidadAire
 } = require('../controllers/controladorCalidadAire');
 
 const router = express.Router();
@@ -191,7 +191,7 @@ router.get('/',
   airQualityQueryValidation,
   validateRequest,
   cacheMiddleware('airQuality'), // Cache por 30 minutos (calidad de aire)
-  getAirQualityData
+  obtenerDatosCalidadAire
 );
 
 /**
@@ -205,7 +205,7 @@ router.get('/estadisticas',
   statisticsValidation,
   validateRequest,
   cacheMiddleware('airQuality'), // Cache por 30 minutos
-  getAirQualityStatistics
+  obtenerEstadisticasCalidadAire
 );
 
 /**
@@ -225,7 +225,7 @@ router.get('/tendencias',
   ],
   validateRequest,
   cacheMiddleware('airQuality'), // Cache por 30 minutos
-  getAirQualityTrends
+  obtenerTendenciasCalidadAire
 );
 
 module.exports = router;
