@@ -660,12 +660,65 @@ const getDemographicDashboard = async (req, res, next) => {
   }
 };
 
+/**
+ * Obtener resumen ligero de distritos con poblacion total
+ * GET /api/v1/censo/distritos/resumen
+ *
+ * Endpoint ligero disenado para ser consumido por otras paginas del frontend
+ * que necesitan calcular metricas per capita (ej: multas por habitante).
+ * Devuelve solo codigo, nombre y poblacion total por distrito.
+ */
+const obtenerResumenDistritos = async (req, res, next) => {
+  try {
+    const { año = DATASET_YEARS.DEFAULT_YEAR, mes } = req.query;
+
+    // Filtro temporal
+    const matchFilter = { año: parseInt(año, 10) };
+    if (mes) {
+      matchFilter.mes = parseInt(mes, 10);
+    }
+
+    const resumen = await Census.aggregate([
+      { $match: matchFilter },
+      {
+        $group: {
+          _id: '$distrito.codigo',
+          nombre: { $first: '$distrito.descripcion' },
+          totalPoblacion: { $sum: '$estadisticas.totalPoblacion' }
+        }
+      },
+      { $sort: { _id: 1 } },
+      {
+        $project: {
+          _id: 0,
+          codigo: '$_id',
+          nombre: 1,
+          totalPoblacion: 1
+        }
+      }
+    ]).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATION);
+
+    return createResponse(res, HTTP_STATUS.OK, 'Resumen de distritos obtenido correctamente', {
+      data: resumen,
+      totalDistritos: resumen.length,
+      filtros: { año: parseInt(año, 10), mes: mes ? parseInt(mes, 10) : null }
+    });
+  } catch (error) {
+    logger.error({
+      error: error.message,
+      stack: error.stack
+    }, 'Error obteniendo resumen de distritos');
+    next(createInternalError('Error al obtener resumen de distritos', error));
+  }
+};
+
 module.exports = {
   getCensusData,
   getPopulationPyramid,
   getDistrictStatistics,
   getDemographicAnalysis,
   getDemographicEvolution,
-  getDemographicDashboard
+  getDemographicDashboard,
+  obtenerResumenDistritos
 };
 

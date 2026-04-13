@@ -14,7 +14,8 @@ const {
   getDistrictStatistics,
   getDemographicAnalysis,
   getDemographicEvolution,
-  getDemographicDashboard
+  getDemographicDashboard,
+  obtenerResumenDistritos
 } = require('../controllers/censusController');
 
 const {
@@ -412,6 +413,36 @@ router.get('/dashboard',
 
   // Controlador
   getDemographicDashboard
+);
+
+/**
+ * GET /api/v1/censo/distritos/resumen
+ * Resumen ligero de distritos con poblacion total.
+ * Disenado para metricas cruzadas (per capita) desde otras paginas.
+ */
+router.get('/distritos/resumen',
+  authenticate,
+
+  query('año')
+    .optional()
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX })
+    .withMessage(`Año debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX}`)
+    .toInt(),
+
+  query('mes')
+    .optional()
+    .isInt({ min: ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MIN, max: ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MAX })
+    .withMessage(`Mes debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MAX}`)
+    .toInt(),
+
+  validateRequest,
+
+  // Cache largo (1h) - datos muy estables
+  cacheMiddleware('demographic', (req) =>
+    `census:distritos:resumen:${req.query.año || 'default'}:${req.query.mes || 'all'}`
+  ),
+
+  obtenerResumenDistritos
 );
 
 module.exports = router;

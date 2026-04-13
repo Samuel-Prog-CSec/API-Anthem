@@ -195,7 +195,7 @@ function parsearFecha(dateStr) {
     throw new Error(`${REJECTION_REASONS.MONTH_OUT_OF_RANGE}: mes=${month + 1}`);
   }
   if (year < DATASET_YEARS.MIN_YEAR || year > DATASET_YEARS.MAX_YEAR) {
-    throw new Error(`${REJECTION_REASONS.YEAR_OUT_OF_RANGE}: ano=${year}, rango=[${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR}]`);
+    throw new Error(`${REJECTION_REASONS.YEAR_OUT_OF_RANGE}: año=${year}, rango=[${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR}]`);
   }
 
   const date = new Date(year, month, day);
@@ -293,7 +293,7 @@ function validarYTransformarFila(row, rowIndex) {
 
   // Campos calculados
   const franjaHoraria = getFranjaHoraria(hora);
-  const ano = fecha.getFullYear();
+  const año = fecha.getFullYear();
   const mes = fecha.getMonth() + 1;
   const diaSemana = fecha.getDay();
 
@@ -315,7 +315,7 @@ function validarYTransformarFila(row, rowIndex) {
       }
     },
     franjaHoraria,
-    ano,
+    año,
     mes,
     diaSemana,
     procesamiento: {

@@ -18,7 +18,17 @@ const config = require('../../src/config/config');
 const Census = require('../../src/models/Census');
 const { importCensusLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
-const { VALIDATION_LIMITS, DEFAULT_VALUES } = require('../../src/constants');
+const {
+  VALIDATION_LIMITS,
+  DEFAULT_VALUES,
+  AGE_GROUPS,
+  AGE_RANGES,
+  WORKING_AGE,
+  ELDERLY_AGE,
+  CULTURAL_DIVERSITY_LEVELS,
+  CULTURAL_DIVERSITY_THRESHOLDS,
+  CENSUS_FIELD_TYPES
+} = require('../../src/constants');
 const {
   extractDateFromFileName,
   RejectionTracker,
@@ -76,6 +86,120 @@ let isShuttingDown = false;
 const rejectionTracker = new RejectionTracker();
 
 // ============================================================================
+// FUNCIONES DE CALCULO DE CAMPOS DERIVADOS
+// ============================================================================
+
+/**
+ * Calcular estadisticas poblacionales a partir de los datos brutos.
+ * Replica la logica del hook pre('save') del modelo Census, ya que
+ * bulkWrite NO ejecuta middleware de Mongoose.
+ *
+ * @param {Object} poblacion - Datos de poblacion (españoles/extranjeros por genero)
+ * @returns {Object} - Estadisticas calculadas
+ */
+function calcularEstadisticas(poblacion) {
+  const totalEspañoles = poblacion.españoles.hombres + poblacion.españoles.mujeres;
+  const totalExtranjeros = poblacion.extranjeros.hombres + poblacion.extranjeros.mujeres;
+  const totalHombres = poblacion.españoles.hombres + poblacion.extranjeros.hombres;
+  const totalMujeres = poblacion.españoles.mujeres + poblacion.extranjeros.mujeres;
+  const totalPoblacion = totalEspañoles + totalExtranjeros;
+
+  const porcentajeExtranjeros = totalPoblacion > 0
+    ? (totalExtranjeros / totalPoblacion) * 100
+    : 0;
+
+  const ratioGenero = totalMujeres > 0
+    ? totalHombres / totalMujeres
+    : 0;
+
+  return {
+    totalEspañoles,
+    totalExtranjeros,
+    totalHombres,
+    totalMujeres,
+    totalPoblacion,
+    porcentajeExtranjeros,
+    ratioGenero
+  };
+}
+
+/**
+ * Clasificar grupo de edad segun los rangos definidos en constantes.
+ * Replica la logica de censusSchema.methods.classifyAgeGroup().
+ *
+ * @param {number} edad - Edad del individuo
+ * @returns {Object} - Clasificacion de edad
+ */
+function clasificarGrupoEdad(edad) {
+  let grupoEdad;
+  if (edad <= AGE_RANGES.INFANTIL.max) {
+    grupoEdad = AGE_GROUPS.INFANTIL;
+  } else if (edad <= AGE_RANGES.JUVENIL.max) {
+    grupoEdad = AGE_GROUPS.JUVENIL;
+  } else if (edad <= AGE_RANGES.ADULTO_JOVEN.max) {
+    grupoEdad = AGE_GROUPS.ADULTO_JOVEN;
+  } else if (edad <= AGE_RANGES.ADULTO.max) {
+    grupoEdad = AGE_GROUPS.ADULTO;
+  } else if (edad <= AGE_RANGES.MAYOR.max) {
+    grupoEdad = AGE_GROUPS.MAYOR;
+  } else {
+    grupoEdad = AGE_GROUPS.ANCIANO;
+  }
+
+  return {
+    grupoEdad,
+    esGrupoProductivo: edad >= WORKING_AGE.min && edad <= WORKING_AGE.max,
+    esTerceraEdad: edad >= ELDERLY_AGE.min
+  };
+}
+
+/**
+ * Evaluar calidad de datos y calcular metadatos.
+ * Replica la logica de censusSchema.methods.evaluateDataQuality().
+ *
+ * @param {Object} datos - Datos del registro censal
+ * @param {Object} estadisticas - Estadisticas calculadas
+ * @returns {Object} - Metadatos calculados
+ */
+function calcularMetadatos(datos, estadisticas) {
+  const camposFaltantes = [];
+  let camposValidos = 0;
+  const totalCampos = 5;
+
+  if (datos.distrito.codigo && datos.distrito.descripcion) {camposValidos++;}
+  else {camposFaltantes.push(CENSUS_FIELD_TYPES.UBICACION);}
+
+  if (datos.barrio.codigo && datos.barrio.descripcion) {camposValidos++;}
+  else {camposFaltantes.push(CENSUS_FIELD_TYPES.UBICACION);}
+
+  if (datos.edad >= 0) {camposValidos++;}
+  else {camposFaltantes.push(CENSUS_FIELD_TYPES.EDAD);}
+
+  if (estadisticas.totalPoblacion > 0) {camposValidos++;}
+  else {camposFaltantes.push(CENSUS_FIELD_TYPES.POBLACION);}
+
+  if (datos.seccionCensal.codigo) {camposValidos++;}
+
+  let diversidadCultural;
+  if (estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.HIGH) {
+    diversidadCultural = CULTURAL_DIVERSITY_LEVELS.ALTA;
+  } else if (estadisticas.porcentajeExtranjeros > CULTURAL_DIVERSITY_THRESHOLDS.MEDIUM) {
+    diversidadCultural = CULTURAL_DIVERSITY_LEVELS.MEDIA;
+  } else {
+    diversidadCultural = CULTURAL_DIVERSITY_LEVELS.BAJA;
+  }
+
+  return {
+    diversidadCultural,
+    calidadDatos: {
+      esCompleto: camposFaltantes.length === 0,
+      camposFaltantes,
+      puntuacionCalidad: camposValidos / totalCampos
+    }
+  };
+}
+
+// ============================================================================
 // FUNCIONES DE PARSEO
 // ============================================================================
 
@@ -83,7 +207,7 @@ const rejectionTracker = new RejectionTracker();
  * Parsear datos de una fila CSV de censo
  * @param {Object} row - Fila del CSV
  * @param {string} sourceFile - Archivo origen
- * @param {number} rowIndex - Índice de fila para logging
+ * @param {number} rowIndex - Indice de fila para logging
  * @returns {Object|null} - Datos procesados para el censo o null si se rechaza
  */
 function parseCensusRow(row, sourceFile, rowIndex) {
@@ -197,6 +321,13 @@ function parseCensusRow(row, sourceFile, rowIndex) {
       versionDatos: '1.0'
     }
   };
+
+  // Calcular campos derivados que el pre-save hook normalmente computa,
+  // pero que bulkWrite omite al no ejecutar middleware de Mongoose
+  const estadisticas = calcularEstadisticas(censusData.poblacion);
+  censusData.estadisticas = estadisticas;
+  censusData.clasificacionEdad = clasificarGrupoEdad(edad);
+  censusData.metadatos = calcularMetadatos(censusData, estadisticas);
 
   return censusData;
 }

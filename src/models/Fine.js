@@ -397,14 +397,14 @@ fineSchema.index({
   denunciante: 'text'
 });
 
-// Índice cubierto para listados frecuentes (evita fetch de documento completo)
+// Indice cubierto para listados frecuentes (evita fetch de documento completo)
 fineSchema.index({
   fecha: -1,
   calificacion: 1,
   importeFinal: -1,
-  'ubicacion.distrito': 1
+  lugar: 1
 }, {
-  name: 'idx_fines_list_cover',
+  name: 'idx_multas_listado_cobertura',
   background: true
 });
 

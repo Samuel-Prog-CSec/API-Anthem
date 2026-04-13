@@ -75,20 +75,20 @@ const getFines = async (req, res, next) => {
       'desc'
     );
 
-    // Proyección optimizada: seleccionar solo campos necesarios
+    // Proyeccion optimizada: seleccionar solo campos necesarios
     const projection = {
-      numeroExpediente: 1,
       fecha: 1,
       hora: 1,
-      tipoInfraccion: 1,
+      lugar: 1,
       calificacion: 1,
-      importeInicial: 1,
+      importeBoletín: 1,
       importeFinal: 1,
       puntosDetraídos: 1,
       tieneDescuento: 1,
-      'ubicacion.distrito': 1,
-      'ubicacion.nombreVia': 1,
-      'metadatos.esInfraccionGrave': 1
+      denunciante: 1,
+      'metadatos.tipoInfraccion': 1,
+      'metadatos.esInfraccionGrave': 1,
+      'metadatos.esInfraccionVelocidad': 1
     };
 
     // Incluir coordenadas si se solicita

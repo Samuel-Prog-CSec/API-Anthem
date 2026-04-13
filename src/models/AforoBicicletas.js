@@ -106,14 +106,14 @@ const bikeTrafficCountSchema = new mongoose.Schema({
     index: true
   },
 
-  ano: {
+  año: {
     type: Number,
-    min: [DATASET_YEARS.VALIDATION_MIN, `Ano debe ser ${DATASET_YEARS.VALIDATION_MIN} o posterior`],
+    min: [DATASET_YEARS.VALIDATION_MIN, `Año debe ser ${DATASET_YEARS.VALIDATION_MIN} o posterior`],
     validate: {
       validator: function(value) {
         return value >= DATASET_YEARS.VALIDATION_MIN && value <= DATASET_YEARS.VALIDATION_MAX;
       },
-      message: `Ano debe estar entre ${DATASET_YEARS.VALIDATION_MIN} y ${DATASET_YEARS.VALIDATION_MAX}`
+      message: `Año debe estar entre ${DATASET_YEARS.VALIDATION_MIN} y ${DATASET_YEARS.VALIDATION_MAX}`
     }
   },
 
@@ -342,7 +342,7 @@ bikeTrafficCountSchema.statics.obtenerTendenciasDiarias = function(filters = {})
     {
       $group: {
         _id: {
-          ano: { $year: '$fecha' },
+          año: { $year: '$fecha' },
           mes: { $month: '$fecha' },
           dia: { $dayOfMonth: '$fecha' }
         },
@@ -360,7 +360,7 @@ bikeTrafficCountSchema.statics.obtenerTendenciasDiarias = function(filters = {})
         totalMediciones: 1
       }
     },
-    { $sort: { 'fecha.ano': 1, 'fecha.mes': 1, 'fecha.dia': 1 } }
+    { $sort: { 'fecha.año': 1, 'fecha.mes': 1, 'fecha.dia': 1 } }
   );
 
   return this.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });

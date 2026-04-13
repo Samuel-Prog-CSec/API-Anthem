@@ -18,7 +18,8 @@ const config = require('../../src/config/config');
 const Fine = require('../../src/models/Fine');
 const { importFinesLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
-const { VALIDATION_LIMITS, SEVERITY_LEVELS } = require('../../src/constants');
+const iconv = require('iconv-lite');
+const { VALIDATION_LIMITS, SEVERITY_LEVELS, INFRACTION_TYPES, FINE_CONFIG } = require('../../src/constants');
 const {
   extractDateFromFileName,
   RejectionTracker,
@@ -79,6 +80,45 @@ let isShuttingDown = false;
 
 // Tracker de rechazos por tipo
 const rejectionTracker = new RejectionTracker();
+
+// ============================================================================
+// FUNCIONES DE CALCULO DE CAMPOS DERIVADOS
+// ============================================================================
+
+/**
+ * Calcular campos derivados de una multa.
+ * Replica la logica del hook pre('save') del modelo Fine, ya que
+ * bulkWrite NO ejecuta middleware de Mongoose.
+ *
+ * @param {Object} multa - Datos de la multa
+ * @returns {Object} - Multa con campos derivados calculados
+ */
+function calcularCamposDerivadosMulta(multa) {
+  // Calcular importe final con descuento
+  if (multa.tieneDescuento && multa.importeBoletín) {
+    multa.importeFinal = multa.importeBoletín * FINE_CONFIG.DISCOUNT_RATE;
+  } else {
+    multa.importeFinal = multa.importeBoletín;
+  }
+
+  // Calcular exceso de velocidad si aplica
+  const vel = multa.datosVelocidad;
+  if (vel && vel.velocidadLimite && vel.velocidadCirculacion) {
+    vel.exceso = Math.max(0, vel.velocidadCirculacion - vel.velocidadLimite);
+  }
+
+  // Inicializar metadatos
+  const esVelocidad = vel && vel.velocidadLimite && vel.velocidadCirculacion;
+  multa.metadatos = {
+    tipoInfraccion: esVelocidad ? INFRACTION_TYPES.VELOCIDAD : INFRACTION_TYPES.OTRAS,
+    esInfraccionGrave: multa.calificacion === SEVERITY_LEVELS.FINE.GRAVE ||
+                       multa.calificacion === SEVERITY_LEVELS.FINE.MUY_GRAVE,
+    esInfraccionVelocidad: Boolean(esVelocidad),
+    zonaUrbana: true
+  };
+
+  return multa;
+}
 
 // ============================================================================
 // FUNCIONES DE PARSEO
@@ -241,6 +281,10 @@ function parseMultaRow(row, sourceFile, rowIndex) {
     }
   };
 
+  // Calcular campos derivados que el pre-save hook normalmente computa,
+  // pero que bulkWrite omite al no ejecutar middleware de Mongoose
+  calcularCamposDerivadosMulta(multa);
+
   return multa;
 }
 
@@ -275,6 +319,7 @@ async function processMultasFile(filePath, options = {}) {
     let isProcessingBatch = false;
 
     const stream = createReadStream(filePath)
+      .pipe(iconv.decodeStream('latin1'))
       .pipe(csv({ separator: ';' }))
       .on('data', async (row) => {
         if (isShuttingDown || isProcessingBatch) {
