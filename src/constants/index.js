@@ -516,7 +516,7 @@ const TIME_PERIODS = {
  * Días de la semana
  * Usado para mapear índices de día (0-6) a nombres
  */
-const _DAYS_OF_WEEK = [
+const DAYS_OF_WEEK = [
   'Domingo',
   'Lunes',
   'Martes',
@@ -1343,6 +1343,7 @@ module.exports = {
   DEFAULT_VALUES,
 
   // Accidentes
+  DAYS_OF_WEEK,
   TIPOS_ACCIDENTE,
   TIPOS_VEHICULO,
   TIPOS_PERSONA,

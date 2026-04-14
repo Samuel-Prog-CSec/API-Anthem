@@ -6,7 +6,7 @@
  * para el dashboard del frontend.
  */
 
-const Fine = require('../models/Fine');
+const Multa = require('../models/Multa');
 const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, buildResponseMetadata, executeFacetPagination } = require('../utils/queryHelper');
@@ -16,9 +16,9 @@ const logger = require('../config/logger');
 
 /**
  * Obtener multas con filtros avanzados
- * GET /api/v1/fines
+ * GET /api/v1/multas
  */
-const getFines = async (req, res, next) => {
+const obtenerMultas = async (req, res, next) => {
   try {
     // Extraer parámetros de consulta
     const {
@@ -70,7 +70,7 @@ const getFines = async (req, res, next) => {
     const sortOptions = buildSortOptions(
       { sortBy, sortOrder },
       sortMapping,
-      Object.keys(SORT_FIELDS.FINE),
+      SORT_FIELDS.FINE,
       'fecha',
       'desc'
     );
@@ -103,7 +103,7 @@ const getFines = async (req, res, next) => {
       fallback: fineFacetFallback,
       fallbackError: fineFacetError
     } = await executeFacetPagination({
-      model: Fine,
+      model: Multa,
       filters,
       sort: sortOptions,
       projection,
@@ -115,7 +115,7 @@ const getFines = async (req, res, next) => {
     const paginationMeta = createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalDocuments);
 
     // Obtener estadísticas rápidas del conjunto filtrado
-    const quickStatistics = await Fine.aggregate([
+    const quickStatistics = await Multa.aggregate([
       { $match: filters },
       // NO usar $limit antes de $group - corrompe las estadísticas globales
       {
@@ -164,7 +164,7 @@ const getFines = async (req, res, next) => {
       error: error.message,
       stack: error.stack,
       query: req.query,
-      endpoint: 'GET /api/v1/fines'
+      endpoint: 'GET /api/v1/multas'
     }, 'Error obteniendo multas');
     next(createInternalError('Error al obtener multas', error));
   }
@@ -172,13 +172,13 @@ const getFines = async (req, res, next) => {
 
 /**
  * Obtener multa por ID con detalles completos
- * GET /api/v1/fines/:id
+ * GET /api/v1/multas/:id
  */
-const getFineById = async (req, res, next) => {
+const obtenerMultaPorId = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const multa = await Fine.findById(id)
+    const multa = await Multa.findById(id)
       .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos
       .lean();
 
@@ -208,7 +208,7 @@ const getFineById = async (req, res, next) => {
       error: error.message,
       stack: error.stack,
       fineId: req.params.id,
-      endpoint: 'GET /api/v1/fines/:id'
+      endpoint: 'GET /api/v1/multas/:id'
     }, 'Error obteniendo detalles de multa');
     next(createInternalError('Error al obtener multa por ID', error));
   }
@@ -216,9 +216,9 @@ const getFineById = async (req, res, next) => {
 
 /**
  * Obtener estadísticas generales de multas
- * GET /api/v1/fines/statistics
+ * GET /api/v1/multas/estadisticas
  */
-const getFinesStatistics = async (req, res, next) => {
+const obtenerEstadisticasMultas = async (req, res, next) => {
   try {
     const {
       startDate,
@@ -234,7 +234,7 @@ const getFinesStatistics = async (req, res, next) => {
     );
 
     // Llamar al método optimizado del modelo
-    const result = await Fine.getStatisticsOptimized({
+    const result = await Multa.getStatisticsOptimized({
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
       groupBy,
@@ -258,7 +258,7 @@ const getFinesStatistics = async (req, res, next) => {
       error: error.message,
       stack: error.stack,
       query: req.query,
-      endpoint: 'GET /api/v1/fines/statistics'
+      endpoint: 'GET /api/v1/multas/estadisticas'
     }, 'Error obteniendo estadísticas de multas');
     next(createInternalError('Error al calcular estadísticas', error));
   }
@@ -266,9 +266,9 @@ const getFinesStatistics = async (req, res, next) => {
 
 /**
  * Obtener ranking de ubicaciones con más multas
- * GET /api/v1/fines/locations/ranking
+ * GET /api/v1/multas/ubicaciones/ranking
  */
-const getLocationsRanking = async (req, res, next) => {
+const obtenerRankingUbicaciones = async (req, res, next) => {
   try {
     const {
       startDate,
@@ -284,7 +284,7 @@ const getLocationsRanking = async (req, res, next) => {
     );
 
     // Llamar al método optimizado del modelo
-    const ranking = await Fine.getLocationRankingOptimized({
+    const ranking = await Multa.getLocationRankingOptimized({
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
       tipoInfraccion,
@@ -310,7 +310,7 @@ const getLocationsRanking = async (req, res, next) => {
       error: error.message,
       stack: error.stack,
       query: req.query,
-      endpoint: 'GET /api/v1/fines/ranking/locations'
+      endpoint: 'GET /api/v1/multas/ubicaciones/ranking'
     }, 'Error obteniendo ranking de ubicaciones');
     next(createInternalError('Error al obtener ranking', error));
   }
@@ -318,9 +318,9 @@ const getLocationsRanking = async (req, res, next) => {
 
 /**
  * Obtener análisis temporal de multas
- * GET /api/v1/fines/analysis/temporal
+ * GET /api/v1/multas/analisis/temporal
  */
-const getTemporalAnalysis = async (req, res, next) => {
+const obtenerAnalisisTemporal = async (req, res, next) => {
   try {
     const {
       startDate,
@@ -329,7 +329,7 @@ const getTemporalAnalysis = async (req, res, next) => {
     } = req.query;
 
     // Llamar al método optimizado del modelo
-    const result = await Fine.getTemporalAnalysisOptimized({
+    const result = await Multa.getTemporalAnalysisOptimized({
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
       tipoAnalisis
@@ -355,7 +355,7 @@ const getTemporalAnalysis = async (req, res, next) => {
       error: error.message,
       stack: error.stack,
       query: req.query,
-      endpoint: 'GET /api/v1/fines/temporal-analysis'
+      endpoint: 'GET /api/v1/multas/analisis/temporal'
     }, 'Error en análisis temporal de multas');
     next(createInternalError('Error en análisis temporal', error));
   }
@@ -363,9 +363,9 @@ const getTemporalAnalysis = async (req, res, next) => {
 
 /**
  * Obtener métricas del dashboard principal
- * GET /api/v1/fines/dashboard
+ * GET /api/v1/multas/dashboard
  */
-const getDashboardMetrics = async (req, res, next) => {
+const obtenerMetricasDashboard = async (req, res, next) => {
   try {
     const {
       periodo = '30days' // 7days, 30days, 90days, year
@@ -392,7 +392,7 @@ const getDashboardMetrics = async (req, res, next) => {
     }
 
     // Métricas generales del periodo
-    const [metricsGeneral] = await Fine.aggregate([
+    const [metricsGeneral] = await Multa.aggregate([
       {
         $match: {
           fecha: { $gte: fechaInicio, $lte: ahora }
@@ -421,7 +421,7 @@ const getDashboardMetrics = async (req, res, next) => {
       .exec();
 
     // Top 5 tipos de infracciones
-    const topInfracciones = await Fine.aggregate([
+    const topInfracciones = await Multa.aggregate([
       {
         $match: {
           fecha: { $gte: fechaInicio, $lte: ahora }
@@ -442,7 +442,7 @@ const getDashboardMetrics = async (req, res, next) => {
       .exec();
 
     // Evolución diaria del periodo
-    const evolucionDiaria = await Fine.aggregate([
+    const evolucionDiaria = await Multa.aggregate([
       {
         $match: {
           fecha: { $gte: fechaInicio, $lte: ahora }
@@ -488,11 +488,11 @@ const getDashboardMetrics = async (req, res, next) => {
         evolucionDiaria
       },
       resumen: {
-        porcentajeGraves: metricsGeneral ?
+        porcentajeGraves: metricsGeneral && metricsGeneral.totalMultas > 0 ?
           (metricsGeneral.multasGraves / metricsGeneral.totalMultas * 100).toFixed(2) : 0,
-        importePromedioPorMulta: metricsGeneral ?
+        importePromedioPorMulta: metricsGeneral && metricsGeneral.totalMultas > 0 ?
           (metricsGeneral.importeTotal / metricsGeneral.totalMultas).toFixed(2) : 0,
-        puntosPromedioPorMulta: metricsGeneral ?
+        puntosPromedioPorMulta: metricsGeneral && metricsGeneral.totalMultas > 0 ?
           (metricsGeneral.puntosTotal / metricsGeneral.totalMultas).toFixed(2) : 0
       }
     };
@@ -504,18 +504,18 @@ const getDashboardMetrics = async (req, res, next) => {
       error: error.message,
       stack: error.stack,
       query: req.query,
-      endpoint: 'GET /api/v1/fines/dashboard-metrics'
+      endpoint: 'GET /api/v1/multas/dashboard'
     }, 'Error obteniendo métricas del dashboard');
     next(createInternalError('Error al obtener métricas', error));
   }
 };
 
 module.exports = {
-  getFines,
-  getFineById,
-  getFinesStatistics,
-  getLocationsRanking,
-  getTemporalAnalysis,
-  getDashboardMetrics
+  obtenerMultas,
+  obtenerMultaPorId,
+  obtenerEstadisticasMultas,
+  obtenerRankingUbicaciones,
+  obtenerAnalisisTemporal,
+  obtenerMetricasDashboard
 };
 

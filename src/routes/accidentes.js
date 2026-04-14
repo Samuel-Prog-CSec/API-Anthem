@@ -145,34 +145,6 @@ router.use((req, res, next) => {
 });
 
 /**
- * Manejo de errores específico para rutas de accidentes
- */
-router.use((error, req, res, _next) => {
-  logger.error({
-    error: error.message,
-    stack: error.stack,
-    path: req.path,
-    method: req.method,
-    userId: req.user?.id
-  }, 'Error en rutas de accidentes');
-
-  // Si el error ya fue manejado, pasarlo al siguiente middleware
-  if (error.status || error.statusCode) {
-    return res.status(error.status || error.statusCode).json({
-      success: false,
-      message: error.message
-    });
-  }
-
-  // Error específico de accidentes
-  res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
-    success: false,
-    message: 'Error interno en el procesamiento de datos de accidentalidad',
-    requestId: req.id || Date.now()
-  });
-});
-
-/**
  * @route   GET /api/v1/accidentes/mapa-calor
  * @desc    Obtener datos agrupados para mapa de calor de accidentes
  * @access  Privado

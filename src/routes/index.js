@@ -16,15 +16,15 @@ const { performanceMonitor } = require('../middleware/performanceMonitor');
 const authRoutes = require('./auth');
 const calidadAireRoutes = require('./calidadAire');
 const ruidoRoutes = require('./ruido');
-const fineRoutes = require('./fines');
-const censusRoutes = require('./census');
+const multaRoutes = require('./multas');
+const censoRoutes = require('./censo');
 const adminRoutes = require('./admin');
 const ubicacionesRoutes = require('./ubicaciones');
-const trafficRoutes = require('./trafico');
+const traficoRoutes = require('./trafico');
 const accidentRoutes = require('./accidentes');
 const scooterAssignmentRoutes = require('./patinetes');
 const bikeAvailabilityRoutes = require('./bicicletas');
-const containerRoutes = require('./containers');
+const contenedorRoutes = require('./contenedores');
 const bikeTrafficCountRoutes = require('./aforoBicicletas');
 
 // Aplicar performanceMonitor GLOBALMENTE a todas las rutas de la API
@@ -58,20 +58,20 @@ router.get('/', (req, res) => {
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
         endpoints: {
-          authentication: `/api/${config.api.version}/auth`,
-          airQuality: `/api/${config.api.version}/air-quality`,
-          noiseMonitoring: `/api/${config.api.version}/noise-monitoring`,
-          fines: `/api/${config.api.version}/fines`,
-          census: `/api/${config.api.version}/census`,
-          locations: `/api/${config.api.version}/locations`,
-          traffic: `/api/${config.api.version}/traffic`,
+          autenticacion: `/api/${config.api.version}/auth`,
+          calidadAire: `/api/${config.api.version}/calidad-aire`,
+          ruido: `/api/${config.api.version}/ruido`,
+          multas: `/api/${config.api.version}/multas`,
+          censo: `/api/${config.api.version}/censo`,
+          ubicaciones: `/api/${config.api.version}/ubicaciones`,
+          trafico: `/api/${config.api.version}/trafico`,
           accidentes: `/api/${config.api.version}/accidentes`,
           patinetes: `/api/${config.api.version}/patinetes`,
           bicicletas: `/api/${config.api.version}/bicicletas`,
           aforoBicicletas: `/api/${config.api.version}/aforo-bicicletas`,
-          containers: `/api/${config.api.version}/containers`,
+          contenedores: `/api/${config.api.version}/contenedores`,
           admin: `/api/${config.api.version}/admin`,
-          health: `/api/${config.api.version}/health`,
+          salud: `/api/${config.api.version}/health`,
         }
       }
     )
@@ -182,17 +182,17 @@ router.use('/calidad-aire', calidadAireRoutes);
 router.use('/ruido', ruidoRoutes);
 
 // Rutas de datos de ciudad
-router.use('/fines', fineRoutes);
-router.use('/census', censusRoutes);
+router.use('/multas', multaRoutes);
+router.use('/censo', censoRoutes);
 router.use('/ubicaciones', ubicacionesRoutes);
-router.use('/traffic', trafficRoutes);
+router.use('/trafico', traficoRoutes);
 router.use('/accidentes', accidentRoutes);
 router.use('/patinetes', scooterAssignmentRoutes);
 
 // Mount mobility and infrastructure routes
 router.use('/bicicletas', bikeAvailabilityRoutes);
 router.use('/aforo-bicicletas', bikeTrafficCountRoutes);
-router.use('/containers', containerRoutes);
+router.use('/contenedores', contenedorRoutes);
 
 // Mount administration routes
 router.use('/admin', adminRoutes);

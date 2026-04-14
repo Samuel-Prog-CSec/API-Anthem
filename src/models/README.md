@@ -7,9 +7,9 @@ Esquemas Mongoose y métodos estáticos que concentran la lógica de negocio y a
 - `Accident.js`: incidentes de tráfico y severidad.
 - `AirQuality.js`: registros de calidad del aire por estación y fecha.
 - `BikeAvailability.js`: disponibilidad y aforo de estaciones de bicicletas.
-- `Census.js`: datos demográficos y distribución poblacional 2051.
-- `Container.js`: contenedores urbanos y tipologías.
-- `Fine.js`: multas de tráfico y estado de pago.
+- `Censo.js`: datos demográficos y distribución poblacional 2051.
+- `Contenedor.js`: contenedores urbanos y tipologías.
+- `Multa.js`: multas de tráfico y estado de pago.
 - `Location.js`: callejero, distritos y puntos de interés.
 - `NoiseMonitoring.js`: niveles acústicos y alertas.
 - `schemas/`: esquemas compartidos/auxiliares para composición de modelos.

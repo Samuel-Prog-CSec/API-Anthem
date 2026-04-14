@@ -9,13 +9,13 @@ const express = require('express');
 const { query, param } = require('express-validator');
 
 const {
-  getFines,
-  getFineById,
-  getFinesStatistics,
-  getLocationsRanking,
-  getTemporalAnalysis,
-  getDashboardMetrics
-} = require('../controllers/fineController');
+  obtenerMultas,
+  obtenerMultaPorId,
+  obtenerEstadisticasMultas,
+  obtenerRankingUbicaciones,
+  obtenerAnalisisTemporal,
+  obtenerMetricasDashboard
+} = require('../controllers/controladorMultas');
 
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
@@ -78,7 +78,7 @@ const paginationValidation = [
 ];
 
 /**
- * GET /api/v1/fines
+ * GET /api/v1/multas
  * Obtener multas con filtros avanzados
  */
 router.get('/',
@@ -170,14 +170,14 @@ router.get('/',
   cacheMiddleware('statistics', (req) => `fines:list:${JSON.stringify(req.query)}`),
 
   // Controlador
-  getFines
+  obtenerMultas
 );
 
 /**
- * GET /api/v1/fines/statistics
+ * GET /api/v1/multas/estadisticas
  * Obtener estadísticas agregadas de multas
  */
-router.get('/statistics',
+router.get('/estadisticas',
   // Middleware de autenticación (usuario o admin)
   authenticate,
 
@@ -210,14 +210,14 @@ router.get('/statistics',
   ),
 
   // Controlador
-  getFinesStatistics
+  obtenerEstadisticasMultas
 );
 
 /**
- * GET /api/v1/fines/locations/ranking
+ * GET /api/v1/multas/ubicaciones/ranking
  * Obtener ranking de ubicaciones con más multas
  */
-router.get('/locations/ranking',
+router.get('/ubicaciones/ranking',
   // Middleware de autenticación
   authenticate,
 
@@ -244,14 +244,14 @@ router.get('/locations/ranking',
   ),
 
   // Controlador
-  getLocationsRanking
+  obtenerRankingUbicaciones
 );
 
 /**
- * GET /api/v1/fines/analysis/temporal
+ * GET /api/v1/multas/analisis/temporal
  * Análisis temporal de multas con evolución y tendencias
  */
-router.get('/analysis/temporal',
+router.get('/analisis/temporal',
   // Middleware de autenticación
   authenticate,
 
@@ -275,11 +275,11 @@ router.get('/analysis/temporal',
   ),
 
   // Controlador
-  getTemporalAnalysis
+  obtenerAnalisisTemporal
 );
 
 /**
- * GET /api/v1/fines/dashboard
+ * GET /api/v1/multas/dashboard
  * Obtener métricas del dashboard principal
  */
 router.get('/dashboard',
@@ -304,11 +304,11 @@ router.get('/dashboard',
   ),
 
   // Controlador
-  getDashboardMetrics
+  obtenerMetricasDashboard
 );
 
 /**
- * GET /api/v1/fines/:id
+ * GET /api/v1/multas/:id
  * Obtener multa por ID con detalles completos
  */
 router.get('/:id',
@@ -327,7 +327,7 @@ router.get('/:id',
   cacheMiddleware('statistics', (req) => `fines:detail:${req.params.id}`),
 
   // Controlador
-  getFineById
+  obtenerMultaPorId
 );
 
 module.exports = router;

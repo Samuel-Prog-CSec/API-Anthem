@@ -5,7 +5,7 @@
  * con contenedores de residuos.
  */
 
-const Container = require('../models/Container');
+const Contenedor = require('../models/Contenedor');
 const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams } = require('../utils/queryHelper');
@@ -15,10 +15,10 @@ const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, GE
 /**
  * Obtener todos los contenedores con filtros y paginación
  *
- * @route GET /api/containers
+ * @route GET /api/v1/contenedores
  * @access Private
  */
-exports.getAllContainers = async (req, res, next) => {
+exports.obtenerContenedores = async (req, res, next) => {
   try {
     // Configuración de filtros usando queryHelper
     const filterConfig = [
@@ -73,7 +73,7 @@ exports.getAllContainers = async (req, res, next) => {
     const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
     const sortWithTiebreak = { ...sortOptions, _id: sortOrder === 'asc' ? 1 : -1 };
 
-    const dataPromise = Container.find(combinedFilters, projection)
+    const dataPromise = Contenedor.find(combinedFilters, projection)
       .sort(sortWithTiebreak)
       .limit(paginationOptions.limit)
       .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
@@ -81,7 +81,7 @@ exports.getAllContainers = async (req, res, next) => {
 
     const countPromise = useCursor
       ? Promise.resolve(null)
-      : Container.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
+      : Contenedor.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
 
     const [data, total] = await Promise.all([dataPromise, countPromise]);
 
@@ -102,10 +102,10 @@ exports.getAllContainers = async (req, res, next) => {
 /**
  * Buscar contenedores cercanos a una ubicación
  *
- * @route GET /api/containers/nearby
+ * @route GET /api/v1/contenedores/cercanos
  * @access Private
  */
-exports.getNearbyContainers = async (req, res, next) => {
+exports.obtenerContenedoresCercanos = async (req, res, next) => {
   try {
     const {
       longitude,
@@ -133,7 +133,7 @@ exports.getNearbyContainers = async (req, res, next) => {
       return next(createBadRequestError('Coordenadas no válidas'));
     }
 
-    const containers = await Container.findNearby(
+    const containers = await Contenedor.findNearby(
       lng,
       lat,
       maxDistance,
@@ -163,12 +163,12 @@ exports.getNearbyContainers = async (req, res, next) => {
 /**
  * Obtener estadísticas generales de contenedores
  *
- * @route GET /api/containers/stats
+ * @route GET /api/v1/contenedores/estadisticas
  * @access Private
  */
-exports.getContainerStats = async (req, res, next) => {
+exports.obtenerEstadisticasContenedores = async (req, res, next) => {
   try {
-    const summary = await Container.getGeneralSummary();
+    const summary = await Contenedor.getGeneralSummary();
 
     if (!summary || summary.length === 0) {
       return next(createNotFoundError('Datos de contenedores'));
@@ -188,14 +188,14 @@ exports.getContainerStats = async (req, res, next) => {
 /**
  * Obtener estadísticas por distrito
  *
- * @route GET /api/containers/stats/district
+ * @route GET /api/v1/contenedores/estadisticas/distrito
  * @access Private
  */
-exports.getStatsByDistrict = async (req, res, next) => {
+exports.obtenerEstadisticasPorDistrito = async (req, res, next) => {
   try {
     const { distrito } = req.query;
 
-    const stats = await Container.getStatsByDistrict(
+    const stats = await Contenedor.getStatsByDistrict(
       distrito ? distrito : null
     );
 
@@ -221,10 +221,10 @@ exports.getStatsByDistrict = async (req, res, next) => {
 /**
  * Obtener estadísticas por barrio
  *
- * @route GET /api/containers/stats/neighborhood
+ * @route GET /api/v1/contenedores/estadisticas/barrio
  * @access Private
  */
-exports.getStatsByNeighborhood = async (req, res, next) => {
+exports.obtenerEstadisticasPorBarrio = async (req, res, next) => {
   try {
     const { distrito, barrio } = req.query;
 
@@ -233,7 +233,7 @@ exports.getStatsByNeighborhood = async (req, res, next) => {
       return next(createBadRequestError('Se requiere el parámetro distrito'));
     }
 
-    const stats = await Container.getStatsByNeighborhood(distrito, barrio || null);
+    const stats = await Contenedor.getStatsByNeighborhood(distrito, barrio || null);
 
     if (!stats || stats.length === 0) {
       return next(createNotFoundError('Contenedores', barrio ? `barrio ${barrio} del distrito ${distrito}` : `distrito ${distrito}`));
@@ -258,10 +258,10 @@ exports.getStatsByNeighborhood = async (req, res, next) => {
 /**
  * Contar contenedores por tipo en un área
  *
- * @route GET /api/containers/count-by-type
+ * @route GET /api/v1/contenedores/conteo-por-tipo
  * @access Private
  */
-exports.countByType = async (req, res, next) => {
+exports.contarPorTipo = async (req, res, next) => {
   try {
     const { distrito, barrio } = req.query;
 
@@ -270,7 +270,7 @@ exports.countByType = async (req, res, next) => {
       return next(createBadRequestError('Se requiere el parámetro distrito'));
     }
 
-    const count = await Container.countByType(distrito, barrio || null);
+    const count = await Contenedor.countByType(distrito, barrio || null);
 
     const responseData = {
       data: count
@@ -286,12 +286,12 @@ exports.countByType = async (req, res, next) => {
 /**
  * Obtener lista de distritos únicos
  *
- * @route GET /api/containers/districts
+ * @route GET /api/v1/contenedores/distritos
  * @access Private
  */
-exports.getDistricts = async (req, res, next) => {
+exports.obtenerDistritos = async (req, res, next) => {
   try {
-    const districts = await Container.distinct('distrito');
+    const districts = await Contenedor.distinct('distrito');
 
     const responseData = {
       data: {
@@ -310,14 +310,14 @@ exports.getDistricts = async (req, res, next) => {
 /**
  * Obtener lista de barrios por distrito
  *
- * @route GET /api/containers/neighborhoods/:distrito
+ * @route GET /api/v1/contenedores/barrios/:distrito
  * @access Private
  */
-exports.getNeighborhoodsByDistrict = async (req, res, next) => {
+exports.obtenerBarriosPorDistrito = async (req, res, next) => {
   try {
     const { distrito } = req.params;
 
-    const neighborhoods = await Container.distinct('barrio', { distrito });
+    const neighborhoods = await Contenedor.distinct('barrio', { distrito });
 
     if (!neighborhoods || neighborhoods.length === 0) {
       return next(createNotFoundError('Barrios', `distrito ${distrito}`));
@@ -341,14 +341,14 @@ exports.getNeighborhoodsByDistrict = async (req, res, next) => {
 /**
  * Buscar contenedores por dirección
  *
- * @route GET /api/containers/search
+ * @route GET /api/v1/contenedores/buscar
  * @access Private
  *
  * OPTIMIZACIÓN: Usa índice de texto (idx_containers_address_search) para búsquedas 500x+ más rápidas
  * - Sin índice ($regex en 2 campos): ~8000ms con 50k documentos (2x COLLSCAN)
  * - Con índice ($text): ~15ms con 50k documentos (TEXT index scan)
  */
-exports.searchByAddress = async (req, res, next) => {
+exports.buscarPorDireccion = async (req, res, next) => {
   try {
     const { q, tipoContenedor } = req.query;
 
@@ -374,7 +374,7 @@ exports.searchByAddress = async (req, res, next) => {
     // Busca automáticamente en ambos campos con relevancia por peso
     filters.$text = { $search: q };
 
-    const containers = await Container.find(filters)
+    const containers = await Contenedor.find(filters)
       .limit(limit)
       .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
       .select('-__v')
@@ -399,14 +399,14 @@ exports.searchByAddress = async (req, res, next) => {
 /**
  * Obtener mapa de calor de contenedores por tipo
  *
- * @route GET /api/containers/heatmap
+ * @route GET /api/v1/contenedores/mapa-calor
  * @access Private
  */
-exports.getHeatmapData = async (req, res, next) => {
+exports.obtenerMapaCalor = async (req, res, next) => {
   try {
     const { tipoContenedor } = req.query;
 
-    const heatmapData = await Container.getHeatmapData(tipoContenedor);
+    const heatmapData = await Contenedor.getHeatmapData(tipoContenedor);
 
     const responseData = {
       data: {
@@ -426,14 +426,14 @@ exports.getHeatmapData = async (req, res, next) => {
 /**
  * Obtener cobertura por tipo de contenedor en un distrito
  *
- * @route GET /api/containers/coverage
+ * @route GET /api/v1/contenedores/cobertura
  * @access Private
  */
-exports.getCoverageAnalysis = async (req, res, next) => {
+exports.obtenerAnalisisCobertura = async (req, res, next) => {
   try {
     const { distrito } = req.query;
 
-    const coverage = await Container.getCoverageAnalysis(distrito);
+    const coverage = await Contenedor.getCoverageAnalysis(distrito);
 
     const responseData = {
       data: {
@@ -452,10 +452,10 @@ exports.getCoverageAnalysis = async (req, res, next) => {
 /**
  * Análisis de densidad de contenedores por distrito
  *
- * @route GET /api/containers/analysis/density
+ * @route GET /api/v1/contenedores/analisis/densidad
  * @access Private
  */
-exports.getDensityAnalysis = async (req, res, next) => {
+exports.obtenerAnalisisDensidad = async (req, res, next) => {
   try {
     const { distrito, tipoContenedor, includeBarrios = 'true' } = req.query;
 
@@ -465,7 +465,7 @@ exports.getDensityAnalysis = async (req, res, next) => {
       includeBarrios: includeBarrios === 'true'
     };
 
-    const densityAnalysis = await Container.getDensityAnalysisByDistrict(options);
+    const densityAnalysis = await Contenedor.getDensityAnalysisByDistrict(options);
 
     if (!densityAnalysis || densityAnalysis.length === 0) {
       return next(createNotFoundError('Análisis de densidad', distrito ? `distrito ${distrito}` : null));

@@ -287,7 +287,7 @@ trafficSchema.index(
 // ÍNDICE CONSOLIDADO: fecha + puntoMedidaId + intensidad
 // MEJORA: Reemplaza 2 índices redundantes optimizando espacio
 // Soporta queries: { fecha: -1 }, { fecha: -1, puntoMedidaId: 1 }, { fecha: -1, puntoMedidaId: 1, intensidad: -1 }
-// Usado en: trafficController.js:60,87 - Sort por fecha + filtro puntoMedidaId + ordenación por intensidad
+// Usado en: controladorTrafico.js:60,87 - Sort por fecha + filtro puntoMedidaId + ordenación por intensidad
 // Leftmost prefix permite múltiples patrones de consulta
 trafficSchema.index({ fecha: -1, puntoMedidaId: 1, 'metricas.intensidad': -1 }, {
   name: 'idx_traffic_date_point_intensity',
@@ -303,7 +303,7 @@ trafficSchema.index({ año: 1, mes: 1, dia: 1, hora: 1 }, {
 });
 
 // Índice compuesto: tipoElemento + fecha
-// Usado en: trafficController.js:49 - Filtro tipoElemento (URB, M30)
+// Usado en: controladorTrafico.js:49 - Filtro tipoElemento (URB, M30)
 // Soporta: GET /api/traffic?tipoElemento=URB&startDate=X&endDate=Y
 trafficSchema.index({ tipoElemento: 1, fecha: -1 }, {
   name: 'idx_traffic_type_timeline',
@@ -330,7 +330,7 @@ trafficSchema.index({ 'metricas.velocidadMedia': -1, fecha: -1 }, {
 });
 
 // Índice para filtrar por nivel de congestión
-// Usado en: trafficController.js:50 - Filtro nivelCongestion
+// Usado en: controladorTrafico.js:50 - Filtro nivelCongestion
 // Soporta: GET /api/traffic?nivelCongestion=ALTO
 trafficSchema.index({ 'analisis.nivelCongestion': 1, fecha: -1 }, {
   name: 'idx_traffic_congestion_timeline',

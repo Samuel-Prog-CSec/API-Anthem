@@ -313,7 +313,7 @@ const censusSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   versionKey: false,
-  collection: 'census'
+  collection: 'censuses'
 });
 
 /**
@@ -344,7 +344,7 @@ censusSchema.index(
 // ========================================
 
 // Índice compuesto: distrito + fecha
-// Usado en: censusController.js:64-69 - GET /api/census?distrito=X&startDate=Y&endDate=Z
+// Usado en: controladorCenso.js:64-69 - GET /api/census?distrito=X&startDate=Y&endDate=Z
 // Filtros: distrito.codigo + fechaCenso (rango de fechas)
 // Soporta: Estadísticas por distrito en período temporal
 censusSchema.index(
@@ -356,8 +356,8 @@ censusSchema.index(
 );
 
 // Índice compuesto: distrito + edad
-// Usado en: censusController.js:263 - getPiramidePoblacionalOptimizada()
-// Usado en: censusController.js:82-84 - Filtros minEdad, maxEdad
+// Usado en: controladorCenso.js:263 - getPiramidePoblacionalOptimizada()
+// Usado en: controladorCenso.js:82-84 - Filtros minEdad, maxEdad
 // Soporta: Pirámides poblacionales, análisis demográfico por edad
 censusSchema.index(
   { 'distrito.codigo': 1, edad: 1 },
@@ -383,7 +383,7 @@ censusSchema.index(
 // ========================================
 
 // Índice compuesto para pirámide poblacional completa
-// Usado en: Census.getPiramidePoblacionalOptimizada() (línea 715)
+// Usado en: Censo.getPiramidePoblacionalOptimizada() (línea 715)
 // Soporta: $group por grupoEdad + distrito, sort por edad
 censusSchema.index(
   {
@@ -399,7 +399,7 @@ censusSchema.index(
 );
 
 // Índice para consultas temporales por año y mes
-// Usado en: censusController.js:312 - getEstadisticasDistrito (agregaciones por período)
+// Usado en: controladorCenso.js:312 - getEstadisticasDistrito (agregaciones por período)
 // Filtros implícitos: año, mes, distrito.codigo
 censusSchema.index(
   { año: 1, mes: 1, 'distrito.codigo': 1 },
@@ -410,8 +410,8 @@ censusSchema.index(
 );
 
 // Índice para ranking de población (descendente)
-// Usado en: censusController.js:732 - GET /api/census/dashboard
-// Usado en: censusController.js:85-86 - Filtros minPoblacion, maxPoblacion
+// Usado en: controladorCenso.js:732 - GET /api/census/dashboard
+// Usado en: controladorCenso.js:85-86 - Filtros minPoblacion, maxPoblacion
 // Soporta: Identificación de áreas más/menos pobladas, sorts por totalPoblacion
 censusSchema.index(
   { 'estadisticas.totalPoblacion': -1, fechaCenso: -1 },
@@ -426,7 +426,7 @@ censusSchema.index(
 // ========================================
 
 // Índice para análisis de grupos de edad específicos
-// Usado en: censusController.js:76 - Filtro grupoEdad
+// Usado en: controladorCenso.js:76 - Filtro grupoEdad
 // Soporta: Consultas por rango de edad ('0-18', '19-64', '65+')
 censusSchema.index(
   { 'clasificacionEdad.grupoEdad': 1, fechaCenso: -1 },
@@ -437,7 +437,7 @@ censusSchema.index(
 );
 
 // Índice para análisis de población productiva (19-64 años)
-// Usado en: censusController.js:90 - Filtro soloProductivos=true
+// Usado en: controladorCenso.js:90 - Filtro soloProductivos=true
 // Soporta: Indicadores económicos, análisis de fuerza laboral
 censusSchema.index(
   { 'clasificacionEdad.esGrupoProductivo': 1, fechaCenso: -1 },
@@ -448,7 +448,7 @@ censusSchema.index(
 );
 
 // Índice para análisis de tercera edad (65+ años)
-// Usado en: censusController.js:94 - Filtro soloTerceraEdad=true
+// Usado en: controladorCenso.js:94 - Filtro soloTerceraEdad=true
 // Soporta: Planificación de servicios sociales, análisis de envejecimiento
 censusSchema.index(
   { 'clasificacionEdad.esTerceraEdad': 1, fechaCenso: -1 },
@@ -463,8 +463,8 @@ censusSchema.index(
 // ========================================
 
 // Índice compuesto para análisis detallado por barrio
-// Usado en: censusController.js:393 - Agregaciones por barrio
-// Usado en: censusController.js:74-75 - Filtro barrio.codigo
+// Usado en: controladorCenso.js:393 - Agregaciones por barrio
+// Usado en: controladorCenso.js:74-75 - Filtro barrio.codigo
 // Soporta: Estadísticas detalladas a nivel de barrio + edad
 censusSchema.index(
   {
@@ -968,7 +968,7 @@ censusSchema.statics.getOptimizedDemographicAnalysis = async function(options) {
  * @returns {Promise<Object>} { data, total, stats }
  *
  * @example
- * const resultado = await Census.findWithOptions({
+ * const resultado = await Censo.findWithOptions({
  *   filters: { año: 2051, 'distrito.codigo': 1 },
  *   sort: { fechaCenso: -1 },
  *   pagination: { skip: 0, limit: 50 },
@@ -1269,9 +1269,9 @@ censusSchema.statics.getDemographicEvolutionOptimized = async function(options) 
 };
 
 // Crear y exportar el modelo
-const Census = mongoose.model('Census', censusSchema);
+const Censo = mongoose.model('Censo', censusSchema);
 
-module.exports = Census;
+module.exports = Censo;
 
 // Transformación de salida para reducir payload
 censusSchema.set('toJSON', {

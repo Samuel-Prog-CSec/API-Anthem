@@ -132,7 +132,8 @@ const obtenerDatosCalidadAire = async (req, res, next) => {
  */
 const obtenerEstadisticasCalidadAire = async (req, res, next) => {
   try {
-    const { groupBy = 'day' } = req.query;
+    const { groupBy: rawGroupBy = 'day' } = req.query;
+    const groupBy = typeof rawGroupBy === 'string' ? rawGroupBy.toLowerCase() : 'day';
 
     // Construir filtros usando buildFilters de queryHelper
     const filterConfig = [

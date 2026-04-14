@@ -17,7 +17,7 @@ const {
   HTTP_STATUS
 } = require('../constants');
 
-const containerController = require('../controllers/containerController');
+const controladorContenedores = require('../controllers/controladorContenedores');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
@@ -58,7 +58,7 @@ const generalLimit = rateLimit({
  */
 
 /**
- * @route   GET /api/containers
+ * @route   GET /api/v1/contenedores
  * @desc    Obtener todos los contenedores con filtros
  * @access  Private
  */
@@ -70,42 +70,42 @@ router.get('/',
   validateContainerFilters,
   etagMiddleware, // ETags para datos estáticos de contenedores
   cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
-  containerController.getAllContainers
+  controladorContenedores.obtenerContenedores
 );
 
 /**
- * @route   GET /api/containers/nearby
+ * @route   GET /api/v1/contenedores/cercanos
  * @desc    Buscar contenedores cercanos a una ubicación
  * @access  Private
  */
-router.get('/nearby',
+router.get('/cercanos',
   generalLimit,
   authenticate,
   validateCoordinates,
   validateContainerType,
   cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
-  containerController.getNearbyContainers
+  controladorContenedores.obtenerContenedoresCercanos
 );
 
 /**
- * @route   GET /api/containers/stats
+ * @route   GET /api/v1/contenedores/estadisticas
  * @desc    Obtener estadísticas generales de contenedores
  * @access  Private
  */
-router.get('/stats',
+router.get('/estadisticas',
   generalLimit,
   authenticate,
   etagMiddleware, // ETags para estadísticas agregadas (datos estáticos)
   cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
-  containerController.getContainerStats
+  controladorContenedores.obtenerEstadisticasContenedores
 );
 
 /**
- * @route   GET /api/containers/stats/district
+ * @route   GET /api/v1/contenedores/estadisticas/distrito
  * @desc    Obtener estadísticas por distrito
  * @access  Private
  */
-router.get('/stats/district',
+router.get('/estadisticas/distrito',
   generalLimit,
   authenticate,
   [
@@ -118,15 +118,15 @@ router.get('/stats/district',
   ],
   etagMiddleware, // ETags para estadísticas por distrito (datos estáticos)
   cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
-  containerController.getStatsByDistrict
+  controladorContenedores.obtenerEstadisticasPorDistrito
 );
 
 /**
- * @route   GET /api/containers/stats/neighborhood
+ * @route   GET /api/v1/contenedores/estadisticas/barrio
  * @desc    Obtener estadísticas por barrio
  * @access  Private
  */
-router.get('/stats/neighborhood',
+router.get('/estadisticas/barrio',
   generalLimit,
   authenticate,
   [
@@ -145,15 +145,15 @@ router.get('/stats/neighborhood',
   ],
   etagMiddleware, // ETags para estadísticas por barrio (datos estáticos)
   cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
-  containerController.getStatsByNeighborhood
+  controladorContenedores.obtenerEstadisticasPorBarrio
 );
 
 /**
- * @route   GET /api/containers/count-by-type
+ * @route   GET /api/v1/contenedores/conteo-por-tipo
  * @desc    Contar contenedores por tipo en un área
  * @access  Private
  */
-router.get('/count-by-type',
+router.get('/conteo-por-tipo',
   generalLimit,
   authenticate,
   [
@@ -171,27 +171,27 @@ router.get('/count-by-type',
     validateRequest
   ],
   cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
-  containerController.countByType
+  controladorContenedores.contarPorTipo
 );
 
 /**
- * @route   GET /api/containers/districts
+ * @route   GET /api/v1/contenedores/distritos
  * @desc    Obtener lista de distritos únicos
  * @access  Private
  */
-router.get('/districts',
+router.get('/distritos',
   generalLimit,
   authenticate,
   cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
-  containerController.getDistricts
+  controladorContenedores.obtenerDistritos
 );
 
 /**
- * @route   GET /api/containers/neighborhoods/:distrito
+ * @route   GET /api/v1/contenedores/barrios/:distrito
  * @desc    Obtener lista de barrios por distrito
  * @access  Private
  */
-router.get('/neighborhoods/:distrito',
+router.get('/barrios/:distrito',
   generalLimit,
   authenticate,
   [
@@ -202,15 +202,15 @@ router.get('/neighborhoods/:distrito',
     validateRequest
   ],
   cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
-  containerController.getNeighborhoodsByDistrict
+  controladorContenedores.obtenerBarriosPorDistrito
 );
 
 /**
- * @route   GET /api/containers/search
+ * @route   GET /api/v1/contenedores/buscar
  * @desc    Buscar contenedores por dirección
  * @access  Private
  */
-router.get('/search',
+router.get('/buscar',
   generalLimit,
   authenticate,
   [
@@ -230,28 +230,28 @@ router.get('/search',
   ],
   validateContainerType,
   cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
-  containerController.searchByAddress
+  controladorContenedores.buscarPorDireccion
 );
 
 /**
- * @route   GET /api/containers/heatmap
+ * @route   GET /api/v1/contenedores/mapa-calor
  * @desc    Obtener datos para mapa de calor
  * @access  Private
  */
-router.get('/heatmap',
+router.get('/mapa-calor',
   generalLimit,
   authenticate,
   validateContainerType,
   cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
-  containerController.getHeatmapData
+  controladorContenedores.obtenerMapaCalor
 );
 
 /**
- * @route   GET /api/containers/coverage
+ * @route   GET /api/v1/contenedores/cobertura
  * @desc    Obtener análisis de cobertura
  * @access  Private
  */
-router.get('/coverage',
+router.get('/cobertura',
   generalLimit,
   authenticate,
   [
@@ -263,15 +263,15 @@ router.get('/coverage',
     validateRequest
   ],
   cacheMiddleware('containers'), // Cache por 24 horas (datos estáticos)
-  containerController.getCoverageAnalysis
+  controladorContenedores.obtenerAnalisisCobertura
 );
 
 /**
- * @route   GET /api/containers/analysis/density
+ * @route   GET /api/v1/contenedores/analisis/densidad
  * @desc    Obtener análisis de densidad de contenedores por distrito
  * @access  Private
  */
-router.get('/analysis/density',
+router.get('/analisis/densidad',
   generalLimit,
   authenticate,
   [
@@ -291,7 +291,7 @@ router.get('/analysis/density',
     validateRequest
   ],
   cacheMiddleware('containers'), // Cache por 24 horas
-  containerController.getDensityAnalysis
+  controladorContenedores.obtenerAnalisisDensidad
 );
 
 /**

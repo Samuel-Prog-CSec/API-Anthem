@@ -412,6 +412,9 @@ async function processNoiseFile(filePath, options = {}) {
         } catch (error) {
           stats.errorRows++;
           stats.emptyRows++;
+          // Extraer razon de rechazo del mensaje de error
+          const razon = error.message.split(':')[0] || REJECTION_REASONS.VALIDATION_ERROR;
+          rejectionTracker.track(razon);
           if (stats.errors.length < 100) {
             stats.errors.push({ row: stats.totalRows, error: error.message });
           }
@@ -485,6 +488,7 @@ async function processBatch(batch, options) {
       } catch (error) {
         if (error.code === 11000) {
           result.skipped++;
+          rejectionTracker.track(REJECTION_REASONS.DUPLICATE_KEY);
           logger.debug(
             {
               razon: REJECTION_REASONS.DUPLICATE_KEY,
@@ -497,6 +501,7 @@ async function processBatch(batch, options) {
           );
         } else {
           const handledError = handleMongoError(error);
+          rejectionTracker.track(REJECTION_REASONS.VALIDATION_ERROR);
           logger.warn(
             {
               razon: REJECTION_REASONS.VALIDATION_ERROR,

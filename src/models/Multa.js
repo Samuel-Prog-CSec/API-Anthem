@@ -42,7 +42,7 @@ const {
  * - VEL_LIMITE/VEL_CIRCULA: para infracciones de velocidad
  * - COORDENADAS: ubicación exacta
  */
-const fineSchema = new mongoose.Schema({
+const multaSchema = new mongoose.Schema({
   // Información temporal
   fecha: {
     type: Date,
@@ -280,7 +280,7 @@ const fineSchema = new mongoose.Schema({
 // Índice para búsquedas específicas por combinación de campos
 // Usado en: Búsquedas detalladas de multas en ubicación + fecha/hora + importe
 // NO es único porque pueden haber múltiples multas en mismo lugar/fecha/hora
-fineSchema.index(
+multaSchema.index(
   { lugar: 1, fecha: 1, hora: 1, importeBoletín: 1 },
   { unique: false, name: 'fine_identification' }
 );
@@ -292,32 +292,32 @@ fineSchema.index(
 // Índice compuesto: fecha (desc) + calificacion
 // Usado en: GET /api/fines?calificacion=LEVE&startDate=X&endDate=Y
 // Sort por fecha descendente (multas más recientes primero)
-fineSchema.index({ fecha: -1, calificacion: 1 });
+multaSchema.index({ fecha: -1, calificacion: 1 });
 
 // Índice compuesto: año + mes + calificacion
 // Usado en: Agregaciones mensuales por gravedad de multa
 // Soporta: Estadísticas mensuales filtradas por calificacion
-fineSchema.index({ año: 1, mes: 1, calificacion: 1 });
+multaSchema.index({ año: 1, mes: 1, calificacion: 1 });
 
 // Índice compuesto: lugar + fecha
 // Usado en: GET /api/fines?lugar=CALLE+X
 // Soporta: Análisis de multas por ubicación específica
-fineSchema.index({ lugar: 1, fecha: -1 });
+multaSchema.index({ lugar: 1, fecha: -1 });
 
 // Índice compuesto: denunciante + fecha
 // Usado en: Análisis de multas por organismo denunciante (Policía Municipal, Radar, etc.)
 // Soporta: Estadísticas por tipo de denunciante
-fineSchema.index({ denunciante: 1, fecha: -1 });
+multaSchema.index({ denunciante: 1, fecha: -1 });
 
 // Índice para ranking de multas por importe (desc)
 // Usado en: Identificación de multas más costosas
 // Soporta: GET /api/fines?sortBy=importeBoletín&sortOrder=desc
-fineSchema.index({ importeBoletín: -1, fecha: -1 });
+multaSchema.index({ importeBoletín: -1, fecha: -1 });
 
 // Índice para análisis de pérdida de puntos
 // Usado en: Ranking de multas con más puntos detraídos
 // Soporta: Infracciones más graves por puntos
-fineSchema.index({ puntosDetraídos: -1, fecha: -1 });
+multaSchema.index({ puntosDetraídos: -1, fecha: -1 });
 
 // ========================================
 // ÍNDICES GEOGRÁFICOS
@@ -327,7 +327,7 @@ fineSchema.index({ puntosDetraídos: -1, fecha: -1 });
 // Usado en: Búsquedas geográficas, mapas de calor de multas
 // Soporta: Análisis espacial de infracciones
 // SPARSE: Coordenadas opcionales, solo indexar documentos con coordenadas
-fineSchema.index({ 'coordenadas.x': 1, 'coordenadas.y': 1 }, {
+multaSchema.index({ 'coordenadas.x': 1, 'coordenadas.y': 1 }, {
   sparse: true
 });
 
@@ -338,26 +338,26 @@ fineSchema.index({ 'coordenadas.x': 1, 'coordenadas.y': 1 }, {
 // Índice para filtro por tipo de infracción
 // Usado en: GET /api/fines?tipoInfraccion=VELOCIDAD
 // Metadatos calculados: VELOCIDAD, ESTACIONAMIENTO, SEMAFORO, etc.
-fineSchema.index({ 'metadatos.tipoInfraccion': 1, fecha: -1 });
+multaSchema.index({ 'metadatos.tipoInfraccion': 1, fecha: -1 });
 
 // Índice para filtro por gravedad de infracción
 // Usado en: GET /api/fines?esInfraccionGrave=true
 // Filtro booleano: infracciones graves (MUY GRAVE) vs leves/graves
-fineSchema.index({ 'metadatos.esInfraccionGrave': 1, fecha: -1 });
+multaSchema.index({ 'metadatos.esInfraccionGrave': 1, fecha: -1 });
 
 // Índice para filtro por descuento aplicado
 // Usado en: Análisis de pronto pago, estadísticas de descuentos
 // Soporta: GET /api/fines?tieneDescuento=true
-fineSchema.index({ tieneDescuento: 1, fecha: -1 });
+multaSchema.index({ tieneDescuento: 1, fecha: -1 });
 
 // ========================================
 // ÍNDICES PARA AGREGACIONES
 // ========================================
 
 // Índice compuesto para estadísticas de ubicaciones
-// Usado en: Fine.getStatisticsOptimized() - Agregaciones por lugar
+// Usado en: Multa.getStatisticsOptimized() - Agregaciones por lugar
 // Soporta: $group por lugar + calificacion, sort por fecha
-fineSchema.index(
+multaSchema.index(
   {
     fecha: -1,
     lugar: 1,
@@ -372,7 +372,7 @@ fineSchema.index(
 // Índice compuesto para análisis temporal mensual
 // Usado en: Evolución de multas por ubicación y mes
 // Soporta: Series temporales mensuales por lugar
-fineSchema.index(
+multaSchema.index(
   {
     año: 1,
     mes: 1,
@@ -391,14 +391,14 @@ fineSchema.index(
 // Índice de texto completo para búsquedas flexibles
 // Usado en: Búsquedas con $text por lugar, descripción o denunciante
 // Soporta: Autocompletado, búsqueda general de multas
-fineSchema.index({
+multaSchema.index({
   lugar: 'text',
   descripcionInfraccion: 'text',
   denunciante: 'text'
 });
 
 // Indice cubierto para listados frecuentes (evita fetch de documento completo)
-fineSchema.index({
+multaSchema.index({
   fecha: -1,
   calificacion: 1,
   importeFinal: -1,
@@ -411,7 +411,7 @@ fineSchema.index({
 /**
  * Middleware pre-save para procesamiento automático
  */
-fineSchema.pre('save', function(next) {
+multaSchema.pre('save', function(next) {
   // Crear fecha completa a partir de mes y año
   if (!this.fecha && this.mes && this.año) {
     this.fecha = new Date(this.año, this.mes - 1, 1);
@@ -453,7 +453,7 @@ fineSchema.pre('save', function(next) {
  * @param {number} options.limit - Límite de resultados
  * @returns {Promise<Object>} Estadísticas agrupadas y resumen general
  */
-fineSchema.statics.getStatisticsOptimized = async function(options) {
+multaSchema.statics.getStatisticsOptimized = async function(options) {
   const {
     startDate = null,
     endDate = null,
@@ -599,7 +599,7 @@ fineSchema.statics.getStatisticsOptimized = async function(options) {
  * @param {number} options.limit - Límite de resultados
  * @returns {Promise<Array>} Ranking de ubicaciones
  */
-fineSchema.statics.getLocationRankingOptimized = async function(options) {
+multaSchema.statics.getLocationRankingOptimized = async function(options) {
   const {
     startDate = null,
     endDate = null,
@@ -656,7 +656,7 @@ fineSchema.statics.getLocationRankingOptimized = async function(options) {
  * @param {string} options.tipoAnalisis - Tipo de análisis: 'hourly', 'daily', 'monthly', 'yearly'
  * @returns {Promise<Object>} Análisis temporal y tendencias
  */
-fineSchema.statics.getTemporalAnalysisOptimized = async function(options) {
+multaSchema.statics.getTemporalAnalysisOptimized = async function(options) {
   const {
     startDate = null,
     endDate = null,
@@ -776,6 +776,6 @@ fineSchema.statics.getTemporalAnalysisOptimized = async function(options) {
 };
 
 // Crear y exportar el modelo
-const Fine = mongoose.model('Fines', fineSchema);
+const Multa = mongoose.model('Multa', multaSchema);
 
-module.exports = Fine;
+module.exports = Multa;

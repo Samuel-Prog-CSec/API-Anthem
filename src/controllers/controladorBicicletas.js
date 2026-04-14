@@ -159,7 +159,7 @@ exports.obtenerTendenciasMensuales = async (req, res, next) => {
       promedioBicicletasDisponibles: Math.round(item.promedioBicicletasDisponibles * 100) / 100,
       totalUsosAnual: item.totalUsosAnual,
       totalUsosOcasional: item.totalUsosOcasional,
-      porcentajeAnual: Math.round((item.totalUsosAnual / item.totalUsos) * 100 * 100) / 100
+      porcentajeAnual: item.totalUsos > 0 ? Math.round((item.totalUsosAnual / item.totalUsos) * 100 * 100) / 100 : 0
     }));
 
     const responseData = {

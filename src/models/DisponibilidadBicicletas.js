@@ -369,17 +369,25 @@ bikeAvailabilitySchema.statics.compararTiposSuscripcion = function(startDate, en
         promedioUsosOcasional: { $round: ['$promedioUsosOcasional', 2] },
         porcentajeAnual: {
           $round: [{
-            $multiply: [
-              { $divide: ['$totalUsosAnual', { $add: ['$totalUsosAnual', '$totalUsosOcasional'] }] },
-              100
+            $cond: [
+              { $eq: [{ $add: ['$totalUsosAnual', '$totalUsosOcasional'] }, 0] },
+              0,
+              { $multiply: [
+                { $divide: ['$totalUsosAnual', { $add: ['$totalUsosAnual', '$totalUsosOcasional'] }] },
+                100
+              ]}
             ]
           }, 2]
         },
         porcentajeOcasional: {
           $round: [{
-            $multiply: [
-              { $divide: ['$totalUsosOcasional', { $add: ['$totalUsosAnual', '$totalUsosOcasional'] }] },
-              100
+            $cond: [
+              { $eq: [{ $add: ['$totalUsosAnual', '$totalUsosOcasional'] }, 0] },
+              0,
+              { $multiply: [
+                { $divide: ['$totalUsosOcasional', { $add: ['$totalUsosAnual', '$totalUsosOcasional'] }] },
+                100
+              ]}
             ]
           }, 2]
         }
@@ -592,9 +600,13 @@ bikeAvailabilitySchema.statics.obtenerTendenciasUso = function(options) {
             promedioOcasional: { $round: ['$promedioUsosOcasional', 2] },
             porcentajeAnual: {
               $round: [{
-                $multiply: [
-                  { $divide: ['$totalUsosAnual', { $add: ['$totalUsosAnual', '$totalUsosOcasional'] }] },
-                  100
+                $cond: [
+                  { $eq: [{ $add: ['$totalUsosAnual', '$totalUsosOcasional'] }, 0] },
+                  0,
+                  { $multiply: [
+                    { $divide: ['$totalUsosAnual', { $add: ['$totalUsosAnual', '$totalUsosOcasional'] }] },
+                    100
+                  ]}
                 ]
               }, 2]
             }

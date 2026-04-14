@@ -15,7 +15,7 @@ const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const Census = require('../../src/models/Census');
+const Censo = require('../../src/models/Censo');
 const { importCensusLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
@@ -91,7 +91,7 @@ const rejectionTracker = new RejectionTracker();
 
 /**
  * Calcular estadisticas poblacionales a partir de los datos brutos.
- * Replica la logica del hook pre('save') del modelo Census, ya que
+ * Replica la logica del hook pre('save') del modelo Censo, ya que
  * bulkWrite NO ejecuta middleware de Mongoose.
  *
  * @param {Object} poblacion - Datos de poblacion (españoles/extranjeros por genero)
@@ -518,7 +518,7 @@ async function processBatchInsert(batch, stats) {
   }));
 
   try {
-    const result = await Census.bulkWrite(operations, {
+    const result = await Censo.bulkWrite(operations, {
       ordered: false,
       bypassDocumentValidation: false
     });
@@ -555,7 +555,7 @@ async function processBatchUpsert(batch, stats) {
     }
   }));
 
-  const result = await Census.bulkWrite(operations, { ordered: false });
+  const result = await Censo.bulkWrite(operations, { ordered: false });
   const nuevos = result.upsertedCount || 0;
   const actualizados = result.modifiedCount || 0;
 
@@ -748,7 +748,7 @@ async function main() {
     logger.info('Conexion a MongoDB establecida');
 
     // Verificar que el modelo de censo esté disponible
-    const censusCount = await Census.countDocuments().maxTimeMS(10000);
+    const censusCount = await Censo.countDocuments().maxTimeMS(10000);
     logger.info({
       registrosExistentes: censusCount.toLocaleString()
     }, 'Modelo de censo verificado');
@@ -780,7 +780,7 @@ async function main() {
     }
 
     // Estadísticas finales de la base de datos
-    const finalCount = await Census.countDocuments().maxTimeMS(10000);
+    const finalCount = await Censo.countDocuments().maxTimeMS(10000);
     logger.info({
       registrosFinales: finalCount.toLocaleString(),
       incremento: (finalCount - censusCount).toLocaleString()

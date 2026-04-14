@@ -181,7 +181,7 @@ airQualitySchema.index(
 // ÍNDICE CONSOLIDADO: fecha + provincia + magnitud
 // MEJORA: Reemplaza 3 índices por uno más eficiente
 // Soporta queries: fecha+magnitud, fecha+provincia, fecha+provincia+magnitud
-// Usado en: airQualityController.js:85 - GET /api/air-quality con múltiples filtros
+// Usado en: controladorCalidadAire.js:85 - GET /api/air-quality con múltiples filtros
 // Mejora: 5-10x más rápido en queries con fecha y filtros combinados
 // Leftmost prefix: fecha -1 permite sorts descendentes
 // Cubre: { fecha: -1 }, { fecha: -1, provincia: 1 }, { fecha: -1, provincia: 1, magnitud: 1 }
@@ -191,7 +191,7 @@ airQualitySchema.index({ fecha: -1, provincia: 1, magnitud: 1 }, {
 });
 
 // Índice para consultas por punto de muestreo
-// Usado en: airQualityController.js:85 - GET /api/air-quality?puntoMuestreo=X
+// Usado en: controladorCalidadAire.js:85 - GET /api/air-quality?puntoMuestreo=X
 // Filtro: puntoMuestreo exact match + ordenación temporal
 airQualitySchema.index({ puntoMuestreo: 1, fecha: -1 }, {
   name: 'idx_airquality_station_timeline',
@@ -199,7 +199,7 @@ airQualitySchema.index({ puntoMuestreo: 1, fecha: -1 }, {
 });
 
 // Índice para consultas geográficas detalladas (provincia + municipio)
-// Usado en: airQualityController.js:85 - GET /api/air-quality?provincia=X&municipio=Y
+// Usado en: controladorCalidadAire.js:85 - GET /api/air-quality?provincia=X&municipio=Y
 // Filtros: provincia + municipio + ordenación temporal
 airQualitySchema.index({ provincia: 1, municipio: 1, fecha: -1 }, {
   name: 'idx_airquality_geographic_timeline',

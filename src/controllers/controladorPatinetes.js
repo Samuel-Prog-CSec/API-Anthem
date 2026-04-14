@@ -87,7 +87,7 @@ const obtenerAsignaciones = async (req, res, next) => {
     const result = await AsignacionPatinetes.obtenerAsignacionesConFiltros(
       filters,
       sortOptions,
-      { skip: pagination.skip, limit: pagination.limitNum },
+      { skip: pagination.skip, limit: pagination.limit },
       projection
     );
 
@@ -120,7 +120,7 @@ const obtenerAsignaciones = async (req, res, next) => {
     const responseData = {
       data: {
         asignaciones: result.asignaciones,
-        pagination: createPaginationMeta(pagination.pageNum, pagination.limitNum, result.total),
+        pagination: createPaginationMeta(pagination.page, pagination.limit, result.total),
         estadisticas: queryStatistics[0] || {
           totalPatinetes: 0,
           promedioPatinetes: 0,

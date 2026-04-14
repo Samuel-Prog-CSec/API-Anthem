@@ -103,7 +103,7 @@ const geographicValidation = [
 const categoryValidation = [
   query('tipoZona')
     .optional()
-    .isIn(TIPOS_ZONA_PATINETES)
+    .isIn(Object.values(TIPOS_ZONA_PATINETES))
     .withMessage('Tipo de zona no válido'),
   query('densidad')
     .optional()
@@ -111,7 +111,7 @@ const categoryValidation = [
     .withMessage('Densidad no válida'),
   query('demanda')
     .optional()
-    .isIn(NIVELES_DEMANDA_PATINETES)
+    .isIn(Object.values(NIVELES_DEMANDA_PATINETES))
     .withMessage('Demanda no válida'),
   query('concentracion')
     .optional()

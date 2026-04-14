@@ -9,14 +9,14 @@ const express = require('express');
 const { query } = require('express-validator');
 
 const {
-  getCensusData,
-  getPopulationPyramid,
-  getDistrictStatistics,
-  getDemographicAnalysis,
-  getDemographicEvolution,
-  getDemographicDashboard,
+  obtenerDatosCenso,
+  obtenerPiramidePoblacional,
+  obtenerEstadisticasDistritos,
+  obtenerAnalisisDemografico,
+  obtenerEvolucionDemografica,
+  obtenerDashboardDemografico,
   obtenerResumenDistritos
-} = require('../controllers/censusController');
+} = require('../controllers/controladorCenso');
 
 const {
   ROUTE_SPECIFIC_LIMITS,
@@ -107,7 +107,7 @@ const geographicValidation = [
 ];
 
 /**
- * @route   GET /api/v1/census
+ * @route   GET /api/v1/censo
  * @desc    Obtener datos de censo con filtros demográficos avanzados
  * @access  Private (requiere autenticación)
  * @query   {string} startDate - Fecha de inicio (ISO8601)
@@ -120,7 +120,7 @@ const geographicValidation = [
  * @query   {boolean} soloProductivos - Solo población productiva
  * @query   {number} page - Página (defecto: 1)
  * @query   {number} limit - Elementos por página (defecto: 50, max: 100)
- * @example GET /api/v1/census?distrito=1&grupoEdad=ADULTO_JOVEN&page=1&limit=20
+ * @example GET /api/v1/censo?distrito=1&grupoEdad=ADULTO_JOVEN&page=1&limit=20
  */
 router.get('/',
   // Middleware de autenticación
@@ -201,14 +201,14 @@ router.get('/',
   cacheMiddleware('demographic', (req) => `census:list:${JSON.stringify(req.query)}`),
 
   // Controlador
-  getCensusData
+  obtenerDatosCenso
 );
 
 /**
- * GET /api/v1/census/pyramid
+ * GET /api/v1/censo/piramide
  * Obtener pirámide poblacional
  */
-router.get('/pyramid',
+router.get('/piramide',
   // Middleware de autenticación
   authenticate,
 
@@ -243,14 +243,14 @@ router.get('/pyramid',
   ),
 
   // Controlador
-  getPopulationPyramid
+  obtenerPiramidePoblacional
 );
 
 /**
- * GET /api/v1/census/districts/statistics
+ * GET /api/v1/censo/distritos/estadisticas
  * Obtener estadísticas por distritos
  */
-router.get('/districts/statistics',
+router.get('/distritos/estadisticas',
   // Middleware de autenticación
   authenticate,
 
@@ -285,14 +285,14 @@ router.get('/districts/statistics',
   ),
 
   // Controlador
-  getDistrictStatistics
+  obtenerEstadisticasDistritos
 );
 
 /**
- * GET /api/v1/census/analysis/demographic
+ * GET /api/v1/censo/analisis/demografico
  * Obtener análisis demográfico avanzado
  */
-router.get('/analysis/demographic',
+router.get('/analisis/demografico',
   // Middleware de autenticación
   authenticate,
 
@@ -326,14 +326,14 @@ router.get('/analysis/demographic',
   ),
 
   // Controlador
-  getDemographicAnalysis
+  obtenerAnalisisDemografico
 );
 
 /**
- * GET /api/v1/census/evolution
+ * GET /api/v1/censo/evolucion
  * Obtener evolución demográfica temporal
  */
-router.get('/evolution',
+router.get('/evolucion',
   // Middleware de autenticación
   authenticate,
 
@@ -376,11 +376,11 @@ router.get('/evolution',
   ),
 
   // Controlador
-  getDemographicEvolution
+  obtenerEvolucionDemografica
 );
 
 /**
- * GET /api/v1/census/dashboard
+ * GET /api/v1/censo/dashboard
  * Obtener métricas del dashboard demográfico
  */
 router.get('/dashboard',
@@ -412,7 +412,7 @@ router.get('/dashboard',
   ),
 
   // Controlador
-  getDemographicDashboard
+  obtenerDashboardDemografico
 );
 
 /**

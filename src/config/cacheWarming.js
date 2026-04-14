@@ -12,10 +12,10 @@
  */
 
 const Location = require('../models/Ubicacion');
-const Fine = require('../models/Fine');
+const Multa = require('../models/Multa');
 const Traffic = require('../models/Trafico');
 const AirQuality = require('../models/CalidadAire');
-const Census = require('../models/Census');
+const Censo = require('../models/Censo');
 const AsignacionPatinetes = require('../models/AsignacionPatinetes');
 const Accidente = require('../models/Accidente');
 const logger = require('./logger');
@@ -97,7 +97,7 @@ const warmFineStatsCache = async () => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     // Precalentar estadísticas básicas
-    await Fine.aggregate([
+    await Multa.aggregate([
       {
         $match: {
           fecha: { $gte: thirtyDaysAgo }
@@ -207,7 +207,7 @@ const warmCensusDashboardCache = async () => {
     cacheLogger.info('Precalentando caché de dashboard demográfico...');
 
     // Precalentar métricas generales del año por defecto del dataset
-    await Census.aggregate([
+    await Censo.aggregate([
       { $match: { año: DATASET_YEARS.DEFAULT_YEAR } },
       {
         $group: {
@@ -222,7 +222,7 @@ const warmCensusDashboardCache = async () => {
       .option({ allowDiskUse: true, maxTimeMS: 30000 });
 
     // Precalentar top 5 distritos por población
-    await Census.aggregate([
+    await Censo.aggregate([
       { $match: { año: DATASET_YEARS.DEFAULT_YEAR } },
       {
         $group: {

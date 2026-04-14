@@ -15,7 +15,7 @@ const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const Fine = require('../../src/models/Fine');
+const Fine = require('../../src/models/Multa');
 const { importFinesLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const iconv = require('iconv-lite');
@@ -144,7 +144,17 @@ function parseMultaRow(row, sourceFile, rowIndex) {
     return null;
   }
 
-  const { mes, año } = dateInfo;
+  let { mes, año } = dateInfo;
+
+  // Preferir MES y ANIO de la propia fila del CSV si estan disponibles
+  const mesCSV = row.MES ? parseInt(row.MES, 10) : null;
+  const añoCSV = row.ANIO ? parseInt(row.ANIO, 10) : null;
+  if (mesCSV && !isNaN(mesCSV) && mesCSV >= 1 && mesCSV <= 12) {
+    mes = mesCSV;
+  }
+  if (añoCSV && !isNaN(añoCSV) && añoCSV >= 2000) {
+    año = añoCSV;
+  }
 
   // Crear fecha basada en mes y año
   const fecha = new Date(año, mes - 1, 1);

@@ -4,13 +4,13 @@
  * Procesa y carga datos de contenedores de residuos desde CSV a MongoDB.
  * Optimizado para alto volumen de datos (~50k registros).
  *
- * Uso: node scripts/importation/importContainers.js [--force] [--batch=N]
+ * Uso: node scripts/importation/importarContenedores.js [--force] [--batch=N]
  *
  * Opciones:
  *   --force    Sobrescribir registros existentes (upsert)
  *   --batch=N  Tamano del lote para inserciones (default: 2000)
  *
- * @module scripts/importation/importContainers
+ * @module scripts/importation/importarContenedores
  */
 
 // Configurar modo script para evitar reconexiones infinitas
@@ -39,7 +39,7 @@ const {
 } = require('./helpers/importHelpers');
 
 // Modelo
-const Container = require('../../src/models/Container');
+const Contenedor = require('../../src/models/Contenedor');
 
 /**
  * Codigos de razon de rechazo para trazabilidad
@@ -344,7 +344,7 @@ async function processBatch(batch, options) {
 
   if (options.skipExisting) {
     try {
-      const insertResult = await Container.insertMany(batch, {
+      const insertResult = await Contenedor.insertMany(batch, {
         ordered: false,
         lean: true
       });
@@ -395,7 +395,7 @@ async function processBatch(batch, options) {
     }));
 
     try {
-      const bulkResult = await Container.bulkWrite(operations, { ordered: false });
+      const bulkResult = await Contenedor.bulkWrite(operations, { ordered: false });
       result.inserted = (bulkResult.upsertedCount || 0) + (bulkResult.modifiedCount || 0);
       result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);
     } catch (error) {
@@ -434,7 +434,7 @@ async function processCSV(options) {
         let workingBatch = batch.splice(0, batch.length);
 
         if (options.skipExisting) {
-          const existingContainers = await Container.find({
+          const existingContainers = await Contenedor.find({
             codigoInternoSituado: { $in: [...new Set(workingBatch.map(r => r.codigoInternoSituado))] }
           })
             .select('codigoInternoSituado tipoContenedor coordenadas')
@@ -561,11 +561,11 @@ async function showStatistics() {
   const durationMs = Date.now() - stats.startTime;
 
   // Estadisticas de la base de datos
-  const totalInDB = await Container.countDocuments().maxTimeMS(10000);
+  const totalInDB = await Contenedor.countDocuments().maxTimeMS(10000);
 
   // Estadisticas por tipo usando agregacion
   const [byType, byDistrict] = await Promise.all([
-    Container.aggregate([
+    Contenedor.aggregate([
       {
         $group: {
           _id: '$tipoContenedor',
@@ -577,7 +577,7 @@ async function showStatistics() {
       { $limit: 10 }
     ], { maxTimeMS: 10000 }),
 
-    Container.aggregate([
+    Contenedor.aggregate([
       {
         $group: {
           _id: '$distrito',
@@ -649,7 +649,7 @@ async function main() {
     logger.info('Conexion a MongoDB establecida');
 
     // Verificar estado inicial
-    const initialCount = await Container.countDocuments().maxTimeMS(10000);
+    const initialCount = await Contenedor.countDocuments().maxTimeMS(10000);
     logger.info({ registrosActuales: initialCount }, 'Estado inicial de la coleccion');
 
     // Procesar CSV

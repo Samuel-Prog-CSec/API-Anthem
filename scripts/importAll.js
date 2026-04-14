@@ -9,7 +9,7 @@
  * Opciones:
  *   --force         Forzar sobrescritura de datos existentes
  *   --only=x,y,z    Ejecutar solo importadores especificos
- *                    Valores: locations,air,noise,traffic,census,containers,fines,
+ *                    Valores: locations,air,noise,traffic,censo,contenedores,multas,
  *                             accidents,scooters,bikes,bike-traffic
  *   --help          Mostrar ayuda
  */
@@ -53,20 +53,20 @@ const IMPORTERS = {
     fase: 2,
     descripcion: 'Intensidad y carga de trafico por punto de medicion'
   },
-  census: {
-    script: 'importation/importCensus.js',
+  censo: {
+    script: 'importation/importarCenso.js',
     nombre: 'Censo',
     fase: 2,
     descripcion: 'Datos censales por seccion'
   },
-  containers: {
-    script: 'importation/importContainers.js',
+  contenedores: {
+    script: 'importation/importarContenedores.js',
     nombre: 'Contenedores',
     fase: 2,
     descripcion: 'Ubicacion y tipo de contenedores de reciclaje'
   },
-  fines: {
-    script: 'importation/importFines.js',
+  multas: {
+    script: 'importation/importarMultas.js',
     nombre: 'Multas',
     fase: 2,
     descripcion: 'Datos de multas de trafico'

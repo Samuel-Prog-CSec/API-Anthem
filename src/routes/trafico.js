@@ -71,7 +71,7 @@ const exportLimit = rateLimit({
  */
 
 /**
- * @route   GET /api/traffic
+ * @route   GET /api/v1/trafico
  * @desc    Obtener todas las mediciones de tráfico con filtros
  * @access  Private
  * @rateLimit 100 requests per 15 minutes
@@ -86,7 +86,7 @@ router.get('/',
 );
 
 /**
- * @route   GET /api/traffic/punto/:id
+ * @route   GET /api/v1/trafico/punto/:id
  * @desc    Obtener datos de tráfico de un punto específico
  * @access  Private
  * @rateLimit 100 requests per 15 minutes
@@ -111,12 +111,12 @@ router.get('/punto/:id',
 );
 
 /**
- * @route   GET /api/traffic/stats
+ * @route   GET /api/v1/trafico/estadisticas
  * @desc    Obtener estadísticas generales de tráfico
  * @access  Private
  * @rateLimit 5 requests per minute (heavy query)
  */
-router.get('/stats',
+router.get('/estadisticas',
   generalLimit,
   heavyQueryLimiter, // Heavy query limiter for statistics
   authenticate,
@@ -139,12 +139,12 @@ router.get('/stats',
 );
 
 /**
- * @route   GET /api/traffic/congestion-analysis
+ * @route   GET /api/v1/trafico/analisis-congestion
  * @desc    Obtener análisis de congestión por zonas
  * @access  Private
  * @rateLimit 100 requests per 15 minutes
  */
-router.get('/congestion-analysis',
+router.get('/analisis-congestion',
   generalLimit,
   authenticate,
   [
@@ -164,12 +164,12 @@ router.get('/congestion-analysis',
 );
 
 /**
- * @route   GET /api/traffic/historical
+ * @route   GET /api/v1/trafico/historico
  * @desc    Obtener datos históricos para gráficos
  * @access  Private
  * @rateLimit 100 requests per 15 minutes
  */
-router.get('/historical',
+router.get('/historico',
   generalLimit,
   authenticate,
   [

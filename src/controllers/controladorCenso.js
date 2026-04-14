@@ -5,7 +5,7 @@
  * Incluye análisis poblacional, distribución geográfica, pirámides poblacionales
  */
 
-const Census = require('../models/Census');
+const Censo = require('../models/Censo');
 const { createInternalError } = require('../utils/errorUtils');
 const { createPaginationMeta, createCursorMeta, buildCursorQuery } = require('../utils/paginationHelper');
 const { buildSortOptions, buildPaginationOptions, buildFilters, TRANSFORMS, parseNumericParams, buildResponseMetadata } = require('../utils/queryHelper');
@@ -15,9 +15,9 @@ const logger = require('../config/logger');
 
 /**
  * Obtener datos de censo con filtros
- * GET /api/v1/census
+ * GET /api/v1/censo
  */
-const getCensusData = async (req, res, next) => {
+const obtenerDatosCenso = async (req, res, next) => {
   try {
     const {
       distrito,
@@ -27,8 +27,8 @@ const getCensusData = async (req, res, next) => {
       soloTerceraEdad,
       page = PAGINATION.DEFAULT_PAGE,
       limit = PAGINATION.DEFAULT_LIMIT,
-      sortBy = SORT_FIELDS.CENSUS.DEFAULT_SORT_BY,
-      sortOrder = SORT_FIELDS.DEFAULT_SORT_ORDER,
+      sortBy = 'fechaCenso',
+      sortOrder = 'desc',
       includeEstadisticas = true
     } = req.query;
 
@@ -92,7 +92,7 @@ const getCensusData = async (req, res, next) => {
     const sortOptions = buildSortOptions(
       { sortBy, sortOrder },
       sortMapping,
-      Object.keys(SORT_FIELDS.CENSUS),
+      SORT_FIELDS.CENSUS,
       'fechaCenso',
       'desc'
     );
@@ -127,7 +127,7 @@ const getCensusData = async (req, res, next) => {
     // Mantiene todas las optimizaciones (.lean(), Promise.all(), proyección)
     const { cursor } = req.query;
 
-    const { data, total: totalDocuments, stats, cursor: cursorMeta } = await Census.findWithOptions({
+    const { data, total: totalDocuments, stats, cursor: cursorMeta } = await Censo.findWithOptions({
       filters,
       sort: sortOptions,
       pagination: paginationOptions,
@@ -181,7 +181,7 @@ const getCensusData = async (req, res, next) => {
     logger.error({
       error: error.message,
       stack: error.stack,
-      endpoint: 'GET /api/v1/census (otra función)'
+      endpoint: 'GET /api/v1/censo'
     }, 'Error obteniendo datos de censo');
     next(createInternalError('Error al obtener datos de censo', error));
   }
@@ -189,9 +189,9 @@ const getCensusData = async (req, res, next) => {
 
 /**
  * Obtener pirámide poblacional
- * GET /api/v1/census/pyramid
+ * GET /api/v1/censo/piramide
  */
-const getPopulationPyramid = async (req, res, next) => {
+const obtenerPiramidePoblacional = async (req, res, next) => {
   try {
     const {
       incluirExtranjeros = true
@@ -205,7 +205,7 @@ const getPopulationPyramid = async (req, res, next) => {
     );
 
     // Llamar al método optimizado del modelo
-    const result = await Census.getOptimizedPopulationPyramid({
+    const result = await Censo.getOptimizedPopulationPyramid({
       año,
       distrito,
       incluirExtranjeros: incluirExtranjeros === 'true'
@@ -232,7 +232,7 @@ const getPopulationPyramid = async (req, res, next) => {
       error: error.message,
       stack: error.stack,
       query: req.query,
-      endpoint: 'GET /api/v1/census/population-pyramid'
+      endpoint: 'GET /api/v1/censo/piramide'
     }, 'Error obteniendo pirámide poblacional');
     next(createInternalError('Error al obtener pirámide poblacional', error));
   }
@@ -240,9 +240,9 @@ const getPopulationPyramid = async (req, res, next) => {
 
 /**
  * Obtener estadísticas por distritos
- * GET /api/v1/census/districts/statistics
+ * GET /api/v1/censo/distritos/estadisticas
  */
-const getDistrictStatistics = async (req, res, next) => {
+const obtenerEstadisticasDistritos = async (req, res, next) => {
   try {
     const { incluirBarrios = false } = req.query;
 
@@ -254,7 +254,7 @@ const getDistrictStatistics = async (req, res, next) => {
     );
 
     // Usar método estático del modelo para obtener estadísticas
-    const { districtStatistics, neighborhoodStatistics } = await Census.getDistrictStatisticsOptimized({
+    const { districtStatistics, neighborhoodStatistics } = await Censo.getDistrictStatisticsOptimized({
       año,
       mes,
       incluirBarrios: incluirBarrios === 'true'
@@ -298,7 +298,7 @@ const getDistrictStatistics = async (req, res, next) => {
       error: error.message,
       stack: error.stack,
       query: req.query,
-      endpoint: 'GET /api/v1/census/district-statistics'
+      endpoint: 'GET /api/v1/censo/distritos/estadisticas'
     }, 'Error obteniendo estadísticas de distritos');
     next(createInternalError('Error al obtener estadísticas de distritos', error));
   }
@@ -306,13 +306,13 @@ const getDistrictStatistics = async (req, res, next) => {
 
 /**
  * Obtener análisis demográfico avanzado
- * GET /api/v1/census/analysis/demographic
+ * GET /api/v1/censo/analisis/demografico
  */
 /**
  * Obtener análisis demográfico
- * GET /api/v1/census/analysis/demographic
+ * GET /api/v1/censo/analisis/demografico
  */
-const getDemographicAnalysis = async (req, res, next) => {
+const obtenerAnalisisDemografico = async (req, res, next) => {
   try {
     // Parsear parámetros numéricos de una vez
     const { año, mes, distrito } = parseNumericParams(
@@ -322,7 +322,7 @@ const getDemographicAnalysis = async (req, res, next) => {
     );
 
     // Llamar al método optimizado del modelo
-    const result = await Census.getOptimizedDemographicAnalysis({
+    const result = await Censo.getOptimizedDemographicAnalysis({
       año,
       mes,
       distrito
@@ -351,7 +351,7 @@ const getDemographicAnalysis = async (req, res, next) => {
       error: error.message,
       stack: error.stack,
       query: req.query,
-      endpoint: 'GET /api/v1/census/demographic-analysis'
+      endpoint: 'GET /api/v1/censo/analisis/demografico'
     }, 'Error en análisis demográfico');
     next(createInternalError('Error en análisis demográfico', error));
   }
@@ -359,9 +359,9 @@ const getDemographicAnalysis = async (req, res, next) => {
 
 /**
  * Obtener evolución demográfica temporal
- * GET /api/v1/census/evolution
+ * GET /api/v1/censo/evolucion
  */
-const getDemographicEvolution = async (req, res, next) => {
+const obtenerEvolucionDemografica = async (req, res, next) => {
   try {
     const { metrica = 'poblacionTotal' } = req.query; // poblacionTotal, extranjeros, productiva
 
@@ -414,7 +414,7 @@ const getDemographicEvolution = async (req, res, next) => {
         break;
     }
 
-    const evolucion = await Census.aggregate([
+    const evolucion = await Censo.aggregate([
       { $match: matchFilters },
       {
         $group: {
@@ -460,7 +460,7 @@ const getDemographicEvolution = async (req, res, next) => {
         variacionAbsoluta: ultimoValor - primerValor,
         variacionPorcentual: primerValor > 0 ?
           ((ultimoValor - primerValor) / primerValor * 100).toFixed(2) : 0,
-        tasa: evolucion.length > 1 ?
+        tasa: evolucion.length > 1 && primerValor > 0 ?
           (Math.pow(ultimoValor / primerValor, 1 / (evolucion.length - 1)) - 1) * 100 : 0
       };
     }
@@ -474,8 +474,8 @@ const getDemographicEvolution = async (req, res, next) => {
           totalPeriodos: evolucion.length,
           valorInicial: evolucion[0]?.valor || 0,
           valorFinal: evolucion[evolucion.length - 1]?.valor || 0,
-          valorMaximo: Math.max(...evolucion.map(e => e.valor)),
-          valorMinimo: Math.min(...evolucion.map(e => e.valor))
+          valorMaximo: evolucion.length > 0 ? Math.max(...evolucion.map(e => e.valor)) : 0,
+          valorMinimo: evolucion.length > 0 ? Math.min(...evolucion.map(e => e.valor)) : 0
         }
       },
       configuracion: buildResponseMetadata({
@@ -492,7 +492,7 @@ const getDemographicEvolution = async (req, res, next) => {
       error: error.message,
       stack: error.stack,
       query: req.query,
-      endpoint: 'GET /api/v1/census/demographic-evolution'
+      endpoint: 'GET /api/v1/censo/evolucion'
     }, 'Error obteniendo evolución demográfica');
     next(createInternalError('Error al obtener evolución demográfica', error));
   }
@@ -500,9 +500,9 @@ const getDemographicEvolution = async (req, res, next) => {
 
 /**
  * Obtener métricas del dashboard demográfico
- * GET /api/v1/census/dashboard
+ * GET /api/v1/censo/dashboard
  */
-const getDemographicDashboard = async (req, res, next) => {
+const obtenerDashboardDemografico = async (req, res, next) => {
   try {
     // Parsear parámetros numéricos de una vez
     const { año, distrito } = parseNumericParams(
@@ -515,7 +515,7 @@ const getDemographicDashboard = async (req, res, next) => {
     if (distrito) { matchFilters['distrito.codigo'] = distrito; }
 
     // Métricas principales
-    const [metricas] = await Census.aggregate([
+    const [metricas] = await Censo.aggregate([
       { $match: matchFilters },
       {
         $group: {
@@ -570,7 +570,7 @@ const getDemographicDashboard = async (req, res, next) => {
     // Ejecutar queries en paralelo para mejor rendimiento
     const [topDistritos, distribucionEdad] = await Promise.all([
       // Top distritos por población
-      Census.aggregate([
+      Censo.aggregate([
         { $match: matchFilters },
         {
           $group: {
@@ -588,7 +588,7 @@ const getDemographicDashboard = async (req, res, next) => {
         .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }),
 
       // Distribución por grupos de edad
-      Census.aggregate([
+      Censo.aggregate([
         { $match: matchFilters },
         {
           $group: {
@@ -654,7 +654,7 @@ const getDemographicDashboard = async (req, res, next) => {
       error: error.message,
       stack: error.stack,
       query: req.query,
-      endpoint: 'GET /api/v1/census/dashboard'
+      endpoint: 'GET /api/v1/censo/dashboard'
     }, 'Error obteniendo dashboard demográfico');
     next(createInternalError('Error al obtener dashboard demográfico', error));
   }
@@ -678,7 +678,7 @@ const obtenerResumenDistritos = async (req, res, next) => {
       matchFilter.mes = parseInt(mes, 10);
     }
 
-    const resumen = await Census.aggregate([
+    const resumen = await Censo.aggregate([
       { $match: matchFilter },
       {
         $group: {
@@ -696,13 +696,15 @@ const obtenerResumenDistritos = async (req, res, next) => {
           totalPoblacion: 1
         }
       }
-    ]).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATION);
+    ]).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
 
-    return createResponse(res, HTTP_STATUS.OK, 'Resumen de distritos obtenido correctamente', {
-      data: resumen,
-      totalDistritos: resumen.length,
-      filtros: { año: parseInt(año, 10), mes: mes ? parseInt(mes, 10) : null }
-    });
+    return res.status(HTTP_STATUS.OK).json(
+      createResponse({
+        data: resumen,
+        totalDistritos: resumen.length,
+        filtros: { año: parseInt(año, 10), mes: mes ? parseInt(mes, 10) : null }
+      }, 'Resumen de distritos obtenido correctamente')
+    );
   } catch (error) {
     logger.error({
       error: error.message,
@@ -713,12 +715,12 @@ const obtenerResumenDistritos = async (req, res, next) => {
 };
 
 module.exports = {
-  getCensusData,
-  getPopulationPyramid,
-  getDistrictStatistics,
-  getDemographicAnalysis,
-  getDemographicEvolution,
-  getDemographicDashboard,
+  obtenerDatosCenso,
+  obtenerPiramidePoblacional,
+  obtenerEstadisticasDistritos,
+  obtenerAnalisisDemografico,
+  obtenerEvolucionDemografica,
+  obtenerDashboardDemografico,
   obtenerResumenDistritos
 };
 
