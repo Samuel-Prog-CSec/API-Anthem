@@ -39,7 +39,10 @@ const BATCH_SIZE = 10000;
 const DATA_DIR = path.join(__dirname, '../../datos_hpe/Trafico');
 const LOCATIONS_FILE = path.join(__dirname, '../../datos_hpe/Ubicaciones/Anthem_CTC_PuntoMedidaTrafico.csv');
 const MAX_PARALLEL = 3;
-const LOG_INTERVAL = 100000;
+const LOG_INTERVAL = 500000;
+
+// Modo de insercion: 'insert' (BD vacia, mas rapido) o 'upsert' (BD con datos o --force)
+let modoInsercion = 'upsert';
 
 // ============================================================================
 // RAZONES DE RECHAZO
@@ -161,46 +164,50 @@ function validateAndTransformRow(row, rowIndex) {
 
   // Validar ID de punto
   if (!puntoMedidaId) {
-    rejectionTracker.track(REJECTION_REASONS.ID_PUNTO_FALTANTE);
-    logger.warn({
+    const razon = REJECTION_REASONS.ID_PUNTO_FALTANTE;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.ID_PUNTO_FALTANTE,
+      razon,
       datosOriginales: { id: row.id }
     }, 'Fila rechazada: ID de punto faltante');
-    throw new Error(REJECTION_REASONS.ID_PUNTO_FALTANTE);
+    throw new Error(razon);
   }
 
   if (!/^\d+$/.test(puntoMedidaId)) {
-    rejectionTracker.track(REJECTION_REASONS.ID_PUNTO_FORMATO_INVALIDO);
-    logger.warn({
+    const razon = REJECTION_REASONS.ID_PUNTO_FORMATO_INVALIDO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.ID_PUNTO_FORMATO_INVALIDO,
+      razon,
       datosOriginales: { id: row.id }
     }, 'Fila rechazada: formato de ID invalido');
-    throw new Error(REJECTION_REASONS.ID_PUNTO_FORMATO_INVALIDO);
+    throw new Error(razon);
   }
 
   // Validar fecha
   const fechaStr = row.fecha?.trim();
   if (!fechaStr) {
-    rejectionTracker.track(REJECTION_REASONS.FECHA_FALTANTE);
-    logger.warn({
+    const razon = REJECTION_REASONS.FECHA_FALTANTE;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.FECHA_FALTANTE,
+      razon,
       datosOriginales: { fecha: row.fecha }
     }, 'Fila rechazada: fecha faltante');
-    throw new Error(REJECTION_REASONS.FECHA_FALTANTE);
+    throw new Error(razon);
   }
 
   const fecha = new Date(fechaStr);
   if (isNaN(fecha.getTime())) {
-    rejectionTracker.track(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
-    logger.warn({
+    const razon = REJECTION_REASONS.FECHA_FORMATO_INVALIDO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.FECHA_FORMATO_INVALIDO,
+      razon,
       datosOriginales: { fecha: fechaStr }
     }, 'Fila rechazada: fecha invalida');
-    throw new Error(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
+    throw new Error(razon);
   }
 
   // Extraer componentes de fecha
@@ -217,13 +224,14 @@ function validateAndTransformRow(row, rowIndex) {
   // Validar tipo de elemento usando constantes
   const tiposValidos = Object.values(TRAFFIC_ELEMENT_TYPES);
   if (!tiposValidos.includes(tipoElemento)) {
-    rejectionTracker.track(REJECTION_REASONS.TIPO_ELEMENTO_INVALIDO);
-    logger.warn({
+    const razon = REJECTION_REASONS.TIPO_ELEMENTO_INVALIDO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.TIPO_ELEMENTO_INVALIDO,
+      razon,
       datosOriginales: { tipoElemento: tipoElementoRaw, esperados: tiposValidos }
     }, 'Fila rechazada: tipo de elemento invalido');
-    throw new Error(REJECTION_REASONS.TIPO_ELEMENTO_INVALIDO);
+    throw new Error(razon);
   }
 
   // Parsear métricas (valores negativos indican ausencia de datos)
@@ -358,6 +366,21 @@ async function processBatch(batch) {
   }
 
   try {
+    if (modoInsercion === 'insert') {
+      // Modo insertMany: BD vacia, sin lookup por unique en cada documento
+      const result = await Traffic.insertMany(batch, {
+        ordered: false,
+        lean: true,
+        rawResult: true,
+        bypassDocumentValidation: true
+      });
+
+      const nuevos = result.insertedCount || 0;
+      totalInserted += nuevos;
+      return { nuevos, actualizados: 0, errores: 0 };
+    }
+
+    // Modo upsert: BD con datos previos o --force
     const bulkOperations = batch.map(record => ({
       updateOne: {
         filter: {
@@ -369,22 +392,36 @@ async function processBatch(batch) {
       }
     }));
 
-    const result = await Traffic.bulkWrite(bulkOperations, { ordered: false });
+    const result = await Traffic.bulkWrite(bulkOperations, {
+      ordered: false,
+      bypassDocumentValidation: true
+    });
 
     const nuevos = result.upsertedCount || 0;
     const actualizados = result.modifiedCount || 0;
-
     totalInserted += nuevos;
     totalUpdated += actualizados;
 
     return { nuevos, actualizados, errores: 0 };
 
   } catch (error) {
+    // En modo insertMany, ordered:false hace que algunos errores no aborten;
+    // los exitosos quedan reflejados en error.result.insertedCount.
+    if (modoInsercion === 'insert' && error.writeErrors) {
+      const exitosos = (error.insertedDocs && error.insertedDocs.length) ||
+                       (error.result && error.result.nInserted) ||
+                       (batch.length - error.writeErrors.length);
+      totalInserted += exitosos;
+      totalErrors += error.writeErrors.length;
+      return { nuevos: exitosos, actualizados: 0, errores: error.writeErrors.length };
+    }
+
     const mongoError = handleMongoError(error);
     logger.error({
       error: mongoError.message,
       tipo: mongoError.type,
-      loteSize: batch.length
+      loteSize: batch.length,
+      modo: modoInsercion
     }, 'Error procesando lote de trafico');
 
     totalErrors += batch.length;
@@ -546,9 +583,19 @@ async function main() {
       return;
     }
 
-    // Contar registros antes
-    const countAntes = await Traffic.countDocuments().maxTimeMS(10000);
-    logger.info({ registrosExistentes: countAntes.toLocaleString() }, 'Registros actuales de trafico');
+    // Detectar modo de insercion automaticamente
+    const forceMode = process.argv.includes('--force');
+    const countActual = await Traffic.countDocuments().maxTimeMS(10000);
+    modoInsercion = (countActual === 0 && !forceMode) ? 'insert' : 'upsert';
+
+    logger.info({
+      modo: modoInsercion,
+      registrosExistentes: countActual.toLocaleString(),
+      force: forceMode
+    }, `Modo de insercion: ${modoInsercion}`);
+
+    // Reusar countActual para el resumen final
+    const countAntes = countActual;
 
     // Procesar archivos en paralelo
     const fileResults = [];
