@@ -44,9 +44,9 @@ const {
 
 const IMPORT_CONFIG = {
   dataDirectory: path.join(__dirname, '..', '..', 'datos_hpe', 'Censo'),
-  batchSize: 500,
+  batchSize: 5000,
   skipExisting: true,
-  logInterval: 10000,
+  logInterval: 50000,
   maxParallel: 3
 };
 
@@ -214,10 +214,11 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   // Extraer mes y año del nombre del archivo usando helper
   const dateInfo = extractDateFromFileName(sourceFile);
   if (!dateInfo) {
-    rejectionTracker.track(REJECTION_REASONS.ARCHIVO_SIN_FECHA);
-    logger.warn({
+    const razon = REJECTION_REASONS.ARCHIVO_SIN_FECHA;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.ARCHIVO_SIN_FECHA,
+      razon,
       datosOriginales: { archivo: sourceFile }
     }, 'Fila rechazada: no se pudo extraer fecha del archivo');
     return null;
@@ -237,10 +238,11 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   // Validar que al menos hay algún dato poblacional
   const totalPoblacion = españolesHombres + españolesMujeres + extranjerosHombres + extranjerosMujeres;
   if (totalPoblacion === 0) {
-    rejectionTracker.track(REJECTION_REASONS.POBLACION_CERO);
-    logger.warn({
+    const razon = REJECTION_REASONS.POBLACION_CERO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.POBLACION_CERO,
+      razon,
       datosOriginales: {
         españolesHombres,
         españolesMujeres,
@@ -255,10 +257,11 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   // Validar código de distrito
   const codigoDistrito = parseInteger(row.COD_DISTRITO, 1);
   if (codigoDistrito < 1 || codigoDistrito > 99) {
-    rejectionTracker.track(REJECTION_REASONS.CODIGO_DISTRITO_INVALIDO);
-    logger.warn({
+    const razon = REJECTION_REASONS.CODIGO_DISTRITO_INVALIDO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.CODIGO_DISTRITO_INVALIDO,
+      razon,
       datosOriginales: { codigoDistrito: row.COD_DISTRITO }
     }, 'Fila rechazada: codigo de distrito invalido');
     return null;
@@ -267,10 +270,11 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   // Validar edad
   const edad = parseInteger(row.COD_EDAD_INT, 0);
   if (edad < VALIDATION_LIMITS.AGE_MIN || edad > VALIDATION_LIMITS.AGE_MAX) {
-    rejectionTracker.track(REJECTION_REASONS.EDAD_INVALIDA);
-    logger.warn({
+    const razon = REJECTION_REASONS.EDAD_INVALIDA;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.EDAD_INVALIDA,
+      razon,
       datosOriginales: { edad: row.COD_EDAD_INT }
     }, 'Fila rechazada: edad fuera de rango');
     return null;
@@ -520,7 +524,7 @@ async function processBatchInsert(batch, stats) {
   try {
     const result = await Censo.bulkWrite(operations, {
       ordered: false,
-      bypassDocumentValidation: false
+      bypassDocumentValidation: true
     });
     stats.insertedRecords += result.insertedCount || 0;
   } catch (bulkError) {
@@ -555,7 +559,10 @@ async function processBatchUpsert(batch, stats) {
     }
   }));
 
-  const result = await Censo.bulkWrite(operations, { ordered: false });
+  const result = await Censo.bulkWrite(operations, {
+    ordered: false,
+    bypassDocumentValidation: true
+  });
   const nuevos = result.upsertedCount || 0;
   const actualizados = result.modifiedCount || 0;
 
