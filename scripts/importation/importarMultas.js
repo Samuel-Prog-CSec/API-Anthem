@@ -35,7 +35,7 @@ const {
 
 const IMPORT_CONFIG = {
   dataDirectory: path.join(__dirname, '..', '..', 'datos_hpe', 'Multas'),
-  batchSize: 5000,
+  batchSize: 10000,
   skipExisting: true,
   logInterval: 50000,
   maxParallel: 3
@@ -137,10 +137,11 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   // Extraer mes y año del nombre del archivo usando helper
   const dateInfo = extractDateFromFileName(sourceFile);
   if (!dateInfo) {
-    rejectionTracker.track(REJECTION_REASONS.ARCHIVO_SIN_FECHA);
-    logger.warn({
+    const razon = REJECTION_REASONS.ARCHIVO_SIN_FECHA;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.ARCHIVO_SIN_FECHA,
+      razon,
       datosOriginales: { archivo: sourceFile }
     }, 'Fila rechazada: no se pudo extraer fecha del archivo');
     return null;
@@ -169,10 +170,11 @@ function parseMultaRow(row, sourceFile, rowIndex) {
       if (coordX >= VALIDATION_LIMITS.UTM_X_MIN && coordX <= VALIDATION_LIMITS.UTM_X_MAX) {
         coordenadas.x = coordX;
       } else {
-        rejectionTracker.track(REJECTION_REASONS.COORDENADA_X_INVALIDA);
-        logger.warn({
+        const razon = REJECTION_REASONS.COORDENADA_X_INVALIDA;
+        const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+        logger[nivel]({
           fila: rowIndex,
-          razon: REJECTION_REASONS.COORDENADA_X_INVALIDA,
+          razon,
           datosOriginales: { coordenadaX: row.COORDENADA_X, valor: coordX }
         }, 'Coordenada X fuera de rango - se omite');
       }
@@ -185,10 +187,11 @@ function parseMultaRow(row, sourceFile, rowIndex) {
       if (coordY >= VALIDATION_LIMITS.UTM_Y_MIN && coordY <= VALIDATION_LIMITS.UTM_Y_MAX) {
         coordenadas.y = coordY;
       } else {
-        rejectionTracker.track(REJECTION_REASONS.COORDENADA_Y_INVALIDA);
-        logger.warn({
+        const razon = REJECTION_REASONS.COORDENADA_Y_INVALIDA;
+        const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+        logger[nivel]({
           fila: rowIndex,
-          razon: REJECTION_REASONS.COORDENADA_Y_INVALIDA,
+          razon,
           datosOriginales: { coordenadaY: row.COORDENADA_Y, valor: coordY }
         }, 'Coordenada Y fuera de rango - se omite');
       }
@@ -202,10 +205,11 @@ function parseMultaRow(row, sourceFile, rowIndex) {
     if (!isNaN(velLimite) && velLimite >= VALIDATION_LIMITS.SPEED_MIN && velLimite <= VALIDATION_LIMITS.SPEED_MAX) {
       datosVelocidad.velocidadLimite = velLimite;
     } else if (!isNaN(velLimite)) {
-      rejectionTracker.track(REJECTION_REASONS.VELOCIDAD_LIMITE_INVALIDA);
-      logger.warn({
+      const razon = REJECTION_REASONS.VELOCIDAD_LIMITE_INVALIDA;
+      const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+      logger[nivel]({
         fila: rowIndex,
-        razon: REJECTION_REASONS.VELOCIDAD_LIMITE_INVALIDA,
+        razon,
         datosOriginales: { velocidadLimite: row.VEL_LIMITE, valor: velLimite }
       }, 'Velocidad limite fuera de rango - se omite');
     }
@@ -216,10 +220,11 @@ function parseMultaRow(row, sourceFile, rowIndex) {
     if (!isNaN(velCircula) && velCircula >= VALIDATION_LIMITS.SPEED_MIN && velCircula <= VALIDATION_LIMITS.SPEED_MAX) {
       datosVelocidad.velocidadCirculacion = velCircula;
     } else if (!isNaN(velCircula)) {
-      rejectionTracker.track(REJECTION_REASONS.VELOCIDAD_CIRCULACION_INVALIDA);
-      logger.warn({
+      const razon = REJECTION_REASONS.VELOCIDAD_CIRCULACION_INVALIDA;
+      const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+      logger[nivel]({
         fila: rowIndex,
-        razon: REJECTION_REASONS.VELOCIDAD_CIRCULACION_INVALIDA,
+        razon,
         datosOriginales: { velocidadCirculacion: row.VEL_CIRCULA, valor: velCircula }
       }, 'Velocidad de circulacion fuera de rango - se omite');
     }
@@ -230,10 +235,11 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   const importe = parseFloat(importeStr) || 0;
 
   if (importe < 0) {
-    rejectionTracker.track(REJECTION_REASONS.IMPORTE_NEGATIVO);
-    logger.warn({
+    const razon = REJECTION_REASONS.IMPORTE_NEGATIVO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.IMPORTE_NEGATIVO,
+      razon,
       datosOriginales: { importe: row.IMP_BOL, valor: importe }
     }, 'Importe negativo - se convierte a 0');
   }
@@ -241,10 +247,11 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   // Procesar puntos
   const puntos = parseInt(row.PUNTOS) || 0;
   if (puntos < VALIDATION_LIMITS.DRIVER_POINTS_MIN || puntos > VALIDATION_LIMITS.DRIVER_POINTS_MAX) {
-    rejectionTracker.track(REJECTION_REASONS.PUNTOS_FUERA_RANGO);
-    logger.warn({
+    const razon = REJECTION_REASONS.PUNTOS_FUERA_RANGO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.PUNTOS_FUERA_RANGO,
+      razon,
       datosOriginales: { puntos: row.PUNTOS, valor: puntos }
     }, `Puntos fuera de rango (${VALIDATION_LIMITS.DRIVER_POINTS_MIN}-${VALIDATION_LIMITS.DRIVER_POINTS_MAX}) - se usa valor original`);
   }
@@ -265,10 +272,11 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   const calificacion = calificacionesValidas.includes(calificacionRaw) ? calificacionRaw : SEVERITY_LEVELS.FINE.LEVE;
 
   if (!calificacionesValidas.includes(calificacionRaw) && calificacionRaw !== SEVERITY_LEVELS.FINE.LEVE) {
-    rejectionTracker.track(REJECTION_REASONS.CALIFICACION_INVALIDA);
-    logger.warn({
+    const razon = REJECTION_REASONS.CALIFICACION_INVALIDA;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.CALIFICACION_INVALIDA,
+      razon,
       datosOriginales: { calificacion: row.CALIFICACION, valorUsado: SEVERITY_LEVELS.FINE.LEVE }
     }, 'Calificacion invalida - se usa LEVE por defecto');
   }
@@ -509,7 +517,7 @@ async function processBatchInsert(batch, stats) {
   try {
     const result = await Fine.bulkWrite(operations, {
       ordered: false,
-      bypassDocumentValidation: false
+      bypassDocumentValidation: true
     });
     stats.insertedRecords += result.insertedCount || 0;
   } catch (bulkError) {
@@ -543,7 +551,10 @@ async function processBatchUpsert(batch, stats) {
   }));
 
   try {
-    const result = await Fine.bulkWrite(operations, { ordered: false });
+    const result = await Fine.bulkWrite(operations, {
+      ordered: false,
+      bypassDocumentValidation: true
+    });
     stats.insertedRecords += (result.upsertedCount || 0);
     stats.insertedRecords += (result.modifiedCount || 0);
     stats.skippedRecords += (result.matchedCount || 0) - (result.modifiedCount || 0);
