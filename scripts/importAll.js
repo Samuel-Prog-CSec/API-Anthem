@@ -21,6 +21,23 @@ process.env.SCRIPT_MODE = 'true';
 const { execFile } = require('child_process');
 const path = require('path');
 const { importAllLogger: logger } = require('../src/config/scriptLogger');
+const mongoose = require('mongoose');
+const { connectDB } = require('../src/config/database');
+const config = require('../src/config/config');
+const {
+  dropIndicesSecundarios,
+  recrearIndicesSecundarios
+} = require('./importation/helpers/gestorIndices');
+
+const Trafico = require('../src/models/Trafico');
+const Censo = require('../src/models/Censo');
+const Multa = require('../src/models/Multa');
+
+const MODELOS_FASE3 = {
+  traffic: Trafico,
+  censo: Censo,
+  multas: Multa
+};
 
 /**
  * Helpers para output al terminal de CLI.
@@ -297,6 +314,11 @@ async function main() {
 
   const results = [];
 
+  // El padre mantiene su propia conexion a Mongo para gestionar indices.
+  // Los procesos hijos (importadores) abren la suya por separado.
+  process.env.SCRIPT_MODE = 'true';
+  await connectDB(config.database.uri);
+
   // Fase 1: Datos de referencia (secuencial)
   const fase1 = importersToRun.filter(([, config]) => config.fase === 1);
   if (fase1.length > 0) {
@@ -356,9 +378,46 @@ async function main() {
     imprimir('\n--- Fase 3: Datos pesados (secuencial) ---\n');
 
     for (const [key, config] of fase3) {
-      const result = await runImporter(key, config, options);
-      results.push(result);
-      imprimir(`  ${result.success ? '[OK]' : '[ERROR]'} ${result.nombre} (${result.duration})`);
+      const Modelo = MODELOS_FASE3[key];
+
+      if (!options.skipIndicesManagement && Modelo) {
+        try {
+          await dropIndicesSecundarios(Modelo, logger);
+        } catch (error) {
+          logger.error({
+            importador: key,
+            error: error.message
+          }, 'Error dropeando indices, abortando esta coleccion');
+          results.push({
+            key,
+            nombre: config.nombre,
+            success: false,
+            duration: '0s',
+            error: `Error en drop de indices: ${error.message}`
+          });
+          continue;
+        }
+      }
+
+      let result;
+      try {
+        result = await runImporter(key, config, options);
+        results.push(result);
+        imprimir(`  ${result.success ? '[OK]' : '[ERROR]'} ${result.nombre} (${result.duration})`);
+      } finally {
+        if (!options.skipIndicesManagement && Modelo) {
+          try {
+            await recrearIndicesSecundarios(Modelo, logger);
+          } catch (error) {
+            logger.error({
+              importador: key,
+              error: error.message
+            }, `Error recreando indices. Recuperar manualmente: node scripts/importAll.js --rebuild-indices=${key}`);
+            imprimirError(`\n  ERROR recreando indices de ${config.nombre}.`);
+            imprimirError(`  Recuperar manualmente: node scripts/importAll.js --rebuild-indices=${key}\n`);
+          }
+        }
+      }
     }
   }
 
@@ -389,10 +448,44 @@ async function main() {
     resultados: results.map(r => ({ importador: r.key, exitoso: r.success, duracion: r.duration }))
   }, `Importacion masiva completada: ${exitosos}/${results.length} exitosos`);
 
+  // Cerrar conexion del padre
+  if (mongoose.connection.readyState === 1) {
+    await mongoose.connection.close();
+  }
+
   if (fallidos > 0) {
     process.exit(1);
   }
 }
+
+// Handler de SIGINT en el padre: si el usuario hace Ctrl+C entre drop y recreate,
+// intentamos recrear todos los indices de Fase 3 antes de salir para no dejar
+// la BD sin indices secundarios.
+let cerrandoPorSenal = false;
+process.on('SIGINT', async () => {
+  if (cerrandoPorSenal) {
+    process.exit(130);
+  }
+  cerrandoPorSenal = true;
+
+  imprimir('\n[SIGINT] Intentando recrear indices antes de salir...');
+
+  for (const [key, Modelo] of Object.entries(MODELOS_FASE3)) {
+    try {
+      await recrearIndicesSecundarios(Modelo, logger);
+    } catch (error) {
+      logger.error({
+        importador: key,
+        error: error.message
+      }, `Error recreando indices en SIGINT. Recuperar: node scripts/importAll.js --rebuild-indices=${key}`);
+    }
+  }
+
+  if (mongoose.connection.readyState === 1) {
+    await mongoose.connection.close();
+  }
+  process.exit(130);
+});
 
 // Ejecutar
 main().catch(error => {
