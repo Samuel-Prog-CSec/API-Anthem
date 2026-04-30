@@ -72,6 +72,9 @@ function isValidMonthYear(mes, año) {
   );
 }
 
+/** Maximo de warnings por tipo de rechazo antes de degradar a debug */
+const MAX_WARN_POR_RAZON = 10;
+
 /**
  * Clase para tracking de estadísticas de rechazo
  */
@@ -83,7 +86,7 @@ class RejectionTracker {
 
   /**
    * Registrar un rechazo
-   * @param {string} reason - Razón del rechazo (de REJECTION_REASONS)
+   * @param {string} reason - Razon del rechazo (de REJECTION_REASONS)
    */
   track(reason) {
     if (!this.stats[reason]) {
@@ -94,7 +97,24 @@ class RejectionTracker {
   }
 
   /**
-   * Obtener estadísticas de rechazos
+   * Decidir si esta razon debe loggearse como warn (primeras N veces) o
+   * como debug (silencioso por defecto). Llama a track() internamente para
+   * mantener el contador sincronizado.
+   *
+   * Uso tipico:
+   *   const nivel = rejectionTracker.shouldLogWarn(reason) ? 'warn' : 'debug';
+   *   logger[nivel]({ ... }, mensaje);
+   *
+   * @param {string} reason - Razon del rechazo
+   * @returns {boolean} - true si debe ser warn, false si debe ser debug
+   */
+  shouldLogWarn(reason) {
+    this.track(reason);
+    return this.stats[reason] <= MAX_WARN_POR_RAZON;
+  }
+
+  /**
+   * Obtener estadisticas de rechazos
    * @returns {Object}
    */
   getStats() {
@@ -121,7 +141,7 @@ class RejectionTracker {
   }
 
   /**
-   * Resetear estadísticas
+   * Resetear estadisticas
    */
   reset() {
     this.stats = {};
@@ -232,6 +252,7 @@ module.exports = {
   extractDateFromFileName,
   isValidMonthYear,
   RejectionTracker,
+  MAX_WARN_POR_RAZON,
   parseNumber,
   parseInteger,
   cleanString,
