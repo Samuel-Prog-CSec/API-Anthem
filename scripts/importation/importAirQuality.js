@@ -455,7 +455,7 @@ async function processBatchInsert(batch, result) {
   try {
     const bulkResult = await AirQuality.bulkWrite(operations, {
       ordered: false,
-      bypassDocumentValidation: false
+      bypassDocumentValidation: true
     });
     result.inserted = bulkResult.insertedCount || 0;
   } catch (bulkError) {
@@ -496,7 +496,7 @@ async function processBatchUpsert(batch, result) {
 
   const bulkResult = await AirQuality.bulkWrite(operations, {
     ordered: false,
-    bypassDocumentValidation: false
+    bypassDocumentValidation: true
   });
 
   result.inserted = (bulkResult.upsertedCount || 0) + (bulkResult.modifiedCount || 0);

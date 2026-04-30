@@ -325,20 +325,22 @@ function parsearFilaAsignacion(row, sourceFile, rowIndex) {
 
   // Validar campos obligatorios
   if (!distrito) {
-    rejectionTracker.track(REJECTION_REASONS.DISTRITO_FALTANTE);
-    logger.warn({
+    const razon = REJECTION_REASONS.DISTRITO_FALTANTE;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.DISTRITO_FALTANTE,
+      razon,
       datosOriginales: { distrito: row.DISTRITO, barrio: row.BARRIO }
     }, 'Fila rechazada: distrito faltante');
     return null;
   }
 
   if (!barrio) {
-    rejectionTracker.track(REJECTION_REASONS.BARRIO_FALTANTE);
-    logger.warn({
+    const razon = REJECTION_REASONS.BARRIO_FALTANTE;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.BARRIO_FALTANTE,
+      razon,
       datosOriginales: { distrito: row.DISTRITO, barrio: row.BARRIO }
     }, 'Fila rechazada: barrio faltante');
     return null;
@@ -389,10 +391,11 @@ function parsearFilaAsignacion(row, sourceFile, rowIndex) {
 
   // Validar que hay al menos un proveedor
   if (proveedores.length === 0) {
-    rejectionTracker.track(REJECTION_REASONS.SIN_PROVEEDORES);
-    logger.warn({
+    const razon = REJECTION_REASONS.SIN_PROVEEDORES;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.SIN_PROVEEDORES,
+      razon,
       datosOriginales: { distrito, barrio }
     }, 'Fila rechazada: sin proveedores validos');
     return null;
@@ -658,7 +661,7 @@ async function procesarLoteInsercion(batch, result) {
   try {
     const bulkResult = await AsignacionPatinetes.bulkWrite(operations, {
       ordered: false,
-      bypassDocumentValidation: false
+      bypassDocumentValidation: true
     });
     result.inserted = bulkResult.insertedCount || 0;
   } catch (bulkError) {
@@ -692,7 +695,10 @@ async function procesarLoteUpsert(batch, result) {
   }));
 
   try {
-    const bulkResult = await AsignacionPatinetes.bulkWrite(operations, { ordered: false });
+    const bulkResult = await AsignacionPatinetes.bulkWrite(operations, {
+      ordered: false,
+      bypassDocumentValidation: true
+    });
     result.inserted = bulkResult.upsertedCount || 0;
     result.updated = bulkResult.modifiedCount || 0;
     result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);

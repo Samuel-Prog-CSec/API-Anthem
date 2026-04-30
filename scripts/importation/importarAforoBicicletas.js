@@ -347,7 +347,8 @@ async function procesarLote(batch, options) {
     try {
       const insertResult = await BikeTrafficCount.insertMany(batch, {
         ordered: false,
-        lean: true
+        lean: true,
+        bypassDocumentValidation: true
       });
       result.inserted = insertResult.length;
     } catch (error) {
@@ -389,7 +390,10 @@ async function procesarLote(batch, options) {
     }));
 
     try {
-      const bulkResult = await BikeTrafficCount.bulkWrite(operations, { ordered: false });
+      const bulkResult = await BikeTrafficCount.bulkWrite(operations, {
+        ordered: false,
+        bypassDocumentValidation: true
+      });
       result.inserted = (bulkResult.upsertedCount || 0) + (bulkResult.modifiedCount || 0);
       result.skipped = (bulkResult.matchedCount || 0) - (bulkResult.modifiedCount || 0);
     } catch (error) {

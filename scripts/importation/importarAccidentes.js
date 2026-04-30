@@ -329,10 +329,11 @@ function parsearCoordenadas(xStr, yStr, rowIndex) {
   const y = parseFloat(yStr.replace(',', '.'));
 
   if (isNaN(x) || isNaN(y)) {
-    rejectionTracker.track(REJECTION_REASONS.COORDENADAS_FORMATO_INVALIDO);
-    logger.warn({
+    const razon = REJECTION_REASONS.COORDENADAS_FORMATO_INVALIDO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.COORDENADAS_FORMATO_INVALIDO,
+      razon,
       datosOriginales: { coordenadaX: xStr, coordenadaY: yStr }
     }, 'Coordenadas con formato no numerico - se asigna null');
     return null;
@@ -341,10 +342,11 @@ function parsearCoordenadas(xStr, yStr, rowIndex) {
   // Validar rangos para coordenadas UTM de España
   if (x < VALIDATION_LIMITS.UTM_X_MIN || x > VALIDATION_LIMITS.UTM_X_MAX ||
       y < VALIDATION_LIMITS.UTM_Y_MIN || y > VALIDATION_LIMITS.UTM_Y_MAX) {
-    rejectionTracker.track(REJECTION_REASONS.COORDENADAS_FUERA_RANGO_UTM);
-    logger.warn({
+    const razon = REJECTION_REASONS.COORDENADAS_FUERA_RANGO_UTM;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.COORDENADAS_FUERA_RANGO_UTM,
+      razon,
       datosOriginales: { x, y },
       limitesValidos: {
         x: { min: VALIDATION_LIMITS.UTM_X_MIN, max: VALIDATION_LIMITS.UTM_X_MAX },
@@ -366,10 +368,11 @@ function parsearCoordenadas(xStr, yStr, rowIndex) {
  */
 function parsearFecha(fechaStr, rowIndex) {
   if (!fechaStr || fechaStr.trim() === '') {
-    rejectionTracker.track(REJECTION_REASONS.FECHA_FALTANTE);
-    logger.warn({
+    const razon = REJECTION_REASONS.FECHA_FALTANTE;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.FECHA_FALTANTE,
+      razon,
       datosOriginales: { fecha: fechaStr }
     }, 'Fila rechazada: fecha vacia');
     throw new Error(REJECTION_REASONS.FECHA_FALTANTE);
@@ -377,10 +380,11 @@ function parsearFecha(fechaStr, rowIndex) {
 
   const parts = fechaStr.trim().split('/');
   if (parts.length !== 3) {
-    rejectionTracker.track(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
-    logger.warn({
+    const razon = REJECTION_REASONS.FECHA_FORMATO_INVALIDO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.FECHA_FORMATO_INVALIDO,
+      razon,
       datosOriginales: { fecha: fechaStr, formatoEsperado: 'DD/MM/YYYY' }
     }, 'Fila rechazada: formato de fecha invalido');
     throw new Error(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
@@ -389,10 +393,11 @@ function parsearFecha(fechaStr, rowIndex) {
   const [day, month, year] = parts.map(p => parseInt(p));
 
   if (isNaN(day) || isNaN(month) || isNaN(year)) {
-    rejectionTracker.track(REJECTION_REASONS.FECHA_COMPONENTES_INVALIDOS);
-    logger.warn({
+    const razon = REJECTION_REASONS.FECHA_COMPONENTES_INVALIDOS;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.FECHA_COMPONENTES_INVALIDOS,
+      razon,
       datosOriginales: { fecha: fechaStr, dia: day, mes: month, año: year }
     }, 'Fila rechazada: componentes de fecha no numericos');
     throw new Error(REJECTION_REASONS.FECHA_COMPONENTES_INVALIDOS);
@@ -401,10 +406,11 @@ function parsearFecha(fechaStr, rowIndex) {
   if (day < VALIDATION_LIMITS.DAY_MIN || day > VALIDATION_LIMITS.DAY_MAX ||
       month < VALIDATION_LIMITS.MONTH_MIN || month > VALIDATION_LIMITS.MONTH_MAX ||
       year < VALIDATION_LIMITS.YEAR_MIN || year > VALIDATION_LIMITS.YEAR_MAX) {
-    rejectionTracker.track(REJECTION_REASONS.FECHA_FUERA_RANGO);
-    logger.warn({
+    const razon = REJECTION_REASONS.FECHA_FUERA_RANGO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.FECHA_FUERA_RANGO,
+      razon,
       datosOriginales: { fecha: fechaStr, dia: day, mes: month, año: year }
     }, 'Fila rechazada: fecha fuera de rango');
     throw new Error(REJECTION_REASONS.FECHA_FUERA_RANGO);
@@ -413,9 +419,11 @@ function parsearFecha(fechaStr, rowIndex) {
   const date = new Date(year, month - 1, day);
 
   if (isNaN(date.getTime())) {
-    logger.warn({
+    const razon = REJECTION_REASONS.FECHA_FORMATO_INVALIDO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.FECHA_FORMATO_INVALIDO,
+      razon,
       datosOriginales: { fecha: fechaStr }
     }, 'Fila rechazada: fecha invalida');
     throw new Error(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
@@ -424,10 +432,11 @@ function parsearFecha(fechaStr, rowIndex) {
   // Validar que la fecha resultante coincide con los componentes (detecta 31/02, 30/02, etc.)
   // Date(2051, 1, 31) acepta y rebobina a 03/03/2051 silenciosamente, asi que comparamos
   if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-    rejectionTracker.track(REJECTION_REASONS.FECHA_FUERA_RANGO);
-    logger.warn({
+    const razon = REJECTION_REASONS.FECHA_FUERA_RANGO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.FECHA_FUERA_RANGO,
+      razon,
       datosOriginales: { fecha: fechaStr, fechaCalculada: date.toISOString() }
     }, 'Fila rechazada: fecha invalida (mes/dia incompatible, ej. 31/02)');
     throw new Error(REJECTION_REASONS.FECHA_FUERA_RANGO);
@@ -573,20 +582,22 @@ function validarYTransformarFila(row, rowIndex) {
   const numExpedienteRaw = row.num_expediente || row['\uFEFFnum_expediente'];
   const numeroExpediente = numExpedienteRaw?.toString().trim();
   if (!numeroExpediente) {
-    rejectionTracker.track(REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE);
-    logger.warn({
+    const razon = REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE,
+      razon,
       datosOriginales: { numeroExpediente: numExpedienteRaw }
     }, 'Fila rechazada: numero de expediente faltante');
     throw new Error(REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE);
   }
 
   if (!/^\d{4}S\d{6}$/.test(numeroExpediente)) {
-    rejectionTracker.track(REJECTION_REASONS.NUMERO_EXPEDIENTE_FORMATO_INVALIDO);
-    logger.warn({
+    const razon = REJECTION_REASONS.NUMERO_EXPEDIENTE_FORMATO_INVALIDO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.NUMERO_EXPEDIENTE_FORMATO_INVALIDO,
+      razon,
       datosOriginales: { numeroExpediente, formatoEsperado: 'YYYYSNNNNNN' }
     }, 'Fila rechazada: formato de expediente invalido');
     throw new Error(REJECTION_REASONS.NUMERO_EXPEDIENTE_FORMATO_INVALIDO);
@@ -599,10 +610,11 @@ function validarYTransformarFila(row, rowIndex) {
   // Parsear hora (CSV tiene formato H:MM:SS o HH:MM:SS, modelo espera HH:MM)
   const horaRaw = row.hora?.toString().trim();
   if (!horaRaw || !/^\d{1,2}:\d{2}(:\d{2})?$/.test(horaRaw)) {
-    rejectionTracker.track(REJECTION_REASONS.HORA_FORMATO_INVALIDO);
-    logger.warn({
+    const razon = REJECTION_REASONS.HORA_FORMATO_INVALIDO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.HORA_FORMATO_INVALIDO,
+      razon,
       datosOriginales: { hora: horaRaw, formatoEsperado: 'H:MM:SS o HH:MM:SS' }
     }, 'Fila rechazada: formato de hora invalido');
     throw new Error(REJECTION_REASONS.HORA_FORMATO_INVALIDO);
@@ -614,10 +626,11 @@ function validarYTransformarFila(row, rowIndex) {
   // Datos de ubicacion (normalizados para corregir mojibake del CSV)
   const calle = normalizarTexto(row.localizacion);
   if (!calle) {
-    rejectionTracker.track(REJECTION_REASONS.LOCALIZACION_FALTANTE);
-    logger.warn({
+    const razon = REJECTION_REASONS.LOCALIZACION_FALTANTE;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.LOCALIZACION_FALTANTE,
+      razon,
       datosOriginales: { localizacion: row.localizacion }
     }, 'Fila rechazada: localizacion faltante');
     throw new Error(REJECTION_REASONS.LOCALIZACION_FALTANTE);
@@ -628,10 +641,11 @@ function validarYTransformarFila(row, rowIndex) {
   const nombreDistrito = normalizarTexto(row.distrito).toUpperCase();
 
   if (!codigoDistrito || !nombreDistrito) {
-    rejectionTracker.track(REJECTION_REASONS.DISTRITO_INCOMPLETO);
-    logger.warn({
+    const razon = REJECTION_REASONS.DISTRITO_INCOMPLETO;
+    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      razon: REJECTION_REASONS.DISTRITO_INCOMPLETO,
+      razon,
       datosOriginales: { codigoDistrito, nombreDistrito }
     }, 'Fila rechazada: datos de distrito incompletos');
     throw new Error(REJECTION_REASONS.DISTRITO_INCOMPLETO);
@@ -767,7 +781,10 @@ async function procesarLote(batch) {
       insertOne: { document: accidentData }
     }));
 
-    const result = await Accidente.bulkWrite(bulkOps, { ordered: false });
+    const result = await Accidente.bulkWrite(bulkOps, {
+      ordered: false,
+      bypassDocumentValidation: true
+    });
 
     const nuevos = result.insertedCount || 0;
 
