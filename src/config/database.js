@@ -21,9 +21,10 @@ const { dbLogger } = logger;
  */
 const connectDB = async (uri) => {
   try {
+    const esScriptMode = process.env.SCRIPT_MODE === 'true';
     const options = {
       // Configuraciones optimizadas de conexión para alto rendimiento
-      maxPoolSize: 20, // Reducido para bajar uso de RAM en cargas moderadas
+      maxPoolSize: esScriptMode ? 50 : 20, // Mas slots paralelos durante imports masivos
       minPoolSize: 5, // Mantener algunas conexiones calientes
       maxIdleTimeMS: 60000, // Mantener conexiones inactivas hasta 60s
       serverSelectionTimeoutMS: 5000, // Tiempo máximo para intentar conectar
