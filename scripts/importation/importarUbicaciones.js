@@ -26,6 +26,8 @@ const {
   formatDuration,
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
+const { normalizarTexto } = require('./helpers/normalizarEncoding');
+const { construirGeometryDesdeUTM } = require('./helpers/conversorCoordenadas');
 
 // Parser para archivos GPX
 const { DOMParser } = require('@xmldom/xmldom');
@@ -102,19 +104,6 @@ function parseNumber(value, defaultValue = 0) {
 }
 
 /**
- * Limpiar string de forma segura
- * @param {string} value - Valor a limpiar
- * @returns {string|undefined} String limpio o undefined
- */
-function cleanString(value) {
-  if (value === null || value === undefined) {
-    return undefined;
-  }
-  const cleaned = String(value).trim();
-  return cleaned === '' ? undefined : cleaned;
-}
-
-/**
  * Importar estaciones de medida acustica
  * @returns {Promise<Array>} Array de estaciones procesadas
  */
@@ -166,18 +155,26 @@ async function importAcousticStations() {
 
           // El campo NMT puede tener encoding corrupto (N°, Nº, N�)
           const nmtValue = row['Nº'] || row.Nº || row['N°'] || row['N\uFFFD'] || row.id;
+          const nmtNormalizado = normalizarTexto(nmtValue);
+
+          // Construir geometry preferiendo WGS84 del CSV; fallback a
+          // UTM->WGS84 derivado cuando el CSV no trae lon/lat validos.
+          const geometryFromWGS84 = isValidCoordinate(lon, lat)
+            ? { type: GEOMETRY_TYPES.POINT, coordinates: [lon, lat] }
+            : null;
+          const geometryFromUTM = geometryFromWGS84
+            ? null
+            : construirGeometryDesdeUTM(x, y);
+          const geometry = geometryFromWGS84 || geometryFromUTM || undefined;
 
           const station = {
             tipo: LOCATION_TYPES.ESTACION_ACUSTICA,
-            nmt: cleanString(nmtValue),
-            nombre: cleanString(row.Nombre || row.nombre) || `Estacion ${nmtValue}`,
+            nmt: nmtNormalizado,
+            nombre: normalizarTexto(row.Nombre || row.nombre) || `Estacion ${nmtNormalizado}`,
             coordenadas: { x, y },
-            direccion: cleanString(row['Dirección'] || row.direccion || row['Direcci\uFFFD\n']),
-            fechaAlta: cleanString(row['Fecha alta'] || row.fechaAlta),
-            geometry: isValidCoordinate(lon, lat) ? {
-              type: GEOMETRY_TYPES.POINT,
-              coordinates: [lon, lat]
-            } : undefined
+            direccion: normalizarTexto(row['Dirección'] || row.direccion || row['Direcci\uFFFD\n']) || undefined,
+            fechaAlta: normalizarTexto(row['Fecha alta'] || row.fechaAlta) || undefined,
+            geometry
           };
 
           // Log si no tiene geometry valido (warning informativo)
@@ -188,9 +185,11 @@ async function importAcousticStations() {
                 nmt: station.nmt,
                 lon,
                 lat,
+                utmX: x,
+                utmY: y,
                 detalle: 'Se insertara sin geometry GeoJSON'
               },
-              'Estacion con coordenadas geograficas invalidas'
+              'Estacion sin coordenadas geograficas validas ni derivables de UTM'
             );
           }
 
@@ -227,17 +226,19 @@ async function importTrafficPoints() {
   return new Promise((resolve, reject) => {
     let resolved = false; // Bandera para evitar resolve multiple
 
-    // Timeout de seguridad: 60 segundos (incrementado para datasets grandes)
+    // Timeout de seguridad: 60 segundos. Si se dispara, abortamos en lugar de
+    // resolver con datos parciales. Datos incompletos en Fase 1 corrompen integridad
+    // referencial de los importadores de Fase 2 que dependen de estos puntos
     const timeout = setTimeout(() => {
       if (!resolved) {
         resolved = true;
+        const errorMessage = `TIMEOUT procesando puntos de trafico tras 60s. Filas leidas: ${rowIndex}, validas: ${points.length}, rechazadas: ${rejectedRows}. Abortando para evitar datos parciales en BD`;
         logger.error({
           count: points.length,
           rechazadas: rejectedRows,
-          fila: rowIndex,
-          datosIncompletos: true
-        }, 'TIMEOUT procesando puntos de trafico - datos PARCIALES importados. Considerar aumentar timeout o revisar archivo CSV');
-        resolve(points);
+          fila: rowIndex
+        }, errorMessage);
+        reject(new Error(errorMessage));
       }
     }, 60000);
 
@@ -275,18 +276,24 @@ async function importTrafficPoints() {
           return;
         }
 
+          // Construir geometry preferiendo WGS84 del CSV; si el CSV
+          // solo trae UTM validas, derivar lon/lat con proj4.
+          const geometryFromWGS84 = isValidCoordinate(lon, lat)
+            ? { type: GEOMETRY_TYPES.POINT, coordinates: [lon, lat] }
+            : null;
+          const geometryFromUTM = geometryFromWGS84
+            ? null
+            : construirGeometryDesdeUTM(utmX, utmY);
+
           const point = {
             tipo: LOCATION_TYPES.PUNTO_TRAFICO,
-            cod_cent: cleanString(row.cod_cent),
-            id_punto: cleanString(row.id),
-            nombre: cleanString(row.nombre),
-            tipo_elem: cleanString(row.tipo_elem),
+            cod_cent: normalizarTexto(row.cod_cent) || undefined,
+            id_punto: normalizarTexto(row.id) || undefined,
+            nombre: normalizarTexto(row.nombre) || undefined,
+            tipo_elem: normalizarTexto(row.tipo_elem) || undefined,
             distrito: parseNumber(row.distrito) || undefined, // Codigo de distrito (1-21)
             coordenadas: { x: utmX, y: utmY },
-            geometry: isValidCoordinate(lon, lat) ? {
-              type: GEOMETRY_TYPES.POINT,
-              coordinates: [lon, lat]
-            } : undefined
+            geometry: geometryFromWGS84 || geometryFromUTM || undefined
           };
 
           // Log si no tiene geometry valido
@@ -297,9 +304,11 @@ async function importTrafficPoints() {
                 id: point.id_punto,
                 lon,
                 lat,
+                utmX,
+                utmY,
                 detalle: 'Se insertara sin geometry GeoJSON'
               },
-              'Punto de trafico con coordenadas geograficas invalidas'
+              'Punto de trafico sin coordenadas derivables'
             );
           }
 
@@ -361,7 +370,7 @@ function processGPXWaypoints(waypoints, gpxInfo, routes) {
 
       routes.push({
         tipo: gpxInfo.tipo,
-        nombre: cleanString(name),
+        nombre: normalizarTexto(name) || `${gpxInfo.nombre} ${i + 1}`,
         coordenadas: {
           x: utm.x, // Coordenadas UTM en metros
           y: utm.y

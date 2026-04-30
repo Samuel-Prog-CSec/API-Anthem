@@ -327,26 +327,30 @@ noiseMonitoringSchema.index({ nombre: 'text' }, {
 });
 
 /**
- * Middleware pre-save para procesamiento de calidad de datos y alertas legales
+ * Middleware pre-save para procesamiento de calidad de datos y alertas legales.
+ * Usa firma async sin `next()` segun la convencion Mongoose v8+/v9.
  */
-noiseMonitoringSchema.pre('save', function(next) {
+noiseMonitoringSchema.pre('save', async function() {
   const missingFields = [];
   let validFields = 0;
   const totalFields = 5; // nivelDiurno, nivelVespertino, nivelNocturno, laeq24, percentiles
   const warnings = [];
 
-  // Límites legales normativos (dB) - desde constantes centralizadas
+  // Garantizar sub-doc dataQuality inicializado
+  if (!this.dataQuality) {
+    this.dataQuality = {};
+  }
+
+  // Limites legales normativos (dB) - desde constantes centralizadas
   const { DIURNO, VESPERTINO, NOCTURNO } = NOISE_LIMITS;
 
-  // Verificar campos principales
   if (this.nivelDiurno === null || this.nivelDiurno === undefined) {
     missingFields.push('nivelDiurno');
   } else {
     validFields++;
-    // Alertar si excede límite legal (no bloquear)
     if (this.nivelDiurno > DIURNO) {
       this.dataQuality.exceedsLegalLimits = true;
-      warnings.push(`Nivel diurno ${this.nivelDiurno} dB excede límite legal (${DIURNO} dB)`);
+      warnings.push(`Nivel diurno ${this.nivelDiurno} dB excede limite legal (${DIURNO} dB)`);
     }
   }
 
@@ -356,7 +360,7 @@ noiseMonitoringSchema.pre('save', function(next) {
     validFields++;
     if (this.nivelVespertino > VESPERTINO) {
       this.dataQuality.exceedsLegalLimits = true;
-      warnings.push(`Nivel vespertino ${this.nivelVespertino} dB excede límite legal (${VESPERTINO} dB)`);
+      warnings.push(`Nivel vespertino ${this.nivelVespertino} dB excede limite legal (${VESPERTINO} dB)`);
     }
   }
 
@@ -366,7 +370,7 @@ noiseMonitoringSchema.pre('save', function(next) {
     validFields++;
     if (this.nivelNocturno > NOCTURNO) {
       this.dataQuality.exceedsLegalLimits = true;
-      warnings.push(`Nivel nocturno ${this.nivelNocturno} dB excede límite legal (${NOCTURNO} dB)`);
+      warnings.push(`Nivel nocturno ${this.nivelNocturno} dB excede limite legal (${NOCTURNO} dB)`);
     }
   }
 
@@ -378,8 +382,9 @@ noiseMonitoringSchema.pre('save', function(next) {
 
   // Verificar percentiles
   const percentileFields = ['las01', 'las10', 'las50', 'las90', 'las99'];
+  const percentilesDoc = this.percentiles || {};
   const validPercentiles = percentileFields.filter(field =>
-    this.percentiles[field] !== null && this.percentiles[field] !== undefined
+    percentilesDoc[field] !== null && percentilesDoc[field] !== undefined
   );
 
   if (validPercentiles.length === 0) {
@@ -388,13 +393,10 @@ noiseMonitoringSchema.pre('save', function(next) {
     validFields++;
   }
 
-  // Actualizar metadatos de calidad
   this.dataQuality.missingFields = missingFields;
   this.dataQuality.hasValidData = validFields > 0;
   this.dataQuality.qualityScore = validFields / totalFields;
   this.dataQuality.warnings = warnings;
-
-  next();
 });
 
 /**

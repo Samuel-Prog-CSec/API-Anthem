@@ -23,7 +23,8 @@ const {
   BINARY_INDICATORS,
   DATASET_YEARS,
   VALIDATION_LIMITS,
-  MONGODB_TIMEOUTS
+  MONGODB_TIMEOUTS,
+  GEOMETRY_TYPES
 } = require('../constants');
 
 /**
@@ -57,35 +58,16 @@ const personaAfectadaSchema = new mongoose.Schema({
     uppercase: true
   },
 
-  // Información de lesiones
+  // Informacion de lesiones
+  // Se guarda el codigo original del CSV sin validar coherencia con
+  // `tipoLesion`: el mapeo oficial ya se hace en el script de
+  // importacion (importarAccidentes.js) siguiendo la tabla del
+  // dataset_information.md, y el modelo debe aceptar los datos
+  // historicos aunque haya inconsistencias puntuales en la fuente.
   codigoLesividad: {
     type: String,
     required: false,
-    trim: true,
-    validate: {
-      validator: function(v) {
-        // Validar coherencia entre código y tipo de lesión
-        if (!v || !this.tipoLesion) {
-          return true;
-        }
-
-        // Mapeo de códigos comunes de lesividad
-        const codigosFallecido = ['14', '04', 'FALLECIDO'];
-
-        // No permitir códigos de fallecido en lesiones leves
-        if (this.tipoLesion === TIPOS_LESION.LEVE && codigosFallecido.includes(v)) {
-          return false;
-        }
-
-        // Validar que fallecidos tengan códigos apropiados
-        if (this.tipoLesion === TIPOS_LESION.FALLECIDO && !codigosFallecido.includes(v)) {
-          return false;
-        }
-
-        return true;
-      },
-      message: 'El código de lesividad no es coherente con el tipo de lesión'
-    }
+    trim: true
   },
 
   tipoLesion: {
@@ -243,10 +225,38 @@ const accidentSchema = new mongoose.Schema({
       index: true
     },
 
-    // Coordenadas geográficas
+    // Coordenadas geograficas (UTM ETRS89 zona 30N, oficial Espana)
     coordenadas: {
       type: coordinatesUTMSchema,
       required: false
+    },
+
+    // Geometria GeoJSON WGS84 derivada desde UTM en el importador.
+    // Permite queries `$near`, `$geoWithin` y el endpoint /mapa.
+    geometry: {
+      type: {
+        type: String,
+        enum: [GEOMETRY_TYPES.POINT],
+        default: GEOMETRY_TYPES.POINT
+      },
+      coordinates: {
+        type: [Number], // [lng, lat]
+        required: false,
+        validate: {
+          validator: function(coords) {
+            if (!coords || coords.length === 0) {return true;}
+            if (coords.length !== 2) {return false;}
+            const [lng, lat] = coords;
+            return (
+              typeof lng === 'number' &&
+              typeof lat === 'number' &&
+              lng >= VALIDATION_LIMITS.LONGITUDE_MIN && lng <= VALIDATION_LIMITS.LONGITUDE_MAX &&
+              lat >= VALIDATION_LIMITS.LATITUDE_MIN && lat <= VALIDATION_LIMITS.LATITUDE_MAX
+            );
+          },
+          message: 'geometry.coordinates debe ser [lng, lat] dentro de rangos validos'
+        }
+      }
     }
   },
 
@@ -448,6 +458,15 @@ accidentSchema.index({ 'ubicacion.coordenadas.x': 1, 'ubicacion.coordenadas.y': 
 accidentSchema.index(
   { 'ubicacion.coordenadas.x': 1, 'ubicacion.coordenadas.y': 1 },
   { name: 'idx_accidents_coordenadas_utm', background: true, sparse: true }
+);
+
+// Indice geoespacial 2dsphere sobre ubicacion.geometry (WGS84).
+// Soporta queries `$near`, `$geoWithin` y alimenta el endpoint
+// GET /accidentes/mapa que devuelve FeatureCollection GeoJSON.
+// SPARSE: solo indexa documentos con geometry (importador derivado de UTM).
+accidentSchema.index(
+  { 'ubicacion.geometry': '2dsphere' },
+  { name: 'idx_accidents_geometry_2dsphere', sparse: true, background: true }
 );
 
 // ========================================

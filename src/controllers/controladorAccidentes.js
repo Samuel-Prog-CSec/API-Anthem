@@ -11,6 +11,7 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
+const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, TIPOS_ACCIDENTE, TIPOS_VEHICULO, TIPOS_LESION, MAPEO_SEVERIDAD_LESIONES, BINARY_INDICATORS, SEVERITY_LEVELS, TIPOS_PERSONA, MONGODB_TIMEOUTS, TIME_CONSTANTS, DAYS_OF_WEEK } = require('../constants');
 const logger = require('../config/logger');
 
@@ -294,13 +295,32 @@ const obtenerEstadisticasAccidentes = async (req, res, next) => {
       filters.fecha?.$lte
     );
 
-    // Patrones temporales, distribución por distrito y factores de riesgo
-    const [hourlyPatterns, weeklyPatterns, districtDistribution, riskFactorsAnalysis] = await Promise.all([
+    // Patrones temporales, distribucion por distrito y factores de riesgo
+    // allSettled: una agregacion lenta o fallida no debe descartar el resto del informe
+    const [
+      hourlyPatternsResult,
+      weeklyPatternsResult,
+      districtDistributionResult,
+      riskFactorsAnalysisResult
+    ] = await Promise.allSettled([
       Accidente.obtenerPatronesTemporales('hora'),
       Accidente.obtenerPatronesTemporales('diaSemana'),
       Accidente.obtenerDistribucionDistritos(filters),
       Accidente.obtenerAnalisisFactoresRiesgo(filters)
     ]);
+
+    const extraerValor = (result, fallback) => {
+      if (result.status === 'fulfilled') {
+        return result.value;
+      }
+      logger.warn({ error: result.reason?.message }, 'Agregacion parcial fallida en estadisticas de accidentes');
+      return fallback;
+    };
+
+    const hourlyPatterns = extraerValor(hourlyPatternsResult, []);
+    const weeklyPatterns = extraerValor(weeklyPatternsResult, []);
+    const districtDistribution = extraerValor(districtDistributionResult, []);
+    const riskFactorsAnalysis = extraerValor(riskFactorsAnalysisResult, []);
 
     const responseData = {
       data: {
@@ -417,11 +437,94 @@ const obtenerMapaCalorAccidentes = async (req, res, next) => {
   }
 };
 
+/**
+ * Obtener accidentes en formato FeatureCollection GeoJSON para mapas.
+ * Alimenta la visualizacion con Leaflet (marcadores o heatmap) desde
+ * el frontend. El heatmap "custom" pre-existente se mantiene en el
+ * endpoint /mapa-calor para compatibilidad.
+ *
+ * GET /api/v1/accidentes/mapa
+ * Query params: startDate, endDate, distrito, gravedad, tipoAccidente,
+ *               tipoVehiculo, bbox ("minLng,minLat,maxLng,maxLat")
+ */
+const obtenerMapaAccidentes = async (req, res, next) => {
+  try {
+    const { bbox, limite } = req.query;
+
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'ubicacion.nombreDistrito', type: 'regex', param: 'distrito' },
+      { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: TRANSFORMS.toUpperCase },
+      { field: 'circunstancias.tipoAccidente', type: 'exact', param: 'tipoAccidente', transform: TRANSFORMS.toUpperCase },
+      { field: 'vehiculo.tipo', type: 'exact', param: 'tipoVehiculo', transform: TRANSFORMS.toUpperCase }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
+
+    // Solo accidentes con geometry GeoJSON (derivada desde UTM)
+    filters['ubicacion.geometry'] = { $exists: true, $ne: null };
+
+    // Filtro por bounding box WGS84 opcional
+    if (bbox) {
+      const [minLng, minLat, maxLng, maxLat] = bbox.split(',').map(Number);
+      if ([minLng, minLat, maxLng, maxLat].every(v => Number.isFinite(v))) {
+        filters['ubicacion.geometry'] = {
+          $geoWithin: { $box: [[minLng, minLat], [maxLng, maxLat]] }
+        };
+      }
+    }
+
+    const limit = Math.min(parseInt(limite, 10) || 5000, 10000);
+
+    const docs = await Accidente.find(filters, {
+      _id: 1,
+      numeroExpediente: 1,
+      fecha: 1,
+      'ubicacion.calle': 1,
+      'ubicacion.nombreDistrito': 1,
+      'ubicacion.geometry': 1,
+      'circunstancias.tipoAccidente': 1,
+      'circunstancias.gravedad': 1,
+      'vehiculo.tipo': 1
+    })
+      .sort({ fecha: -1 })
+      .limit(limit)
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+      .lean();
+
+    const featureCollection = documentosAFeatureCollection(
+      docs,
+      (doc) => ({
+        id: doc._id?.toString(),
+        geometry: doc.ubicacion?.geometry,
+        properties: {
+          numeroExpediente: doc.numeroExpediente,
+          fecha: doc.fecha,
+          calle: doc.ubicacion?.calle,
+          distrito: doc.ubicacion?.nombreDistrito,
+          tipoAccidente: doc.circunstancias?.tipoAccidente,
+          gravedad: doc.circunstancias?.gravedad,
+          tipoVehiculo: doc.vehiculo?.tipo
+        }
+      }),
+      { recurso: 'accidentes', limite: limit }
+    );
+
+    res.status(HTTP_STATUS.OK).json(
+      createResponse(featureCollection, 'Mapa de accidentes generado exitosamente')
+    );
+
+  } catch (error) {
+    logger.error({ error: error.message, endpoint: 'GET /api/accidentes/mapa' }, 'Error al generar mapa de accidentes');
+    next(createInternalError('Error al generar mapa de accidentes', error));
+  }
+};
+
 module.exports = {
   obtenerAccidentes,
   obtenerAccidentePorExpediente,
   obtenerEstadisticasAccidentes,
   obtenerComparativaDistritos,
-  obtenerMapaCalorAccidentes
+  obtenerMapaCalorAccidentes,
+  obtenerMapaAccidentes
 };
 

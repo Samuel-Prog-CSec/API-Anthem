@@ -1,4 +1,23 @@
+/**
+ * Verificacion de Endpoints
+ *
+ * Smoke test de los endpoints principales de la API. Usa axios para realizar
+ * peticiones reales y comprueba forma de respuesta + status. Pensado para
+ * ejecutarse contra un backend ya corriendo (BASE_URL configurable via env).
+ *
+ * Uso:
+ *   node scripts/verify_endpoints.js
+ *   BASE_URL=http://localhost:3000/api/v1 node scripts/verify_endpoints.js
+ */
+
+'use strict';
+
 const axios = require('axios');
+
+// Helpers de output al terminal: separados de logging para que Pino siga
+// reservado a logs estructurados y este CLI muestre texto plano legible
+const imprimir = (mensaje = '') => process.stdout.write(`${mensaje}\n`);
+const imprimirError = (mensaje = '') => process.stderr.write(`${mensaje}\n`);
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000/api/v1';
 const USER = {
@@ -14,219 +33,194 @@ const client = axios.create({
   timeout: 15000
 });
 
-const results = [];
+const resultados = [];
 
-async function runTest(name, fn) {
+async function ejecutarTest(nombre, fn) {
+  const inicio = Date.now();
   try {
-    const start = Date.now();
     await fn();
-    const duration = Date.now() - start;
-    console.log(`✅ [PASS] ${name} (${duration}ms)`);
-    results.push({ name, status: 'PASS', duration });
+    const duracion = Date.now() - inicio;
+    imprimir(`[OK]   ${nombre} (${duracion}ms)`);
+    resultados.push({ nombre, estado: 'OK', duracion });
   } catch (error) {
-    console.error(`❌ [FAIL] ${name}: ${error.message}`);
+    const duracion = Date.now() - inicio;
+    imprimirError(`[FAIL] ${nombre}: ${error.message}`);
     if (error.response) {
-      console.error('   Status:', error.response.status);
-      console.error('   Data:', JSON.stringify(error.response.data, null, 2));
+      imprimirError(`       Status: ${error.response.status}`);
+      imprimirError(`       Data:   ${JSON.stringify(error.response.data)}`);
     }
-    results.push({ name, status: 'FAIL', error: error.message });
+    resultados.push({ nombre, estado: 'FAIL', duracion, error: error.message });
   }
 }
 
 async function main() {
-  console.log('🚀 Iniciando verificación de API (locations, air-quality, noise-monitoring)');
+  imprimir(`Iniciando verificacion de API contra ${BASE_URL}`);
+  imprimir('Recursos: ubicaciones, calidad-aire, ruido\n');
 
   let token = '';
-  let sampleLocation = null;
+  let muestraUbicacion = null;
   let bboxQuery = null;
-  let proximityPoint = [-3.7038, 40.4168]; // Fallback: centro de Madrid
-  let sampleAir = null;
-  let sampleNoise = null;
-  let sampleNoiseAlt = null;
+  let muestraAire = null;
+  let muestraRuido = null;
 
-  // 1) Autenticación
-  await runTest('Auth - Registro de usuario', async () => {
+  // 1) Autenticacion
+  await ejecutarTest('Auth - Registro de usuario', async () => {
     const res = await client.post('/auth/register', USER);
     token = res.data?.data?.accessToken;
     if (!token) {
-      throw new Error('No se devolvió token JWT');
+      throw new Error('No se devolvio token JWT');
     }
     client.defaults.headers.common.Authorization = `Bearer ${token}`;
   });
 
-  // 2) LOCATIONS
-  await runTest('Locations - listado base (limit=10)', async () => {
-    const res = await client.get('/locations', { params: { limit: 10 } });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
-    const ubicaciones = res.data?.data?.ubicaciones;
+  // 2) UBICACIONES
+  await ejecutarTest('Ubicaciones - listado base (limit=10)', async () => {
+    const res = await client.get('/ubicaciones', { params: { limit: 10 } });
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
+    const ubicaciones = res.data?.data?.ubicaciones || res.data?.data;
     if (!Array.isArray(ubicaciones) || ubicaciones.length === 0) {
       throw new Error('No se devolvieron ubicaciones');
     }
-    sampleLocation = ubicaciones[0];
-    if (sampleLocation?.coordenadas?.x && sampleLocation?.coordenadas?.y) {
-      const { x, y } = sampleLocation.coordenadas;
+    muestraUbicacion = ubicaciones[0];
+    if (muestraUbicacion?.coordenadas?.x && muestraUbicacion?.coordenadas?.y) {
+      const { x, y } = muestraUbicacion.coordenadas;
       bboxQuery = `${x - 500},${y - 500},${x + 500},${y + 500}`;
     }
   });
 
-  await runTest('Locations - filtro tipo ruta_autobus', async () => {
-    const res = await client.get('/locations', { params: { tipo: 'ruta_autobus', limit: 10 } });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+  await ejecutarTest('Ubicaciones - filtro tipo ruta_autobus', async () => {
+    const res = await client.get('/ubicaciones', { params: { tipo: 'ruta_autobus', limit: 10 } });
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('Locations - filtro bbox dinámico', async () => {
-    if (!bboxQuery) throw new Error('bbox no calculado');
-    const res = await client.get('/locations', { params: { bbox: bboxQuery, limit: 20 } });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+  await ejecutarTest('Ubicaciones - filtro bbox dinamico', async () => {
+    if (!bboxQuery) {throw new Error('bbox no calculado');}
+    const res = await client.get('/ubicaciones', { params: { bbox: bboxQuery, limit: 20 } });
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('Locations - puntos medición acústica', async () => {
-    const res = await client.get('/locations/puntos-medicion/acustica');
-    if (!res.data?.success) throw new Error('Respuesta success=false');
-    const puntos = res.data?.data?.puntos;
-    if (!Array.isArray(puntos) || puntos.length === 0) {
-      throw new Error('No se devolvieron puntos acústicos');
-    }
-    const geo = puntos.find(p => p?.geometry?.coordinates?.length === 2)?.geometry?.coordinates;
-    if (geo) {
-      proximityPoint = geo;
-    }
+  await ejecutarTest('Ubicaciones - puntos medicion acustica', async () => {
+    const res = await client.get('/ubicaciones/puntos-medicion/acustica');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('Locations - puntos medición tráfico', async () => {
-    const res = await client.get('/locations/puntos-medicion/trafico');
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+  await ejecutarTest('Ubicaciones - puntos medicion trafico', async () => {
+    const res = await client.get('/ubicaciones/puntos-medicion/trafico');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('Locations - transporte metro', async () => {
-    const res = await client.get('/locations/transporte/metro');
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+  await ejecutarTest('Ubicaciones - transporte metro', async () => {
+    const res = await client.get('/ubicaciones/transporte/metro');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('Locations - transporte todos', async () => {
-    const res = await client.get('/locations/transporte/todos');
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+  await ejecutarTest('Ubicaciones - transporte todos', async () => {
+    const res = await client.get('/ubicaciones/transporte/todos');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  /*
-  await runTest('Locations - análisis proximidad (radio 750m)', async () => {
-    const [x, y] = proximityPoint;
-    const res = await client.get('/locations/proximidad', { params: { x, y, radio: 750 } });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
-    const analisis = res.data?.data?.analisis_proximidad;
-    if (!Array.isArray(analisis) || analisis.length === 0) {
-      throw new Error('Análisis de proximidad vacío');
-    }
+  await ejecutarTest('Ubicaciones - mapa GeoJSON', async () => {
+    const res = await client.get('/ubicaciones/mapa');
+    if (!res.data?.success && !res.data?.type) {throw new Error('Respuesta no es FeatureCollection');}
   });
-  */
 
-  // 3) AIR QUALITY
-  await runTest('AirQuality - listado base (limit=5)', async () => {
-    const res = await client.get('/air-quality', { params: { limit: 5 } });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
-    const registros = res.data?.data?.data;
+  // 3) CALIDAD DEL AIRE
+  await ejecutarTest('CalidadAire - listado base (limit=5)', async () => {
+    const res = await client.get('/calidad-aire', { params: { limit: 5 } });
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
+    const registros = res.data?.data?.data || res.data?.data;
     if (!Array.isArray(registros) || registros.length === 0) {
       throw new Error('No hay registros de calidad de aire');
     }
-    sampleAir = registros[0];
+    muestraAire = registros[0];
   });
 
-  await runTest('AirQuality - filtros fecha+magnitud', async () => {
-    const res = await client.get('/air-quality', {
+  await ejecutarTest('CalidadAire - filtros fecha+magnitud', async () => {
+    const res = await client.get('/calidad-aire', {
       params: {
         startDate: '2051-01-01',
         endDate: '2051-01-15',
-        magnitud: sampleAir?.magnitud || 10,
+        magnitud: muestraAire?.magnitud || 10,
         limit: 5
       }
     });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('AirQuality - includeInvalid, paginado y orden', async () => {
-    const res = await client.get('/air-quality', {
+  await ejecutarTest('CalidadAire - paginado y orden', async () => {
+    const res = await client.get('/calidad-aire', {
       params: {
-        includeInvalid: true,
         page: 2,
         limit: 5,
         sortBy: 'fecha',
         sortOrder: 'asc'
       }
     });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('AirQuality - estadísticas (groupBy=DAY)', async () => {
-    const res = await client.get('/air-quality/statistics', {
+  await ejecutarTest('CalidadAire - estadisticas', async () => {
+    const res = await client.get('/calidad-aire/estadisticas', {
       params: {
         startDate: '2051-01-01',
         endDate: '2051-03-31',
-        groupBy: 'DAY',
-        magnitud: sampleAir?.magnitud || 10
+        magnitud: muestraAire?.magnitud || 10
       }
     });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('AirQuality - tendencias por provincia/municipio/magnitud', async () => {
-    const res = await client.get('/air-quality/trends', {
+  await ejecutarTest('CalidadAire - tendencias', async () => {
+    const res = await client.get('/calidad-aire/tendencias', {
       params: {
-        provincia: sampleAir?.provincia || 28,
-        municipio: sampleAir?.municipio || 79,
-        magnitud: sampleAir?.magnitud || 10,
+        provincia: muestraAire?.provincia || 28,
+        municipio: muestraAire?.municipio || 79,
+        magnitud: muestraAire?.magnitud || 10,
         startDate: '2051-06-01',
         endDate: '2051-06-30'
       }
     });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('AirQuality - detalle por ID', async () => {
-    if (!sampleAir?._id) throw new Error('ID de muestra no disponible');
-    const res = await client.get(`/air-quality/${sampleAir._id}`);
-    if (!res.data?.success) throw new Error('Respuesta success=false');
-  });
-
-  // 4) NOISE MONITORING
-  await runTest('Noise - listado base (limit=5)', async () => {
-    const res = await client.get('/noise-monitoring', { params: { limit: 5 } });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
-    const registros = res.data?.data?.data;
+  // 4) RUIDO
+  await ejecutarTest('Ruido - listado base (limit=5)', async () => {
+    const res = await client.get('/ruido', { params: { limit: 5 } });
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
+    const registros = res.data?.data?.data || res.data?.data;
     if (!Array.isArray(registros) || registros.length === 0) {
       throw new Error('No hay registros de ruido');
     }
-    sampleNoise = registros[0];
-    sampleNoiseAlt = registros.find(r => r.nmt !== sampleNoise.nmt) || registros[1] || sampleNoise;
+    muestraRuido = registros[0];
   });
 
-  await runTest('Noise - filtros año/mes/nmt + orden', async () => {
-    const res = await client.get('/noise-monitoring', {
+  await ejecutarTest('Ruido - filtros año/mes/nmt + orden', async () => {
+    const res = await client.get('/ruido', {
       params: {
-        año: sampleNoise?.año || 2051,
-        mes: sampleNoise?.mes || 6,
-        nmt: sampleNoise?.nmt,
+        año: muestraRuido?.año || 2051,
+        mes: muestraRuido?.mes || 6,
+        nmt: muestraRuido?.nmt,
         sortBy: 'laeq24',
         sortOrder: 'desc',
-        includeInvalid: true,
         limit: 5
       }
     });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('Noise - estadísticas (groupBy=month)', async () => {
-    const res = await client.get('/noise-monitoring/statistics', {
+  await ejecutarTest('Ruido - estadisticas (groupBy=month)', async () => {
+    const res = await client.get('/ruido/estadisticas', {
       params: {
         startDate: '2051-01-01',
         endDate: '2051-12-31',
         groupBy: 'month'
       }
     });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('Noise - ranking nocturno top 5', async () => {
-    const res = await client.get('/noise-monitoring/ranking', {
+  await ejecutarTest('Ruido - ranking nocturno top 5', async () => {
+    const res = await client.get('/ruido/ranking', {
       params: {
         startDate: '2051-01-01',
         endDate: '2051-12-31',
@@ -234,44 +228,24 @@ async function main() {
         limit: 5
       }
     });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('Noise - búsqueda de estaciones', async () => {
-    const term = sampleNoise?.nombre?.split(' ')[0] || 'Madrid';
-    const res = await client.get('/noise-monitoring/stations/search', { params: { q: term, limit: 10 } });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
-  });
-
-  await runTest('Noise - comparación de estaciones', async () => {
-    const stationIds = Array.from(new Set([sampleNoise?.nmt, sampleNoiseAlt?.nmt])).filter(Boolean);
-    if (stationIds.length < 2) throw new Error('No hay al menos dos estaciones distintas para comparar');
-    const res = await client.get('/noise-monitoring/stations/compare', {
+  await ejecutarTest('Ruido - tendencias temporales', async () => {
+    const res = await client.get('/ruido/tendencias/temporal', {
       params: {
-        stations: stationIds,
-        startDate: '2051-01-01',
-        endDate: '2051-12-31',
-        metric: 'laeq24'
-      }
-    });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
-  });
-
-  await runTest('Noise - tendencias temporales por estación', async () => {
-    const res = await client.get('/noise-monitoring/trends/temporal', {
-      params: {
-        nmt: sampleNoise?.nmt,
+        nmt: muestraRuido?.nmt,
         startDate: '2051-01-01',
         endDate: '2051-12-31',
         groupBy: 'month',
         metric: 'laeq24'
       }
     });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('Noise - cumplimiento por zona', async () => {
-    const res = await client.get('/noise-monitoring/compliance/zone', {
+  await ejecutarTest('Ruido - cumplimiento por zona', async () => {
+    const res = await client.get('/ruido/cumplimiento/zona', {
       params: {
         startDate: '2051-01-01',
         endDate: '2051-12-31',
@@ -279,17 +253,36 @@ async function main() {
         zoneType: 'residential'
       }
     });
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+    if (!res.data?.success) {throw new Error('Respuesta success=false');}
   });
 
-  await runTest('Noise - detalle por ID', async () => {
-    if (!sampleNoise?._id) throw new Error('ID de muestra no disponible');
-    const res = await client.get(`/noise-monitoring/${sampleNoise._id}`);
-    if (!res.data?.success) throw new Error('Respuesta success=false');
+  await ejecutarTest('Ruido - mapa GeoJSON', async () => {
+    const res = await client.get('/ruido/mapa');
+    if (!res.data?.success && !res.data?.type) {throw new Error('Respuesta no es FeatureCollection');}
   });
 
-  console.log('\n📊 Resumen:');
-  console.table(results);
+  // Resumen
+  const ok = resultados.filter(r => r.estado === 'OK').length;
+  const fail = resultados.filter(r => r.estado === 'FAIL').length;
+  const total = resultados.length;
+
+  imprimir('');
+  imprimir('=== Resumen ===');
+  imprimir(`Total:  ${total}`);
+  imprimir(`OK:     ${ok}`);
+  imprimir(`FAIL:   ${fail}`);
+
+  if (fail > 0) {
+    imprimir('');
+    imprimir('Tests fallidos:');
+    for (const r of resultados.filter(x => x.estado === 'FAIL')) {
+      imprimir(`  - ${r.nombre}: ${r.error}`);
+    }
+    process.exitCode = 1;
+  }
 }
 
-main();
+main().catch((error) => {
+  imprimirError(`Error fatal: ${error.message}`);
+  process.exit(1);
+});

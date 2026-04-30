@@ -109,9 +109,11 @@ const xssProtection = (req, res, next) => {
    * @param {Object} obj - Objeto a sanitizar
    * @returns {Object} Objeto sanitizado
    */
-  const MAX_DEPTH = 10;
+  // Limites conservadores para mitigar DoS por payloads recursivos profundos
+  // o con arrays masivos. La mayoria de queries legitimas no superan estos limites
+  const MAX_DEPTH = 5;
   const MAX_KEYS_PER_LEVEL = 100;
-  const MAX_ARRAY_LENGTH = 1000;
+  const MAX_ARRAY_LENGTH = 100;
 
   const sanitizeObject = (obj, depth = 0) => {
     if (depth > MAX_DEPTH || obj === null || obj === undefined) {
@@ -174,11 +176,14 @@ const xssProtection = (req, res, next) => {
  * Añade headers de seguridad adicionales no cubiertos por helmet.
  */
 const customSecurityHeaders = (req, res, next) => {
-  // Eliminar información sensible del servidor
+  // Eliminar informacion sensible del servidor
   res.removeHeader('X-Powered-By');
 
-  // Añadir headers de seguridad personalizados
-  res.setHeader('X-API-Version', config.api.version);
+  // Anadir headers de seguridad personalizados
+  // X-API-Version solo en entornos no productivos para no exponer la version a posibles atacantes
+  if (config.server.env !== 'production') {
+    res.setHeader('X-API-Version', config.api.version);
+  }
   res.setHeader('X-Request-ID', req.id || 'unknown');
 
   // Control de caché para datos sensibles

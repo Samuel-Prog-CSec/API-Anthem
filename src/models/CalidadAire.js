@@ -108,7 +108,7 @@ const airQualitySchema = new mongoose.Schema({
       {
         validator: function(v) {
           // Validar que haya exactamente 24 mediciones con claves H01-H24
-          if (v.size !== 24) return false;
+          if (v.size !== 24) {return false;}
           const validKeys = new Set([...Array(24)].map((_, i) => `H${String(i + 1).padStart(2, '0')}`));
           return [...v.keys()].every(k => validKeys.has(k));
         },
@@ -134,6 +134,14 @@ const airQualitySchema = new mongoose.Schema({
     validMeasurements: {
       type: Number,
       default: 0
+    },
+    // Flag que indica si el dia tiene menos de 24 mediciones validas.
+    // Permite al frontend mostrar un badge "datos parciales" sin
+    // descartar informacion aprovechable (clima, tendencia, etc.).
+    registroParcial: {
+      type: Boolean,
+      default: false,
+      index: true
     },
     dataQualityScore: {
       type: Number,

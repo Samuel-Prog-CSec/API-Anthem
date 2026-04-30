@@ -23,6 +23,15 @@ const path = require('path');
 const { importAllLogger: logger } = require('../src/config/scriptLogger');
 
 /**
+ * Helpers para output al terminal de CLI.
+ * NO son logging (de eso se encarga Pino vía `logger`); son UX para el usuario
+ * que ejecuta el script en interactivo. Mantenerlos separados evita usar console.*
+ * y deja Pino para logs estructurados.
+ */
+const imprimir = (mensaje = '') => process.stdout.write(`${mensaje}\n`);
+const imprimirError = (mensaje = '') => process.stderr.write(`${mensaje}\n`);
+
+/**
  * Definicion de importadores con orden y dependencias
  *
  * Fase 1: Datos de referencia (ubicaciones) - debe ejecutarse primero
@@ -126,7 +135,7 @@ function parseArguments() {
  * Mostrar ayuda
  */
 function showHelp() {
-  console.log(`
+  imprimir(`
 Script Maestro de Importacion de Datos - Smart City Anthem 2051
 
 Uso: node scripts/importAll.js [opciones]
@@ -139,10 +148,10 @@ Opciones:
 Importadores disponibles:`);
 
   for (const [key, config] of Object.entries(IMPORTERS)) {
-    console.log(`  ${key.padEnd(15)} Fase ${config.fase} - ${config.nombre}: ${config.descripcion}`);
+    imprimir(`  ${key.padEnd(15)} Fase ${config.fase} - ${config.nombre}: ${config.descripcion}`);
   }
 
-  console.log(`
+  imprimir(`
 Ejemplos:
   node scripts/importAll.js                          # Ejecutar todos
   node scripts/importAll.js --only=locations,air,noise  # Solo los 3 dominios principales
@@ -175,7 +184,7 @@ function runImporter(key, importerConfig, options) {
       env: { ...process.env, SCRIPT_MODE: 'true' },
       maxBuffer: 50 * 1024 * 1024, // 50MB para scripts con mucha salida
       timeout: 30 * 60 * 1000 // 30 minutos maximo por importador
-    }, (error, stdout, stderr) => {
+    }, (error, _stdout, _stderr) => {
       const duration = Date.now() - startTime;
       const durationStr = formatDuration(duration);
 
@@ -242,11 +251,11 @@ function runImporter(key, importerConfig, options) {
  * @returns {string} Duracion formateada
  */
 function formatDuration(ms) {
-  if (ms < 1000) return `${ms}ms`;
+  if (ms < 1000) {return `${ms}ms`;}
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
-  if (minutes === 0) return `${seconds}s`;
+  if (minutes === 0) {return `${seconds}s`;}
   return `${minutes}m ${remainingSeconds}s`;
 }
 
@@ -269,7 +278,7 @@ async function main() {
     const invalidKeys = options.only.filter(key => !IMPORTERS[key]);
     if (invalidKeys.length > 0) {
       logger.error({ claves: invalidKeys }, `Importadores no reconocidos: ${invalidKeys.join(', ')}`);
-      console.error(`\nImportadores validos: ${Object.keys(IMPORTERS).join(', ')}`);
+      imprimirError(`\nImportadores validos: ${Object.keys(IMPORTERS).join(', ')}`);
       process.exit(1);
     }
     importersToRun = importersToRun.filter(([key]) => options.only.includes(key));
@@ -281,42 +290,63 @@ async function main() {
     force: options.force
   }, `Iniciando importacion masiva (${importersToRun.length} importadores)`);
 
-  console.log('\n=== Importacion Masiva - Smart City Anthem 2051 ===\n');
-  console.log(`Importadores: ${importersToRun.map(([key]) => key).join(', ')}`);
-  console.log(`Modo: ${options.force ? 'Forzar sobrescritura' : 'Normal (omitir existentes)'}\n`);
+  imprimir('\n=== Importacion Masiva - Smart City Anthem 2051 ===\n');
+  imprimir(`Importadores: ${importersToRun.map(([key]) => key).join(', ')}`);
+  imprimir(`Modo: ${options.force ? 'Forzar sobrescritura' : 'Normal (omitir existentes)'}\n`);
 
   const results = [];
 
   // Fase 1: Datos de referencia (secuencial)
   const fase1 = importersToRun.filter(([, config]) => config.fase === 1);
   if (fase1.length > 0) {
-    console.log('--- Fase 1: Datos de referencia ---\n');
+    imprimir('--- Fase 1: Datos de referencia ---\n');
     for (const [key, config] of fase1) {
       const result = await runImporter(key, config, options);
       results.push(result);
-      console.log(`  ${result.success ? '[OK]' : '[ERROR]'} ${config.nombre} (${result.duration})`);
+      imprimir(`  ${result.success ? '[OK]' : '[ERROR]'} ${config.nombre} (${result.duration})`);
     }
   }
 
-  // Verificar si fase 1 fallo (las demas dependen de ubicaciones)
+  // Verificar si fase 1 fallo: las demas dependen de ubicaciones (FK)
+  // Continuar con fase 2 importaria datos huerfanos -> abortamos para preservar integridad
   const fase1Failed = results.some(r => !r.success);
   if (fase1Failed) {
-    logger.warn('Fase 1 tuvo errores. Continuando con fase 2 de todos modos...');
-    console.log('\n  AVISO: Fase 1 tuvo errores. Los datos de referencia pueden estar incompletos.\n');
+    const fallidosFase1 = results.filter(r => !r.success).map(r => r.nombre).join(', ');
+    logger.error({ fallidosFase1 }, 'Fase 1 fallo. Abortando para no importar datos huerfanos en Fase 2');
+    imprimir(`\n  ERROR: Fase 1 fallo (${fallidosFase1}). Abortando importacion masiva.\n`);
+    imprimir('  Los datos de Fase 2 (trafico, accidentes, multas, etc.) referencian a ubicaciones.\n');
+    imprimir('  Resuelve los errores de Fase 1 antes de continuar.\n');
+    process.exit(1);
   }
 
-  // Fase 2: Datos independientes (paralelo)
+  // Fase 2: Datos independientes (paralelo) con timeout global de 30 minutos
+  // Si algun importador queda colgado, no bloqueamos el proceso completo de forma indefinida
+  const FASE2_TIMEOUT_MS = 30 * 60 * 1000;
   const fase2 = importersToRun.filter(([, config]) => config.fase === 2);
   if (fase2.length > 0) {
-    console.log('\n--- Fase 2: Datos de dominio (paralelo) ---\n');
+    imprimir('\n--- Fase 2: Datos de dominio (paralelo) ---\n');
 
-    const fase2Results = await Promise.all(
+    const fase2Promise = Promise.all(
       fase2.map(([key, config]) => runImporter(key, config, options))
     );
 
-    for (const result of fase2Results) {
-      results.push(result);
-      console.log(`  ${result.success ? '[OK]' : '[ERROR]'} ${result.nombre} (${result.duration})`);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`Timeout global de Fase 2 (${FASE2_TIMEOUT_MS / 60000}min) alcanzado`)),
+        FASE2_TIMEOUT_MS
+      )
+    );
+
+    try {
+      const fase2Results = await Promise.race([fase2Promise, timeoutPromise]);
+      for (const result of fase2Results) {
+        results.push(result);
+        imprimir(`  ${result.success ? '[OK]' : '[ERROR]'} ${result.nombre} (${result.duration})`);
+      }
+    } catch (error) {
+      logger.error({ error: error.message }, 'Fase 2 abortada por timeout o error');
+      imprimir(`\n  ERROR Fase 2: ${error.message}\n`);
+      process.exit(1);
     }
   }
 
@@ -325,20 +355,20 @@ async function main() {
   const exitosos = results.filter(r => r.success).length;
   const fallidos = results.filter(r => !r.success).length;
 
-  console.log('\n=== Resumen Final ===\n');
-  console.log(`  Total ejecutados: ${results.length}`);
-  console.log(`  Exitosos:         ${exitosos}`);
-  console.log(`  Fallidos:         ${fallidos}`);
-  console.log(`  Duracion total:   ${totalDuration}`);
+  imprimir('\n=== Resumen Final ===\n');
+  imprimir(`  Total ejecutados: ${results.length}`);
+  imprimir(`  Exitosos:         ${exitosos}`);
+  imprimir(`  Fallidos:         ${fallidos}`);
+  imprimir(`  Duracion total:   ${totalDuration}`);
 
   if (fallidos > 0) {
-    console.log('\n  Importadores fallidos:');
+    imprimir('\n  Importadores fallidos:');
     for (const result of results.filter(r => !r.success)) {
-      console.log(`    - ${result.nombre}: ${result.error}`);
+      imprimir(`    - ${result.nombre}: ${result.error}`);
     }
   }
 
-  console.log('');
+  imprimir('');
 
   logger.info({
     duracionTotal: totalDuration,
@@ -355,6 +385,6 @@ async function main() {
 // Ejecutar
 main().catch(error => {
   logger.fatal({ error: error.message }, 'Error fatal en script maestro');
-  console.error(`\nError fatal: ${error.message}`);
+  imprimirError(`\nError fatal: ${error.message}`);
   process.exit(1);
 });

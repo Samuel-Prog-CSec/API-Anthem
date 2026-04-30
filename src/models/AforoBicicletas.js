@@ -12,7 +12,8 @@ const {
   DAY_PERIODS,
   DATASET_YEARS,
   VALIDATION_LIMITS,
-  MONGODB_TIMEOUTS
+  MONGODB_TIMEOUTS,
+  GEOMETRY_TYPES
 } = require('../constants');
 
 /**
@@ -95,6 +96,34 @@ const bikeTrafficCountSchema = new mongoose.Schema({
       },
       longitud: {
         type: Number
+      }
+    },
+
+    // Geometria GeoJSON WGS84 para el endpoint /aforo-bicicletas/mapa
+    // y para queries geoespaciales `$near`/`$geoWithin`.
+    geometry: {
+      type: {
+        type: String,
+        enum: [GEOMETRY_TYPES.POINT],
+        default: GEOMETRY_TYPES.POINT
+      },
+      coordinates: {
+        type: [Number],
+        required: false,
+        validate: {
+          validator: function(coords) {
+            if (!coords || coords.length === 0) {return true;}
+            if (coords.length !== 2) {return false;}
+            const [lng, lat] = coords;
+            return (
+              typeof lng === 'number' &&
+              typeof lat === 'number' &&
+              lng >= VALIDATION_LIMITS.LONGITUDE_MIN && lng <= VALIDATION_LIMITS.LONGITUDE_MAX &&
+              lat >= VALIDATION_LIMITS.LATITUDE_MIN && lat <= VALIDATION_LIMITS.LATITUDE_MAX
+            );
+          },
+          message: 'geometry.coordinates debe ser [lng, lat] dentro de rangos validos'
+        }
       }
     }
   },
@@ -199,6 +228,14 @@ bikeTrafficCountSchema.index({ franjaHoraria: 1, fecha: -1 }, {
   name: 'idx_bike_traffic_period_timeline',
   background: true
 });
+
+// Indice geoespacial 2dsphere sobre ubicacion.geometry (WGS84) para el
+// endpoint GET /aforo-bicicletas/mapa. SPARSE: solo indexa documentos
+// con geometry derivada desde lat/lon.
+bikeTrafficCountSchema.index(
+  { 'ubicacion.geometry': '2dsphere' },
+  { name: 'idx_aforo_geometry_2dsphere', sparse: true, background: true }
+);
 
 // ========================================
 // METODOS ESTATICOS

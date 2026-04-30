@@ -1,0 +1,92 @@
+/**
+ * Constantes de dominio: Trafico
+ *
+ * Niveles de congestion, intensidad, calidad de datos y umbrales para
+ * clasificacion. Tipos de elementos de medicion y limites de velocidad por zona.
+ */
+
+const CONGESTION_LEVELS = {
+  FLUIDO: 'FLUIDO',
+  DENSO: 'DENSO',
+  CONGESTIONADO: 'CONGESTIONADO',
+  COLAPSADO: 'COLAPSADO',
+  SIN_DATOS: 'SIN_DATOS'
+};
+
+const TRAFFIC_INTENSITY_LEVELS = {
+  MUY_BAJA: 'MUY_BAJA',
+  BAJA: 'BAJA',
+  MEDIA: 'MEDIA',
+  ALTA: 'ALTA',
+  MUY_ALTA: 'MUY_ALTA',
+  SIN_DATOS: 'SIN_DATOS'
+};
+
+const TRAFFIC_ERROR_CODES = {
+  NO_ERROR: 'N',
+  ERROR: 'E',
+  SIN_DATOS: 'S'
+};
+
+const DATA_QUALITY_LEVELS = {
+  ALTA: 'ALTA',
+  MEDIA: 'MEDIA',
+  BAJA: 'BAJA',
+  SIN_DATOS: 'SIN_DATOS'
+};
+
+const TRAFFIC_ELEMENT_TYPES = {
+  URB: 'URB',
+  M30: 'M30'
+};
+
+const TRAFFIC_THRESHOLDS = {
+  CONGESTION_CRITICAL_OCCUPANCY: 80,
+  CONGESTION_CRITICAL_LOAD: 90,
+  CONGESTION_HIGH_OCCUPANCY: 60,
+  CONGESTION_HIGH_LOAD: 70,
+  CONGESTION_MEDIUM_OCCUPANCY: 40,
+  CONGESTION_MEDIUM_LOAD: 50,
+  INTENSITY_VERY_HIGH: 4000,
+  INTENSITY_HIGH: 3000,
+  INTENSITY_MEDIUM: 2000,
+  INTENSITY_LOW: 1000,
+  DATA_QUALITY_EXCELLENT_PERIOD: 3,
+  DATA_QUALITY_GOOD_PERIOD: 2,
+  DATA_QUALITY_ACCEPTABLE_PERIOD: 1
+};
+
+const SPEED_LIMIT_ZONES = {
+  ZONE_30: 30,
+  ZONE_50: 50,
+  ZONE_70: 70,
+  ZONE_90: 90,
+  ZONE_120: 120,
+  DEFAULT: 30
+};
+
+const MEASUREMENT_POINT_TYPES = {
+  ACUSTICA: 'acustica',
+  TRAFICO: 'trafico'
+};
+
+const TRANSPORT_ROUTE_TYPES = {
+  CERCANIAS: 'ruta_cercanias',
+  AUTOBUS: 'ruta_autobus',
+  INTERURBANO: 'ruta_interurbano',
+  METRO: 'ruta_metro',
+  METRO_LIGERO: 'ruta_metro_ligero',
+  TAXI: 'zona_taxi'
+};
+
+module.exports = {
+  CONGESTION_LEVELS,
+  TRAFFIC_INTENSITY_LEVELS,
+  TRAFFIC_ERROR_CODES,
+  DATA_QUALITY_LEVELS,
+  TRAFFIC_ELEMENT_TYPES,
+  TRAFFIC_THRESHOLDS,
+  SPEED_LIMIT_ZONES,
+  MEASUREMENT_POINT_TYPES,
+  TRANSPORT_ROUTE_TYPES
+};

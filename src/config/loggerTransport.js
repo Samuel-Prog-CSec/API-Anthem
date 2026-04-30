@@ -17,7 +17,6 @@
 const fs = require('fs');
 const path = require('path');
 const pino = require('pino');
-const { once } = require('events');
 
 /**
  * Determina el tipo de proceso actual
@@ -57,11 +56,11 @@ function ensureLogDirectories(logDir, processType) {
 
 /**
  * Crea un stream de escritura de logs con encoding UTF-8 explícito
- * 
+ *
  * Esta función crea un pino.destination() con configuración explícita de UTF-8.
  * En Windows, esto asegura que los archivos se escriban con la codificación correcta
  * y puedan leerse sin caracteres rotos.
- * 
+ *
  * @param {string} filePath - Ruta del archivo de log
  * @returns {Object} Stream de pino con encoding UTF-8
  * @private

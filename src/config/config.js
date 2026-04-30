@@ -79,6 +79,11 @@ const config = {
     rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000, // 15 minutos
     rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100, // 100 solicitudes por ventana
     corsOrigins: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['http://localhost:3000'],
+    // Lista de IPs/CIDR de proxies confiables. Evita IP spoofing detrás de proxies inversos
+    // En desarrollo se confia en loopback; en produccion configurar via TRUSTED_PROXIES
+    trustedProxies: process.env.TRUSTED_PROXIES
+      ? process.env.TRUSTED_PROXIES.split(',').map(s => s.trim()).filter(Boolean)
+      : ['127.0.0.1', '::1']
   },
 
   // Configuración de la API

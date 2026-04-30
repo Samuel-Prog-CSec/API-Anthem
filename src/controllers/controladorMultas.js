@@ -11,6 +11,7 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, buildResponseMetadata, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
+const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, TIME_CONSTANTS, FINE_CONSTANTS, DASHBOARD_PERIODS, DEFAULT_SORT_FIELDS } = require('../constants');
 const logger = require('../config/logger');
 
@@ -391,83 +392,15 @@ const obtenerMetricasDashboard = async (req, res, next) => {
         break;
     }
 
-    // Métricas generales del periodo
-    const [metricsGeneral] = await Multa.aggregate([
-      {
-        $match: {
-          fecha: { $gte: fechaInicio, $lte: ahora }
-        }
-      },
-      // NO usar $limit antes de $group - corrompe las estadísticas globales
-      {
-        $group: {
-          _id: null,
-          totalMultas: { $sum: 1 },
-          importeTotal: { $sum: '$importeFinal' },
-          puntosTotal: { $sum: '$puntosDetraídos' },
-          multasGraves: {
-            $sum: { $cond: ['$metadatos.esInfraccionGrave', 1, 0] }
-          },
-          multasConDescuento: {
-            $sum: { $cond: ['$tieneDescuento', 1, 0] }
-          },
-          multasVelocidad: {
-            $sum: { $cond: ['$metadatos.esInfraccionVelocidad', 1, 0] }
-          }
-        }
-      }
-    ])
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
-      .exec();
+    // Las agregaciones (metricas generales, top infracciones, evolucion diaria)
+    // viven en el modelo. El controller solo coordina request -> respuesta
+    const {
+      metricasGenerales,
+      topInfracciones,
+      evolucionDiaria
+    } = await Multa.getDashboardMetrics(fechaInicio, ahora);
 
-    // Top 5 tipos de infracciones
-    const topInfracciones = await Multa.aggregate([
-      {
-        $match: {
-          fecha: { $gte: fechaInicio, $lte: ahora }
-        }
-      },
-      // NO usar $limit antes de $group - corrompe las estadísticas
-      {
-        $group: {
-          _id: '$metadatos.tipoInfraccion',
-          cantidad: { $sum: 1 },
-          importePromedio: { $avg: '$importeFinal' }
-        }
-      },
-      { $sort: { cantidad: -1 } },
-      { $limit: AGGREGATION_LIMITS.PREVIEW } // Limitar DESPUÉS de agrupar para obtener top 5 real
-    ])
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
-      .exec();
-
-    // Evolución diaria del periodo
-    const evolucionDiaria = await Multa.aggregate([
-      {
-        $match: {
-          fecha: { $gte: fechaInicio, $lte: ahora }
-        }
-      },
-      // NO usar $limit antes de $group - corrompe las estadísticas
-      {
-        $group: {
-          _id: {
-            fecha: {
-              $dateFromParts: {
-                year: { $year: '$fecha' },
-                month: { $month: '$fecha' },
-                day: { $dayOfMonth: '$fecha' }
-              }
-            }
-          },
-          totalMultas: { $sum: 1 },
-          importeTotal: { $sum: '$importeFinal' }
-        }
-      },
-      { $sort: { '_id.fecha': 1 } }
-    ])
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
-      .exec();
+    const metricsGeneral = metricasGenerales;
 
     const responseData = {
       periodo: {
@@ -510,12 +443,89 @@ const obtenerMetricasDashboard = async (req, res, next) => {
   }
 };
 
+/**
+ * Obtener multas como FeatureCollection GeoJSON. Solo se incluyen las
+ * multas cuyo CSV trae coordenadas UTM validas (la geometry WGS84 se
+ * deriva en el importador).
+ *
+ * GET /api/v1/multas/mapa
+ * Query params: startDate, endDate, calificacion, bbox
+ */
+const obtenerMapaMultas = async (req, res, next) => {
+  try {
+    const { bbox, limite } = req.query;
+
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'calificacion', type: 'exact', param: 'calificacion', transform: TRANSFORMS.toUpperCase },
+      { field: 'metadatos.tipoInfraccion', type: 'exact', param: 'tipoInfraccion', transform: TRANSFORMS.toUpperCase }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
+    // Exigir coordinates validas (no solo geometry != null, porque
+    // Mongoose guarda `{type:'Point'}` sin coordinates cuando el
+    // subdoc existe pero esta incompleto).
+    filters['geometry.coordinates'] = { $exists: true, $ne: null, $type: 'array' };
+
+    if (bbox) {
+      const [minLng, minLat, maxLng, maxLat] = bbox.split(',').map(Number);
+      if ([minLng, minLat, maxLng, maxLat].every(v => Number.isFinite(v))) {
+        filters.geometry = {
+          $geoWithin: { $box: [[minLng, minLat], [maxLng, maxLat]] }
+        };
+      }
+    }
+
+    const limit = Math.min(parseInt(limite, 10) || 5000, 10000);
+
+    const docs = await Multa.find(filters, {
+      _id: 1,
+      fecha: 1,
+      lugar: 1,
+      calificacion: 1,
+      importeBoletín: 1,
+      puntosDetraídos: 1,
+      geometry: 1,
+      'metadatos.tipoInfraccion': 1
+    })
+      .sort({ fecha: -1 })
+      .limit(limit)
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+      .lean();
+
+    const featureCollection = documentosAFeatureCollection(
+      docs,
+      (doc) => ({
+        id: doc._id?.toString(),
+        geometry: doc.geometry,
+        properties: {
+          fecha: doc.fecha,
+          lugar: doc.lugar,
+          calificacion: doc.calificacion,
+          importe: doc.importeBoletín,
+          puntos: doc.puntosDetraídos,
+          tipoInfraccion: doc.metadatos?.tipoInfraccion
+        }
+      }),
+      { recurso: 'multas', limite: limit }
+    );
+
+    res.status(HTTP_STATUS.OK).json(
+      createResponse(featureCollection, 'Mapa de multas generado exitosamente')
+    );
+
+  } catch (error) {
+    logger.error({ error: error.message, endpoint: 'GET /api/v1/multas/mapa' }, 'Error al generar mapa de multas');
+    next(createInternalError('Error al generar mapa de multas', error));
+  }
+};
+
 module.exports = {
   obtenerMultas,
   obtenerMultaPorId,
   obtenerEstadisticasMultas,
   obtenerRankingUbicaciones,
   obtenerAnalisisTemporal,
-  obtenerMetricasDashboard
+  obtenerMetricasDashboard,
+  obtenerMapaMultas
 };
 

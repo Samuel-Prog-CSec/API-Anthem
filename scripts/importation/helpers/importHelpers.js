@@ -6,6 +6,7 @@
  */
 
 const { VALIDATION_LIMITS } = require('../../../src/constants');
+const { normalizarTexto } = require('./normalizarEncoding');
 
 /**
  * Extraer mes y año del nombre de un archivo
@@ -164,17 +165,18 @@ function parseInteger(value, defaultValue = 0, ensurePositive = false) {
 }
 
 /**
- * Limpiar string removiendo comillas y espacios extras
+ * Limpiar string removiendo comillas, espacios extras y normalizando
+ * mojibake (caracter U+FFFD) para corregir encoding latin1 erroneo
+ * de los CSV del dataset (habitual en campos de distrito, barrio y
+ * descripciones). Delega en normalizarTexto() para las sustituciones
+ * deterministas.
  *
  * @param {string} value - Valor a limpiar
- * @param {string} defaultValue - Valor por defecto si vacío
+ * @param {string} defaultValue - Valor por defecto si vacio
  * @returns {string}
  */
 function cleanString(value, defaultValue = '') {
-  if (!value) {
-    return defaultValue;
-  }
-  return value.toString().replace(/['"]/g, '').trim() || defaultValue;
+  return normalizarTexto(value, defaultValue);
 }
 
 /**

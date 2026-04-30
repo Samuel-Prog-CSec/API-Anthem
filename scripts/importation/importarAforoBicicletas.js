@@ -32,6 +32,8 @@ const {
   formatDuration,
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
+const { normalizarTexto } = require('./helpers/normalizarEncoding');
+const { construirGeometryDesdeWGS84 } = require('./helpers/conversorCoordenadas');
 
 // Modelo
 const BikeTrafficCount = require('../../src/models/AforoBicicletas');
@@ -247,11 +249,11 @@ function parseSpanishCoordinate(value) {
 function getFranjaHoraria(hora) {
   if (hora >= 0 && hora <= 5) {
     return DAY_PERIODS.MADRUGADA;
-  } else if (hora >= 6 && hora <= 11) {
+  } if (hora >= 6 && hora <= 11) {
     return DAY_PERIODS.MAÑANA;
-  } else if (hora >= 12 && hora <= 14) {
+  } if (hora >= 12 && hora <= 14) {
     return DAY_PERIODS.MEDIODIA;
-  } else if (hora >= 15 && hora <= 20) {
+  } if (hora >= 15 && hora <= 20) {
     return DAY_PERIODS.TARDE;
   }
   return DAY_PERIODS.NOCHE;
@@ -275,8 +277,8 @@ function validarYTransformarFila(row, rowIndex) {
   // Parsear hora
   const hora = parseHour(row.HORA);
 
-  // Validar identificador
-  const identificador = (row.IDENTIFICADOR || '').trim();
+  // Validar identificador (normalizado para corregir mojibake)
+  const identificador = normalizarTexto(row.IDENTIFICADOR);
   if (!identificador) {
     throw new Error(`${REJECTION_REASONS.MISSING_IDENTIFIER}: fila=${rowIndex}`);
   }
@@ -297,22 +299,27 @@ function validarYTransformarFila(row, rowIndex) {
   const mes = fecha.getMonth() + 1;
   const diaSemana = fecha.getDay();
 
+  // Derivar geometry GeoJSON WGS84 desde lat/lon directamente.
+  // Habilita el endpoint /aforo-bicicletas/mapa y queries `$near`.
+  const geometry = construirGeometryDesdeWGS84(longitud, latitud);
+
   return {
     fecha,
     hora,
     identificador,
     bicicletas,
     ubicacion: {
-      numeroDistrito: parseInt(row['NUMERO_DISTRITO'] || row['N\u00daMERO_DISTRITO'], 10) || null,
-      distrito: (row.DISTRITO || '').trim() || null,
-      nombreVial: (row.NOMBRE_VIAL || '').trim() || null,
-      numero: (row['NUMERO'] || row['N\u00daMERO'] || '').toString().trim() || null,
-      codigoPostal: (row['CODIGO_POSTAL'] || row['C\u00d3DIGO_POSTAL'] || '').toString().trim() || null,
-      observacionesDireccion: (row.OBSERVACIONES_DIRECCION || '').trim() || null,
+      numeroDistrito: parseInt(row.NUMERO_DISTRITO || row['N\u00daMERO_DISTRITO'], 10) || null,
+      distrito: normalizarTexto(row.DISTRITO) || null,
+      nombreVial: normalizarTexto(row.NOMBRE_VIAL) || null,
+      numero: normalizarTexto(row.NUMERO || row['N\u00daMERO']) || null,
+      codigoPostal: normalizarTexto(row.CODIGO_POSTAL || row['C\u00d3DIGO_POSTAL']) || null,
+      observacionesDireccion: normalizarTexto(row.OBSERVACIONES_DIRECCION) || null,
       coordenadas: {
         latitud,
         longitud
-      }
+      },
+      geometry: geometry || undefined
     },
     franjaHoraria,
     año,
@@ -411,6 +418,7 @@ async function procesarCSV(options) {
     const batch = [];
     let isProcessingBatch = false;
     const seenKeysInFile = new Set();
+    // eslint-disable-next-line prefer-const
     let stream;
 
     const flushBatch = async () => {

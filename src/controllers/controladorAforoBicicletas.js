@@ -10,8 +10,8 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS } = require('../constants');
-const logger = require('../config/logger');
+const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
+const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS } = require('../constants');
 
 /**
  * Obtener todos los registros de aforo con filtros y paginacion
@@ -349,5 +349,94 @@ exports.obtenerTendenciasDiarias = async (req, res, next) => {
 
   } catch (error) {
     next(createInternalError('Error al obtener tendencias diarias', error));
+  }
+};
+
+/**
+ * Obtener mapa de estaciones de aforo de bicicletas como FeatureCollection.
+ * Agrega por identificador (estacion) y suma aforo total en el rango
+ * de fechas filtrado. Cada feature es un Point con las coordenadas de
+ * la estacion.
+ *
+ * @route GET /api/v1/aforo-bicicletas/mapa
+ * @access Private
+ */
+exports.obtenerMapaAforo = async (req, res, next) => {
+  try {
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'ubicacion.distrito', type: 'exact', param: 'distrito', transform: TRANSFORMS.toUpperCase }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
+
+    // Estrategia en dos pasos para 300k+ registros:
+    // 1) Aggregate liviano (sin geometry) para sumatorios por estacion.
+    // 2) Un findOne por estacion para obtener la ubicacion representativa
+    //    (35 estaciones, queries muy rapidas con indice por identificador).
+    const sumatorios = await BikeTrafficCount.aggregate([
+      { $match: filters },
+      {
+        $group: {
+          _id: '$identificador',
+          totalBicicletas: { $sum: '$bicicletas' },
+          registros: { $sum: 1 }
+        }
+      },
+      { $sort: { totalBicicletas: -1 } }
+    ]).option({ allowDiskUse: true, maxTimeMS: 15000 });
+
+    // Lookup paralelo de ubicaciones representativas por estacion.
+    const identificadores = sumatorios.map(s => s._id);
+    const ubicacionesPorId = new Map();
+    const docsUbicacion = await BikeTrafficCount.aggregate([
+      { $match: {
+        identificador: { $in: identificadores },
+        'ubicacion.geometry.coordinates': { $exists: true, $ne: null, $type: 'array' }
+      } },
+      { $sort: { fecha: -1 } },
+      {
+        $group: {
+          _id: '$identificador',
+          ubicacion: { $first: '$ubicacion' }
+        }
+      }
+    ]).option({ allowDiskUse: true, maxTimeMS: 15000 });
+
+    for (const u of docsUbicacion) {
+      ubicacionesPorId.set(u._id, u.ubicacion);
+    }
+
+    // Componer resultado final
+    const agregacion = sumatorios
+      .map(s => ({
+        _id: s._id,
+        totalBicicletas: s.totalBicicletas,
+        registros: s.registros,
+        ultimaUbicacion: ubicacionesPorId.get(s._id) || null
+      }))
+      .filter(s => s.ultimaUbicacion); // Solo estaciones con ubicacion conocida
+
+    const featureCollection = documentosAFeatureCollection(
+      agregacion,
+      (doc) => ({
+        id: doc._id,
+        geometry: doc.ultimaUbicacion?.geometry,
+        properties: {
+          identificador: doc._id,
+          totalBicicletas: doc.totalBicicletas,
+          registros: doc.registros,
+          distrito: doc.ultimaUbicacion?.distrito,
+          nombreVial: doc.ultimaUbicacion?.nombreVial
+        }
+      }),
+      { recurso: 'aforo-bicicletas' }
+    );
+
+    return res.status(HTTP_STATUS.OK).json(
+      createResponse(featureCollection, 'Mapa de aforo de bicicletas generado exitosamente')
+    );
+
+  } catch (error) {
+    next(createInternalError('Error al generar mapa de aforo de bicicletas', error));
   }
 };

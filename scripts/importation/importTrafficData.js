@@ -86,11 +86,20 @@ const rejectionTracker = new RejectionTracker();
 // CONEXIÓN Y CARGA DE DATOS AUXILIARES
 // ============================================================================
 
+// Cache de puntos de medida cargados desde CSV
+// El archivo de puntos no cambia durante la ejecucion del importador, asi que
+// reusamos el resultado para evitar re-leer el CSV en cada llamada
+let cachePuntosTrafico = null;
+
 /**
  * Cargar puntos de medida desde el archivo de ubicaciones
  * @returns {Promise<Map>} - Mapa de puntos de medida
  */
 async function loadTrafficPoints() {
+  if (cachePuntosTrafico) {
+    return cachePuntosTrafico;
+  }
+
   logger.info({ archivo: LOCATIONS_FILE }, 'Cargando puntos de medida de trafico');
 
   return new Promise((resolve, reject) => {
@@ -125,6 +134,7 @@ async function loadTrafficPoints() {
       })
       .on('end', () => {
         logger.info({ puntosCardos: count }, 'Puntos de medida de trafico cargados');
+        cachePuntosTrafico = points;
         resolve(points);
       })
       .on('error', (error) => {

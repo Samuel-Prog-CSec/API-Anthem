@@ -24,7 +24,6 @@ const {
 const {
   validatePagination,
   validateDateRange,
-  validateExportFormat,
   validateTrafficFilters
 } = require('../middleware/validation');
 const { cacheMiddleware } = require('../middleware/cache');
@@ -53,16 +52,6 @@ const generalLimit = rateLimit({
   skip: (req) => {
     // Saltear limitación para administradores
     return req.user && req.user.role === 'admin';
-  }
-});
-
-// Para exportación de datos (muy restrictivo)
-const exportLimit = rateLimit({
-  windowMs: RATE_LIMITS.EXPORT.WINDOW_MS,
-  max: RATE_LIMITS.EXPORT.MAX_REQUESTS,
-  message: {
-    error: 'Límite de exportaciones alcanzado. Intente nuevamente en 1 hora.',
-    retryAfter: RATE_LIMITS.EXPORT.RETRY_AFTER
   }
 });
 

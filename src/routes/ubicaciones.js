@@ -4,7 +4,8 @@ const { query, param } = require('express-validator');
 const {
   obtenerUbicaciones,
   obtenerPuntosMedicion,
-  obtenerRutasTransporte
+  obtenerRutasTransporte,
+  obtenerMapaUbicaciones
 } = require('../controllers/controladorUbicaciones');
 
 const {
@@ -122,6 +123,34 @@ router.get('/transporte/:transportType',
   ],
   validateRequest,
   obtenerRutasTransporte
+);
+
+/**
+ * @route   GET /api/v1/ubicaciones/mapa
+ * @desc    Obtener ubicaciones como FeatureCollection GeoJSON para mapas
+ * @access  Privado (requiere autenticacion)
+ */
+router.get('/mapa',
+  locationsLimiter,
+  authenticate,
+  etagMiddleware,
+  cacheMiddleware(),
+  [
+    query('type')
+      .optional()
+      .isString()
+      .withMessage('type debe ser una cadena'),
+    query('distrito')
+      .optional()
+      .isInt({ min: 1, max: 21 })
+      .withMessage('Distrito debe ser un numero entre 1 y 21'),
+    query('bbox')
+      .optional()
+      .matches(/^-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*$/)
+      .withMessage('bbox debe tener formato: minLng,minLat,maxLng,maxLat (WGS84)')
+  ],
+  validateRequest,
+  obtenerMapaUbicaciones
 );
 
 module.exports = router;

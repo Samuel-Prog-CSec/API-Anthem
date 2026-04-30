@@ -75,6 +75,10 @@ const getNearExpiryThresholdMs = (cacheInstance) => {
 };
 
 const scheduleBackgroundRefresh = (req, cacheType, cacheKey) => {
+  // Solo refrescar background en lecturas idempotentes (no POST/PUT/DELETE)
+  if (req.method !== 'GET') {
+    return;
+  }
   if (backgroundRefreshes.has(cacheKey)) {
     return;
   }
@@ -174,14 +178,12 @@ const cacheMiddleware = (cacheType = 'traffic', keyGenerator = null) => {
 
           if (isStale) {
             respondFromCache(res, cacheType, cacheKey, cached, 'STALE');
-            if (req.method === 'GET') {
-              scheduleBackgroundRefresh(req, cacheType, cacheKey);
-            }
+            scheduleBackgroundRefresh(req, cacheType, cacheKey);
             return;
           }
 
           respondFromCache(res, cacheType, cacheKey, cached, 'HIT');
-          if (nearExpiry && req.method === 'GET') {
+          if (nearExpiry) {
             scheduleBackgroundRefresh(req, cacheType, cacheKey);
           }
           return;
@@ -209,7 +211,7 @@ const cacheMiddleware = (cacheType = 'traffic', keyGenerator = null) => {
       });
       // Evitar Unhandled Rejection si nadie espera esta promesa (ej: si la petición falla y no hay clientes concurrentes)
       pendingEntry.promise.catch(() => {});
-      
+
       pendingRequests.set(cacheKey, pendingEntry);
 
       const cleanupPending = () => {

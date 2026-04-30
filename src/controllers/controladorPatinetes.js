@@ -11,7 +11,9 @@ const { createInternalError, createNotFoundError } = require('../utils/errorUtil
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, BINARY_INDICATORS, NIVELES_DENSIDAD_PATINETES } = require('../constants');
+const { construirFeatureCollection, construirFeature } = require('../utils/geoJsonHelper');
+const { centroidePorNombre } = require('../utils/centroidesDistritosMadrid');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, BINARY_INDICATORS, NIVELES_DENSIDAD_PATINETES, GEOMETRY_TYPES } = require('../constants');
 
 /**
  * Obtener datos de asignación de patinetes con filtros
@@ -271,12 +273,99 @@ const obtenerDetallesArea = async (req, res, next) => {
   }
 };
 
+/**
+ * Obtener mapa de asignacion de patinetes por distrito en formato
+ * FeatureCollection GeoJSON. Como el modelo agrupa datos por distrito
+ * (no por coordenada exacta), se asigna el centroide de cada distrito
+ * de Madrid a cada feature. Permite visualizar densidad y cuota de
+ * mercado de proveedores sobre un mapa.
+ *
+ * GET /api/v1/patinetes/mapa
+ * Query params: fecha (opcional), proveedor (opcional)
+ */
+const obtenerMapaPatinetes = async (req, res, next) => {
+  try {
+    const filterConfig = [
+      { field: 'fechaAsignacion', type: 'dateRange', params: ['fecha'] },
+      { field: 'distrito.nombre', type: 'regex', param: 'distrito' }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
+
+    // Agregar por distrito: suma total patinetes y desglose por proveedor
+    const agregacion = [
+      { $match: filters },
+      {
+        $group: {
+          _id: '$distrito.nombre',
+          codigoDistrito: { $first: '$distrito.codigo' },
+          totalPatinetes: { $sum: '$estadisticas.totalPatinetes' },
+          totalRegistros: { $sum: 1 },
+          densidades: { $addToSet: '$estadisticas.densidadPatinetes' },
+          proveedores: { $push: '$proveedores' }
+        }
+      },
+      { $sort: { totalPatinetes: -1 } }
+    ];
+
+    const resultados = await AsignacionPatinetes.aggregate(agregacion)
+      .option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+
+    const features = [];
+    let sinCentroide = 0;
+
+    for (const row of resultados) {
+      const centroide = centroidePorNombre(row._id);
+      if (!centroide) {
+        sinCentroide++;
+        continue;
+      }
+      // Resumir top proveedores: flat() aplana las listas anidadas en una sola
+      // pasada y reduce el nivel de anidamiento del bucle
+      const contadorProveedores = {};
+      for (const p of (row.proveedores || []).flat()) {
+        if (!p?.nombre) {continue;}
+        contadorProveedores[p.nombre] = (contadorProveedores[p.nombre] || 0) + (p.cantidad || 0);
+      }
+      const topProveedores = Object.entries(contadorProveedores)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([nombre, cantidad]) => ({ nombre, cantidad }));
+
+      features.push(construirFeature(
+        { type: GEOMETRY_TYPES.POINT, coordinates: centroide.coordenadas },
+        {
+          distrito: row._id,
+          codigoDistrito: centroide.codigo,
+          totalPatinetes: row.totalPatinetes,
+          totalRegistros: row.totalRegistros,
+          densidades: row.densidades?.filter(Boolean) || [],
+          topProveedores
+        },
+        centroide.codigo
+      ));
+    }
+
+    const featureCollection = construirFeatureCollection(features, {
+      recurso: 'patinetes',
+      distritosSinCentroide: sinCentroide
+    });
+
+    res.status(HTTP_STATUS.OK).json(
+      createResponse(featureCollection, 'Mapa de patinetes generado exitosamente')
+    );
+
+  } catch (error) {
+    next(createInternalError('Error al generar mapa de patinetes', error));
+  }
+};
+
 module.exports = {
   obtenerAsignaciones,
   obtenerEstadisticasDistritos,
   obtenerAnalisisMercadoProveedores,
   obtenerZonasConcentracion,
-  obtenerDetallesArea
+  obtenerDetallesArea,
+  obtenerMapaPatinetes
 };
 
 

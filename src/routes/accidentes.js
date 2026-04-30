@@ -10,8 +10,7 @@ const rateLimit = require('express-rate-limit');
 const {
   USER_ROLES,
   RATE_LIMITS,
-  DATE_RANGE_LIMITS,
-  HTTP_STATUS
+  DATE_RANGE_LIMITS
 } = require('../constants');
 
 const accidentController = require('../controllers/controladorAccidentes');
@@ -154,6 +153,18 @@ router.get('/mapa-calor',
   authenticate,
   cacheMiddleware('accidents'),
   accidentController.obtenerMapaCalorAccidentes
+);
+
+/**
+ * @route   GET /api/v1/accidentes/mapa
+ * @desc    Devuelve FeatureCollection GeoJSON para visualizacion en mapas
+ * @access  Privado
+ */
+router.get('/mapa',
+  generalLimit,
+  authenticate,
+  cacheMiddleware('accidents'),
+  accidentController.obtenerMapaAccidentes
 );
 
 module.exports = router;

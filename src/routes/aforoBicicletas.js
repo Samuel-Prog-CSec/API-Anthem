@@ -9,7 +9,7 @@
 const express = require('express');
 const { param, query } = require('express-validator');
 const rateLimit = require('express-rate-limit');
-const { RATE_LIMITS, ROUTE_SPECIFIC_LIMITS, HTTP_STATUS } = require('../constants');
+const { RATE_LIMITS, HTTP_STATUS } = require('../constants');
 
 const bikeTrafficController = require('../controllers/controladorAforoBicicletas');
 const { authenticate } = require('../middleware/auth');
@@ -192,6 +192,21 @@ router.get('/estacion/:identificador',
   validateDateRange,
   cacheMiddleware('bikeTraffic'),
   bikeTrafficController.obtenerDatosEstacion
+);
+
+/**
+ * @route   GET /api/v1/aforo-bicicletas/mapa
+ * @desc    FeatureCollection GeoJSON agregado por estacion de aforo
+ * @access  Privado
+ */
+router.get('/mapa',
+  generalLimit,
+  authenticate,
+  // `validateDateRange` es una funcion factory que retorna un array
+  // de middlewares; hay que llamarla con parentesis para expandir.
+  ...validateDateRange(),
+  cacheMiddleware('bikeTraffic'),
+  bikeTrafficController.obtenerMapaAforo
 );
 
 /**

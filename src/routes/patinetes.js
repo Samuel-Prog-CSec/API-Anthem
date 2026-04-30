@@ -22,7 +22,8 @@ const {
   obtenerEstadisticasDistritos,
   obtenerAnalisisMercadoProveedores,
   obtenerZonasConcentracion,
-  obtenerDetallesArea
+  obtenerDetallesArea,
+  obtenerMapaPatinetes
 } = require('../controllers/controladorPatinetes');
 
 const { authenticate } = require('../middleware/auth');
@@ -284,6 +285,23 @@ router.get('/area/:distrito/:barrio',
   validateRequest,
   cacheMiddleware('traffic', (req) => `scooters:area:${req.params.distrito}:${req.params.barrio}:${req.query.fecha || 'all'}`),
   obtenerDetallesArea
+);
+
+/**
+ * @route   GET /api/v1/patinetes/mapa
+ * @desc    FeatureCollection GeoJSON con patinetes por distrito (centroides Madrid)
+ * @access  Privado
+ */
+router.get('/mapa',
+  authenticate,
+  [
+    ...dateValidation,
+    query('distrito').optional().isString().withMessage('distrito debe ser cadena')
+  ],
+  validateRequest,
+  etagMiddleware,
+  cacheMiddleware('traffic', (req) => `scooters:mapa:${req.query.fecha || 'all'}:${req.query.distrito || 'all'}`),
+  obtenerMapaPatinetes
 );
 
 /**

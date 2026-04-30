@@ -228,12 +228,10 @@ function validarYTransformarFila(row, rowIndex) {
   // Parsear fecha
   const dia = parsearFecha(row.DIA);
 
-  // Parsear valores numericos (manejar espacios en nombres de columna del CSV)
+  // Parsear valores numericos. Headers ya vienen normalizados (trim) por csv-parser
   const horasTotalesUsosBicicletas = parsearNumeroEspanol(row.HORAS_TOTALES_USOS_BICICLETAS);
 
-  // Nota: El CSV tiene un espacio extra en el nombre de esta columna
   const horasTotalesDisponibilidadBicicletasEnAnclajes = parsearNumeroEspanol(
-    row['HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN _ANCLAJES'] ||
     row.HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN_ANCLAJES
   );
 
@@ -400,6 +398,9 @@ async function procesarCSV(options) {
     const batch = [];
     let isProcessingBatch = false;
     const seenDatesInFile = new Set();
+    // stream se declara con let porque flushBatch (definido antes) lo referencia
+    // en su closure y necesitamos asignarlo despues del setup
+    // eslint-disable-next-line prefer-const
     let stream;
 
     const flushBatch = async () => {
@@ -439,7 +440,12 @@ async function procesarCSV(options) {
     };
 
     stream = fs.createReadStream(IMPORT_CONFIG.dataFile)
-      .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }));
+      .pipe(csv({
+        separator: IMPORT_CONFIG.csvSeparator,
+        // Normalizar headers (trim + replace espacios internos por _) para evitar
+        // matches frágiles como 'HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN _ANCLAJES'
+        mapHeaders: ({ header }) => header.trim().replace(/\s+/g, '_')
+      }));
 
     stream.on('data', async (row) => {
       if (isShuttingDown || isProcessingBatch) {return;}

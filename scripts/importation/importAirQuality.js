@@ -42,6 +42,7 @@ const {
   formatDuration,
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
+const { normalizarTexto } = require('./helpers/normalizarEncoding');
 
 // Modelo
 const AirQuality = require('../../src/models/CalidadAire');
@@ -154,7 +155,7 @@ function parseAirQualityRow(row, _sourceFile, _rowIndex) {
   }
 
   // Obtener punto de muestreo
-  const puntoMuestreo = row.PUNTO_MUESTREO?.toString().trim();
+  const puntoMuestreo = normalizarTexto(row.PUNTO_MUESTREO).toUpperCase();
   if (!puntoMuestreo) {
     throw new Error(`${REJECTION_REASONS.MISSING_PUNTO_MUESTREO}: columna vacia`);
   }
@@ -255,6 +256,9 @@ function parseAirQualityRow(row, _sourceFile, _rowIndex) {
     processingMetadata: {
       importedAt: new Date(),
       validMeasurements,
+      // Registro parcial: dia con menos de 24 horas validadas como 'V'.
+      // Se conserva el registro para no perder tendencias agregadas.
+      registroParcial: validMeasurements < 24,
       dataQualityScore,
       averageValue,
       maxValue,

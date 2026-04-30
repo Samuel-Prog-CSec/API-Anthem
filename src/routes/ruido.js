@@ -34,7 +34,8 @@ const {
   obtenerEstadisticasRuido,
   obtenerRankingRuido,
   obtenerCumplimientoPorZona,
-  obtenerTendenciasTemporales
+  obtenerTendenciasTemporales,
+  obtenerMapaRuido
 } = require('../controllers/controladorRuido');
 
 const router = express.Router();
@@ -262,6 +263,26 @@ router.get('/tendencias/temporal',
   validateRequest,
   cacheMiddleware('noise'),
   obtenerTendenciasTemporales
+);
+
+/**
+ * @route   GET /api/v1/ruido/mapa
+ * @desc    FeatureCollection GeoJSON agregado por estacion (NMT) con niveles promedio
+ * @access  Privado
+ */
+router.get('/mapa',
+  noiseStatisticsLimiter,
+  authenticate,
+  [
+    query('startDate').optional().isISO8601().withMessage('startDate debe ser ISO 8601'),
+    query('endDate').optional().isISO8601().withMessage('endDate debe ser ISO 8601'),
+    query('año').optional().isInt({ min: 2000, max: 2100 }).withMessage('año debe ser valido'),
+    query('nmt').optional().isString().withMessage('nmt debe ser string separado por comas')
+  ],
+  validateRequest,
+  etagMiddleware,
+  cacheMiddleware('noise'),
+  obtenerMapaRuido
 );
 
 module.exports = router;

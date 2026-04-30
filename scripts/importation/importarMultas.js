@@ -20,6 +20,8 @@ const { importFinesLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const iconv = require('iconv-lite');
 const { VALIDATION_LIMITS, SEVERITY_LEVELS, INFRACTION_TYPES, FINE_CONFIG } = require('../../src/constants');
+const { normalizarTexto } = require('./helpers/normalizarEncoding');
+const { construirGeometryDesdeUTM } = require('./helpers/conversorCoordenadas');
 const {
   extractDateFromFileName,
   RejectionTracker,
@@ -271,20 +273,28 @@ function parseMultaRow(row, sourceFile, rowIndex) {
     }, 'Calificacion invalida - se usa LEVE por defecto');
   }
 
-  // Crear objeto de multa
+  // Derivar geometry GeoJSON desde UTM para alimentar el endpoint
+  // /multas/mapa y queries geoespaciales (solo si tiene ambas UTM).
+  const geometry = (coordenadas.x && coordenadas.y)
+    ? construirGeometryDesdeUTM(coordenadas.x, coordenadas.y)
+    : null;
+
+  // Crear objeto de multa (campos de texto normalizados para corregir
+  // mojibake latin1 del CSV)
   const multa = {
     fecha,
     mes,
     año,
     hora: row.HORA || '00.00',
     calificacion,
-    lugar: (row.LUGAR || 'NO ESPECIFICADO').trim(),
+    lugar: normalizarTexto(row.LUGAR, 'NO ESPECIFICADO'),
     coordenadas: Object.keys(coordenadas).length > 0 ? coordenadas : undefined,
+    geometry: geometry || undefined,
     importeBoletín: Math.max(0, importe),
     tieneDescuento,
     puntosDetraídos: Math.max(0, Math.min(puntos, VALIDATION_LIMITS.DRIVER_POINTS_MAX)),
-    denunciante: (row.DENUNCIANTE || 'NO ESPECIFICADO').trim(),
-    descripcionInfraccion: (row['HECHO-BOL'] || '').trim(),
+    denunciante: normalizarTexto(row.DENUNCIANTE, 'NO ESPECIFICADO'),
+    descripcionInfraccion: normalizarTexto(row['HECHO-BOL']),
     datosVelocidad: Object.keys(datosVelocidad).length > 0 ? datosVelocidad : undefined,
     procesamiento: {
       archivoOrigen: sourceFile

@@ -32,7 +32,6 @@ const {
   DAY_PERIODS,
   WORKDAY_TYPES,
   FACTORES_RIESGO,
-  MAPEO_SEVERIDAD_LESIONES,
   SEVERITY_LEVELS
 } = require('../../src/constants');
 const {
@@ -40,6 +39,8 @@ const {
   formatDuration,
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
+const { normalizarTexto } = require('./helpers/normalizarEncoding');
+const { construirGeometryDesdeUTM } = require('./helpers/conversorCoordenadas');
 
 
 // ============================================================================
@@ -420,6 +421,18 @@ function parsearFecha(fechaStr, rowIndex) {
     throw new Error(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
   }
 
+  // Validar que la fecha resultante coincide con los componentes (detecta 31/02, 30/02, etc.)
+  // Date(2051, 1, 31) acepta y rebobina a 03/03/2051 silenciosamente, asi que comparamos
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    rejectionTracker.track(REJECTION_REASONS.FECHA_FUERA_RANGO);
+    logger.warn({
+      fila: rowIndex,
+      razon: REJECTION_REASONS.FECHA_FUERA_RANGO,
+      datosOriginales: { fecha: fechaStr, fechaCalculada: date.toISOString() }
+    }, 'Fila rechazada: fecha invalida (mes/dia incompatible, ej. 31/02)');
+    throw new Error(REJECTION_REASONS.FECHA_FUERA_RANGO);
+  }
+
   return date;
 }
 
@@ -557,7 +570,7 @@ function validarYTransformarFila(row, rowIndex) {
   // sexo, cod_lesividad, lesividad, coordenada_x_utm, coordenada_y_utm,
   // positiva_alcohol, positiva_droga
 
-  const numExpedienteRaw = row['num_expediente'] || row['\uFEFFnum_expediente'];
+  const numExpedienteRaw = row.num_expediente || row['\uFEFFnum_expediente'];
   const numeroExpediente = numExpedienteRaw?.toString().trim();
   if (!numeroExpediente) {
     rejectionTracker.track(REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE);
@@ -580,11 +593,11 @@ function validarYTransformarFila(row, rowIndex) {
   }
 
   // Parsear fecha
-  const fechaStr = row['fecha']?.toString().trim();
+  const fechaStr = row.fecha?.toString().trim();
   const fecha = parsearFecha(fechaStr, rowIndex);
 
   // Parsear hora (CSV tiene formato H:MM:SS o HH:MM:SS, modelo espera HH:MM)
-  const horaRaw = row['hora']?.toString().trim();
+  const horaRaw = row.hora?.toString().trim();
   if (!horaRaw || !/^\d{1,2}:\d{2}(:\d{2})?$/.test(horaRaw)) {
     rejectionTracker.track(REJECTION_REASONS.HORA_FORMATO_INVALIDO);
     logger.warn({
@@ -598,21 +611,21 @@ function validarYTransformarFila(row, rowIndex) {
   const partes = horaRaw.split(':');
   const hora = partes[0].padStart(2, '0') + ':' + partes[1];
 
-  // Datos de ubicacion
-  const calle = row['localizacion']?.toString().trim();
+  // Datos de ubicacion (normalizados para corregir mojibake del CSV)
+  const calle = normalizarTexto(row.localizacion);
   if (!calle) {
     rejectionTracker.track(REJECTION_REASONS.LOCALIZACION_FALTANTE);
     logger.warn({
       fila: rowIndex,
       razon: REJECTION_REASONS.LOCALIZACION_FALTANTE,
-      datosOriginales: { localizacion: row['localizacion'] }
+      datosOriginales: { localizacion: row.localizacion }
     }, 'Fila rechazada: localizacion faltante');
     throw new Error(REJECTION_REASONS.LOCALIZACION_FALTANTE);
   }
 
-  const numero = row['numero']?.toString().trim() || null;
-  const codigoDistrito = row['cod_distrito']?.toString().trim();
-  const nombreDistrito = row['distrito']?.toString().trim().toUpperCase();
+  const numero = normalizarTexto(row.numero) || null;
+  const codigoDistrito = normalizarTexto(row.cod_distrito);
+  const nombreDistrito = normalizarTexto(row.distrito).toUpperCase();
 
   if (!codigoDistrito || !nombreDistrito) {
     rejectionTracker.track(REJECTION_REASONS.DISTRITO_INCOMPLETO);
@@ -625,28 +638,34 @@ function validarYTransformarFila(row, rowIndex) {
   }
 
   // Parsear coordenadas (no criticas, pueden ser null)
-  const coordenadas = parsearCoordenadas(row['coordenada_x_utm'], row['coordenada_y_utm'], rowIndex);
+  const coordenadas = parsearCoordenadas(row.coordenada_x_utm, row.coordenada_y_utm, rowIndex);
+
+  // Derivar geometry GeoJSON WGS84 desde UTM ETRS89 para soportar el
+  // endpoint /mapa y queries geoespaciales.
+  const geometry = coordenadas
+    ? construirGeometryDesdeUTM(coordenadas.x, coordenadas.y)
+    : null;
 
   // Datos del accidente
-  const tipoAccidenteOriginal = row['tipo_accidente']?.toString().trim();
+  const tipoAccidenteOriginal = row.tipo_accidente?.toString().trim();
   const tipoAccidente = normalizarTipoAccidente(tipoAccidenteOriginal);
   const estadoMeteorologico = normalizarEstadoMeteorologico(row['estado_meteorol\u00f3gico']?.toString().trim());
 
   // Datos del vehiculo
-  const tipoVehiculoOriginal = row['tipo_vehiculo']?.toString().trim();
+  const tipoVehiculoOriginal = row.tipo_vehiculo?.toString().trim();
   const tipoVehiculo = normalizarTipoVehiculo(tipoVehiculoOriginal);
 
   // Datos de la persona afectada
-  const tipoPersona = normalizarTipoPersona(row['tipo_persona']?.toString().trim());
-  const rangoEdadRaw = row['rango_edad']?.toString().trim();
+  const tipoPersona = normalizarTipoPersona(row.tipo_persona?.toString().trim());
+  const rangoEdadRaw = row.rango_edad?.toString().trim();
   const rangoEdad = normalizarRangoEdad(rangoEdadRaw);
-  const sexoRaw = row['sexo']?.toString().trim().toUpperCase();
+  const sexoRaw = row.sexo?.toString().trim().toUpperCase();
   const sexo = (sexoRaw === 'MUJER') ? GENDERS.MUJER :
     (sexoRaw === 'HOMBRE') ? GENDERS.HOMBRE : GENDERS.DESCONOCIDO;
 
   // Datos de lesividad
-  const codigoLesividad = row['cod_lesividad']?.toString().trim();
-  const lesividad = row['lesividad']?.toString().trim();
+  const codigoLesividad = row.cod_lesividad?.toString().trim();
+  const lesividad = row.lesividad?.toString().trim();
 
   // Mapear tipo de lesion basado en codigo o descripcion (usando constantes centralizadas)
   let tipoLesion = TIPOS_LESION.SE_DESCONOCE;
@@ -675,11 +694,11 @@ function validarYTransformarFila(row, rowIndex) {
   }
 
   // Datos de sustancias
-  const alcoholRaw = row['positiva_alcohol']?.toString().trim().toUpperCase();
+  const alcoholRaw = row.positiva_alcohol?.toString().trim().toUpperCase();
   const positivaAlcohol = (alcoholRaw === 'S') ? BINARY_INDICATORS.YES :
     (alcoholRaw === 'N') ? BINARY_INDICATORS.NO : BINARY_INDICATORS.NULL;
 
-  const drogaRaw = row['positiva_droga']?.toString().trim().toUpperCase();
+  const drogaRaw = row.positiva_droga?.toString().trim().toUpperCase();
   const positivaDroga = (drogaRaw === 'S' || drogaRaw === '1') ? BINARY_INDICATORS.YES :
     (drogaRaw === 'N' || drogaRaw === '0') ? BINARY_INDICATORS.NO : BINARY_INDICATORS.NULL;
 
@@ -694,7 +713,8 @@ function validarYTransformarFila(row, rowIndex) {
       numero,
       codigoDistrito,
       nombreDistrito,
-      coordenadas
+      coordenadas,
+      geometry: geometry || undefined
     },
 
     circunstancias: {

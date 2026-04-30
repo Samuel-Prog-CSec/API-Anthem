@@ -3,6 +3,7 @@ const { createInternalError, createBadRequestError } = require('../utils/errorUt
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
+const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, MEASUREMENT_POINT_TYPES, TRANSPORT_ROUTE_TYPES, LOCATION_TYPES } = require('../constants');
 
 /**
@@ -179,9 +180,85 @@ const obtenerRutasTransporte = async (req, res, next) => {
   }
 };
 
+/**
+ * Obtener ubicaciones en formato FeatureCollection GeoJSON para mapas.
+ * Pensado para visualizacion con Leaflet/MapLibre en el frontend.
+ *
+ * @route GET /api/v1/ubicaciones/mapa
+ * @param {string} [req.query.type] - Tipo(s) de ubicacion separados por coma
+ * @param {number} [req.query.distrito] - Codigo de distrito (1-21)
+ * @param {string} [req.query.bbox] - Bounding box WGS84: "minLng,minLat,maxLng,maxLat"
+ * @returns {Object} FeatureCollection RFC 7946
+ */
+const obtenerMapaUbicaciones = async (req, res, next) => {
+  try {
+    const { bbox } = req.query;
+
+    const filterConfig = [
+      { field: 'tipo', type: 'in', param: 'type' },
+      { field: 'distrito', type: 'exact', param: 'distrito' }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
+
+    // Solo documentos con geometry valida para el mapa
+    filters.geometry = { $exists: true, $ne: null };
+
+    // Filtro por bounding box WGS84 (lng/lat)
+    if (bbox) {
+      const [minLng, minLat, maxLng, maxLat] = bbox.split(',').map(Number);
+      if ([minLng, minLat, maxLng, maxLat].some(v => !Number.isFinite(v))) {
+        return next(createBadRequestError('bbox debe ser "minLng,minLat,maxLng,maxLat" con numeros validos'));
+      }
+      filters.geometry = {
+        $geoWithin: {
+          $box: [[minLng, minLat], [maxLng, maxLat]]
+        }
+      };
+    }
+
+    const proyeccion = {
+      _id: 1,
+      tipo: 1,
+      nombre: 1,
+      nmt: 1,
+      id_punto: 1,
+      tipo_elem: 1,
+      distrito: 1,
+      geometry: 1
+    };
+
+    const docs = await Location.find(filters, proyeccion)
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+      .lean();
+
+    const featureCollection = documentosAFeatureCollection(
+      docs,
+      (doc) => ({
+        id: doc._id?.toString(),
+        geometry: doc.geometry,
+        properties: {
+          tipo: doc.tipo,
+          nombre: doc.nombre,
+          nmt: doc.nmt,
+          idPunto: doc.id_punto,
+          tipoElemento: doc.tipo_elem,
+          distrito: doc.distrito
+        }
+      }),
+      { recurso: 'ubicaciones' }
+    );
+
+    res.json(createResponse(featureCollection, 'Mapa de ubicaciones generado exitosamente'));
+
+  } catch (error) {
+    next(createInternalError('Error al generar mapa de ubicaciones', error));
+  }
+};
+
 module.exports = {
   obtenerUbicaciones,
   obtenerPuntosMedicion,
-  obtenerRutasTransporte
+  obtenerRutasTransporte,
+  obtenerMapaUbicaciones
 };
 

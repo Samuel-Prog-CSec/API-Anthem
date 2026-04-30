@@ -8,6 +8,7 @@
 
 const User = require('../models/User');
 const TokenBlacklist = require('../models/TokenBlacklist');
+const config = require('../config/config');
 const { createResponse } = require('../utils/responseHelper');
 const { validatePassword } = require('../utils/passwordValidator');
 const {
@@ -42,9 +43,11 @@ const {
   logPasswordChange
 } = require('../utils/securityLogger');
 
+// Las cookies van con Secure cuando el servidor sirve sobre HTTPS (produccion)
+// En desarrollo local sin HTTPS, Secure se desactiva para que el navegador acepte la cookie
 const baseCookieOptions = {
   httpOnly: true,
-  secure: false,
+  secure: config.server.env === 'production',
   sameSite: 'strict',
   path: '/'
 };
@@ -291,7 +294,7 @@ const logout = async (req, res, next) => {
     logSessionTermination(req.user._id.toString(), 'logout', req.ip);
 
     res.status(HTTP_STATUS.OK).json(
-      createResponse('Logout exitoso')
+      createResponse(null, 'Logout exitoso')
     );
 
   } catch (error) {
@@ -439,11 +442,18 @@ const refreshAccessToken = async (req, res, next) => {
 
     res.status(HTTP_STATUS.OK).json(
       createResponse(
-        'Token renovado exitosamente',
         {
           accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken
-        }
+          refreshToken: tokens.refreshToken,
+          user: {
+            id: user._id,
+            username: user.username,
+            email: user.email,
+            role: user.role,
+            isActive: user.isActive
+          }
+        },
+        'Token renovado exitosamente'
       )
     );
 

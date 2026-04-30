@@ -1,0 +1,39 @@
+/**
+ * Constantes de dominio: Multas
+ *
+ * Tipos de infraccion, configuracion (descuentos, puntos) y tipos de
+ * denunciante. Valores extraidos del CSV Anthem_CTC_Multas.
+ */
+
+const INFRACTION_TYPES = {
+  VELOCIDAD: 'VELOCIDAD',
+  ESTACIONAMIENTO: 'ESTACIONAMIENTO',
+  TELEFONO_MOVIL: 'TELEFONO_MOVIL',
+  SEMAFORO: 'SEMAFORO',
+  ALCOHOL_DROGAS: 'ALCOHOL_DROGAS',
+  DOCUMENTACION: 'DOCUMENTACION',
+  OTRAS: 'OTRAS'
+};
+
+const FINE_CONFIG = {
+  DISCOUNT_RATE: 0.5,
+  MAX_POINTS: 12
+};
+
+const FINE_DENOUNCER_TYPES = {
+  POLICIA_MUNICIPAL: 'POLICIA MUNICIPAL',
+  SER: 'SER',
+  SACE: 'SACE',
+  AGENTES_DE_MOVILIDAD: 'AGENTES DE MOVILIDAD'
+};
+
+const FINE_CONSTANTS = {
+  DISCOUNT_PERCENTAGE: 50
+};
+
+module.exports = {
+  INFRACTION_TYPES,
+  FINE_CONFIG,
+  FINE_DENOUNCER_TYPES,
+  FINE_CONSTANTS
+};

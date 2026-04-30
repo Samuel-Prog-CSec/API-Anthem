@@ -23,7 +23,9 @@ const {
   FINE_CONFIG,
   VALIDATION_LIMITS,
   MONGODB_TIMEOUTS,
-  DATASET_YEARS
+  AGGREGATION_LIMITS,
+  DATASET_YEARS,
+  GEOMETRY_TYPES
 } = require('../constants');
 
 /**
@@ -106,6 +108,35 @@ const multaSchema = new mongoose.Schema({
   coordenadas: {
     type: coordinatesUTMSchema,
     required: false
+  },
+
+  // Geometria GeoJSON WGS84 derivada desde UTM en el importador.
+  // Necesaria para queries `$near`/`$geoWithin` y el endpoint
+  // GET /multas/mapa.
+  geometry: {
+    type: {
+      type: String,
+      enum: [GEOMETRY_TYPES.POINT],
+      default: GEOMETRY_TYPES.POINT
+    },
+    coordinates: {
+      type: [Number],
+      required: false,
+      validate: {
+        validator: function(coords) {
+          if (!coords || coords.length === 0) {return true;}
+          if (coords.length !== 2) {return false;}
+          const [lng, lat] = coords;
+          return (
+            typeof lng === 'number' &&
+            typeof lat === 'number' &&
+            lng >= VALIDATION_LIMITS.LONGITUDE_MIN && lng <= VALIDATION_LIMITS.LONGITUDE_MAX &&
+            lat >= VALIDATION_LIMITS.LATITUDE_MIN && lat <= VALIDATION_LIMITS.LATITUDE_MAX
+          );
+        },
+        message: 'geometry.coordinates debe ser [lng, lat] dentro de rangos validos'
+      }
+    }
   },
 
   // Información económica
@@ -330,6 +361,14 @@ multaSchema.index({ puntosDetraídos: -1, fecha: -1 });
 multaSchema.index({ 'coordenadas.x': 1, 'coordenadas.y': 1 }, {
   sparse: true
 });
+
+// Indice geoespacial 2dsphere sobre geometry (WGS84) para el
+// endpoint GET /multas/mapa y queries `$near`/`$geoWithin`.
+// SPARSE: solo indexa documentos con geometry derivada desde UTM.
+multaSchema.index(
+  { geometry: '2dsphere' },
+  { name: 'idx_multas_geometry_2dsphere', sparse: true, background: true }
+);
 
 // ========================================
 // ÍNDICES PARA FILTROS ESPECÍFICOS
@@ -772,6 +811,84 @@ multaSchema.statics.getTemporalAnalysisOptimized = async function(options) {
   return {
     analisis,
     tendencia
+  };
+};
+
+/**
+ * Calcular metricas agregadas para el dashboard de multas en un periodo
+ * Ejecuta 3 agregaciones en paralelo: metricas generales, top infracciones
+ * y evolucion diaria. Encapsula las pipelines aqui para mantener controllers
+ * delgados y reutilizar la logica de negocio
+ *
+ * @param {Date} fechaInicio - Limite inferior del periodo
+ * @param {Date} fechaFin - Limite superior del periodo
+ * @param {Object} options - { topInfraccionesLimit, maxTimeMS }
+ * @returns {Promise<Object>} { metricasGenerales, topInfracciones, evolucionDiaria }
+ */
+multaSchema.statics.getDashboardMetrics = async function(fechaInicio, fechaFin, options = {}) {
+  const topLimit = options.topInfraccionesLimit ?? AGGREGATION_LIMITS.PREVIEW;
+  const maxTimeMS = options.maxTimeMS ?? MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS;
+  const matchPeriodo = { fecha: { $gte: fechaInicio, $lte: fechaFin } };
+
+  const pipelineGenerales = [
+    { $match: matchPeriodo },
+    {
+      $group: {
+        _id: null,
+        totalMultas: { $sum: 1 },
+        importeTotal: { $sum: '$importeFinal' },
+        puntosTotal: { $sum: '$puntosDetraídos' },
+        multasGraves: { $sum: { $cond: ['$metadatos.esInfraccionGrave', 1, 0] } },
+        multasConDescuento: { $sum: { $cond: ['$tieneDescuento', 1, 0] } },
+        multasVelocidad: { $sum: { $cond: ['$metadatos.esInfraccionVelocidad', 1, 0] } }
+      }
+    }
+  ];
+
+  const pipelineTopInfracciones = [
+    { $match: matchPeriodo },
+    {
+      $group: {
+        _id: '$metadatos.tipoInfraccion',
+        cantidad: { $sum: 1 },
+        importePromedio: { $avg: '$importeFinal' }
+      }
+    },
+    { $sort: { cantidad: -1 } },
+    { $limit: topLimit }
+  ];
+
+  const pipelineEvolucionDiaria = [
+    { $match: matchPeriodo },
+    {
+      $group: {
+        _id: {
+          fecha: {
+            $dateFromParts: {
+              year: { $year: '$fecha' },
+              month: { $month: '$fecha' },
+              day: { $dayOfMonth: '$fecha' }
+            }
+          }
+        },
+        totalMultas: { $sum: 1 },
+        importeTotal: { $sum: '$importeFinal' }
+      }
+    },
+    { $sort: { '_id.fecha': 1 } }
+  ];
+
+  // allSettled: una agregacion lenta o fallida no debe descartar el resto del dashboard
+  const [resGenerales, resTop, resEvolucion] = await Promise.allSettled([
+    this.aggregate(pipelineGenerales).maxTimeMS(maxTimeMS).exec(),
+    this.aggregate(pipelineTopInfracciones).maxTimeMS(maxTimeMS).exec(),
+    this.aggregate(pipelineEvolucionDiaria).maxTimeMS(maxTimeMS).exec()
+  ]);
+
+  return {
+    metricasGenerales: resGenerales.status === 'fulfilled' ? (resGenerales.value[0] || null) : null,
+    topInfracciones: resTop.status === 'fulfilled' ? resTop.value : [],
+    evolucionDiaria: resEvolucion.status === 'fulfilled' ? resEvolucion.value : []
   };
 };
 

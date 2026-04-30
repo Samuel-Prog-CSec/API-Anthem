@@ -14,7 +14,8 @@ const {
   obtenerEstadisticasMultas,
   obtenerRankingUbicaciones,
   obtenerAnalisisTemporal,
-  obtenerMetricasDashboard
+  obtenerMetricasDashboard,
+  obtenerMapaMultas
 } = require('../controllers/controladorMultas');
 
 const { authenticate } = require('../middleware/auth');
@@ -305,6 +306,24 @@ router.get('/dashboard',
 
   // Controlador
   obtenerMetricasDashboard
+);
+
+/**
+ * GET /api/v1/multas/mapa
+ * FeatureCollection GeoJSON con multas georreferenciadas.
+ */
+router.get('/mapa',
+  authenticate,
+  [
+    query('startDate').optional().isISO8601().withMessage('startDate debe ser ISO 8601'),
+    query('endDate').optional().isISO8601().withMessage('endDate debe ser ISO 8601'),
+    query('calificacion').optional().isIn(Object.values(SEVERITY_LEVELS.FINE)).withMessage('calificacion invalida'),
+    query('bbox').optional().matches(/^-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*$/).withMessage('bbox debe ser minLng,minLat,maxLng,maxLat'),
+    query('limite').optional().isInt({ min: 1, max: 10000 }).withMessage('limite debe estar entre 1 y 10000')
+  ],
+  validateRequest,
+  cacheMiddleware('fines', (req) => `fines:mapa:${JSON.stringify(req.query)}`),
+  obtenerMapaMultas
 );
 
 /**

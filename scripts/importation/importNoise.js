@@ -42,6 +42,7 @@ const {
   formatDuration,
   calculateProcessingSpeed
 } = require('./helpers/importHelpers');
+const { normalizarTexto } = require('./helpers/normalizarEncoding');
 
 // Modelo
 const NoiseMonitoring = require('../../src/models/Ruido');
@@ -69,9 +70,11 @@ const REJECTION_REASONS = {
 const IMPORT_CONFIG = {
   dataDirectory: path.join(__dirname, '..', '..', 'datos_hpe'),
   fileName: 'Anthem_CTC_ContaminacionAcustica.csv',
-  batchSize: 50,
+  // batchSize 1000 alineado con resto de importadores. Antes era 50 -> demasiados
+  // round-trips a Mongo penalizando importacion 10-20x sin justificacion
+  batchSize: 1000,
   skipExisting: true,
-  logInterval: 100,
+  logInterval: 500,
   csvSeparator: ';'
 };
 
@@ -297,8 +300,9 @@ function parseNoiseRow(row, sourceFile, _rowIndex) {
     throw new Error(`${REJECTION_REASONS.INVALID_DATE}: ano=${año}, mes=${mes}`);
   }
 
-  // Obtener nombre de la estacion
-  const nombre = (row.Nombre || `Estacion ${nmt}`).toString().trim();
+  // Obtener nombre de la estacion (normalizado para corregir mojibake
+  // latin1 del CSV: 'Plaza de Espa\uFFFDa' -> 'Plaza de España').
+  const nombre = normalizarTexto(row.Nombre, `Estacion ${nmt}`);
 
   // Parsear niveles de ruido
   const nivelDiurno = parseNoiseLevel(row.Ld);

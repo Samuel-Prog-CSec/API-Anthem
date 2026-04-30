@@ -6,11 +6,13 @@
  */
 
 const NoiseMonitoring = require('../models/Ruido');
+const Location = require('../models/Ubicacion');
 const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, buildResponseMetadata } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
-const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS, NOISE_THRESHOLDS, ZONE_TYPES } = require('../constants');
+const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
+const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS, NOISE_THRESHOLDS, ZONE_TYPES, LOCATION_TYPES } = require('../constants');
 const logger = require('../config/logger');
 
 /**
@@ -314,12 +316,103 @@ const obtenerTendenciasTemporales = async (req, res, next) => {
   }
 };
 
+/**
+ * Obtener mapa de ruido como FeatureCollection GeoJSON.
+ *
+ * El modelo de Ruido no guarda coordenadas propias: las estaciones NMT
+ * se referencian a traves de la coleccion Ubicacion (tipo
+ * ESTACION_ACUSTICA). Este handler hace un $lookup para enriquecer
+ * cada estacion con su geometry y devolver el promedio de LAeq24 en
+ * el rango de fechas filtrado.
+ *
+ * GET /api/v1/ruido/mapa
+ * Query params: startDate, endDate, nmt (csv)
+ */
+const obtenerMapaRuido = async (req, res, next) => {
+  try {
+    const filterConfig = [
+      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+      { field: 'año', type: 'numeric', param: 'año' },
+      { field: 'nmt', type: 'in', param: 'nmt', transform: TRANSFORMS.toIntArray }
+    ];
+    const filters = buildFilters(req.query, filterConfig);
+
+    // Agregar por estacion NMT: promedio de niveles diurno, vespertino,
+    // nocturno y LAeq24, mas maximos y cumplimiento.
+    const agregacion = await NoiseMonitoring.aggregate([
+      { $match: filters },
+      {
+        $group: {
+          _id: '$nmt',
+          nombre: { $first: '$nombre' },
+          promedioDiurno: { $avg: '$nivelDiurno' },
+          promedioVespertino: { $avg: '$nivelVespertino' },
+          promedioNocturno: { $avg: '$nivelNocturno' },
+          promedioLaeq24: { $avg: '$laeq24' },
+          maxLaeq24: { $max: '$laeq24' },
+          mediciones: { $sum: 1 }
+        }
+      }
+    ]).option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+
+    if (!agregacion.length) {
+      return res.status(HTTP_STATUS.OK).json(
+        createResponse({ type: 'FeatureCollection', features: [], metadata: { total: 0, recurso: 'ruido' } },
+          'Mapa de ruido vacio para los filtros indicados')
+      );
+    }
+
+    // Lookup de coordenadas desde Ubicacion (tipo ESTACION_ACUSTICA)
+    const nmts = agregacion.map(g => String(g._id));
+    const ubicaciones = await Location.find(
+      { tipo: LOCATION_TYPES.ESTACION_ACUSTICA, nmt: { $in: nmts } },
+      { nmt: 1, geometry: 1, nombre: 1 }
+    ).lean();
+
+    const geometriaPorNmt = {};
+    for (const u of ubicaciones) {
+      if (u.nmt && u.geometry) {geometriaPorNmt[String(u.nmt)] = u.geometry;}
+    }
+
+    const featureCollection = documentosAFeatureCollection(
+      agregacion,
+      (doc) => ({
+        id: doc._id,
+        geometry: geometriaPorNmt[String(doc._id)],
+        properties: {
+          nmt: doc._id,
+          nombre: doc.nombre,
+          promedioDiurno: doc.promedioDiurno ? Number(doc.promedioDiurno.toFixed(2)) : null,
+          promedioVespertino: doc.promedioVespertino ? Number(doc.promedioVespertino.toFixed(2)) : null,
+          promedioNocturno: doc.promedioNocturno ? Number(doc.promedioNocturno.toFixed(2)) : null,
+          promedioLaeq24: doc.promedioLaeq24 ? Number(doc.promedioLaeq24.toFixed(2)) : null,
+          maxLaeq24: doc.maxLaeq24,
+          mediciones: doc.mediciones,
+          excedeDiurno: doc.promedioDiurno > NOISE_THRESHOLDS.DIURNO,
+          excedeVespertino: doc.promedioVespertino > NOISE_THRESHOLDS.VESPERTINO,
+          excedeNocturno: doc.promedioNocturno > NOISE_THRESHOLDS.NOCTURNO
+        }
+      }),
+      { recurso: 'ruido', estacionesSinUbicacion: agregacion.length - Object.keys(geometriaPorNmt).length }
+    );
+
+    res.status(HTTP_STATUS.OK).json(
+      createResponse(featureCollection, 'Mapa de ruido generado exitosamente')
+    );
+
+  } catch (error) {
+    logger.error({ error: error.message, endpoint: 'GET /api/v1/ruido/mapa' }, 'Error al generar mapa de ruido');
+    next(createInternalError('Error al generar mapa de ruido', error));
+  }
+};
+
 module.exports = {
   obtenerDatosRuido,
   obtenerEstadisticasRuido,
   obtenerRankingRuido,
   obtenerCumplimientoPorZona,
-  obtenerTendenciasTemporales
+  obtenerTendenciasTemporales,
+  obtenerMapaRuido
 };
 
 

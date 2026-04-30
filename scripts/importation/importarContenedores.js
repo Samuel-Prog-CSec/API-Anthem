@@ -423,6 +423,7 @@ async function processCSV(options) {
   return new Promise((resolve, reject) => {
     const batch = [];
     let isProcessingBatch = false;
+    // eslint-disable-next-line prefer-const
     let stream;
 
     const flushBatch = async () => {

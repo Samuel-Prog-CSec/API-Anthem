@@ -63,9 +63,11 @@ handleUncaughtException();
 
 /**
  * Configuración de trust proxy
- * Importante para rate limiting y detección de IP detrás de proxies inversos
+ * Importante para rate limiting y deteccion de IP detras de proxies inversos
+ * Se confia unicamente en la lista declarada (loopback por defecto, override via TRUSTED_PROXIES)
+ * para evitar IP spoofing por clientes maliciosos detras de proxies no controlados
  */
-app.set('trust proxy', 1);
+app.set('trust proxy', config.security.trustedProxies);
 
 // Middleware de context y logging (debe ir al principio para registrar todo)
 app.use(enrichRequestContext);
