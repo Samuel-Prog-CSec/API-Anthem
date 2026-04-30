@@ -35,7 +35,8 @@ const imprimirError = (mensaje = '') => process.stderr.write(`${mensaje}\n`);
  * Definicion de importadores con orden y dependencias
  *
  * Fase 1: Datos de referencia (ubicaciones) - debe ejecutarse primero
- * Fase 2: Datos independientes - pueden ejecutarse en paralelo
+ * Fase 2: Datos ligeros - pueden ejecutarse en paralelo
+ * Fase 3: Datos pesados (trafico, censo, multas) - secuenciales para no saturar la BD
  */
 const IMPORTERS = {
   locations: {
@@ -59,13 +60,13 @@ const IMPORTERS = {
   traffic: {
     script: 'importation/importTrafficData.js',
     nombre: 'Datos de Trafico',
-    fase: 2,
+    fase: 3,
     descripcion: 'Intensidad y carga de trafico por punto de medicion'
   },
   censo: {
     script: 'importation/importarCenso.js',
     nombre: 'Censo',
-    fase: 2,
+    fase: 3,
     descripcion: 'Datos censales por seccion'
   },
   contenedores: {
@@ -77,7 +78,7 @@ const IMPORTERS = {
   multas: {
     script: 'importation/importarMultas.js',
     nombre: 'Multas',
-    fase: 2,
+    fase: 3,
     descripcion: 'Datos de multas de trafico'
   },
   accidents: {
@@ -319,12 +320,11 @@ async function main() {
     process.exit(1);
   }
 
-  // Fase 2: Datos independientes (paralelo) con timeout global de 30 minutos
-  // Si algun importador queda colgado, no bloqueamos el proceso completo de forma indefinida
-  const FASE2_TIMEOUT_MS = 30 * 60 * 1000;
+  // Fase 2: Datos ligeros en paralelo (todos los del modelo de fase 2)
+  const FASE_TIMEOUT_MS = 30 * 60 * 1000;
   const fase2 = importersToRun.filter(([, config]) => config.fase === 2);
   if (fase2.length > 0) {
-    imprimir('\n--- Fase 2: Datos de dominio (paralelo) ---\n');
+    imprimir('\n--- Fase 2: Datos ligeros (paralelo) ---\n');
 
     const fase2Promise = Promise.all(
       fase2.map(([key, config]) => runImporter(key, config, options))
@@ -332,8 +332,8 @@ async function main() {
 
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(
-        () => reject(new Error(`Timeout global de Fase 2 (${FASE2_TIMEOUT_MS / 60000}min) alcanzado`)),
-        FASE2_TIMEOUT_MS
+        () => reject(new Error(`Timeout global de Fase 2 (${FASE_TIMEOUT_MS / 60000}min) alcanzado`)),
+        FASE_TIMEOUT_MS
       )
     );
 
@@ -347,6 +347,18 @@ async function main() {
       logger.error({ error: error.message }, 'Fase 2 abortada por timeout o error');
       imprimir(`\n  ERROR Fase 2: ${error.message}\n`);
       process.exit(1);
+    }
+  }
+
+  // Fase 3: Datos pesados en serie (uno usa toda la BD)
+  const fase3 = importersToRun.filter(([, config]) => config.fase === 3);
+  if (fase3.length > 0) {
+    imprimir('\n--- Fase 3: Datos pesados (secuencial) ---\n');
+
+    for (const [key, config] of fase3) {
+      const result = await runImporter(key, config, options);
+      results.push(result);
+      imprimir(`  ${result.success ? '[OK]' : '[ERROR]'} ${result.nombre} (${result.duration})`);
     }
   }
 
