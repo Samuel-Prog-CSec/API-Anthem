@@ -133,7 +133,9 @@ function parseArguments() {
   const options = {
     force: false,
     only: null,
-    showHelp: false
+    showHelp: false,
+    skipIndicesManagement: false,
+    rebuildIndices: null
   };
 
   for (const arg of args) {
@@ -143,6 +145,10 @@ function parseArguments() {
       options.only = arg.replace('--only=', '').split(',').map(s => s.trim());
     } else if (arg === '--help') {
       options.showHelp = true;
+    } else if (arg === '--skip-indices-management') {
+      options.skipIndicesManagement = true;
+    } else if (arg.startsWith('--rebuild-indices=')) {
+      options.rebuildIndices = arg.replace('--rebuild-indices=', '').split(',').map(s => s.trim());
     }
   }
 
@@ -159,9 +165,12 @@ Script Maestro de Importacion de Datos - Smart City Anthem 2051
 Uso: node scripts/importAll.js [opciones]
 
 Opciones:
-  --force         Forzar sobrescritura de datos existentes
-  --only=x,y,z    Ejecutar solo importadores especificos
-  --help          Mostrar esta ayuda
+  --force                       Forzar sobrescritura de datos existentes
+  --only=x,y,z                  Ejecutar solo importadores especificos
+  --skip-indices-management     No dropear/recrear indices en Fase 3 (legacy)
+  --rebuild-indices=x[,y,z]     Solo recrear indices (sin importar). Recovery tras crash.
+                                Valores: traffic, censo, multas
+  --help                        Mostrar esta ayuda
 
 Importadores disponibles:`);
 
@@ -287,6 +296,38 @@ async function main() {
   if (options.showHelp) {
     showHelp();
     return;
+  }
+
+  // Modo recovery: solo recrear indices, sin importar
+  if (options.rebuildIndices) {
+    process.env.SCRIPT_MODE = 'true';
+    await connectDB(appConfig.database.uri);
+
+    const colecciones = options.rebuildIndices.filter(k => MODELOS_FASE3[k]);
+    const invalidas = options.rebuildIndices.filter(k => !MODELOS_FASE3[k]);
+
+    if (invalidas.length > 0) {
+      imprimirError(`Modelos no reconocidos para rebuild-indices: ${invalidas.join(', ')}`);
+      imprimirError(`Validos: ${Object.keys(MODELOS_FASE3).join(', ')}`);
+      process.exit(1);
+    }
+
+    imprimir(`\n=== Rebuild de indices: ${colecciones.join(', ')} ===\n`);
+    let huboError = false;
+    for (const key of colecciones) {
+      try {
+        await recrearIndicesSecundarios(MODELOS_FASE3[key], logger);
+        imprimir(`  [OK] ${key}`);
+      } catch (error) {
+        imprimirError(`  [ERROR] ${key}: ${error.message}`);
+        huboError = true;
+      }
+    }
+
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.close();
+    }
+    process.exit(huboError ? 1 : 0);
   }
 
   // Determinar que importadores ejecutar
