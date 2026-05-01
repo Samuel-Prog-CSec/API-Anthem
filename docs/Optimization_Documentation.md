@@ -1289,3 +1289,44 @@ El resultado es una API lista para producción con:
 - ✅ Código mantenible y escalable
 
 Estas optimizaciones no son solo mejoras técnicas, sino decisiones estratégicas que garantizan la sostenibilidad y éxito del proyecto a largo plazo.
+
+---
+
+## Optimizacion de la Importacion Masiva
+
+### Estrategia
+
+El primer import limpio se redujo de ~3h a ~30-50 min mediante:
+
+1. **Drop/recreate de indices secundarios** en Trafico, Censo y Multas alrededor del bloque
+   de inserts. Mantener vivos 9-16 indices durante 24M inserts multiplica el coste por
+   documento; es mas rapido reconstruirlos al final con `Modelo.createIndexes()`.
+2. **Modo `insertMany` puro en Trafico** cuando la BD esta vacia (deteccion automatica).
+   Evita el lookup por unique index que cada `bulkWrite + updateOne+upsert` realiza.
+3. **`bypassDocumentValidation: true`** en todos los `bulkWrite`/`insertMany`. La validacion
+   ya se hace en JS antes del envio (`validateAndTransformRow`, `parseCensusRow`, etc.).
+4. **Batch sizes ampliados**: Censo 500 -> 5000, Multas 5000 -> 10000.
+5. **Reordenacion de fases**: ligeros en paralelo (Fase 2), pesados en serie (Fase 3).
+   Antes los pesados peleaban entre si por la misma BD local.
+6. **Logging muestreado**: primeros 10 warns por tipo de rechazo, el resto en debug.
+   Evita spam de cientos de miles de logs en datasets con datos sucios.
+7. **Pool de conexiones ampliado** (`maxPoolSize: 50` en `SCRIPT_MODE`).
+
+### Flujo de un import pesado
+
+```
+para cada importador en [traffic, censo, multas]:
+  drop indices secundarios (conserva _id_ y unique:true)
+  ejecutar importador
+  recrear indices secundarios (Modelo.createIndexes())
+```
+
+Si el script crashea o se interrumpe (Ctrl+C), un handler SIGINT en el padre
+intenta recrear los indices antes de salir. Como red de seguridad adicional,
+`node scripts/importAll.js --rebuild-indices=traffic[,censo,multas]` permite
+recrear indices manualmente sin volver a importar.
+
+### Spec y plan
+
+- Spec: `docs/superpowers/specs/2026-04-30-importacion-masiva-design.md`
+- Plan: `docs/superpowers/plans/2026-04-30-importacion-masiva-plan.md`
