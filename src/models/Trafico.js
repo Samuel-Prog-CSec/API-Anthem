@@ -290,39 +290,35 @@ trafficSchema.index(
 // Usado en: controladorTrafico.js:60,87 - Sort por fecha + filtro puntoMedidaId + ordenación por intensidad
 // Leftmost prefix permite múltiples patrones de consulta
 trafficSchema.index({ fecha: -1, puntoMedidaId: 1, 'metricas.intensidad': -1 }, {
-  name: 'idx_traffic_date_point_intensity',
-  background: true
+  name: 'idx_traffic_date_point_intensity'
 });
 
 // Índice para consultas temporales descompuestas (análisis por períodos)
 // Usado en: Agregaciones que usan año, mes, dia, hora
 // Soporta: Análisis por franjas horarias, patrones diarios/mensuales
 trafficSchema.index({ año: 1, mes: 1, dia: 1, hora: 1 }, {
-  name: 'idx_traffic_temporal_components',
-  background: true
+  name: 'idx_traffic_temporal_components'
 });
 
 // Índice compuesto: tipoElemento + fecha
 // Usado en: controladorTrafico.js:49 - Filtro tipoElemento (URB, M30)
 // Soporta: GET /api/traffic?tipoElemento=URB&startDate=X&endDate=Y
 trafficSchema.index({ tipoElemento: 1, fecha: -1 }, {
-  name: 'idx_traffic_type_timeline',
-  background: true
+  name: 'idx_traffic_type_timeline'
 });
 
 // ========================================
 // ÍNDICES PARA MÉTRICAS DE TRÁFICO
 // ========================================
 
-// Índice SPARSE para velocidad media (solo para M-30)
-// MEJORA: Usa sparse index ya que velocidadMedia es opcional (solo M-30 tiene datos)
+// Índice PARTIAL para velocidad media (solo para M-30 con velocidad != null)
+// El partialFilterExpression ya excluye los documentos sin velocidadMedia,
+// por lo que sparse era redundante (y MongoDB rechaza la combinacion sparse + partial).
 // Ahorro de espacio: ~40-50% (no indexa documentos URB sin velocidad)
 // Usado en: Consultas de velocidad en M-30, análisis de fluidez
 // Soporta: GET /api/traffic?tipoElemento=M-30&sortBy=velocidadMedia
 trafficSchema.index({ 'metricas.velocidadMedia': -1, fecha: -1 }, {
   name: 'idx_traffic_speed_m30',
-  background: true,
-  sparse: true, // SPARSE: Solo indexa docs con velocidadMedia != null
   partialFilterExpression: {
     'metricas.velocidadMedia': { $ne: null },
     tipoElemento: TRAFFIC_ELEMENT_TYPES.M30 // Solo M30 tiene velocidad
@@ -333,16 +329,14 @@ trafficSchema.index({ 'metricas.velocidadMedia': -1, fecha: -1 }, {
 // Usado en: controladorTrafico.js:50 - Filtro nivelCongestion
 // Soporta: GET /api/traffic?nivelCongestion=ALTO
 trafficSchema.index({ 'analisis.nivelCongestion': 1, fecha: -1 }, {
-  name: 'idx_traffic_congestion_timeline',
-  background: true
+  name: 'idx_traffic_congestion_timeline'
 });
 
 // Índice para análisis por período del día y tipo de vía
 // Usado en: Agregaciones de patrones (MAÑANA, TARDE, NOCHE)
 // Soporta: Análisis de congestión por franja horaria y tipo de elemento
 trafficSchema.index({ 'analisis.periodoDia': 1, tipoElemento: 1 }, {
-  name: 'idx_traffic_period_type',
-  background: true
+  name: 'idx_traffic_period_type'
 });
 
 // ========================================
@@ -358,8 +352,7 @@ trafficSchema.index({
   'analisis.tipoJornada': 1,
   fecha: -1
 }, {
-  name: 'idx_traffic_pattern_analysis',
-  background: true
+  name: 'idx_traffic_pattern_analysis'
 });
 
 // Índice para análisis histórico de congestión por punto
@@ -370,8 +363,7 @@ trafficSchema.index({
   'analisis.nivelCongestion': 1,
   fecha: -1
 }, {
-  name: 'idx_traffic_point_congestion_history',
-  background: true
+  name: 'idx_traffic_point_congestion_history'
 });
 
 // Índice cubierto para listados frecuentes (evita fetch completo del documento)
@@ -383,8 +375,7 @@ trafficSchema.index({
   'metricas.carga': 1,
   'analisis.nivelCongestion': 1
 }, {
-  name: 'idx_traffic_list_cover',
-  background: true
+  name: 'idx_traffic_list_cover'
 });
 
 // Transformación de salida para reducir payload en respuestas
