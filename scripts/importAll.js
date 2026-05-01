@@ -23,7 +23,7 @@ const path = require('path');
 const { importAllLogger: logger } = require('../src/config/scriptLogger');
 const mongoose = require('mongoose');
 const { connectDB } = require('../src/config/database');
-const config = require('../src/config/config');
+const appConfig = require('../src/config/config');
 const {
   dropIndicesSecundarios,
   recrearIndicesSecundarios
@@ -317,7 +317,7 @@ async function main() {
   // El padre mantiene su propia conexion a Mongo para gestionar indices.
   // Los procesos hijos (importadores) abren la suya por separado.
   process.env.SCRIPT_MODE = 'true';
-  await connectDB(config.database.uri);
+  await connectDB(appConfig.database.uri);
 
   // Fase 1: Datos de referencia (secuencial)
   const fase1 = importersToRun.filter(([, config]) => config.fase === 1);
