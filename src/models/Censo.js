@@ -336,7 +336,7 @@ censusSchema.index(
     año: 1,
     mes: 1
   },
-  { unique: true, name: 'unique_census_record', background: true }
+  { unique: true, name: 'unique_census_record' }
 );
 
 // ========================================
@@ -350,8 +350,7 @@ censusSchema.index(
 censusSchema.index(
   { 'distrito.codigo': 1, fechaCenso: 1 },
   {
-    name: 'idx_census_district_date',
-    background: true
+    name: 'idx_census_district_date'
   }
 );
 
@@ -362,8 +361,7 @@ censusSchema.index(
 censusSchema.index(
   { 'distrito.codigo': 1, edad: 1 },
   {
-    name: 'idx_census_district_age',
-    background: true
+    name: 'idx_census_district_age'
   }
 );
 
@@ -373,8 +371,7 @@ censusSchema.index(
 censusSchema.index(
   { fechaCenso: 1, 'estadisticas.porcentajeExtranjeros': -1 },
   {
-    name: 'idx_census_foreign_population',
-    background: true
+    name: 'idx_census_foreign_population'
   }
 );
 
@@ -393,8 +390,7 @@ censusSchema.index(
     'clasificacionEdad.grupoEdad': 1
   },
   {
-    name: 'idx_census_population_pyramid',
-    background: true
+    name: 'idx_census_population_pyramid'
   }
 );
 
@@ -404,8 +400,7 @@ censusSchema.index(
 censusSchema.index(
   { año: 1, mes: 1, 'distrito.codigo': 1 },
   {
-    name: 'idx_census_temporal_district',
-    background: true
+    name: 'idx_census_temporal_district'
   }
 );
 
@@ -416,8 +411,7 @@ censusSchema.index(
 censusSchema.index(
   { 'estadisticas.totalPoblacion': -1, fechaCenso: -1 },
   {
-    name: 'idx_census_population_ranking',
-    background: true
+    name: 'idx_census_population_ranking'
   }
 );
 
@@ -431,8 +425,7 @@ censusSchema.index(
 censusSchema.index(
   { 'clasificacionEdad.grupoEdad': 1, fechaCenso: -1 },
   {
-    name: 'idx_census_age_group_timeline',
-    background: true
+    name: 'idx_census_age_group_timeline'
   }
 );
 
@@ -442,8 +435,7 @@ censusSchema.index(
 censusSchema.index(
   { 'clasificacionEdad.esGrupoProductivo': 1, fechaCenso: -1 },
   {
-    name: 'idx_census_working_age',
-    background: true
+    name: 'idx_census_working_age'
   }
 );
 
@@ -453,8 +445,7 @@ censusSchema.index(
 censusSchema.index(
   { 'clasificacionEdad.esTerceraEdad': 1, fechaCenso: -1 },
   {
-    name: 'idx_census_elderly',
-    background: true
+    name: 'idx_census_elderly'
   }
 );
 
@@ -473,8 +464,7 @@ censusSchema.index(
     edad: 1
   },
   {
-    name: 'idx_census_neighborhood_demographics',
-    background: true
+    name: 'idx_census_neighborhood_demographics'
   }
 );
 
@@ -488,8 +478,7 @@ censusSchema.index(
 censusSchema.index(
   { 'distrito.descripcion': 1, 'barrio.descripcion': 1 },
   {
-    name: 'idx_census_geographic_names',
-    background: true
+    name: 'idx_census_geographic_names'
   }
 );
 
@@ -503,7 +492,6 @@ censusSchema.index(
   },
   {
     name: 'idx_census_text_search',
-    background: true,
     weights: {
       'distrito.descripcion': 10,
       'barrio.descripcion': 5

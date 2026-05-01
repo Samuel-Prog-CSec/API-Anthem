@@ -328,24 +328,21 @@ scooterAssignmentSchema.index({ 'proveedores.cantidad': -1 });
 // Usado en: AsignacionPatinetes métodos estáticos - Evolución por proveedor
 // Soporta: "Crecimiento de LIME en últimos 6 meses"
 scooterAssignmentSchema.index({ fechaAsignacion: 1, 'proveedores.nombre': 1 }, {
-  name: 'idx_scooters_date_provider_analysis',
-  background: true
+  name: 'idx_scooters_date_provider_analysis'
 });
 
 // Índice compuesto: distrito + fecha (series temporales distritales)
 // Usado en: Evolución temporal de disponibilidad por distrito
 // Soporta: "Variación de patinetes en Centro mes a mes"
 scooterAssignmentSchema.index({ 'distrito.nombre': 1, fechaAsignacion: 1 }, {
-  name: 'idx_scooters_district_evolution',
-  background: true
+  name: 'idx_scooters_district_evolution'
 });
 
 // Índice compuesto: fecha + totalPatinetes (ranking temporal)
 // Usado en: Análisis de disponibilidad en el tiempo
 // Soporta: "Zonas con más patinetes por período"
 scooterAssignmentSchema.index({ fechaAsignacion: 1, 'estadisticas.totalPatinetes': -1 }, {
-  name: 'idx_scooters_availability_ranking',
-  background: true
+  name: 'idx_scooters_availability_ranking'
 });
 
 // ========================================

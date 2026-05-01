@@ -150,8 +150,7 @@ bikeAvailabilitySchema.pre('save', function(next) {
 // CRÍTICO: NO ELIMINAR
 bikeAvailabilitySchema.index({ dia: 1 }, {
   unique: true,
-  name: 'idx_bikes_unique_date',
-  background: true
+  name: 'idx_bikes_unique_date'
 });
 
 // ========================================
@@ -162,8 +161,7 @@ bikeAvailabilitySchema.index({ dia: 1 }, {
 // Usado en: GET /api/bike-availability?sortOrder=desc
 // Soporta: Listados de datos más recientes primero, dashboards
 bikeAvailabilitySchema.index({ dia: -1 }, {
-  name: 'idx_bikes_timeline',
-  background: true
+  name: 'idx_bikes_timeline'
 });
 
 // Índice para ranking por total de usos
@@ -173,8 +171,7 @@ bikeAvailabilitySchema.index({
   totalUsos: -1,
   dia: -1
 }, {
-  name: 'idx_bikes_top_usage_days',
-  background: true
+  name: 'idx_bikes_top_usage_days'
 });
 
 // ========================================
@@ -189,8 +186,7 @@ bikeAvailabilitySchema.index({
   dia: 1,
   tasaOcupacion: 1
 }, {
-  name: 'idx_bikes_usage_analysis',
-  background: true
+  name: 'idx_bikes_usage_analysis'
 });
 
 // Índice compuesto: día + tipos de abonado
@@ -201,8 +197,7 @@ bikeAvailabilitySchema.index({
   usosAbonadoAnual: 1,
   usosAbonadoOcasional: 1
 }, {
-  name: 'idx_bikes_subscriber_comparison',
-  background: true
+  name: 'idx_bikes_subscriber_comparison'
 });
 
 // ========================================
@@ -218,7 +213,6 @@ bikeAvailabilitySchema.index({
   mediaBicicletasDisponibles: 1
 }, {
   name: 'idx_bikes_availability_trends',
-  background: true,
   partialFilterExpression: {
     mediaBicicletasDisponibles: { $gte: 0 }
   }
@@ -238,7 +232,6 @@ bikeAvailabilitySchema.index({
   tasaOcupacion: 1
 }, {
   name: 'idx_bikes_efficiency_metrics',
-  background: true,
   sparse: true
 });
 

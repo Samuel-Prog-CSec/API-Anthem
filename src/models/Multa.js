@@ -367,7 +367,7 @@ multaSchema.index({ 'coordenadas.x': 1, 'coordenadas.y': 1 }, {
 // SPARSE: solo indexa documentos con geometry derivada desde UTM.
 multaSchema.index(
   { geometry: '2dsphere' },
-  { name: 'idx_multas_geometry_2dsphere', sparse: true, background: true }
+  { name: 'idx_multas_geometry_2dsphere', sparse: true }
 );
 
 // ========================================
@@ -403,8 +403,7 @@ multaSchema.index(
     calificacion: 1
   },
   {
-    name: 'idx_fines_statistics',
-    background: true
+    name: 'idx_fines_statistics'
   }
 );
 
@@ -418,8 +417,7 @@ multaSchema.index(
     lugar: 1
   },
   {
-    name: 'idx_fines_temporal',
-    background: true
+    name: 'idx_fines_temporal'
   }
 );
 
@@ -443,8 +441,7 @@ multaSchema.index({
   importeFinal: -1,
   lugar: 1
 }, {
-  name: 'idx_multas_listado_cobertura',
-  background: true
+  name: 'idx_multas_listado_cobertura'
 });
 
 /**

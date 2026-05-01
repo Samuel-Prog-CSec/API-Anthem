@@ -194,24 +194,21 @@ airQualitySchema.index(
 // Leftmost prefix: fecha -1 permite sorts descendentes
 // Cubre: { fecha: -1 }, { fecha: -1, provincia: 1 }, { fecha: -1, provincia: 1, magnitud: 1 }
 airQualitySchema.index({ fecha: -1, provincia: 1, magnitud: 1 }, {
-  name: 'idx_airquality_date_province_magnitude',
-  background: true
+  name: 'idx_airquality_date_province_magnitude'
 });
 
 // Índice para consultas por punto de muestreo
 // Usado en: controladorCalidadAire.js:85 - GET /api/air-quality?puntoMuestreo=X
 // Filtro: puntoMuestreo exact match + ordenación temporal
 airQualitySchema.index({ puntoMuestreo: 1, fecha: -1 }, {
-  name: 'idx_airquality_station_timeline',
-  background: true
+  name: 'idx_airquality_station_timeline'
 });
 
 // Índice para consultas geográficas detalladas (provincia + municipio)
 // Usado en: controladorCalidadAire.js:85 - GET /api/air-quality?provincia=X&municipio=Y
 // Filtros: provincia + municipio + ordenación temporal
 airQualitySchema.index({ provincia: 1, municipio: 1, fecha: -1 }, {
-  name: 'idx_airquality_geographic_timeline',
-  background: true
+  name: 'idx_airquality_geographic_timeline'
 });
 
 // ========================================
@@ -229,8 +226,7 @@ airQualitySchema.index({
   'processingMetadata.validMeasurements': -1,
   fecha: -1
 }, {
-  name: 'idx_airquality_stats_complete',
-  background: true
+  name: 'idx_airquality_stats_complete'
 });
 
 // Índice para búsquedas de rango temporal con múltiples filtros geográficos
@@ -245,8 +241,7 @@ airQualitySchema.index({
   estacion: 1,
   magnitud: 1
 }, {
-  name: 'idx_airquality_temporal_geographic_detailed',
-  background: true
+  name: 'idx_airquality_temporal_geographic_detailed'
   // No se usa sparse porque todos los campos son required: true
 });
 
@@ -260,8 +255,7 @@ airQualitySchema.index({
 // Usado en: GET /api/air-quality?estacion=X&magnitud=Y&startDate=Z
 // Leftmost prefix permite queries solo con estacion
 airQualitySchema.index({ estacion: 1, magnitud: 1, fecha: -1 }, {
-  name: 'idx_airquality_station_pollutant_date',
-  background: true
+  name: 'idx_airquality_station_pollutant_date'
 });
 
 /**

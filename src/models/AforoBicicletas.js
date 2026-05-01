@@ -183,8 +183,7 @@ const bikeTrafficCountSchema = new mongoose.Schema({
 // CRITICO: NO ELIMINAR
 bikeTrafficCountSchema.index({ identificador: 1, fecha: 1, hora: 1 }, {
   unique: true,
-  name: 'idx_bike_traffic_unique_station_date_hour',
-  background: true
+  name: 'idx_bike_traffic_unique_station_date_hour'
 });
 
 // ========================================
@@ -195,38 +194,33 @@ bikeTrafficCountSchema.index({ identificador: 1, fecha: 1, hora: 1 }, {
 // Usado en: GET /api/bike-traffic?sortOrder=desc
 // Soporta: Listados de datos mas recientes primero, dashboards
 bikeTrafficCountSchema.index({ fecha: -1 }, {
-  name: 'idx_bike_traffic_timeline',
-  background: true
+  name: 'idx_bike_traffic_timeline'
 });
 
 // Indice compuesto: estacion + fecha descendente
 // Usado en: GET /api/bike-traffic/station/:identificador
 // Soporta: Consultas de datos de una estacion especifica
 bikeTrafficCountSchema.index({ identificador: 1, fecha: -1 }, {
-  name: 'idx_bike_traffic_station_timeline',
-  background: true
+  name: 'idx_bike_traffic_station_timeline'
 });
 
 // Indice compuesto: distrito + fecha descendente
 // Usado en: GET /api/bike-traffic?distrito=ARGANZUELA
 // Soporta: Estadisticas por distrito, comparativas geograficas
 bikeTrafficCountSchema.index({ 'ubicacion.distrito': 1, fecha: -1 }, {
-  name: 'idx_bike_traffic_district_timeline',
-  background: true
+  name: 'idx_bike_traffic_district_timeline'
 });
 
 // Indice para consultas por hora
 // Usado en: Analisis de patrones horarios
 bikeTrafficCountSchema.index({ hora: 1 }, {
-  name: 'idx_bike_traffic_hour',
-  background: true
+  name: 'idx_bike_traffic_hour'
 });
 
 // Indice compuesto: franja horaria + fecha descendente
 // Usado en: Analisis de patrones por franja del dia
 bikeTrafficCountSchema.index({ franjaHoraria: 1, fecha: -1 }, {
-  name: 'idx_bike_traffic_period_timeline',
-  background: true
+  name: 'idx_bike_traffic_period_timeline'
 });
 
 // Indice geoespacial 2dsphere sobre ubicacion.geometry (WGS84) para el
@@ -234,7 +228,7 @@ bikeTrafficCountSchema.index({ franjaHoraria: 1, fecha: -1 }, {
 // con geometry derivada desde lat/lon.
 bikeTrafficCountSchema.index(
   { 'ubicacion.geometry': '2dsphere' },
-  { name: 'idx_aforo_geometry_2dsphere', sparse: true, background: true }
+  { name: 'idx_aforo_geometry_2dsphere', sparse: true }
 );
 
 // ========================================

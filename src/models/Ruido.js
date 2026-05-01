@@ -248,8 +248,7 @@ noiseMonitoringSchema.index(
 // Soporta: Series temporales por estación específica
 // Ejemplo: "Evolución del ruido en estación NMT-001"
 noiseMonitoringSchema.index({ nmt: 1, fecha: 1 }, {
-  name: 'idx_noise_station_timeline',
-  background: true
+  name: 'idx_noise_station_timeline'
 });
 
 // OPTIMIZACIÓN DE RENDIMIENTO: Índice compuesto fecha + nmt + laeq24
@@ -257,7 +256,6 @@ noiseMonitoringSchema.index({ nmt: 1, fecha: 1 }, {
 // Soporta: GET /api/noise-monitoring?startDate=X&endDate=Y&nmt=Z&minLevel=N
 noiseMonitoringSchema.index({ fecha: -1, nmt: 1, laeq24: -1 }, {
   name: 'idx_noise_date_station_level',
-  background: true,
   sparse: true
 });
 
@@ -268,7 +266,6 @@ noiseMonitoringSchema.index({ fecha: -1, nmt: 1, laeq24: -1 }, {
 // SPARSE: Solo documentos con laeq24 válido (no null)
 noiseMonitoringSchema.index({ fecha: 1, laeq24: 1 }, {
   name: 'idx_noise_date_level_alerts',
-  background: true,
   sparse: true
 });
 
@@ -277,7 +274,6 @@ noiseMonitoringSchema.index({ fecha: 1, laeq24: 1 }, {
 // Sort: fecha descendente + laeq24 descendente
 noiseMonitoringSchema.index({ fecha: -1, laeq24: -1 }, {
   name: 'idx_noise_recent_levels',
-  background: true,
   sparse: true
 });
 
@@ -289,16 +285,14 @@ noiseMonitoringSchema.index({ fecha: -1, laeq24: -1 }, {
 // Usado en: GET /api/noise-monitoring?nombre=PLAZA+MAYOR
 // Soporta: Búsqueda por nombre de ubicación con series temporales
 noiseMonitoringSchema.index({ nombre: 1, fecha: -1 }, {
-  name: 'idx_noise_station_name_timeline',
-  background: true
+  name: 'idx_noise_station_name_timeline'
 });
 
 // Índice compuesto: año + mes + nombre
 // Usado en: Búsquedas por nombre en período específico
 // Ejemplo: GET /api/noise-monitoring?nombre=CENTRO&año=2051&mes=1
 noiseMonitoringSchema.index({ año: 1, mes: 1, nombre: 1 }, {
-  name: 'idx_noise_period_station_name',
-  background: true
+  name: 'idx_noise_period_station_name'
 });
 
 // ========================================
@@ -311,7 +305,6 @@ noiseMonitoringSchema.index({ año: 1, mes: 1, nombre: 1 }, {
 // SPARSE: Solo documentos con niveles válidos
 noiseMonitoringSchema.index({ fecha: 1, nivelDiurno: 1, nivelNocturno: 1 }, {
   name: 'idx_noise_compliance_analysis',
-  background: true,
   sparse: true
 });
 
@@ -322,8 +315,7 @@ noiseMonitoringSchema.index({ fecha: 1, nivelDiurno: 1, nivelNocturno: 1 }, {
 // Usado en: Búsqueda con $text "Plaza", "Centro", etc.
 // Soporta: Autocompletado, búsqueda flexible
 noiseMonitoringSchema.index({ nombre: 'text' }, {
-  name: 'idx_noise_text_search',
-  background: true
+  name: 'idx_noise_text_search'
 });
 
 /**

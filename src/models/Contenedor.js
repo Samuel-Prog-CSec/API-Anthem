@@ -199,8 +199,7 @@ contenedorSchema.index({
   tipoContenedor: 1
 }, {
   unique: true,
-  name: 'idx_containers_unique_code_type',
-  background: true
+  name: 'idx_containers_unique_code_type'
 });
 
 // ========================================
@@ -212,8 +211,7 @@ contenedorSchema.index({
 // Soporta: $near, $geoWithin, $geoIntersects
 // CRÍTICO: Necesario para mapas y búsquedas por proximidad
 contenedorSchema.index({ location: '2dsphere' }, {
-  name: 'idx_containers_geospatial',
-  background: true
+  name: 'idx_containers_geospatial'
 });
 
 // ========================================
@@ -227,8 +225,7 @@ contenedorSchema.index({
   distrito: 1,
   barrio: 1
 }, {
-  name: 'idx_containers_location_hierarchy',
-  background: true
+  name: 'idx_containers_location_hierarchy'
 });
 
 // Índice compuesto: tipo + distrito
@@ -239,8 +236,7 @@ contenedorSchema.index({
   tipoContenedor: 1,
   distrito: 1
 }, {
-  name: 'idx_containers_type_district',
-  background: true
+  name: 'idx_containers_type_district'
 });
 
 // ========================================
@@ -256,8 +252,7 @@ contenedorSchema.index({
   tipoContenedor: 1,
   location: '2dsphere'
 }, {
-  name: 'idx_containers_density_analysis',
-  background: true
+  name: 'idx_containers_density_analysis'
 });
 
 // Índice para gestión por lotes
@@ -267,8 +262,7 @@ contenedorSchema.index({
   lote: 1,
   tipoContenedor: 1
 }, {
-  name: 'idx_containers_batch_type',
-  background: true
+  name: 'idx_containers_batch_type'
 });
 
 // Índice compuesto para estadísticas detalladas por barrio
@@ -279,8 +273,7 @@ contenedorSchema.index({
   tipoContenedor: 1,
   cantidad: 1
 }, {
-  name: 'idx_containers_neighborhood_type',
-  background: true
+  name: 'idx_containers_neighborhood_type'
 });
 
 // ========================================
@@ -295,7 +288,6 @@ contenedorSchema.index({
   'direccion.completa': 'text'
 }, {
   name: 'idx_containers_address_search',
-  background: true,
   weights: {
     'direccion.nombre': 10,
     'direccion.completa': 5

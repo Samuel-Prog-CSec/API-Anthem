@@ -308,7 +308,6 @@ userSchema.index(
   { email: 1, username: 1 },
   {
     name: 'idx_user_credentials',
-    background: true,
   }
 );
 
@@ -323,7 +322,6 @@ userSchema.index(
   { createdAt: -1 },
   {
     name: 'idx_user_created_timeline',
-    background: true,
   }
 );
 
@@ -335,7 +333,6 @@ userSchema.index(
   { lastLogin: -1 },
   {
     name: 'idx_user_last_login',
-    background: true,
     sparse: true, // SPARSE: lastLogin puede ser null para usuarios que nunca han iniciado sesión
   }
 );

@@ -412,8 +412,7 @@ accidentSchema.index({
   'circunstancias.gravedad': 1,
   'ubicacion.nombreDistrito': 1
 }, {
-  name: 'idx_accidents_list_cover',
-  background: true
+  name: 'idx_accidents_list_cover'
 });
 
 // ========================================
@@ -457,7 +456,7 @@ accidentSchema.index({ 'ubicacion.coordenadas.x': 1, 'ubicacion.coordenadas.y': 
 // Para consultas por area: $gte/$lte sobre coordenadas.x y coordenadas.y
 accidentSchema.index(
   { 'ubicacion.coordenadas.x': 1, 'ubicacion.coordenadas.y': 1 },
-  { name: 'idx_accidents_coordenadas_utm', background: true, sparse: true }
+  { name: 'idx_accidents_coordenadas_utm', sparse: true }
 );
 
 // Indice geoespacial 2dsphere sobre ubicacion.geometry (WGS84).
@@ -466,7 +465,7 @@ accidentSchema.index(
 // SPARSE: solo indexa documentos con geometry (importador derivado de UTM).
 accidentSchema.index(
   { 'ubicacion.geometry': '2dsphere' },
-  { name: 'idx_accidents_geometry_2dsphere', sparse: true, background: true }
+  { name: 'idx_accidents_geometry_2dsphere', sparse: true }
 );
 
 // ========================================
@@ -487,8 +486,7 @@ accidentSchema.index({ 'circunstancias.gravedad': 1, fecha: -1 });
 // Usado en: Análisis de peligrosidad por tipo de accidente
 // Soporta: "Colisiones mortales", "Atropellos graves"
 accidentSchema.index({ 'circunstancias.tipoAccidente': 1, 'circunstancias.gravedad': 1 }, {
-  name: 'idx_accidents_tipo_gravedad_analysis',
-  background: true
+  name: 'idx_accidents_tipo_gravedad_analysis'
 });
 
 // ========================================
@@ -540,16 +538,14 @@ accidentSchema.index({
 // Usado en: GET /api/accidents?distrito=X&startDate=Y&endDate=Z
 // Optimizado para ordenamiento DESC por fecha + filtro distrito
 accidentSchema.index({ fecha: 1, 'ubicacion.nombreDistrito': 1 }, {
-  name: 'idx_accidents_fecha_distrito_smartcity',
-  background: true
+  name: 'idx_accidents_fecha_distrito_smartcity'
 });
 
 // Índice compuesto principal: fecha DESC + tipo + gravedad
 // Usado en: GET /api/accidents con sort por fecha + filtros combinados
 // Soporta: Listados ordenados con múltiples filtros
 accidentSchema.index({ fecha: -1, 'circunstancias.tipoAccidente': 1, 'circunstancias.gravedad': 1 }, {
-  name: 'idx_accidents_timeline_severity',
-  background: true
+  name: 'idx_accidents_timeline_severity'
 });
 
 // ========================================
