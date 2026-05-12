@@ -112,7 +112,7 @@ src/
 │   ├── tokenHelper.js         # Utilidades JWT (generar, verificar)
 │   └── securityLogger.js      # Logging de eventos de seguridad
 └── controllers/
-    └── authController.js      # Controladores de auth (login, register)
+    └── controladorAutenticacion.js      # Controladores de auth (login, register)
 ```
 
 ### Flujo de Datos
@@ -125,7 +125,7 @@ src/
        │    {username, password}
        ▼
 ┌─────────────────┐
-│ authController  │ ──> 2. Valida credenciales
+│ controladorAutenticacion │ ──> 2. Valida credenciales
 └────────┬────────┘
          │ 3. Usuario válido
          ▼
@@ -430,7 +430,7 @@ const generateTokens = (user) => {
 
 **Uso en controladores:**
 ```javascript
-// En authController.js - Login
+// En controladorAutenticacion.js - Login
 const tokens = generateTokens(user);
 
 res.status(200).json({
@@ -874,7 +874,7 @@ if (user.passwordChangedAt) {
 
 **Código de Verificación en Refresh Tokens:**
 ```javascript
-// En src/controllers/authController.js - refreshAccessToken
+// En src/controllers/controladorAutenticacion.js - refreshAccessToken
 if (user.passwordChangedAt) {
   const changedTimestamp = parseInt(user.passwordChangedAt.getTime() / 1000, 10);
   const tokenIssuedAt = decoded.iat;
@@ -984,7 +984,7 @@ tokenBlacklistSchema.statics.cleanExpired = async function() {
 ### Uso en Logout
 
 ```javascript
-// En authController.js
+// En controladorAutenticacion.js
 const logout = async (req, res, next) => {
   try {
     const token = req.token; // Del middleware authenticate
@@ -1303,7 +1303,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ### 2. HTTPS Obligatorio en Producción
 
 ```javascript
-// Configuración de cookies (authController.js)
+// Configuración de cookies (controladorAutenticacion.js)
 res.cookie('accessToken', tokens.accessToken, {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production', // ✅ Solo HTTPS en prod
@@ -1486,7 +1486,7 @@ Anteriormente, cuando un usuario cambiaba su contraseña, solo los Access Tokens
 Se añadió verificación de `passwordChangedAt` en el endpoint `refreshAccessToken`:
 
 ```javascript
-// src/controllers/authController.js - líneas 390-410
+// src/controllers/controladorAutenticacion.js - líneas 390-410
 if (user.passwordChangedAt) {
   const changedTimestamp = parseInt(user.passwordChangedAt.getTime() / 1000, 10);
   const tokenIssuedAt = decoded.iat;

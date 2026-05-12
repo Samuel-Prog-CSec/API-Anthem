@@ -20,7 +20,7 @@ const {
   getProfile,
   refreshAccessToken,
   changePassword
-} = require('../controllers/authController');
+} = require('../controllers/controladorAutenticacion');
 
 // Middleware
 const { authenticate } = require('../middleware/auth');

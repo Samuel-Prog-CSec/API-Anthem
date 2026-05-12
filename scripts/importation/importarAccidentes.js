@@ -11,7 +11,6 @@ process.env.SCRIPT_MODE = 'true';
 
 const path = require('path');
 const csv = require('csv-parser');
-const { createReadStream } = require('fs');
 const fs = require('fs').promises;
 const mongoose = require('mongoose');
 
@@ -19,7 +18,7 @@ const mongoose = require('mongoose');
 const Accidente = require('../../src/models/Accidente');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const { importAccidentsLogger: logger } = require('../../src/config/scriptLogger');
+const { importarAccidentesLogger: logger } = require('../../src/config/scriptLogger');
 const {
   VALIDATION_LIMITS,
   GENDERS,
@@ -37,10 +36,11 @@ const {
 const {
   RejectionTracker,
   formatDuration,
-  calculateProcessingSpeed
+  calculateProcessingSpeed,
+  buildAndWriteSummary
 } = require('./helpers/importHelpers');
-const { normalizarTexto } = require('./helpers/normalizarEncoding');
-const { construirGeometryDesdeUTM } = require('./helpers/conversorCoordenadas');
+const { normalizarTexto, crearLectorCSV } = require('./helpers/normalizarEncoding');
+const { extraerCoordenadasModulo } = require('./helpers/coordenadas');
 
 
 // ============================================================================
@@ -313,50 +313,32 @@ function normalizarRangoEdad(rango) {
 }
 
 /**
- * Parsear y validar coordenadas UTM
- * @param {string} xStr - Coordenada X
- * @param {string} yStr - Coordenada Y
- * @param {number} rowIndex - Índice de fila para logging
- * @returns {Object|null} - Coordenadas {x, y} o null si inválidas
+ * Parsear coordenadas via framework unificado.
+ * Accidentes tiene perfil con utm.unidades='m', wgs84=null y requerida=false.
+ *
+ * @param {Object} row - Fila completa del CSV (el framework lee los campos del perfil)
+ * @param {number} rowIndex - Indice de fila para logging
+ * @returns {{utm:{x,y}|null, geometry:Object|null}}
  */
-function parsearCoordenadas(xStr, yStr, rowIndex) {
-  if (!xStr || !yStr || xStr.trim() === '' || yStr.trim() === '') {
-    return null;
-  }
+function parsearCoordenadas(row, rowIndex) {
+  try {
+    const coords = extraerCoordenadasModulo(row, 'accidentes');
+    if (!coords) {return { utm: null, geometry: null };}
 
-  // Reemplazar comas por puntos para decimales
-  const x = parseFloat(xStr.replace(',', '.'));
-  const y = parseFloat(yStr.replace(',', '.'));
-
-  if (isNaN(x) || isNaN(y)) {
-    const razon = REJECTION_REASONS.COORDENADAS_FORMATO_INVALIDO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
-    logger[nivel]({
-      fila: rowIndex,
-      razon,
-      datosOriginales: { coordenadaX: xStr, coordenadaY: yStr }
-    }, 'Coordenadas con formato no numerico - se asigna null');
-    return null;
-  }
-
-  // Validar rangos para coordenadas UTM de España
-  if (x < VALIDATION_LIMITS.UTM_X_MIN || x > VALIDATION_LIMITS.UTM_X_MAX ||
-      y < VALIDATION_LIMITS.UTM_Y_MIN || y > VALIDATION_LIMITS.UTM_Y_MAX) {
-    const razon = REJECTION_REASONS.COORDENADAS_FUERA_RANGO_UTM;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
-    logger[nivel]({
-      fila: rowIndex,
-      razon,
-      datosOriginales: { x, y },
-      limitesValidos: {
-        x: { min: VALIDATION_LIMITS.UTM_X_MIN, max: VALIDATION_LIMITS.UTM_X_MAX },
-        y: { min: VALIDATION_LIMITS.UTM_Y_MIN, max: VALIDATION_LIMITS.UTM_Y_MAX }
+    // Loggear advertencias del cross-check sin rechazar
+    for (const adv of coords.advertencias) {
+      const razon = REJECTION_REASONS.COORDENADAS_FORMATO_INVALIDO;
+      if (rejectionTracker.shouldLogWarn(razon, { advertencia: adv, fila: rowIndex })) {
+        logger.warn({ fila: rowIndex, advertencia: adv }, 'Coordenadas con advertencia');
       }
-    }, 'Coordenadas fuera de rango UTM - se asigna null');
-    return null;
-  }
+    }
 
-  return { x, y };
+    return { utm: coords.utm, geometry: coords.geometry };
+  } catch (e) {
+    // accidentes tiene requerida=false; no deberia llegar aqui salvo bug
+    logger.debug({ fila: rowIndex, error: e.message }, 'extraerCoordenadasModulo lanzo en accidentes');
+    return { utm: null, geometry: null };
+  }
 }
 
 /**
@@ -369,7 +351,7 @@ function parsearCoordenadas(xStr, yStr, rowIndex) {
 function parsearFecha(fechaStr, rowIndex) {
   if (!fechaStr || fechaStr.trim() === '') {
     const razon = REJECTION_REASONS.FECHA_FALTANTE;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { fecha: fechaStr }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -381,7 +363,7 @@ function parsearFecha(fechaStr, rowIndex) {
   const parts = fechaStr.trim().split('/');
   if (parts.length !== 3) {
     const razon = REJECTION_REASONS.FECHA_FORMATO_INVALIDO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { fecha: fechaStr, formatoEsperado: 'DD/MM/YYYY' }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -394,7 +376,7 @@ function parsearFecha(fechaStr, rowIndex) {
 
   if (isNaN(day) || isNaN(month) || isNaN(year)) {
     const razon = REJECTION_REASONS.FECHA_COMPONENTES_INVALIDOS;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { fecha: fechaStr, dia: day, mes: month, año: year }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -407,7 +389,7 @@ function parsearFecha(fechaStr, rowIndex) {
       month < VALIDATION_LIMITS.MONTH_MIN || month > VALIDATION_LIMITS.MONTH_MAX ||
       year < VALIDATION_LIMITS.YEAR_MIN || year > VALIDATION_LIMITS.YEAR_MAX) {
     const razon = REJECTION_REASONS.FECHA_FUERA_RANGO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { fecha: fechaStr, dia: day, mes: month, año: year }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -420,7 +402,7 @@ function parsearFecha(fechaStr, rowIndex) {
 
   if (isNaN(date.getTime())) {
     const razon = REJECTION_REASONS.FECHA_FORMATO_INVALIDO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { fecha: fechaStr }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -429,17 +411,19 @@ function parsearFecha(fechaStr, rowIndex) {
     throw new Error(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
   }
 
-  // Validar que la fecha resultante coincide con los componentes (detecta 31/02, 30/02, etc.)
-  // Date(2051, 1, 31) acepta y rebobina a 03/03/2051 silenciosamente, asi que comparamos
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
-    const razon = REJECTION_REASONS.FECHA_FUERA_RANGO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
-    logger[nivel]({
+  // Coercion: si JS rebobinó la fecha (ej: 29/02 en año no bisiesto, 31/04, etc),
+  // la convertimos al ultimo dia existente del mismo mes. En este dataset ficticio
+  // las "fechas calendario-imposibles" se interpretan como un desajuste menor del
+  // generador de datos, no como dato corrupto. Se conserva mes y año intactos.
+  if (date.getMonth() !== month - 1 || date.getFullYear() !== year) {
+    const ultimoDia = new Date(year, month, 0).getDate();
+    const dateCoercida = new Date(year, month - 1, ultimoDia);
+    rejectionTracker.coerce('FECHA_COERCIDA_AL_ULTIMO_DIA_DEL_MES', {
       fila: rowIndex,
-      razon,
-      datosOriginales: { fecha: fechaStr, fechaCalculada: date.toISOString() }
-    }, 'Fila rechazada: fecha invalida (mes/dia incompatible, ej. 31/02)');
-    throw new Error(REJECTION_REASONS.FECHA_FUERA_RANGO);
+      original: fechaStr,
+      coercida: `${String(ultimoDia).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`
+    });
+    return dateCoercida;
   }
 
   return date;
@@ -583,7 +567,7 @@ function validarYTransformarFila(row, rowIndex) {
   const numeroExpediente = numExpedienteRaw?.toString().trim();
   if (!numeroExpediente) {
     const razon = REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { numeroExpediente: numExpedienteRaw }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -594,7 +578,7 @@ function validarYTransformarFila(row, rowIndex) {
 
   if (!/^\d{4}S\d{6}$/.test(numeroExpediente)) {
     const razon = REJECTION_REASONS.NUMERO_EXPEDIENTE_FORMATO_INVALIDO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { numeroExpediente, formatoEsperado: 'YYYYSNNNNNN' }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -611,7 +595,7 @@ function validarYTransformarFila(row, rowIndex) {
   const horaRaw = row.hora?.toString().trim();
   if (!horaRaw || !/^\d{1,2}:\d{2}(:\d{2})?$/.test(horaRaw)) {
     const razon = REJECTION_REASONS.HORA_FORMATO_INVALIDO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { hora: horaRaw, formatoEsperado: 'H:MM:SS o HH:MM:SS' }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -627,7 +611,7 @@ function validarYTransformarFila(row, rowIndex) {
   const calle = normalizarTexto(row.localizacion);
   if (!calle) {
     const razon = REJECTION_REASONS.LOCALIZACION_FALTANTE;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { localizacion: row.localizacion }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -642,7 +626,7 @@ function validarYTransformarFila(row, rowIndex) {
 
   if (!codigoDistrito || !nombreDistrito) {
     const razon = REJECTION_REASONS.DISTRITO_INCOMPLETO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { codigoDistrito, nombreDistrito }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -652,13 +636,7 @@ function validarYTransformarFila(row, rowIndex) {
   }
 
   // Parsear coordenadas (no criticas, pueden ser null)
-  const coordenadas = parsearCoordenadas(row.coordenada_x_utm, row.coordenada_y_utm, rowIndex);
-
-  // Derivar geometry GeoJSON WGS84 desde UTM ETRS89 para soportar el
-  // endpoint /mapa y queries geoespaciales.
-  const geometry = coordenadas
-    ? construirGeometryDesdeUTM(coordenadas.x, coordenadas.y)
-    : null;
+  const { utm: coordenadas, geometry } = parsearCoordenadas(row, rowIndex);
 
   // Datos del accidente
   const tipoAccidenteOriginal = row.tipo_accidente?.toString().trim();
@@ -855,7 +833,7 @@ async function procesarArchivoAccidentes() {
       batchSize: BATCH_SIZE
     }, 'Iniciando procesamiento de archivo de accidentes');
 
-    const stream = createReadStream(DATA_FILE, { encoding: 'utf8' })
+    const stream = crearLectorCSV(DATA_FILE)
       .pipe(csv({
         separator: ';',
         skipEmptyLines: true,
@@ -1039,6 +1017,18 @@ async function main() {
     process.exit(1);
 
   } finally {
+    // Escribir summary estructurado a logs/import/ para que el padre lo agregue
+    buildAndWriteSummary('accidentes', {
+      startTime,
+      counts: {
+        totalProcessed,
+        inserted: totalInserted,
+        rejected: totalRejected,
+        errors: totalErrors
+      },
+      rejectionTracker
+    });
+
     // Cerrar conexión
     if (mongoose.connection.readyState === 1) {
       try {
@@ -1090,11 +1080,13 @@ process.on('SIGINT', () => manejarCierre('SIGINT'));
 process.on('SIGTERM', () => manejarCierre('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT EXCEPTION:', error);
   logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION:', reason);
   logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });

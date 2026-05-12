@@ -11,22 +11,21 @@ process.env.SCRIPT_MODE = 'true';
 const fs = require('fs').promises;
 const path = require('path');
 const csv = require('csv-parser');
-const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
 const Fine = require('../../src/models/Multa');
-const { importFinesLogger: logger } = require('../../src/config/scriptLogger');
+const { importarMultasLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
-const iconv = require('iconv-lite');
 const { VALIDATION_LIMITS, SEVERITY_LEVELS, INFRACTION_TYPES, FINE_CONFIG } = require('../../src/constants');
-const { normalizarTexto } = require('./helpers/normalizarEncoding');
-const { construirGeometryDesdeUTM } = require('./helpers/conversorCoordenadas');
+const { normalizarTexto, crearLectorCSV } = require('./helpers/normalizarEncoding');
+const { extraerCoordenadasModulo } = require('./helpers/coordenadas');
 const {
   extractDateFromFileName,
   RejectionTracker,
   formatDuration,
-  calculateProcessingSpeed
+  calculateProcessingSpeed,
+  buildAndWriteSummary
 } = require('./helpers/importHelpers');
 
 // ============================================================================
@@ -138,7 +137,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   const dateInfo = extractDateFromFileName(sourceFile);
   if (!dateInfo) {
     const razon = REJECTION_REASONS.ARCHIVO_SIN_FECHA;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { archivo: sourceFile }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -162,40 +161,27 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   // Crear fecha basada en mes y año
   const fecha = new Date(año, mes - 1, 1);
 
-  // Procesar coordenadas
-  const coordenadas = {};
-  if (row.COORDENADA_X && row.COORDENADA_X.trim() !== '') {
-    const coordX = parseFloat(row.COORDENADA_X.replace(',', '.'));
-    if (!isNaN(coordX)) {
-      if (coordX >= VALIDATION_LIMITS.UTM_X_MIN && coordX <= VALIDATION_LIMITS.UTM_X_MAX) {
-        coordenadas.x = coordX;
-      } else {
+  // Procesar coordenadas via framework unificado.
+  // Multas tiene perfil con utm.unidades='m' y wgs84=null. Coordenadas
+  // opcionales: si no estan, geometry sera null (no rechaza la fila).
+  let coordenadas = {};
+  let geometryDerivada = null;
+  try {
+    const coords = extraerCoordenadasModulo(row, 'multas');
+    if (coords) {
+      coordenadas = coords.utm ? { x: coords.utm.x, y: coords.utm.y } : {};
+      geometryDerivada = coords.geometry;
+      // Reportar advertencias del cross-check sin rechazar
+      for (const adv of coords.advertencias) {
         const razon = REJECTION_REASONS.COORDENADA_X_INVALIDA;
-        const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
-        logger[nivel]({
-          fila: rowIndex,
-          razon,
-          datosOriginales: { coordenadaX: row.COORDENADA_X, valor: coordX }
-        }, 'Coordenada X fuera de rango - se omite');
+        if (rejectionTracker.shouldLogWarn(razon, { advertencia: adv, fila: rowIndex })) {
+          logger.warn({ fila: rowIndex, advertencia: adv }, 'Coordenadas con advertencia');
+        }
       }
     }
-  }
-
-  if (row.COORDENADA_Y && row.COORDENADA_Y.trim() !== '') {
-    const coordY = parseFloat(row.COORDENADA_Y.replace(',', '.'));
-    if (!isNaN(coordY)) {
-      if (coordY >= VALIDATION_LIMITS.UTM_Y_MIN && coordY <= VALIDATION_LIMITS.UTM_Y_MAX) {
-        coordenadas.y = coordY;
-      } else {
-        const razon = REJECTION_REASONS.COORDENADA_Y_INVALIDA;
-        const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
-        logger[nivel]({
-          fila: rowIndex,
-          razon,
-          datosOriginales: { coordenadaY: row.COORDENADA_Y, valor: coordY }
-        }, 'Coordenada Y fuera de rango - se omite');
-      }
-    }
+  } catch (e) {
+    // Solo deberia ocurrir si perfil.requerida=true; multas tiene false.
+    logger.debug({ fila: rowIndex, error: e.message }, 'extraerCoordenadasModulo lanzo excepcion en multas');
   }
 
   // Procesar datos de velocidad
@@ -206,7 +192,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
       datosVelocidad.velocidadLimite = velLimite;
     } else if (!isNaN(velLimite)) {
       const razon = REJECTION_REASONS.VELOCIDAD_LIMITE_INVALIDA;
-      const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+      const nivel = rejectionTracker.shouldLogWarn(razon, { velocidadLimite: row.VEL_LIMITE, valor: velLimite }) ? 'warn' : 'debug';
       logger[nivel]({
         fila: rowIndex,
         razon,
@@ -221,7 +207,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
       datosVelocidad.velocidadCirculacion = velCircula;
     } else if (!isNaN(velCircula)) {
       const razon = REJECTION_REASONS.VELOCIDAD_CIRCULACION_INVALIDA;
-      const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+      const nivel = rejectionTracker.shouldLogWarn(razon, { velocidadCirculacion: row.VEL_CIRCULA, valor: velCircula }) ? 'warn' : 'debug';
       logger[nivel]({
         fila: rowIndex,
         razon,
@@ -236,7 +222,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
 
   if (importe < 0) {
     const razon = REJECTION_REASONS.IMPORTE_NEGATIVO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { importe: row.IMP_BOL, valor: importe }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -248,7 +234,7 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   const puntos = parseInt(row.PUNTOS) || 0;
   if (puntos < VALIDATION_LIMITS.DRIVER_POINTS_MIN || puntos > VALIDATION_LIMITS.DRIVER_POINTS_MAX) {
     const razon = REJECTION_REASONS.PUNTOS_FUERA_RANGO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { puntos: row.PUNTOS, valor: puntos }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -261,7 +247,13 @@ function parseMultaRow(row, sourceFile, rowIndex) {
     (row.DESCUENTO.toLowerCase().includes('si') || row.DESCUENTO.toLowerCase().includes('sí'));
 
   // Validar calificación
-  let calificacionRaw = (row.CALIFICACION || SEVERITY_LEVELS.FINE.LEVE).toUpperCase().trim();
+  // Detectamos dos casos en los que asumimos LEVE como fallback:
+  //   1. CALIFICACION viene vacia / null en el CSV.
+  //   2. CALIFICACION trae un valor que no encaja en {LEVE, GRAVE, MUY GRAVE}.
+  // En ambos casos guardamos calificacionInferida=true en metadatos para
+  // que el BI pueda separar LEVE real de LEVE inferido sin reparsear logs.
+  const calificacionOriginal = row.CALIFICACION;
+  let calificacionRaw = (calificacionOriginal || SEVERITY_LEVELS.FINE.LEVE).toUpperCase().trim();
 
   // Normalizar valores conocidos que difieren de la constante
   if (calificacionRaw === 'MUY GRAVE') {
@@ -269,23 +261,26 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   }
 
   const calificacionesValidas = [SEVERITY_LEVELS.FINE.LEVE, SEVERITY_LEVELS.FINE.GRAVE, SEVERITY_LEVELS.FINE.MUY_GRAVE];
-  const calificacion = calificacionesValidas.includes(calificacionRaw) ? calificacionRaw : SEVERITY_LEVELS.FINE.LEVE;
+  const calificacionEsValida = calificacionesValidas.includes(calificacionRaw);
+  const calificacion = calificacionEsValida ? calificacionRaw : SEVERITY_LEVELS.FINE.LEVE;
 
-  if (!calificacionesValidas.includes(calificacionRaw) && calificacionRaw !== SEVERITY_LEVELS.FINE.LEVE) {
+  // Inferida = no habia calificacion en el CSV o llego invalida.
+  // Si llego LEVE de forma explicita y valida, NO se considera inferida.
+  const calificacionInferida = !calificacionOriginal || !calificacionEsValida;
+
+  if (!calificacionEsValida && calificacionRaw !== SEVERITY_LEVELS.FINE.LEVE) {
     const razon = REJECTION_REASONS.CALIFICACION_INVALIDA;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { calificacion: calificacionOriginal, valorUsado: SEVERITY_LEVELS.FINE.LEVE }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
-      datosOriginales: { calificacion: row.CALIFICACION, valorUsado: SEVERITY_LEVELS.FINE.LEVE }
+      datosOriginales: { calificacion: calificacionOriginal, valorUsado: SEVERITY_LEVELS.FINE.LEVE }
     }, 'Calificacion invalida - se usa LEVE por defecto');
   }
 
-  // Derivar geometry GeoJSON desde UTM para alimentar el endpoint
-  // /multas/mapa y queries geoespaciales (solo si tiene ambas UTM).
-  const geometry = (coordenadas.x && coordenadas.y)
-    ? construirGeometryDesdeUTM(coordenadas.x, coordenadas.y)
-    : null;
+  // Geometry GeoJSON ya viene derivada del framework (puede ser null si
+  // no habia coordenadas validas en el CSV).
+  const geometry = geometryDerivada;
 
   // Crear objeto de multa (campos de texto normalizados para corregir
   // mojibake latin1 del CSV)
@@ -312,6 +307,10 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   // Calcular campos derivados que el pre-save hook normalmente computa,
   // pero que bulkWrite omite al no ejecutar middleware de Mongoose
   calcularCamposDerivadosMulta(multa);
+
+  // calcularCamposDerivadosMulta reescribe metadatos desde cero. Anadimos
+  // la marca de inferencia despues, para no perderla.
+  multa.metadatos.calificacionInferida = calificacionInferida;
 
   return multa;
 }
@@ -346,8 +345,7 @@ async function processMultasFile(filePath, options = {}) {
     let rowIndex = 0;
     let isProcessingBatch = false;
 
-    const stream = createReadStream(filePath)
-      .pipe(iconv.decodeStream('latin1'))
+    const stream = crearLectorCSV(filePath)
       .pipe(csv({ separator: ';' }))
       .on('data', async (row) => {
         if (isShuttingDown || isProcessingBatch) {
@@ -504,6 +502,52 @@ function processBulkWriteErrors(bulkError, batch, stats) {
 }
 
 /**
+ * Procesar lote con insercion masiva via insertMany (BD vacia).
+ *
+ * Modo mas rapido cuando la coleccion esta vacia: evita el lookup del
+ * indice unico que `bulkWrite([{insertOne}])` realiza por documento, y
+ * tampoco arrastra el coste del upsert. Usa `ordered: false` para que un
+ * fallo individual no aborte el lote, y captura `BulkWriteError` para
+ * contabilizar correctamente exitos parciales y errores de escritura.
+ *
+ * @param {Array} batch - Lote de documentos
+ * @param {Object} stats - Estadisticas de procesamiento
+ * @returns {Promise<void>}
+ */
+async function processBatchInsertMany(batch, stats) {
+  try {
+    const inserted = await Fine.insertMany(batch, {
+      ordered: false,
+      lean: true,
+      bypassDocumentValidation: true
+    });
+    stats.insertedRecords += inserted.length;
+  } catch (error) {
+    // BulkWriteError: insertMany expone `insertedDocs` con los exitosos
+    // y `writeErrors` con los fallos individuales (incluye duplicados 11000)
+    if (Array.isArray(error.insertedDocs)) {
+      stats.insertedRecords += error.insertedDocs.length;
+    }
+
+    if (Array.isArray(error.writeErrors) && error.writeErrors.length > 0) {
+      for (const writeError of error.writeErrors) {
+        const failedDoc = batch[writeError.index];
+        handleWriteError(writeError, failedDoc, stats);
+      }
+      return;
+    }
+
+    const errorInfo = handleMongoError(error);
+    logger.error({
+      razon: REJECTION_REASONS.ERROR_INSERCION_BD,
+      loteSize: batch.length,
+      errorMongo: errorInfo
+    }, 'Error en insertMany de lote');
+    throw error;
+  }
+}
+
+/**
  * Procesar lote con insercion (skip existing)
  * @param {Array} batch - Lote de documentos
  * @param {Object} stats - Estadisticas de procesamiento
@@ -574,17 +618,30 @@ async function processBatchUpsert(batch, stats) {
 }
 
 /**
- * Procesar un lote de multas con manejo de errores detallado
+ * Procesar un lote de multas con manejo de errores detallado.
+ *
+ * Despacha al modo de insercion adecuado segun `options.modoInsercion`:
+ * - 'insertMany': BD vacia, ruta mas rapida (sin lookup ni upsert)
+ * - 'bulkInsert': BD con datos pero sin --force, permite duplicados 11000
+ * - 'upsert': --force activado, sobrescribe registros existentes
+ *
  * @param {Array} batch - Lote de datos de multas
- * @param {Object} options - Opciones de procesamiento
+ * @param {Object} options - Opciones de procesamiento (incluye modoInsercion)
  * @param {Object} stats - Estadísticas de procesamiento
  */
 async function processBatch(batch, options, stats) {
   try {
-    if (options.skipExisting) {
-      await processBatchInsert(batch, stats);
-    } else {
-      await processBatchUpsert(batch, stats);
+    switch (options.modoInsercion) {
+      case 'insertMany':
+        await processBatchInsertMany(batch, stats);
+        break;
+      case 'upsert':
+        await processBatchUpsert(batch, stats);
+        break;
+      case 'bulkInsert':
+      default:
+        await processBatchInsert(batch, stats);
+        break;
     }
   } catch (error) {
     const errorInfo = handleMongoError(error);
@@ -609,11 +666,27 @@ async function processBatch(batch, options, stats) {
 async function importMultasData(options = {}) {
   const importConfig = { ...IMPORT_CONFIG, ...options };
 
+  // Detectar modo de insercion segun estado de la BD.
+  // - 'insertMany': BD vacia y sin --force, ruta mas rapida (~30-50% menos
+  //   tiempo en BD vacia: no hay lookup de indice unico ni upsert).
+  // - 'bulkInsert': BD con datos sin --force, mantiene compatibilidad con
+  //   el comportamiento `skipExisting` heredado (duplicados 11000 silentes).
+  // - 'upsert': --force activado, sobrescribe registros existentes.
+  // Patron analogo al de `importarTrafico.js`.
+  const forceMode = importConfig.skipExisting === false;
+  const countActual = await Fine.countDocuments().maxTimeMS(10000);
+  importConfig.modoInsercion = forceMode
+    ? 'upsert'
+    : (countActual === 0 ? 'insertMany' : 'bulkInsert');
+
   logger.info({
     directorio: importConfig.dataDirectory,
     batchSize: importConfig.batchSize,
-    maxParallel: importConfig.maxParallel
-  }, 'Iniciando importacion de datos de multas');
+    maxParallel: importConfig.maxParallel,
+    modoInsercion: importConfig.modoInsercion,
+    registrosExistentes: countActual.toLocaleString(),
+    force: forceMode
+  }, `Iniciando importacion de datos de multas (modo: ${importConfig.modoInsercion})`);
 
   try {
     // Verificar que existe el directorio
@@ -772,11 +845,13 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT EXCEPTION:', error);
   logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION:', reason);
   logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });
@@ -800,6 +875,9 @@ async function main() {
     tamanoLote: options.batchSize
   }, 'Iniciando script de importacion de multas');
 
+  const startTime = Date.now();
+  let result;
+
   try {
     // Conectar a MongoDB usando connectDB centralizado
     logger.info('Conectando a MongoDB...');
@@ -811,7 +889,7 @@ async function main() {
     logger.info({ registrosActuales: finesCount }, 'Estado actual de la coleccion de multas');
 
     // Ejecutar importacion
-    const result = await importMultasData(options);
+    result = await importMultasData(options);
 
     // Mostrar resultados finales
     logger.info({
@@ -826,8 +904,10 @@ async function main() {
       errores: result.errorRows
     }, 'Importacion de multas completada');
 
-    // Estadisticas finales de la base de datos
-    const finalCount = await Fine.countDocuments().maxTimeMS(10000);
+    // Estadisticas finales de la base de datos.
+    // estimatedDocumentCount usa metadata (instantaneo); countDocuments() haria un
+    // collection scan que sobre millones de docs sin indices recreados puede tardar.
+    const finalCount = await Fine.estimatedDocumentCount();
     logger.info({ totalMultasBD: finalCount }, 'Total de multas en la base de datos');
 
     // Resumen de rechazos por tipo
@@ -848,6 +928,18 @@ async function main() {
     process.exit(1);
 
   } finally {
+    buildAndWriteSummary('multas', {
+      startTime,
+      counts: {
+        totalProcessed: result?.totalRows || 0,
+        inserted: result?.insertedRecords || 0,
+        rejected: rejectionTracker.totalRejected,
+        skipped: result?.skippedRecords || 0,
+        errors: result?.errorRows || 0
+      },
+      rejectionTracker
+    });
+
     if (!isShuttingDown && mongoose.connection.readyState === 1) {
       logger.info('Cerrando conexion a MongoDB...');
       try {

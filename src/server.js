@@ -255,7 +255,7 @@ app.use(express.urlencoded({
 
 /**
  * Parsing de cookies para tokens JWT en cookies
- * Opciones de seguridad configuradas en authController (baseCookieOptions)
+ * Opciones de seguridad configuradas en controladorAutenticacion (baseCookieOptions)
  */
 app.use(cookieParser());
 

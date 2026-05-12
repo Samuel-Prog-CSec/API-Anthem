@@ -267,6 +267,44 @@ router.get('/cobertura',
 );
 
 /**
+ * @route   GET /api/v1/contenedores/mapa
+ * @desc    Obtener contenedores como FeatureCollection GeoJSON (RFC 7946)
+ * @access  Private
+ *
+ * Filtros opcionales: tipoContenedor, distrito, barrio, lote, bbox.
+ * bbox = minLng,minLat,maxLng,maxLat (CSV) -- limita por viewport del mapa.
+ */
+router.get('/mapa',
+  generalLimit,
+  authenticate,
+  [
+    query('distrito')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Distrito no puede estar vacío'),
+    query('barrio')
+      .optional()
+      .trim()
+      .notEmpty()
+      .withMessage('Barrio no puede estar vacío'),
+    query('lote')
+      .optional()
+      .isInt({ min: 1, max: 3 })
+      .withMessage('Lote debe ser 1, 2 o 3'),
+    query('bbox')
+      .optional()
+      .matches(/^-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?$/)
+      .withMessage('bbox debe tener formato minLng,minLat,maxLng,maxLat'),
+    validateRequest
+  ],
+  validateContainerType,
+  etagMiddleware,
+  cacheMiddleware('containers'),
+  controladorContenedores.obtenerMapaContenedores
+);
+
+/**
  * @route   GET /api/v1/contenedores/analisis/densidad
  * @desc    Obtener análisis de densidad de contenedores por distrito
  * @access  Private

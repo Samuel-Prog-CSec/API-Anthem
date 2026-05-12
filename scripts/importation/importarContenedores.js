@@ -24,19 +24,21 @@ const mongoose = require('mongoose');
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const { importContainersLogger: logger } = require('../../src/config/scriptLogger');
+const { importarContenedoresLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   CONTAINER_TYPES,
   CONTAINER_LOTES,
-  VALIDATION_LIMITS,
   DEFAULT_VALUES
 } = require('../../src/constants');
 const {
   RejectionTracker,
   formatDuration,
-  calculateProcessingSpeed
+  calculateProcessingSpeed,
+  buildAndWriteSummary
 } = require('./helpers/importHelpers');
+const { extraerCoordenadasModulo } = require('./helpers/coordenadas');
+const { crearLectorCSV } = require('./helpers/normalizarEncoding');
 
 // Modelo
 const Contenedor = require('../../src/models/Contenedor');
@@ -147,6 +149,7 @@ function registerSignalHandlers() {
   });
 
   process.on('uncaughtException', async (error) => {
+    console.error('UNCAUGHT EXCEPTION:', error);
     logger.fatal({ error: error.message, stack: error.stack }, 'Excepcion no capturada');
 
     try {
@@ -161,6 +164,7 @@ function registerSignalHandlers() {
   });
 
   process.on('unhandledRejection', async (reason) => {
+    console.error('UNHANDLED REJECTION:', reason);
     logger.fatal({ reason: String(reason) }, 'Promesa rechazada no manejada');
 
     try {
@@ -281,29 +285,25 @@ function validateAndTransformRow(row, _rowIndex) {
   const nombreVia = cleanString(row.Nombre);
   const numero = cleanString(row['Número'] || row['N�mero']);
 
-  // Coordenadas UTM
-  const coordX = parseNumber(row['COORDENADA X']);
-  const coordY = parseNumber(row['COORDENADA Y']);
-
-  if (coordX === null || coordY === null) {
-    throw new Error(`${REJECTION_REASONS.MISSING_UTM_COORDS}: X='${row['COORDENADA X']}', Y='${row['COORDENADA Y']}'`);
+  // Coordenadas via framework unificado.
+  // Perfil 'contenedores': UTM en cm (se normaliza a metros automaticamente)
+  // + WGS84 directo. fuentePrioritaria='wgs84'. requerida=true.
+  let coords;
+  try {
+    coords = extraerCoordenadasModulo(row, 'contenedores');
+  } catch (e) {
+    // Mapear los codigos del framework a las razones del tracker local
+    const razon = e.code === 'COORDENADAS_FALTANTES'
+      ? (row['COORDENADA X'] && row['COORDENADA Y']
+          ? REJECTION_REASONS.MISSING_GEO_COORDS
+          : REJECTION_REASONS.MISSING_UTM_COORDS)
+      : REJECTION_REASONS.COORDS_OUT_OF_RANGE;
+    throw new Error(`${razon}: X='${row['COORDENADA X']}', Y='${row['COORDENADA Y']}', LON='${row.LONGITUD}', LAT='${row.LATITUD}'`);
   }
 
-  // Coordenadas geograficas (longitud, latitud)
-  const longitude = parseNumber(row.LONGITUD);
-  const latitude = parseNumber(row.LATITUD);
-
-  if (longitude === null || latitude === null) {
-    throw new Error(`${REJECTION_REASONS.MISSING_GEO_COORDS}: longitud='${row.LONGITUD}', latitud='${row.LATITUD}'`);
-  }
-
-  // Validar rango de coordenadas usando constantes
-  if (longitude < VALIDATION_LIMITS.LONGITUDE_MIN || longitude > VALIDATION_LIMITS.LONGITUDE_MAX ||
-      latitude < VALIDATION_LIMITS.LATITUDE_MIN || latitude > VALIDATION_LIMITS.LATITUDE_MAX) {
-    throw new Error(`${REJECTION_REASONS.COORDS_OUT_OF_RANGE}: lon=${longitude}, lat=${latitude}, rango=[${VALIDATION_LIMITS.LONGITUDE_MIN}-${VALIDATION_LIMITS.LONGITUDE_MAX}, ${VALIDATION_LIMITS.LATITUDE_MIN}-${VALIDATION_LIMITS.LATITUDE_MAX}]`);
-  }
-
+  // Tras el framework, coords.utm.x e y estan en METROS (CSV venia en cm).
   // Generar nombre de via si falta
+  const [longitude, latitude] = coords.geometry.coordinates;
   const nombreViaFinal = nombreVia || `Ubicacion Geo ${latitude.toFixed(5)}N, ${Math.abs(longitude).toFixed(5)}W`;
 
   return {
@@ -320,14 +320,10 @@ function validateAndTransformRow(row, _rowIndex) {
       nombre: nombreViaFinal,
       numero: numero || 'S/N'
     },
-    coordenadas: {
-      x: coordX,
-      y: coordY
-    },
-    location: {
-      type: 'Point',
-      coordinates: [longitude, latitude]
-    }
+    // {x, y} en METROS (normalizado desde cm del CSV)
+    coordenadas: coords.utm,
+    // GeoJSON Point [lon, lat]
+    location: coords.geometry
   };
 }
 
@@ -358,20 +354,22 @@ async function processBatch(batch, options) {
         result.inserted = Math.max(0, insertedCount);
         result.skipped = batch.length - result.inserted;
 
-        // Loguear cada duplicado individual
+        // Loguear cada duplicado individual y trackearlo en el resumen
         if (error.writeErrors) {
           error.writeErrors.forEach(writeErr => {
             if (writeErr.code === 11000) {
               const duplicateDoc = batch[writeErr.index];
-              logger.warn(
-                {
-                  razon: REJECTION_REASONS.DUPLICATE_KEY,
-                  codigo: duplicateDoc?.codigoInternoSituado,
-                  tipo: duplicateDoc?.tipoContenedor,
-                  detalle: 'Clave unica ya existe en BD'
-                },
-                'Registro rechazado - duplicado'
-              );
+              const sample = {
+                codigo: duplicateDoc?.codigoInternoSituado,
+                tipo: duplicateDoc?.tipoContenedor,
+                coords: duplicateDoc?.coordenadas
+              };
+              const nivel = rejectionTracker.shouldLogWarn(REJECTION_REASONS.DUPLICATE_KEY, sample) ? 'warn' : 'debug';
+              logger[nivel]({
+                razon: REJECTION_REASONS.DUPLICATE_KEY,
+                ...sample,
+                detalle: 'Clave unica ya existe en BD'
+              }, 'Registro rechazado - duplicado');
             }
           });
         }
@@ -459,6 +457,11 @@ async function processCSV(options) {
             const isDuplicate = existingKeys.has(key);
             if (isDuplicate) {
               stats.totalSkipped++;
+              rejectionTracker.track('CLAVE_DUPLICADA_EN_BD', {
+                codigo: record.codigoInternoSituado,
+                tipo: record.tipoContenedor,
+                coords: record.coordenadas
+              });
             }
             return !isDuplicate;
           });
@@ -480,7 +483,7 @@ async function processCSV(options) {
       }
     };
 
-    stream = fs.createReadStream(IMPORT_CONFIG.dataFile, { encoding: 'utf8' })
+    stream = crearLectorCSV(IMPORT_CONFIG.dataFile)
       .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }));
 
     stream.on('data', async (row) => {
@@ -496,6 +499,12 @@ async function processCSV(options) {
 
         if (processedKeys.has(uniqueKey)) {
           stats.duplicatesInFile++;
+          rejectionTracker.track('DUPLICADO_EN_ARCHIVO', {
+            fila: stats.totalProcessed,
+            codigo: transformedData.codigoInternoSituado,
+            tipo: transformedData.tipoContenedor,
+            coords: transformedData.coordenadas
+          });
           return;
         }
 
@@ -663,6 +672,17 @@ async function main() {
     // Mostrar estadisticas finales
     await showStatistics();
 
+    // Aviso operativo: el cache es in-memory por proceso, asi que el script
+    // no puede invalidarlo en el servidor API (procesos distintos). Si se
+    // ejecuto con --force y el API estaba arriba, los endpoints de
+    // contenedores serviran datos antiguos hasta reinicio. Datos estaticos
+    // (TTL=infinito) hacen este reinicio obligatorio para reflejar cambios.
+    if (!options.skipExisting) {
+      logger.warn(
+        'Importacion ejecutada con --force. Reinicia el servidor API para invalidar el cache de contenedores (TTL infinito).'
+      );
+    }
+
   } catch (error) {
     const handledError = handleMongoError(error);
     logger.error({
@@ -671,6 +691,19 @@ async function main() {
     }, 'Error fatal durante la importacion');
     process.exitCode = 1;
   } finally {
+    buildAndWriteSummary('contenedores', {
+      startTime: stats.startTime,
+      counts: {
+        totalProcessed: stats.totalProcessed,
+        inserted: stats.totalInserted,
+        rejected: rejectionTracker.totalRejected,
+        skipped: stats.totalSkipped,
+        duplicatesInFile: stats.duplicatesInFile,
+        errors: stats.totalErrors
+      },
+      rejectionTracker
+    });
+
     // Cerrar conexion
     if (mongoose.connection.readyState === 1) {
       logger.info('Cerrando conexion a MongoDB...');

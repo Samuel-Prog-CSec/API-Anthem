@@ -68,7 +68,10 @@ const generalLimit = rateLimit({
 router.get('/',
   generalLimit,
   authenticate,
-  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
+  // Trafico es la coleccion mas masiva (~24M docs); usamos TRAFFIC_MAX_DAYS=90
+  // en lugar del DEFAULT_MAX=365 para forzar al cliente a paginar por trimestres
+  // o aplicar filtros de puntoMedidaId que reduzcan el scope antes del scan.
+  validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
   validatePagination,
   validateTrafficFilters,
   controladorTrafico.obtenerDatosTrafico
@@ -95,7 +98,7 @@ router.get('/punto/:id',
 
     validateRequest
   ],
-  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
+  validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
   controladorTrafico.obtenerTraficoPorPunto
 );
 
@@ -117,7 +120,7 @@ router.get('/estadisticas',
 
     validateRequest
   ],
-  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
+  validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
   // ETags para estadísticas agregadas (datos relativamente estables)
   etagMiddleware,
   // Caché de 5 minutos para estadísticas de tráfico (datos volátiles)
@@ -144,7 +147,7 @@ router.get('/analisis-congestion',
 
     validateRequest
   ],
-  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
+  validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
   // Caché de 5 minutos para análisis de congestión
   cacheMiddleware('traffic', (req) =>
     `traffic-congestion-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.groupBy || 'distrito'}`
@@ -174,13 +177,52 @@ router.get('/historico',
 
     validateRequest
   ],
-  validateDateRange(DATE_RANGE_LIMITS.DEFAULT_MAX_DAYS),
+  validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
   validateTrafficFilters,
   // Caché de 5 minutos para datos históricos
   cacheMiddleware('traffic', (req) =>
     `traffic-historical-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.aggregation || 'hour'}-${req.query.puntoMedidaId || 'all'}-${req.query.tipoElemento || 'all'}`
   ),
   controladorTrafico.obtenerDatosHistoricos
+);
+
+/**
+ * @route   GET /api/v1/trafico/mapa
+ * @desc    Mapa de trafico como FeatureCollection GeoJSON (RFC 7946)
+ * @access  Private
+ *
+ * Filtros obligatorios: startDate, endDate (rango max 7 dias).
+ * Filtros opcionales: tipoElemento (URB|M30), bbox (minLng,minLat,maxLng,maxLat).
+ */
+router.get('/mapa',
+  generalLimit,
+  authenticate,
+  [
+    query('startDate')
+      .notEmpty()
+      .withMessage('startDate es obligatorio (formato YYYY-MM-DD)')
+      .isISO8601()
+      .withMessage('startDate debe ser una fecha ISO 8601 valida'),
+    query('endDate')
+      .notEmpty()
+      .withMessage('endDate es obligatorio (formato YYYY-MM-DD)')
+      .isISO8601()
+      .withMessage('endDate debe ser una fecha ISO 8601 valida'),
+    query('tipoElemento')
+      .optional()
+      .isIn(Object.values(TRAFFIC_ELEMENT_TYPES))
+      .withMessage(`tipoElemento debe ser uno de: ${Object.values(TRAFFIC_ELEMENT_TYPES).join(', ')}`),
+    query('bbox')
+      .optional()
+      .matches(/^-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?$/)
+      .withMessage('bbox debe tener formato minLng,minLat,maxLng,maxLat'),
+    validateRequest
+  ],
+  // Cache de 5 minutos: el rango (start/end) es parte de la clave
+  cacheMiddleware('traffic', (req) =>
+    `traffic-mapa-${req.query.startDate}-${req.query.endDate}-${req.query.tipoElemento || 'all'}-${req.query.bbox || 'all'}`
+  ),
+  controladorTrafico.obtenerMapaTrafico
 );
 
 /**

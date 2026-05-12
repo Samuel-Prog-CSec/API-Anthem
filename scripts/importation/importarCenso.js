@@ -11,12 +11,11 @@ process.env.SCRIPT_MODE = 'true';
 const fs = require('fs').promises;
 const path = require('path');
 const csv = require('csv-parser');
-const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
 const Censo = require('../../src/models/Censo');
-const { importCensusLogger: logger } = require('../../src/config/scriptLogger');
+const { importarCensoLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   VALIDATION_LIMITS,
@@ -35,8 +34,10 @@ const {
   formatDuration,
   calculateProcessingSpeed,
   parseInteger,
-  cleanString
+  cleanString,
+  buildAndWriteSummary
 } = require('./helpers/importHelpers');
+const { crearLectorCSV } = require('./helpers/normalizarEncoding');
 
 // ============================================================================
 // CONFIGURACIÓN
@@ -215,7 +216,7 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   const dateInfo = extractDateFromFileName(sourceFile);
   if (!dateInfo) {
     const razon = REJECTION_REASONS.ARCHIVO_SIN_FECHA;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { archivo: sourceFile }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -239,7 +240,13 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   const totalPoblacion = españolesHombres + españolesMujeres + extranjerosHombres + extranjerosMujeres;
   if (totalPoblacion === 0) {
     const razon = REJECTION_REASONS.POBLACION_CERO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, {
+        españolesHombres,
+        españolesMujeres,
+        extranjerosHombres,
+        extranjerosMujeres,
+        archivo: sourceFile
+      }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -258,7 +265,7 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   const codigoDistrito = parseInteger(row.COD_DISTRITO, 1);
   if (codigoDistrito < 1 || codigoDistrito > 99) {
     const razon = REJECTION_REASONS.CODIGO_DISTRITO_INVALIDO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { codigoDistrito: row.COD_DISTRITO }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -271,7 +278,7 @@ function parseCensusRow(row, sourceFile, rowIndex) {
   const edad = parseInteger(row.COD_EDAD_INT, 0);
   if (edad < VALIDATION_LIMITS.AGE_MIN || edad > VALIDATION_LIMITS.AGE_MAX) {
     const razon = REJECTION_REASONS.EDAD_INVALIDA;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { edad: row.COD_EDAD_INT }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -366,7 +373,7 @@ async function processCensusFile(filePath, options = {}) {
     let rowIndex = 0;
     let isProcessingBatch = false;
 
-    const stream = createReadStream(filePath)
+    const stream = crearLectorCSV(filePath)
       .pipe(csv({ separator: ';' }))
       .on('data', async (row) => {
         if (isShuttingDown || isProcessingBatch) {return;}
@@ -747,6 +754,8 @@ async function importCensusData(options = {}) {
  */
 async function main() {
   logger.info('Iniciando script de importacion de censo');
+  const startTime = Date.now();
+  let result;
 
   try {
     // Conectar a MongoDB
@@ -761,7 +770,7 @@ async function main() {
     }, 'Modelo de censo verificado');
 
     // Ejecutar importación
-    const result = await importCensusData();
+    result = await importCensusData();
 
     // Mostrar resultados finales
     logger.info({
@@ -786,8 +795,10 @@ async function main() {
       }, 'Resumen de rechazos por tipo');
     }
 
-    // Estadísticas finales de la base de datos
-    const finalCount = await Censo.countDocuments().maxTimeMS(10000);
+    // Estadísticas finales de la base de datos.
+    // estimatedDocumentCount usa metadata (instantaneo); countDocuments() haria un
+    // collection scan que sobre millones de docs sin indices recreados puede tardar.
+    const finalCount = await Censo.estimatedDocumentCount();
     logger.info({
       registrosFinales: finalCount.toLocaleString(),
       incremento: (finalCount - censusCount).toLocaleString()
@@ -801,6 +812,19 @@ async function main() {
     process.exit(1);
 
   } finally {
+    buildAndWriteSummary('censo', {
+      startTime,
+      counts: {
+        totalProcessed: result?.totalRows || 0,
+        inserted: result?.insertedRecords || 0,
+        rejected: rejectionTracker.totalRejected,
+        skipped: result?.skippedRecords || 0,
+        errors: result?.errorRows || 0,
+        emptyRows: result?.emptyRows || 0
+      },
+      rejectionTracker
+    });
+
     if (mongoose.connection.readyState === 1) {
       try {
         await mongoose.connection.close();
@@ -851,11 +875,13 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT EXCEPTION:', error);
   logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION:', reason);
   logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });

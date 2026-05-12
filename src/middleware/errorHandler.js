@@ -6,9 +6,30 @@
  */
 
 const { formatErrorResponse, handleMongoError, handleJWTError } = require('../utils/errorUtils');
+const { getFallbackPayload } = require('./cache');
 const config = require('../config/config');
 const logger = require('../config/logger');
+const { cacheLogger } = logger;
 const { HTTP_STATUS } = require('../constants');
+
+/**
+ * Determina si un error indica un fallo de la base de datos (no del cliente).
+ * Usado para decidir si conviene servir un payload de fallback desde el cache L2.
+ */
+const isDatabaseFailure = (err) => {
+  if (!err) {return false;}
+  const dbErrorNames = [
+    'MongoNetworkError',
+    'MongoServerSelectionError',
+    'MongoTimeoutError',
+    'MongoNotConnectedError',
+    'MongoPoolClosedError'
+  ];
+  if (dbErrorNames.includes(err.name)) {return true;}
+  // statusCode >= 500 sin tipo conocido tambien lo tratamos como fallo de servidor
+  if (err.statusCode === undefined || err.statusCode >= 500) {return true;}
+  return false;
+};
 
 /**
  * Middleware para manejo centralizado de errores
@@ -24,6 +45,43 @@ const globalErrorHandler = (err, req, res, _next) => {
     userAgent: req.get('User-Agent'),
     userId: req.user?.id
   }, 'Error capturado por globalErrorHandler');
+
+  // Stale cache fallback: ante fallos de la DB o 5xx, intentar servir el ultimo
+  // payload conocido desde el cache L2 (`fallbackCache` en middleware/cache.js).
+  // Asi el dashboard sigue siendo usable durante incidencias transitorias en
+  // lugar de cascadear errores 500 al cliente. El usuario ve un header
+  // `X-Cache-Status: STALE_FALLBACK` y un campo `_cache.fallback` en el body.
+  if (req._cacheContext && req.method === 'GET' && isDatabaseFailure(err)) {
+    const fallback = getFallbackPayload(req._cacheContext.cacheKey);
+    if (fallback) {
+      const cacheAge = Math.floor((Date.now() - (fallback.timestamp || Date.now())) / 1000);
+      cacheLogger.warn({
+        cacheKey: req._cacheContext.cacheKey,
+        cacheType: req._cacheContext.cacheType,
+        url: req.originalUrl,
+        cacheAgeSeconds: cacheAge,
+        errorName: err.name,
+        errorMessage: err.message
+      }, 'Sirviendo stale fallback desde cache L2 ante fallo de DB');
+
+      return res.status(HTTP_STATUS.OK)
+        .set('X-Cache-Status', 'STALE_FALLBACK')
+        .set('X-Cache-Type', req._cacheContext.cacheType)
+        .set('X-Cache-Age', `${cacheAge}s`)
+        .set('X-Stale-Reason', 'database_error')
+        .json({
+          ...fallback.data,
+          _cache: {
+            hit: true,
+            stale: true,
+            fallback: true,
+            ageSeconds: cacheAge,
+            reason: 'database_error',
+            note: 'Respuesta servida desde cache de emergencia. Los datos pueden estar desactualizados.'
+          }
+        });
+    }
+  }
 
   // Manejar errores específicos de MongoDB
   if (err.name === 'ValidationError' || err.name === 'CastError' || err.code === 11000) {

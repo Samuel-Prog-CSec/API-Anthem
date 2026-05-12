@@ -20,7 +20,11 @@ const {
 
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
-const { SEVERITY_LEVELS, INFRACTION_TYPES, ROUTE_SPECIFIC_LIMITS, SORT_FIELDS } = require('../constants');
+const {
+  SEVERITY_LEVELS, INFRACTION_TYPES, ROUTE_SPECIFIC_LIMITS, SORT_FIELDS,
+  DATE_RANGE_LIMITS, MAP_LIMITS
+} = require('../constants');
+const { validateDateRange } = require('../middleware/validation');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
 const { etagMiddleware } = require('../middleware/etag');
 
@@ -33,26 +37,13 @@ const router = express.Router();
 router.use(performanceMonitor);
 
 /**
- * Validaciones comunes para filtros de fecha
+ * Validaciones comunes para filtros de fecha.
+ * Usa el helper centralizado `validateDateRange(maxDays)` que ademas de
+ * verificar formato ISO8601 y orden cronologico aplica un cap de rango maximo
+ * (FINES_MAX_DAYS dias). Antes este modulo definia su propio `dateValidation`
+ * sin cap, permitiendo queries con rangos de varios anos que tumbaban la BD.
  */
-const dateValidation = [
-  query('startDate')
-    .optional()
-    .isISO8601()
-    .withMessage('Fecha de inicio debe ser válida (ISO8601)')
-    .toDate(),
-  query('endDate')
-    .optional()
-    .isISO8601()
-    .withMessage('Fecha de fin debe ser válida (ISO8601)')
-    .toDate()
-    .custom((value, { req }) => {
-      if (req.query.startDate && value < req.query.startDate) {
-        throw new Error('Fecha de fin debe ser posterior a fecha de inicio');
-      }
-      return true;
-    })
-];
+const dateValidation = validateDateRange(DATE_RANGE_LIMITS.FINES_MAX_DAYS);
 
 /**
  * Validaciones para paginación
@@ -319,7 +310,18 @@ router.get('/mapa',
     query('endDate').optional().isISO8601().withMessage('endDate debe ser ISO 8601'),
     query('calificacion').optional().isIn(Object.values(SEVERITY_LEVELS.FINE)).withMessage('calificacion invalida'),
     query('bbox').optional().matches(/^-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*$/).withMessage('bbox debe ser minLng,minLat,maxLng,maxLat'),
-    query('limite').optional().isInt({ min: 1, max: 10000 }).withMessage('limite debe estar entre 1 y 10000')
+    // distrito: acepta codigo numerico (1-21) o nombre. El controlador
+    // se encarga de resolverlo a bbox via `bboxDeDistrito`. Permite vistas
+    // cross-domain "por distrito" sin necesitar campo distrito normalizado
+    // en la coleccion Multas.
+    query('distrito').optional().trim().isLength({ min: 1, max: 50 })
+      .matches(/^([1-9]|1[0-9]|2[01])$|^[A-Za-zÑñÁÉÍÓÚáéíóú\s-]{2,50}$/)
+      .withMessage('distrito debe ser codigo (1-21) o nombre (max 50 chars)')
+      .escape(),
+    query('radioKm').optional().isFloat({ min: 1, max: 15 })
+      .withMessage('radioKm debe estar entre 1 y 15')
+      .toFloat(),
+    query('limite').optional().isInt({ min: MAP_LIMITS.MIN, max: MAP_LIMITS.DEFAULT_MAX }).withMessage(`limite debe estar entre ${MAP_LIMITS.MIN} y ${MAP_LIMITS.DEFAULT_MAX}`)
   ],
   validateRequest,
   cacheMiddleware('fines', (req) => `fines:mapa:${JSON.stringify(req.query)}`),

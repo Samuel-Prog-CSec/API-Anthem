@@ -2,7 +2,7 @@
  * Script de Importación de Datos de Tráfico
  *
  * Procesa y carga TODOS los datos de tráfico desde archivos CSV a la base de datos MongoDB.
- * Ejecutar: node scripts/importation/importTrafficData.js
+ * Ejecutar: node scripts/importation/importarTrafico.js
  */
 
 // Configurar modo script para evitar reconexiones infinitas
@@ -11,14 +11,13 @@ process.env.SCRIPT_MODE = 'true';
 const fs = require('fs').promises;
 const path = require('path');
 const csv = require('csv-parser');
-const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 
 // Importar modelos, configuración y utilidades
 const Traffic = require('../../src/models/Trafico');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const { importTrafficLogger: logger } = require('../../src/config/scriptLogger');
+const { importarTraficoLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   TRAFFIC_ERROR_CODES, TRAFFIC_ELEMENT_TYPES,
@@ -28,8 +27,11 @@ const {
 const {
   RejectionTracker,
   formatDuration,
-  calculateProcessingSpeed
+  calculateProcessingSpeed,
+  buildAndWriteSummary,
+  parsearFechaHoraUTC
 } = require('./helpers/importHelpers');
+const { crearLectorCSV } = require('./helpers/normalizarEncoding');
 
 // ============================================================================
 // CONFIGURACIÓN
@@ -109,7 +111,7 @@ async function loadTrafficPoints() {
     const points = new Map();
     let count = 0;
 
-    createReadStream(LOCATIONS_FILE)
+    crearLectorCSV(LOCATIONS_FILE)
       .pipe(csv({ separator: ';' }))
       .on('data', (row) => {
         try {
@@ -165,7 +167,7 @@ function validateAndTransformRow(row, rowIndex) {
   // Validar ID de punto
   if (!puntoMedidaId) {
     const razon = REJECTION_REASONS.ID_PUNTO_FALTANTE;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { id: row.id }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -176,7 +178,7 @@ function validateAndTransformRow(row, rowIndex) {
 
   if (!/^\d+$/.test(puntoMedidaId)) {
     const razon = REJECTION_REASONS.ID_PUNTO_FORMATO_INVALIDO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { id: row.id }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -189,7 +191,7 @@ function validateAndTransformRow(row, rowIndex) {
   const fechaStr = row.fecha?.trim();
   if (!fechaStr) {
     const razon = REJECTION_REASONS.FECHA_FALTANTE;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { fecha: row.fecha }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -198,10 +200,14 @@ function validateAndTransformRow(row, rowIndex) {
     throw new Error(razon);
   }
 
-  const fecha = new Date(fechaStr);
-  if (isNaN(fecha.getTime())) {
+  // Parsear fecha en UTC explicito para evitar deriva por TZ del runtime.
+  // Las mediciones de trafico son cada 15 min: un shift por DST sacaria la
+  // medicion de su bucket horario y romperia las clasificaciones derivadas
+  // (periodoDia, tipoJornada).
+  const fecha = parsearFechaHoraUTC(fechaStr);
+  if (!fecha) {
     const razon = REJECTION_REASONS.FECHA_FORMATO_INVALIDO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { fecha: fechaStr }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -210,12 +216,12 @@ function validateAndTransformRow(row, rowIndex) {
     throw new Error(razon);
   }
 
-  // Extraer componentes de fecha
-  const año = fecha.getFullYear();
-  const mes = fecha.getMonth() + 1;
-  const dia = fecha.getDate();
-  const hora = fecha.getHours();
-  const minutos = fecha.getMinutes();
+  // Extraer componentes en UTC (coincide con el bucket original del CSV).
+  const año = fecha.getUTCFullYear();
+  const mes = fecha.getUTCMonth() + 1;
+  const dia = fecha.getUTCDate();
+  const hora = fecha.getUTCHours();
+  const minutos = fecha.getUTCMinutes();
 
   // Normalizar tipo de elemento usando constantes
   const tipoElementoRaw = row.tipo_elem?.trim().toUpperCase();
@@ -225,7 +231,7 @@ function validateAndTransformRow(row, rowIndex) {
   const tiposValidos = Object.values(TRAFFIC_ELEMENT_TYPES);
   if (!tiposValidos.includes(tipoElemento)) {
     const razon = REJECTION_REASONS.TIPO_ELEMENTO_INVALIDO;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { tipoElemento: tipoElementoRaw, esperados: tiposValidos }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -251,8 +257,20 @@ function validateAndTransformRow(row, rowIndex) {
     : TRAFFIC_ERROR_CODES.NO_ERROR;
   const periodoIntegracion = parseInt(row.periodo_integracion) || 0;
 
-  // Calcular campos de analisis derivados
-  // Calidad general basada en error code y periodo de integracion
+  // -----------------------------------------------------------------------
+  // CAMPOS DE ANALISIS DERIVADOS (BI)
+  // -----------------------------------------------------------------------
+  // Los thresholds que vienen a continuacion son **decisiones del equipo**
+  // basadas en el rango observado del dataset. NO son normativos (la DGT
+  // no define cortes formales para "trafico denso" vs "fluido"). Se
+  // documentan aqui para que cualquier conclusion BI ("Centro esta
+  // colapsado a las 8:00") pueda interpretarse con la regla aplicada.
+  // Si se cambia algun threshold, hay que considerar el impacto en las
+  // paginas de correlacion (Aire x Trafico) y en el mapa de congestion.
+
+  // Calidad general basada en error code y periodo de integracion.
+  // Heuristica: "ALTA" exige ausencia de error Y agregacion sobre >=3
+  // sub-muestras (de las 5 posibles que vienen del agregador del SCT).
   let calidadGeneral;
   if (error === TRAFFIC_ERROR_CODES.NO_ERROR && periodoIntegracion >= 3) {
     calidadGeneral = DATA_QUALITY_LEVELS.ALTA;
@@ -264,7 +282,17 @@ function validateAndTransformRow(row, rowIndex) {
     calidadGeneral = DATA_QUALITY_LEVELS.BAJA;
   }
 
-  // Nivel de congestion basado en ocupacion
+  // Nivel de congestion basado en ocupacion (% del periodo en que el
+  // sensor detecta vehiculo) y carga (0-100, deriva del SCT). Cualquiera
+  // de los dos por encima del threshold dispara el siguiente nivel.
+  // Cortes elegidos:
+  //   FLUIDO         ocupacion <30%  Y  carga <40%
+  //   DENSO          ocupacion 30-60% O carga 40-70%
+  //   CONGESTIONADO  ocupacion 60-80% O carga 70-90%
+  //   COLAPSADO      ocupacion >=80% O carga >=90%
+  // Justificacion: 30/60/80 alinea con la "regla de tercios" del trafico
+  // urbano estandar; 40/70/90 calibrado contra el percentil 95 observado
+  // en M-30 horas pico del dataset 2051.
   let nivelCongestion;
   if (ocupacion < 0 || carga < 0) {
     nivelCongestion = CONGESTION_LEVELS.SIN_DATOS;
@@ -278,7 +306,13 @@ function validateAndTransformRow(row, rowIndex) {
     nivelCongestion = CONGESTION_LEVELS.FLUIDO;
   }
 
-  // Clasificacion por intensidad
+  // Clasificacion por intensidad bruta (vehiculos/hora). Cortes derivados
+  // de cuartiles aproximados de la distribucion completa del dataset:
+  //   <300       calle residencial muy poco transitada
+  //   300-1000   urbano normal
+  //   1000-2000  arteria principal
+  //   2000-3000  arteria de alta capacidad
+  //   >=3000     M-30 / accesos a la ciudad en hora pico
   let clasificacionIntensidad;
   if (intensidad < 0) {
     clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.SIN_DATOS;
@@ -294,7 +328,15 @@ function validateAndTransformRow(row, rowIndex) {
     clasificacionIntensidad = TRAFFIC_INTENSITY_LEVELS.MUY_BAJA;
   }
 
-  // Periodo del dia basado en hora
+  // Periodo del dia. Periodizacion propia de movilidad urbana:
+  //   MADRUGADA  00-07  (poco trafico, vehiculos pesados)
+  //   MAÑANA     07-12  (pico de entrada al trabajo)
+  //   MEDIODIA   12-15  (recta entre comidas)
+  //   TARDE      15-21  (pico de salida + ocio)
+  //   NOCHE      21-00  (atenuacion progresiva)
+  // OJO: NO coincide con la periodizacion de Ruido (D 07-19, E 19-23,
+  // N 23-07, T 24h) porque alli el periodo viene fijado por la directiva
+  // 2002/49/CE. Para cruces BI Trafico x Ruido hay que normalizar.
   let periodoDia;
   if (hora >= 0 && hora < 7) {
     periodoDia = DAY_PERIODS.MADRUGADA;
@@ -308,8 +350,9 @@ function validateAndTransformRow(row, rowIndex) {
     periodoDia = DAY_PERIODS.NOCHE;
   }
 
-  // Tipo de jornada basado en dia de la semana
-  const dayOfWeek = fecha.getDay(); // 0=domingo, 6=sabado
+  // Tipo de jornada basado en dia de la semana (en UTC para coincidir con
+  // el resto de componentes ya extraidos)
+  const dayOfWeek = fecha.getUTCDay(); // 0=domingo, 6=sabado
   let tipoJornada;
   if (dayOfWeek === 0) {
     tipoJornada = WORKDAY_TYPES.DOMINGO_FESTIVO;
@@ -434,7 +477,7 @@ async function processBatch(batch) {
  * @param {string} filePath - Ruta al archivo
  * @returns {Promise<Object>} - Estadísticas del archivo
  */
-async function processTrafficFile(filePath) {
+async function procesarArchivoTrafico(filePath) {
   return new Promise((resolve, reject) => {
     const batch = [];
     let rowCount = 0;
@@ -444,7 +487,7 @@ async function processTrafficFile(filePath) {
     currentFile = path.basename(filePath);
     logger.info({ archivo: currentFile }, 'Procesando archivo de trafico');
 
-    const stream = createReadStream(filePath)
+    const stream = crearLectorCSV(filePath)
       .pipe(csv({ separator: ';' }))
       .on('data', (row) => {
         if (isShuttingDown) {
@@ -618,7 +661,7 @@ async function main() {
         const filePath = path.join(DATA_DIR, fileName);
 
         try {
-          return await processTrafficFile(filePath);
+          return await procesarArchivoTrafico(filePath);
         } catch (error) {
           logger.error({
             archivo: fileName,
@@ -647,7 +690,9 @@ async function main() {
     // Mostrar resumen final
     const endTime = Date.now();
 
-    const countDespues = await Traffic.countDocuments().maxTimeMS(10000);
+    // estimatedDocumentCount usa metadata (instantaneo); countDocuments() haria un
+    // collection scan que en una BD con 100M+ docs sin indices excede 10s.
+    const countDespues = await Traffic.estimatedDocumentCount();
 
     logger.info({
       resumen: {
@@ -683,6 +728,18 @@ async function main() {
     process.exit(1);
 
   } finally {
+    buildAndWriteSummary('trafico', {
+      startTime,
+      counts: {
+        totalProcessed,
+        inserted: totalInserted,
+        updated: totalUpdated,
+        rejected: totalRejected,
+        errors: totalErrors
+      },
+      rejectionTracker
+    });
+
     if (mongoose.connection.readyState === 1) {
       try {
         await mongoose.connection.close();
@@ -733,11 +790,13 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT EXCEPTION:', error);
   logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION:', reason);
   logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });
@@ -755,7 +814,7 @@ if (require.main === module) {
 
 module.exports = {
   main,
-  processTrafficFile,
+  procesarArchivoTrafico,
   validateAndTransformRow,
   REJECTION_REASONS
 };

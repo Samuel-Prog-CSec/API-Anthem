@@ -265,6 +265,13 @@ const multaSchema = new mongoose.Schema({
     zonaUrbana: {
       type: Boolean,
       default: true // Asumimos zona urbana por defecto
+    },
+    // Marca true cuando la calificacion vino vacia o invalida en el CSV
+    // y se asigno LEVE por defecto. Permite distinguir LEVE real de LEVE
+    // inferido en analisis BI sin perder esa diferencia.
+    calificacionInferida: {
+      type: Boolean,
+      default: false
     }
   },
 

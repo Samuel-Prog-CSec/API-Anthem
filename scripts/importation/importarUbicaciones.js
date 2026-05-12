@@ -14,7 +14,7 @@ const mongoose = require('mongoose');
 const Location = require('../../src/models/Ubicacion');
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const { importLocationsLogger: logger } = require('../../src/config/scriptLogger');
+const { importarUbicacionesLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   LOCATION_TYPES,
@@ -24,10 +24,11 @@ const {
 const {
   RejectionTracker,
   formatDuration,
-  calculateProcessingSpeed
+  calculateProcessingSpeed,
+  buildAndWriteSummary
 } = require('./helpers/importHelpers');
-const { normalizarTexto } = require('./helpers/normalizarEncoding');
-const { construirGeometryDesdeUTM } = require('./helpers/conversorCoordenadas');
+const { normalizarTexto, crearLectorCSV } = require('./helpers/normalizarEncoding');
+const { extraerCoordenadasModulo } = require('./helpers/coordenadas');
 
 // Parser para archivos GPX
 const { DOMParser } = require('@xmldom/xmldom');
@@ -37,6 +38,7 @@ const { DOMParser } = require('@xmldom/xmldom');
  * @constant {Object}
  */
 const REJECTION_REASONS = {
+  EMPTY_ROW: 'FILA_VACIA',
   MISSING_UTM_COORDS: 'COORDENADAS_UTM_INVALIDAS',
   INVALID_GEO_COORDS: 'COORDENADAS_GEOGRAFICAS_INVALIDAS',
   INVALID_GPX_COORDS: 'COORDENADAS_GPX_INVALIDAS',
@@ -44,6 +46,27 @@ const REJECTION_REASONS = {
   DUPLICATE_KEY: 'CLAVE_DUPLICADA',
   VALIDATION_ERROR: 'ERROR_VALIDACION'
 };
+
+/**
+ * Detectar fila completamente vacia (todos los campos blancos).
+ * Comun en CSVs exportados desde Excel/Access que tienen padding al final
+ * del archivo. Sin esta deteccion, el script las reporta como
+ * COORDENADAS_UTM_INVALIDAS, lo cual es engañoso para diagnostico.
+ *
+ * @param {Object} row - Fila parseada del CSV
+ * @returns {boolean}
+ */
+function isEmptyRow(row) {
+  if (!row || typeof row !== 'object') {
+    return true;
+  }
+  for (const value of Object.values(row)) {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      return false;
+    }
+  }
+  return true;
+}
 
 /**
  * Bandera para indicar cierre graceful
@@ -119,23 +142,31 @@ async function importAcousticStations() {
       return resolve([]);
     }
 
-    fsSync.createReadStream(filePath, { encoding: 'latin1' })
+    crearLectorCSV(filePath)
       .pipe(csv({ separator: ';' }))
       .on('data', (row) => {
         if (isShuttingDown) {return;}
         rowIndex++;
 
         try {
-          // Coordenadas UTM (ETRS89) - usan coma decimal en el CSV
-          const x = parseNumber(row.Coordenada_X_ETRS89 || row.COORDENADA_X_ETRS89);
-          const y = parseNumber(row.Coordenada_Y_ETRS89 || row.COORDENADA_Y_ETRS89);
+          // Filas vacias: padding del export (Excel/Access). Detectarlas antes
+          // que UTM=0 para no contaminar el desglose con falsos
+          // COORDENADAS_UTM_INVALIDAS.
+          if (isEmptyRow(row)) {
+            rejectedRows++;
+            const razon = REJECTION_REASONS.EMPTY_ROW;
+            const nivel = rejectionTracker.shouldLogWarn(razon, { fila: rowIndex }) ? 'warn' : 'debug';
+            logger[nivel]({ fila: rowIndex, razon }, 'Fila rechazada: fila vacia');
+            return;
+          }
 
-          // Coordenadas WGS84 para GeoJSON - NO mezclar con UTM como fallback
-          const lon = parseNumber(row.LONGITUD_WGS84);
-          const lat = parseNumber(row.LATITUD_WGS84);
-
-          // Validar que tiene coordenadas UTM validas
-          if (x === 0 && y === 0) {
+          // Coordenadas via framework unificado.
+          // Perfil 'ubicaciones_estacion_acustica': UTM ETRS89 (m) +
+          // WGS84 directo, prioriza WGS84, requerida=true.
+          let coords;
+          try {
+            coords = extraerCoordenadasModulo(row, 'ubicaciones_estacion_acustica');
+          } catch {
             rejectedRows++;
             logger.warn(
               {
@@ -145,10 +176,12 @@ async function importAcousticStations() {
                   id: row['Nº'] || row.Nº || row.id,
                   nombre: row.Nombre,
                   X: row.Coordenada_X_ETRS89,
-                  Y: row.Coordenada_Y_ETRS89
+                  Y: row.Coordenada_Y_ETRS89,
+                  LON: row.LONGITUD_WGS84,
+                  LAT: row.LATITUD_WGS84
                 }
               },
-              'Fila rechazada - estacion acustica sin coordenadas UTM'
+              'Fila rechazada - estacion acustica sin coordenadas validas'
             );
             return;
           }
@@ -157,41 +190,15 @@ async function importAcousticStations() {
           const nmtValue = row['Nº'] || row.Nº || row['N°'] || row['N\uFFFD'] || row.id;
           const nmtNormalizado = normalizarTexto(nmtValue);
 
-          // Construir geometry preferiendo WGS84 del CSV; fallback a
-          // UTM->WGS84 derivado cuando el CSV no trae lon/lat validos.
-          const geometryFromWGS84 = isValidCoordinate(lon, lat)
-            ? { type: GEOMETRY_TYPES.POINT, coordinates: [lon, lat] }
-            : null;
-          const geometryFromUTM = geometryFromWGS84
-            ? null
-            : construirGeometryDesdeUTM(x, y);
-          const geometry = geometryFromWGS84 || geometryFromUTM || undefined;
-
           const station = {
             tipo: LOCATION_TYPES.ESTACION_ACUSTICA,
             nmt: nmtNormalizado,
             nombre: normalizarTexto(row.Nombre || row.nombre) || `Estacion ${nmtNormalizado}`,
-            coordenadas: { x, y },
+            coordenadas: coords.utm || undefined,
             direccion: normalizarTexto(row['Dirección'] || row.direccion || row['Direcci\uFFFD\n']) || undefined,
             fechaAlta: normalizarTexto(row['Fecha alta'] || row.fechaAlta) || undefined,
-            geometry
+            geometry: coords.geometry
           };
-
-          // Log si no tiene geometry valido (warning informativo)
-          if (!station.geometry) {
-            logger.debug(
-              {
-                fila: rowIndex,
-                nmt: station.nmt,
-                lon,
-                lat,
-                utmX: x,
-                utmY: y,
-                detalle: 'Se insertara sin geometry GeoJSON'
-              },
-              'Estacion sin coordenadas geograficas validas ni derivables de UTM'
-            );
-          }
 
           stations.push(station);
         } catch (error) {
@@ -248,42 +255,45 @@ async function importTrafficPoints() {
       return resolve([]);
     }
 
-    fsSync.createReadStream(filePath, { encoding: 'latin1' })
+    crearLectorCSV(filePath)
       .pipe(csv({ separator: ';' }))
       .on('data', (row) => {
         if (isShuttingDown) {return;}
         rowIndex++;
 
         try {
-          const utmX = parseNumber(row.utm_x);
-          const utmY = parseNumber(row.utm_y);
-          const lon = parseNumber(row.longitud);
-          const lat = parseNumber(row.latitud);
-
-          // Validar que tiene coordenadas UTM validas
-          if (utmX === 0 && utmY === 0) {
+          // Filas vacias: padding del export. En este CSV concretamente
+          // ~92% de las "filas" son padding completamente blanco.
+          if (isEmptyRow(row)) {
             rejectedRows++;
-            // Solo logear en nivel debug para evitar spam en logs
-          // (hay muchos puntos sin coordenadas UTM validas)
-          logger.debug(
-            {
-              fila: rowIndex,
-              razon: REJECTION_REASONS.MISSING_UTM_COORDS,
-              id: row.id
-            },
-            'Fila rechazada - punto de trafico sin coordenadas UTM'
-          );
-          return;
-        }
+            const razon = REJECTION_REASONS.EMPTY_ROW;
+            const nivel = rejectionTracker.shouldLogWarn(razon, { fila: rowIndex }) ? 'warn' : 'debug';
+            logger[nivel]({ fila: rowIndex, razon }, 'Fila rechazada: fila vacia');
+            return;
+          }
 
-          // Construir geometry preferiendo WGS84 del CSV; si el CSV
-          // solo trae UTM validas, derivar lon/lat con proj4.
-          const geometryFromWGS84 = isValidCoordinate(lon, lat)
-            ? { type: GEOMETRY_TYPES.POINT, coordinates: [lon, lat] }
-            : null;
-          const geometryFromUTM = geometryFromWGS84
-            ? null
-            : construirGeometryDesdeUTM(utmX, utmY);
+          // Coordenadas via framework. Perfil 'ubicaciones_punto_trafico':
+          // UTM (m) + WGS84 directo, prioriza WGS84, requerida=false
+          // (muchos puntos del CSV no tienen coords validas).
+          let coords;
+          try {
+            coords = extraerCoordenadasModulo(row, 'ubicaciones_punto_trafico');
+          } catch {
+            coords = null;
+          }
+
+          if (!coords) {
+            rejectedRows++;
+            logger.debug(
+              {
+                fila: rowIndex,
+                razon: REJECTION_REASONS.MISSING_UTM_COORDS,
+                id: row.id
+              },
+              'Fila rechazada - punto de trafico sin coordenadas validas'
+            );
+            return;
+          }
 
           const point = {
             tipo: LOCATION_TYPES.PUNTO_TRAFICO,
@@ -292,25 +302,9 @@ async function importTrafficPoints() {
             nombre: normalizarTexto(row.nombre) || undefined,
             tipo_elem: normalizarTexto(row.tipo_elem) || undefined,
             distrito: parseNumber(row.distrito) || undefined, // Codigo de distrito (1-21)
-            coordenadas: { x: utmX, y: utmY },
-            geometry: geometryFromWGS84 || geometryFromUTM || undefined
+            coordenadas: coords.utm || undefined,
+            geometry: coords.geometry
           };
-
-          // Log si no tiene geometry valido
-          if (!point.geometry) {
-            logger.debug(
-              {
-                fila: rowIndex,
-                id: point.id_punto,
-                lon,
-                lat,
-                utmX,
-                utmY,
-                detalle: 'Se insertara sin geometry GeoJSON'
-              },
-              'Punto de trafico sin coordenadas derivables'
-            );
-          }
 
           points.push(point);
         } catch (error) {
@@ -965,6 +959,7 @@ async function closeConnection() {
 async function main() {
   // Marcar que estamos en modo script para evitar reintentos automáticos
   process.env.SCRIPT_MODE = 'true';
+  const startTime = Date.now();
 
   const args = process.argv.slice(2);
   const options = {
@@ -1066,6 +1061,27 @@ async function main() {
           desglose: rejectionSummary
         }, 'Resumen de rechazos por tipo');
       }
+
+      // Resumen estructurado a logs/import/<importer>-latest.json
+      buildAndWriteSummary('ubicaciones', {
+        startTime,
+        counts: {
+          totalProcessed: result.totalInserted + result.totalSkipped + result.totalErrors + rejectionTracker.totalRejected,
+          inserted: result.totalInserted,
+          rejected: rejectionTracker.totalRejected,
+          skipped: result.totalSkipped,
+          errors: result.totalErrors
+        },
+        rejectionTracker,
+        extras: {
+          desgloseFuentes: {
+            estacionesAcusticas: result.acousticStations,
+            puntosTrafico: result.trafficPoints,
+            rutasTransporte: result.transportRoutes
+          },
+          totalEnBD: finalCount
+        }
+      });
 
       // Generar resumen estadistico adicional
       if (options.generateSummary) {

@@ -15,4 +15,4 @@ Coordinan las solicitudes HTTP: validan entrada, delegan la lógica de negocio a
 - `controladorRuido.js`: monitorización de contaminación acústica.
 - `controladorTrafico.js`: métricas y series de tráfico vehicular.
 - `controladorUbicaciones.js`: callejero, distritos y puntos de interés. Soporta precalentamiento de caché.
-- `authController.js`: registro, login, refresco, revocación y blacklist de tokens.
+- `controladorAutenticacion.js`: registro, login, refresco, revocación y blacklist de tokens.

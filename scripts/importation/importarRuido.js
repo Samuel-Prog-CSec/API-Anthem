@@ -4,7 +4,7 @@
  * Procesa y carga datos de contaminacion acustica desde CSV a MongoDB.
  * Incluye mediciones de niveles sonoros (Ld, Le, Ln, LAeq24) y percentiles.
  *
- * Uso: node scripts/importation/importNoise.js [opciones]
+ * Uso: node scripts/importation/importarRuido.js [opciones]
  *
  * Opciones:
  *   --force         Sobrescribir datos existentes (upsert)
@@ -15,7 +15,7 @@
  *   --validate      Solo validar archivo sin importar
  *   --help          Mostrar ayuda
  *
- * @module scripts/importation/importNoise
+ * @module scripts/importation/importarRuido
  */
 
 // Configurar modo script para evitar reconexiones infinitas
@@ -24,13 +24,12 @@ process.env.SCRIPT_MODE = 'true';
 const fs = require('fs').promises;
 const path = require('path');
 const csv = require('csv-parser');
-const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const { importNoiseLogger: logger } = require('../../src/config/scriptLogger');
+const { importarRuidoLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   NOISE_LIMITS,
@@ -40,9 +39,11 @@ const {
 const {
   RejectionTracker,
   formatDuration,
-  calculateProcessingSpeed
+  calculateProcessingSpeed,
+  buildAndWriteSummary
 } = require('./helpers/importHelpers');
-const { normalizarTexto } = require('./helpers/normalizarEncoding');
+const { normalizarTexto, crearLectorCSV } = require('./helpers/normalizarEncoding');
+const { RejectionError } = require('./helpers/RejectionError');
 
 // Modelo
 const NoiseMonitoring = require('../../src/models/Ruido');
@@ -135,6 +136,7 @@ function registerSignalHandlers() {
   });
 
   process.on('uncaughtException', async (error) => {
+    console.error('UNCAUGHT EXCEPTION:', error);
     logger.fatal({ error: error.message, stack: error.stack }, 'Excepcion no capturada');
 
     try {
@@ -149,6 +151,7 @@ function registerSignalHandlers() {
   });
 
   process.on('unhandledRejection', async (reason) => {
+    console.error('UNHANDLED REJECTION:', reason);
     logger.fatal({ reason: String(reason) }, 'Promesa rechazada no manejada');
 
     try {
@@ -170,7 +173,7 @@ function showHelp() {
   logger.info(`
 Script de Importacion de Contaminacion Acustica
 
-Uso: node scripts/importation/importNoise.js [opciones]
+Uso: node scripts/importation/importarRuido.js [opciones]
 
 Opciones:
   --force         Sobrescribir datos existentes (upsert)
@@ -182,10 +185,10 @@ Opciones:
   --help          Mostrar esta ayuda
 
 Ejemplos:
-  node scripts/importation/importNoise.js                    # Importar todos los datos
-  node scripts/importation/importNoise.js --station=1        # Solo estacion NMT 1
-  node scripts/importation/importNoise.js --force            # Con sobreescritura
-  node scripts/importation/importNoise.js --validate         # Solo validar datos
+  node scripts/importation/importarRuido.js                    # Importar todos los datos
+  node scripts/importation/importarRuido.js --station=1        # Solo estacion NMT 1
+  node scripts/importation/importarRuido.js --force            # Con sobreescritura
+  node scripts/importation/importarRuido.js --validate         # Solo validar datos
   `);
 }
 
@@ -270,11 +273,12 @@ function parseNoiseLevel(value) {
  * @returns {Object} Datos procesados
  * @throws {Error} Si la validacion falla con razon especifica
  */
-function parseNoiseRow(row, sourceFile, _rowIndex) {
+function parsearFilaRuido(row, sourceFile, _rowIndex) {
   // Parsear fecha en formato "ene-51", "feb-51", etc.
   const fechaStr = row.Fecha;
   if (!fechaStr) {
-    throw new Error(`${REJECTION_REASONS.EMPTY_DATE}: columna='Fecha' vacia`);
+    throw new RejectionError(REJECTION_REASONS.EMPTY_DATE,
+      "columna 'Fecha' vacia", { fecha: row.Fecha });
   }
 
   const [mesStr, añoStr] = fechaStr.split('-');
@@ -282,22 +286,27 @@ function parseNoiseRow(row, sourceFile, _rowIndex) {
   const año = parseInt('20' + añoStr, 10);
 
   if (!mes) {
-    throw new Error(`${REJECTION_REASONS.INVALID_MONTH}: valor='${mesStr}', permitidos=[${Object.keys(MONTH_MAP).join(', ')}]`);
+    throw new RejectionError(REJECTION_REASONS.INVALID_MONTH,
+      `valor='${mesStr}', permitidos=[${Object.keys(MONTH_MAP).join(', ')}]`,
+      { fecha: row.Fecha, mesStr });
   }
   if (!año || isNaN(año)) {
-    throw new Error(`${REJECTION_REASONS.INVALID_YEAR}: valor='${añoStr}'`);
+    throw new RejectionError(REJECTION_REASONS.INVALID_YEAR,
+      `valor='${añoStr}'`, { fecha: row.Fecha, añoStr });
   }
 
   // Parsear NMT
   const nmt = parseInt(row.NMT, 10);
   if (isNaN(nmt)) {
-    throw new Error(`${REJECTION_REASONS.INVALID_NMT}: valor='${row.NMT}'`);
+    throw new RejectionError(REJECTION_REASONS.INVALID_NMT,
+      `valor='${row.NMT}'`, { NMT: row.NMT });
   }
 
-  // Crear fecha (primer dia del mes)
-  const fecha = new Date(año, mes - 1, 1);
+  // Crear fecha (primer dia del mes, en UTC para evitar shifts de TZ)
+  const fecha = new Date(Date.UTC(año, mes - 1, 1));
   if (isNaN(fecha.getTime())) {
-    throw new Error(`${REJECTION_REASONS.INVALID_DATE}: ano=${año}, mes=${mes}`);
+    throw new RejectionError(REJECTION_REASONS.INVALID_DATE,
+      `ano=${año}, mes=${mes}`, { año, mes });
   }
 
   // Obtener nombre de la estacion (normalizado para corregir mojibake
@@ -324,7 +333,9 @@ function parseNoiseRow(row, sourceFile, _rowIndex) {
                       nivelNocturno !== null || laeq24 !== null;
 
   if (!hasValidData) {
-    throw new Error(`${REJECTION_REASONS.NO_VALID_DATA}: Ld='${row.Ld}', Le='${row.Le}', Ln='${row.Ln}', LAeq24='${row.LAeq24}'`);
+    throw new RejectionError(REJECTION_REASONS.NO_VALID_DATA,
+      `Ld='${row.Ld}', Le='${row.Le}', Ln='${row.Ln}', LAeq24='${row.LAeq24}'`,
+      { Ld: row.Ld, Le: row.Le, Ln: row.Ln, LAeq24: row.LAeq24 });
   }
 
   return {
@@ -350,7 +361,7 @@ function parseNoiseRow(row, sourceFile, _rowIndex) {
  * @param {Object} options - Opciones de procesamiento
  * @returns {Promise<void>}
  */
-async function processNoiseFile(filePath, options = {}) {
+async function procesarArchivoRuido(filePath, options = {}) {
   const fileName = path.basename(filePath);
   logger.info({ fileName }, 'Procesando archivo de contaminacion acustica');
 
@@ -358,7 +369,7 @@ async function processNoiseFile(filePath, options = {}) {
     const batch = [];
     let isProcessing = false;
 
-    const stream = createReadStream(filePath, { encoding: 'latin1' })
+    const stream = crearLectorCSV(filePath)
       .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }))
       .on('data', async (row) => {
         if (isProcessing || isShuttingDown) {return;}
@@ -366,7 +377,7 @@ async function processNoiseFile(filePath, options = {}) {
         stats.totalRows++;
 
         try {
-          const noiseData = parseNoiseRow(row, fileName, stats.totalRows);
+          const noiseData = parsearFilaRuido(row, fileName, stats.totalRows);
 
           // Aplicar filtros opcionales
           if (options.targetStation && noiseData.nmt !== options.targetStation) {
@@ -416,16 +427,23 @@ async function processNoiseFile(filePath, options = {}) {
         } catch (error) {
           stats.errorRows++;
           stats.emptyRows++;
-          // Extraer razon de rechazo del mensaje de error
-          const razon = error.message.split(':')[0] || REJECTION_REASONS.VALIDATION_ERROR;
-          rejectionTracker.track(razon);
+          // RejectionError trae .code separado del .message; el resto se
+          // mapea al fallback VALIDATION_ERROR para no perder el rechazo.
+          const razon = error instanceof RejectionError
+            ? error.code
+            : REJECTION_REASONS.VALIDATION_ERROR;
+          const sample = error instanceof RejectionError && error.sampleData
+            ? error.sampleData
+            : { fila: stats.totalRows, error: error.message };
+          rejectionTracker.track(razon, sample);
           if (stats.errors.length < 100) {
             stats.errors.push({ row: stats.totalRows, error: error.message });
           }
           logger.warn(
             {
               fila: stats.totalRows,
-              razon: error.message,
+              razon,
+              mensaje: error.message,
               datosOriginales: {
                 Fecha: row.Fecha,
                 NMT: row.NMT,
@@ -492,7 +510,7 @@ async function processBatch(batch, options) {
       } catch (error) {
         if (error.code === 11000) {
           result.skipped++;
-          rejectionTracker.track(REJECTION_REASONS.DUPLICATE_KEY);
+          rejectionTracker.track(REJECTION_REASONS.DUPLICATE_KEY, { nmt: noiseData.nmt, año: noiseData.año, mes: noiseData.mes });
           logger.debug(
             {
               razon: REJECTION_REASONS.DUPLICATE_KEY,
@@ -505,7 +523,7 @@ async function processBatch(batch, options) {
           );
         } else {
           const handledError = handleMongoError(error);
-          rejectionTracker.track(REJECTION_REASONS.VALIDATION_ERROR);
+          rejectionTracker.track(REJECTION_REASONS.VALIDATION_ERROR, { nmt: noiseData.nmt, error: handledError.message });
           logger.warn(
             {
               razon: REJECTION_REASONS.VALIDATION_ERROR,
@@ -711,7 +729,7 @@ async function main() {
     }
 
     // Procesar archivo
-    await processNoiseFile(filePath, options);
+    await procesarArchivoRuido(filePath, options);
 
     // Mostrar resultados finales
     const durationMs = Date.now() - stats.startTime;
@@ -749,6 +767,19 @@ async function main() {
     }, 'Error durante la importacion');
     process.exitCode = 1;
   } finally {
+    buildAndWriteSummary('ruido', {
+      startTime: stats.startTime,
+      counts: {
+        totalProcessed: stats.totalRows,
+        inserted: stats.insertedRecords,
+        rejected: rejectionTracker.totalRejected,
+        skipped: stats.skippedRecords,
+        emptyRows: stats.emptyRows,
+        errors: stats.errorRows
+      },
+      rejectionTracker
+    });
+
     if (mongoose.connection.readyState === 1) {
       logger.info('Cerrando conexion a MongoDB...');
       try {
@@ -777,7 +808,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  parseNoiseRow,
+  parsearFilaRuido,
   parseNoiseLevel,
   REJECTION_REASONS
 };

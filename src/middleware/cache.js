@@ -33,6 +33,27 @@ const pendingRequests = new Map();
 // Mapa de revalidaciones en background para no lanzar múltiples refrescos simultáneos
 const backgroundRefreshes = new Map();
 
+/**
+ * Cache L2 de fallback ante errores de la base de datos.
+ *
+ * Cuando una peticion entra en MISS sobre un cache primario y el handler falla
+ * (timeout MongoDB, conexion caida, error 5xx), el `globalErrorHandler` consulta
+ * este cache para servir la ultima respuesta exitosa conocida con header
+ * `X-Cache-Status: STALE_FALLBACK`. Asi el dashboard sigue siendo usable durante
+ * incidencias transitorias en lugar de devolver un 500 en cascada.
+ *
+ * TTL muy largo (24h) y `maxKeys` generoso porque solo guardamos payloads que
+ * YA estaban siendo cacheados en algun cache primario; no introduce mas presion
+ * de memoria proporcional al trafico, solo a la diversidad de queries.
+ */
+const fallbackCache = new NodeCache({
+  stdTTL: 24 * 3600,
+  checkperiod: 3600,
+  maxKeys: 30000,
+  useClones: false,
+  deleteOnExpire: true
+});
+
 const buildCache = (config) => {
   const instance = new NodeCache({
     ...config,
@@ -120,20 +141,36 @@ const respondFromCache = (res, cacheType, cacheKey, payload, status = 'HIT') => 
     });
 };
 
-const storePayloadInCache = (cacheInstance, cacheKey, data) => {
+const storePayloadInCache = (cacheInstance, cacheKey, data, cacheType) => {
   const now = Date.now();
   const ttlSeconds = cacheInstance.options.stdTTL || 0;
   const graceSeconds = cacheInstance.options._swrGraceSeconds || 0;
   const payload = {
     data,
     timestamp: now,
-    expiresAt: ttlSeconds === 0 ? Infinity : now + ttlSeconds * 1000
+    expiresAt: ttlSeconds === 0 ? Infinity : now + ttlSeconds * 1000,
+    cacheType: cacheType || 'unknown'
   };
 
   const ttlWithGrace = ttlSeconds === 0 ? 0 : ttlSeconds + graceSeconds;
   cacheInstance.set(cacheKey, payload, ttlWithGrace);
+
+  // Replicar al fallback cache (L2) con TTL extendido para servir como
+  // respuesta degradada si la DB falla en una proxima peticion del mismo recurso
+  fallbackCache.set(cacheKey, payload);
+
   return payload;
 };
+
+/**
+ * Obtiene el payload de fallback para un cacheKey si existe.
+ * Usado por el `globalErrorHandler` para servir respuestas degradadas ante
+ * errores de la base de datos.
+ *
+ * @param {string} cacheKey - Clave generada por `generateCacheKeyFromRequest`
+ * @returns {{data: any, timestamp: number, cacheType: string}|undefined}
+ */
+const getFallbackPayload = (cacheKey) => fallbackCache.get(cacheKey);
 
 const resolvePending = (cacheKey, payload, error = null) => {
   const pending = pendingRequests.get(cacheKey);
@@ -223,13 +260,18 @@ const cacheMiddleware = (cacheType = 'traffic', keyGenerator = null) => {
       res.once('finish', cleanupPending);
       res.once('close', cleanupPending);
 
+      // Registrar contexto de cache en req para que `globalErrorHandler` pueda
+      // intentar servir un payload de fallback (L2) si el handler falla con 5xx.
+      // Ver `getFallbackPayload` arriba.
+      req._cacheContext = { cacheType, cacheKey };
+
       // Cache MISS - interceptar res.json para cachear
       const originalJson = res.json.bind(res);
 
       res.json = function(data) {
         // Solo cachear respuestas exitosas
         if (res.statusCode >= 200 && res.statusCode < 300) {
-          const payload = storePayloadInCache(cacheInstance, cacheKey, data);
+          const payload = storePayloadInCache(cacheInstance, cacheKey, data, cacheType);
           res.set('X-Cache-Status', 'MISS');
           res.set('X-Cache-Type', cacheType);
           resolvePending(cacheKey, payload);
@@ -344,5 +386,6 @@ module.exports = {
   statsCacheMiddleware,
   clearCache,
   getCacheStats,
+  getFallbackPayload, // Usado por `globalErrorHandler` para stale fallback
   caches // Exportar para uso directo si es necesario
 };

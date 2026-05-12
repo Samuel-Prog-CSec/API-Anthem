@@ -21,21 +21,22 @@ process.env.SCRIPT_MODE = 'true';
 const fs = require('fs').promises;
 const path = require('path');
 const csv = require('csv-parser');
-const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const { importScootersLogger: logger } = require('../../src/config/scriptLogger');
+const { importarPatinetesLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const AsignacionPatinetes = require('../../src/models/AsignacionPatinetes');
 const {
   RejectionTracker,
   formatDuration,
   calculateProcessingSpeed,
-  cleanString
+  cleanString,
+  buildAndWriteSummary
 } = require('./helpers/importHelpers');
+const { crearLectorCSV } = require('./helpers/normalizarEncoding');
 const {
   PROVEEDORES_PATINETES,
   DATASET_YEARS,
@@ -326,7 +327,7 @@ function parsearFilaAsignacion(row, sourceFile, rowIndex) {
   // Validar campos obligatorios
   if (!distrito) {
     const razon = REJECTION_REASONS.DISTRITO_FALTANTE;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { distrito: row.DISTRITO, barrio: row.BARRIO }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -337,7 +338,7 @@ function parsearFilaAsignacion(row, sourceFile, rowIndex) {
 
   if (!barrio) {
     const razon = REJECTION_REASONS.BARRIO_FALTANTE;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { distrito: row.DISTRITO, barrio: row.BARRIO }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -392,7 +393,7 @@ function parsearFilaAsignacion(row, sourceFile, rowIndex) {
   // Validar que hay al menos un proveedor
   if (proveedores.length === 0) {
     const razon = REJECTION_REASONS.SIN_PROVEEDORES;
-    const nivel = rejectionTracker.shouldLogWarn(razon) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { distrito, barrio }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
@@ -469,7 +470,7 @@ async function procesarArchivoPatinetes(filePath, options = {}) {
     const batch = [];
     let rowIndex = 0;
 
-    const stream = createReadStream(filePath)
+    const stream = crearLectorCSV(filePath)
       .pipe(csv({ separator: options.csvSeparator || IMPORT_CONFIG.csvSeparator }))
       .on('data', async (row) => {
         if (isShuttingDown) {
@@ -822,11 +823,13 @@ process.on('SIGINT', () => manejarCierre('SIGINT'));
 process.on('SIGTERM', () => manejarCierre('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT EXCEPTION:', error);
   logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION:', reason);
   logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });
@@ -871,6 +874,9 @@ Ejemplos:
     tamanoLote: options.batchSize
   }, 'Iniciando script de importacion de asignacion de patinetes');
 
+  const startTime = Date.now();
+  let result;
+
   try {
     // Conectar a MongoDB
     logger.info('Conectando a MongoDB...');
@@ -882,7 +888,7 @@ Ejemplos:
     logger.info({ registrosActuales: assignmentsCount }, 'Estado actual de la coleccion de asignaciones');
 
     // Ejecutar importacion
-    const result = await importarDatosPatinetes(options);
+    result = await importarDatosPatinetes(options);
 
     // Mostrar resultados finales
     logger.info({
@@ -934,6 +940,19 @@ Ejemplos:
     process.exit(1);
 
   } finally {
+    buildAndWriteSummary('patinetes', {
+      startTime,
+      counts: {
+        totalProcessed: result?.totalRows || 0,
+        inserted: result?.insertedRecords || 0,
+        updated: result?.updatedRecords || 0,
+        rejected: rejectionTracker.totalRejected,
+        skipped: result?.skippedRecords || 0,
+        errors: result?.errorRows || 0
+      },
+      rejectionTracker
+    });
+
     if (!isShuttingDown && mongoose.connection.readyState === 1) {
       logger.info('Cerrando conexion a MongoDB...');
       try {

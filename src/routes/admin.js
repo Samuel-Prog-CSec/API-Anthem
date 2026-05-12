@@ -144,8 +144,17 @@ router.delete('/cache/clear',
 
 /**
  * @route   GET /api/v1/admin/system/health
- * @desc    Obtener estado de salud del sistema
+ * @desc    Obtener estado de salud del sistema con metricas detalladas
  * @access  Privado (solo administradores)
+ *
+ * Devuelve:
+ *   - Estado de conexion a MongoDB con latencia de ping (RTT)
+ *   - Tamano del connection pool (cuando esta disponible)
+ *   - Memoria heap (rss/heapUsed/heapTotal)
+ *   - Hit rate global del cache + breakdown por tipo
+ *   - Lista de issues detectados (alta latencia, memoria alta, DB caida, etc.)
+ *
+ * Util para alertas en QA y monitoring continuo.
  */
 router.get('/system/health',
   authenticate,
@@ -154,56 +163,129 @@ router.get('/system/health',
     try {
       const mongoose = require('mongoose');
 
-      // Verificar estado de la base de datos
+      const issues = [];
+
+      // ----- Estado de la base de datos + ping latency (RTT) -----
       const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+      let dbPingLatencyMs = null;
 
-      // Obtener estadísticas de memoria
+      if (dbStatus === 'connected') {
+        try {
+          const pingStart = Date.now();
+          // ping admin command es la forma mas barata de medir RTT a la DB
+          await mongoose.connection.db.admin().ping();
+          dbPingLatencyMs = Date.now() - pingStart;
+
+          if (dbPingLatencyMs > 200) {
+            issues.push('high_db_latency');
+          }
+        } catch (pingError) {
+          // Conexion en estado raro: readyState=1 pero no responde a ping
+          dbPingLatencyMs = -1;
+          issues.push('db_ping_failed');
+          logger.warn({ error: pingError.message }, 'Ping a DB fallo en health check');
+        }
+      } else {
+        issues.push('database_disconnected');
+      }
+
+      // ----- Connection pool size (best-effort, depende del driver) -----
+      let connectionPool = null;
+      try {
+        const client = mongoose.connection.getClient?.();
+        const topology = client?.topology;
+        if (topology?.s?.servers) {
+          const servers = Array.from(topology.s.servers.values());
+          const firstServer = servers[0];
+          const pool = firstServer?.pool || firstServer?.s?.pool;
+          if (pool) {
+            connectionPool = {
+              totalConnections: pool.totalConnectionCount ?? null,
+              availableConnections: pool.availableConnectionCount ?? null,
+              waitQueueSize: pool.waitQueueSize ?? null
+            };
+          }
+        }
+      } catch (_poolError) {
+        // El driver no expone metricas del pool consistentemente entre versiones;
+        // no es critico para el health check, lo dejamos en null
+        connectionPool = null;
+      }
+
+      // ----- Memoria -----
       const memoryUsage = process.memoryUsage();
+      const heapUsedMB = Math.round(memoryUsage.heapUsed / 1024 / 1024);
 
-      // Obtener tiempo de actividad
-      const uptime = process.uptime();
+      if (memoryUsage.heapUsed > ROUTE_SPECIFIC_LIMITS.ADMIN.MEMORY_THRESHOLD_BYTES) {
+        issues.push('high_memory_usage');
+      }
 
-      // Obtener estadísticas de caché
+      // ----- Cache: hit rate global y breakdown por tipo -----
+      // BUG ANTERIOR: el codigo accedia a cacheStats.general.keys, pero el cache
+      // real no tiene una entrada llamada 'general' (los tipos son demographic,
+      // statistics, traffic, static, airQuality, bikes, containers, noise).
+      // Eso lanzaba TypeError 'Cannot read properties of undefined' en cuanto se
+      // llamaba al endpoint. Sumamos todos los caches existentes en su lugar.
       const cacheStats = getCacheStats();
+      const cacheTotals = Object.values(cacheStats).reduce(
+        (acc, c) => ({
+          keys: acc.keys + (c.keys || 0),
+          hits: acc.hits + (c.hits || 0),
+          misses: acc.misses + (c.misses || 0)
+        }),
+        { keys: 0, hits: 0, misses: 0 }
+      );
+      const totalRequests = cacheTotals.hits + cacheTotals.misses;
+      const globalHitRate = totalRequests > 0
+        ? Number(((cacheTotals.hits / totalRequests) * 100).toFixed(2))
+        : 0;
+
+      // Si el cache esta caliente (hubo trafico) y el hit rate es bajo, es senal
+      // de keys mal normalizadas o TTLs demasiado cortos. Util para QA.
+      if (totalRequests > 100 && globalHitRate < 30) {
+        issues.push('low_cache_hit_rate');
+      }
+
+      // ----- Estado general derivado de issues -----
+      let status = 'healthy';
+      if (issues.includes('database_disconnected') || issues.includes('db_ping_failed')) {
+        status = 'degraded';
+      } else if (issues.length > 0) {
+        status = 'warning';
+      }
 
       const healthData = {
-        status: 'healthy',
+        status,
         timestamp: new Date().toISOString(),
         uptime: {
-          seconds: uptime,
-          formatted: formatUptime(uptime)
+          seconds: process.uptime(),
+          formatted: formatUptime(process.uptime())
         },
         database: {
           status: dbStatus,
-          name: mongoose.connection.name || 'unknown'
+          name: mongoose.connection.name || 'unknown',
+          pingLatencyMs: dbPingLatencyMs,
+          connectionPool
         },
         memory: {
-          used: Math.round(memoryUsage.used / 1024 / 1024), // MB
-          heap: Math.round(memoryUsage.heapUsed / 1024 / 1024), // MB
-          external: Math.round(memoryUsage.external / 1024 / 1024) // MB
+          rssMB: Math.round(memoryUsage.rss / 1024 / 1024),
+          heapUsedMB,
+          heapTotalMB: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+          externalMB: Math.round(memoryUsage.external / 1024 / 1024)
         },
         cache: {
-          generalKeys: cacheStats.general.keys,
-          statisticsKeys: cacheStats.statistics.keys,
-          totalKeys: cacheStats.general.keys + cacheStats.statistics.keys
+          totalKeys: cacheTotals.keys,
+          totalHits: cacheTotals.hits,
+          totalMisses: cacheTotals.misses,
+          globalHitRatePct: globalHitRate,
+          byType: cacheStats
         },
         node: {
           version: process.version,
           platform: process.platform
-        }
+        },
+        issues
       };
-
-      // Determinar estado general
-      if (dbStatus !== 'connected') {
-        healthData.status = 'degraded';
-        healthData.issues = ['database_disconnected'];
-      }
-
-      if (memoryUsage.heapUsed > ROUTE_SPECIFIC_LIMITS.ADMIN.MEMORY_THRESHOLD_BYTES) {
-        healthData.status = healthData.status === 'healthy' ? 'warning' : 'degraded';
-        healthData.issues = healthData.issues || [];
-        healthData.issues.push('high_memory_usage');
-      }
 
       res.status(HTTP_STATUS.OK).json({
         success: true,

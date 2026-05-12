@@ -53,7 +53,7 @@ Los scripts deben usar el `scriptLogger` configurado en `src/config/scriptLogger
 process.env.SCRIPT_MODE = 'true';
 
 // Importar el logger específico para el tipo de script
-const { importAccidentsLogger: logger } = require('../src/config/scriptLogger');
+const { importarAccidentesLogger: logger } = require('../src/config/scriptLogger');
 
 logger.info('Iniciando importación de accidentes');
 logger.error({ error: err }, 'Error en importación');
@@ -65,16 +65,17 @@ Los logs de scripts se identifican automáticamente y se escriben a `logs/script
 
 Para scripts de importación:
 
-- `importAccidentsLogger`: Importación de accidentes
-- `importCensusLogger`: Importación de censo
-- `importTrafficLogger`: Importación de tráfico
-- `importFinesLogger`: Importación de multas
-- `importNoiseLogger`: Importación de contaminación acústica
-- `importLocationsLogger`: Importación de ubicaciones
-- `importAirQualityLogger`: Importación de calidad del aire
-- `importScootersLogger`: Importación de patinetes
-- `importBikesLogger`: Importación de bicicletas
-- `importContainersLogger`: Importación de contenedores
+- `importarUbicacionesLogger`: Importación de ubicaciones (estaciones, puntos de tráfico, rutas)
+- `importarCalidadAireLogger`: Importación de calidad del aire (12 magnitudes horarias)
+- `importarRuidoLogger`: Importación de contaminación acústica
+- `importarTraficoLogger`: Importación de tráfico (datos masivos por punto de medida)
+- `importarCensoLogger`: Importación de censo demográfico
+- `importarContenedoresLogger`: Importación de contenedores de reciclaje
+- `importarMultasLogger`: Importación de multas de tráfico
+- `importarAccidentesLogger`: Importación de accidentes viales
+- `importarPatinetesLogger`: Importación de asignación de patinetes
+- `importarBicicletasLogger`: Importación de disponibilidad de bicicletas
+- `importarAforoBicicletasLogger`: Importación de aforo de bicicletas
 - `importAllLogger`: Script maestro de importación
 
 Cada logger incluye un campo `scriptType` que permite filtrar logs por tipo de importación.
@@ -105,7 +106,7 @@ Para scripts:
   "env": "development",
   "app": "smart-city-api",
   "processType": "script",
-  "scriptType": "import-accidents",
+  "scriptType": "importar-accidentes",
   "msg": "Importación completada"
 }
 ```
@@ -166,17 +167,18 @@ Actualmente los logs no tienen rotación automática. Para implementar rotación
 
 Todos los scripts en `scripts/importation/` han sido actualizados:
 
-- `importAccidentData.js`
-- `importAirQuality.js`
-- `importBikeAvailability.js`
-- `importCensus.js`
-- `importContainers.js`
-- `importFines.js`
-- `importLocations.js`
-- `importNoise.js`
-- `importScooterAssignments.js`
-- `importTrafficData.js`
-- `importAll.js`
+- `importarUbicaciones.js`
+- `importarCalidadAire.js`
+- `importarRuido.js`
+- `importarTrafico.js`
+- `importarCenso.js`
+- `importarContenedores.js`
+- `importarMultas.js`
+- `importarAccidentes.js`
+- `importarPatinetes.js`
+- `importarBicicletas.js`
+- `importarAforoBicicletas.js`
+- `importAll.js` (orquestador)
 
 ## Ventajas del Nuevo Sistema
 
@@ -204,7 +206,7 @@ Get-Content logs\scripts\errors.log | Select-String "error"
 ### Filtrar por Tipo de Script
 
 ```powershell
-Get-Content logs\scripts\combined.log | Select-String "import-accidents"
+Get-Content logs\scripts\combined.log | Select-String "importar-accidentes"
 ```
 
 ### Ver Logs en Tiempo Real

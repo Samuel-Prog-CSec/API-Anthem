@@ -298,7 +298,7 @@ No usamos `.lean()` cuando:
 **Ejemplo de caso donde NO se usa:**
 
 ```javascript
-// authController.js - Necesitamos modificar y guardar
+// controladorAutenticacion.js - Necesitamos modificar y guardar
 const user = await User.findById(userId); // Sin .lean()
 user.lastLogin = new Date();
 await user.save(); // Requiere Mongoose Document

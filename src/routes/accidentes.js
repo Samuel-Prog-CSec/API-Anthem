@@ -7,15 +7,20 @@
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { query } = require('express-validator');
+
 const {
   USER_ROLES,
   RATE_LIMITS,
-  DATE_RANGE_LIMITS
+  DATE_RANGE_LIMITS,
+  MAP_LIMITS,
+  SEVERITY_LEVELS
 } = require('../constants');
 
 const accidentController = require('../controllers/controladorAccidentes');
 const { authenticate } = require('../middleware/auth');
 const { cacheMiddleware } = require('../middleware/cache');
+const { validateRequest } = require('../middleware/security');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
 const { etagMiddleware } = require('../middleware/etag');
 const logger = require('../config/logger');
@@ -147,10 +152,26 @@ router.use((req, res, next) => {
  * @route   GET /api/v1/accidentes/mapa-calor
  * @desc    Obtener datos agrupados para mapa de calor de accidentes
  * @access  Privado
+ *
+ * Cap de `limite` y `precision` mas conservador que /mapa porque cada punto del
+ * heatmap es una agregacion (no un documento crudo) y costaria mas iterar
+ * miles de puntos en el cliente Leaflet.
  */
 router.get('/mapa-calor',
   generalLimit,
   authenticate,
+  [
+    query('limite').optional().isInt({ min: MAP_LIMITS.MIN, max: MAP_LIMITS.HEATMAP_MAX })
+      .withMessage(`limite debe estar entre ${MAP_LIMITS.MIN} y ${MAP_LIMITS.HEATMAP_MAX}`),
+    query('precision').optional().isInt({ min: 50, max: 500 })
+      .withMessage('precision debe estar entre 50 y 500 metros'),
+    query('distrito').optional().trim().isLength({ min: 2, max: 100 }).escape(),
+    query('gravedad').optional().isIn(Object.values(SEVERITY_LEVELS.ACCIDENT))
+      .withMessage('gravedad invalida'),
+    query('tipoAccidente').optional().trim().escape()
+  ],
+  validateRequest,
+  validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   cacheMiddleware('accidents'),
   accidentController.obtenerMapaCalorAccidentes
 );
@@ -163,6 +184,18 @@ router.get('/mapa-calor',
 router.get('/mapa',
   generalLimit,
   authenticate,
+  [
+    query('limite').optional().isInt({ min: MAP_LIMITS.MIN, max: MAP_LIMITS.DEFAULT_MAX })
+      .withMessage(`limite debe estar entre ${MAP_LIMITS.MIN} y ${MAP_LIMITS.DEFAULT_MAX}`),
+    query('distrito').optional().trim().isLength({ min: 2, max: 100 }).escape(),
+    query('gravedad').optional().isIn(Object.values(SEVERITY_LEVELS.ACCIDENT))
+      .withMessage('gravedad invalida'),
+    query('tipoAccidente').optional().trim().escape(),
+    query('bbox').optional().matches(/^-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*$/)
+      .withMessage('bbox debe ser minLng,minLat,maxLng,maxLat')
+  ],
+  validateRequest,
+  validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   cacheMiddleware('accidents'),
   accidentController.obtenerMapaAccidentes
 );

@@ -152,30 +152,37 @@ contenedorSchema.pre('save', function(next) {
     this.direccion.completa = parts.join(' ');
   }
 
-  // Validación de coherencia UTM vs GeoJSON
-  // Las coordenadas UTM y GeoJSON deben representar aproximadamente la misma ubicación
-  // UTM está en centímetros, GeoJSON en grados decimales
-  // Si hay discrepancia significativa, generar advertencia (no bloquear guardado)
+  // Validacion de coherencia UTM vs GeoJSON.
+  //
+  // Convencion del proyecto: UTM se almacena SIEMPRE en METROS (zona 30N
+  // ETRS89). El CSV original de contenedores trae UTM en centimetros, pero
+  // el importador (helpers/coordenadas.js, perfil 'contenedores') normaliza
+  // a metros antes de persistir. Por eso aqui asumimos metros directamente.
+  //
+  // Esta validacion es defensiva: detecta inconsistencias si alguien guarda
+  // un contenedor manualmente con UTM en cm o con coordenadas mal mapeadas.
   if (this.coordenadas?.x && this.coordenadas?.y && this.location?.coordinates) {
     const [lng, lat] = this.location.coordinates;
-    const utmX = this.coordenadas.x;
-    const utmY = this.coordenadas.y;
+    const utmX = this.coordenadas.x; // metros
+    const utmY = this.coordenadas.y; // metros
 
-    // Conversión aproximada: Madrid zona UTM 30N
-    // lng ≈ -3.7 grados para X ≈ 440000000 cm (440 km)
-    // lat ≈ 40.4 grados para Y ≈ 4474000000 cm (4474 km)
-    // Tolerancia: ±0.01 grados (≈1.1 km) para detectar errores graves
-    const expectedLng = -3.7 + (utmX / 100 - 440000) / 111320; // 111320 m/grado aprox
-    const expectedLat = 40.4 + (utmY / 100 - 4474000) / 111320;
+    // Conversion aproximada para Madrid (zona UTM 30N).
+    // Centroide aproximado: lng=-3.7, lat=40.4 que corresponde a UTM
+    // (440000, 4474000) en metros. 111320 m/grado de latitud (constante
+    // suficiente al nivel de tolerancia que aplicamos).
+    const expectedLng = -3.7 + (utmX - 440000) / 111320;
+    const expectedLat = 40.4 + (utmY - 4474000) / 111320;
 
     const lngDiff = Math.abs(lng - expectedLng);
     const latDiff = Math.abs(lat - expectedLat);
 
-    // Si la diferencia es mayor a 0.01 grados (1.1 km), posible error
+    // Tolerancia: 0.01 grados (~1.1 km). Detecta errores graves (zona UTM
+    // incorrecta, ejes invertidos) sin disparar falsos positivos por
+    // redondeo o por la aproximacion lineal.
     if (lngDiff > 0.01 || latDiff > 0.01) {
       logger.warn(
         `[Contenedor ${this.codigoInternoSituado}] Advertencia: Posible incoherencia entre coordenadas UTM y GeoJSON. ` +
-        `UTM: (${utmX}, ${utmY}) → GeoJSON esperado: [${expectedLng.toFixed(4)}, ${expectedLat.toFixed(4)}], ` +
+        `UTM: (${utmX}, ${utmY}) m → GeoJSON esperado: [${expectedLng.toFixed(4)}, ${expectedLat.toFixed(4)}], ` +
         `GeoJSON actual: [${lng}, ${lat}]. Diferencia: lng=${lngDiff.toFixed(4)}°, lat=${latDiff.toFixed(4)}°`
       );
     }
@@ -583,6 +590,62 @@ contenedorSchema.statics.getCoverageAnalysis = function(distrito = null) {
  *   includeBarrios: true
  * });
  */
+/**
+ * Obtener documentos para construir un FeatureCollection GeoJSON.
+ *
+ * Patron paralelo a otros endpoints `/mapa` (ruido, multas, accidentes).
+ * Devuelve documentos lean con location + propiedades minimas necesarias.
+ * Soporta filtrado por bbox (4 valores: minLng, minLat, maxLng, maxLat)
+ * para no devolver toda la coleccion cuando el cliente solo ve un trozo
+ * del mapa, ademas de filtros administrativos.
+ *
+ * @param {Object} filtros - Filtros de consulta
+ * @param {string} [filtros.tipoContenedor] - Tipo de contenedor (uppercase)
+ * @param {string} [filtros.distrito] - Nombre del distrito
+ * @param {string} [filtros.barrio] - Nombre del barrio
+ * @param {number} [filtros.lote] - Lote 1, 2 o 3
+ * @param {Array<number>} [filtros.bbox] - [minLng, minLat, maxLng, maxLat]
+ * @param {number} [filtros.limit=10000] - Tope de seguridad (default 10k)
+ * @returns {Promise<Array>} Documentos lean con location + propiedades
+ */
+contenedorSchema.statics.getMapFeatures = function(filtros = {}) {
+  const { tipoContenedor, distrito, barrio, lote, bbox, limit = 10000 } = filtros;
+
+  const match = {};
+  if (tipoContenedor) {match.tipoContenedor = tipoContenedor.toUpperCase();}
+  if (distrito) {match.distrito = distrito;}
+  if (barrio) {match.barrio = barrio;}
+  if (lote !== undefined && lote !== null) {match.lote = Number(lote);}
+
+  // Filtro espacial bbox (usa indice 2dsphere)
+  if (Array.isArray(bbox) && bbox.length === 4) {
+    const [minLng, minLat, maxLng, maxLat] = bbox.map(Number);
+    if ([minLng, minLat, maxLng, maxLat].every(Number.isFinite)) {
+      match.location = {
+        $geoWithin: {
+          $box: [[minLng, minLat], [maxLng, maxLat]]
+        }
+      };
+    }
+  }
+
+  const projection = {
+    codigoInternoSituado: 1,
+    tipoContenedor: 1,
+    cantidad: 1,
+    lote: 1,
+    distrito: 1,
+    barrio: 1,
+    'direccion.completa': 1,
+    location: 1
+  };
+
+  return this.find(match, projection)
+    .limit(Number.isFinite(limit) ? limit : 10000)
+    .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+    .lean();
+};
+
 contenedorSchema.statics.getDensityAnalysisByDistrict = function(options = {}) {
   const { distrito, tipoContenedor, includeBarrios = true } = options;
 

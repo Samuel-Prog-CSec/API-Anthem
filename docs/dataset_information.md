@@ -156,3 +156,52 @@
   - Número: Número de la vía.
   - CoordenadaX: Situación del objeto en su coordenada X en medida UTM (en centímetros).
   - CoordenadaY: Situación del objeto en su coordenada Y en medida UTM (en centímetros).
+
+# Notas transversales (BI)
+
+Este bloque documenta convenciones que cruzan varios datasets y que conviene
+tener presentes al diseñar consultas o cuadros comparativos.
+
+## Periodizaciones del día (NO son intercambiables)
+
+Distintos datasets dividen el día en franjas distintas porque cada uno
+responde a una normativa o patrón de uso distinto. Cruzarlas como si fueran
+la misma puede inducir conclusiones falsas.
+
+| Dataset    | Periodos                                                        | Origen                                                              |
+| ---------- | --------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Ruido      | D 07-19, E 19-23, N 23-07 (T = 24h)                             | Directiva 2002/49/CE, Ley 37/2003, RD 1367/2007                     |
+| Tráfico    | 00-07, 07-12, 12-15, 15-21, 21-00                               | Patrones de movilidad urbana del propio dataset                     |
+| Multas     | hora exacta (HH.MM) sin discretizar                             | Tal cual lo emite el sensor de denuncia                             |
+| Accidentes | franja en formato texto en columna `RANGO HORARIO`              | Discretización propia del CSV de accidentalidad                     |
+
+Implicación: cuando se quiera correlacionar (p. ej. ruido vs. tráfico por
+franja), hay que reagrupar a una rejilla común — habitualmente las franjas
+horarias de ruido D/E/N — derivando los valores de tráfico a esa rejilla.
+
+## Coordenadas
+
+Todos los datasets con georreferencia se canalizan por
+`scripts/importation/helpers/coordenadas.js`. Convenciones internas tras la
+importación:
+
+- UTM se almacena SIEMPRE en metros (ETRS89 zona 30N, EPSG:25830). El CSV
+  de Contenedores trae las coordenadas en centímetros y el helper aplica
+  la conversión cm → m.
+- Para WGS84 se respeta el formato GeoJSON RFC 7946: `[longitud, latitud]`
+  en grados decimales.
+- Cuando el CSV trae UTM y WGS84 simultáneamente (estaciones acústicas y
+  puntos de tráfico), la fuente prioritaria es WGS84; UTM se conserva como
+  metadato. Si las dos discrepan más de ~0.01° (~1 km) se registra una
+  advertencia, pero no se rechaza la fila.
+
+Más detalle en `docs/Coordenadas.md`.
+
+## Multas: campo `metadatos.calificacionInferida`
+
+El CSV de multas trae a veces la columna CALIFICACION vacía o con valores
+fuera de {LEVE, GRAVE, MUY GRAVE}. En esos casos el importador asigna LEVE
+por defecto y marca `metadatos.calificacionInferida = true`. Para cuadros
+BI que comparen severidades, conviene filtrar o segmentar por ese flag —
+de lo contrario LEVE saldría sobrerrepresentado por absorber filas
+realmente desconocidas.

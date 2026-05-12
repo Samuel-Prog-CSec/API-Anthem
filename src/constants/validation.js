@@ -66,7 +66,23 @@ const DATE_RANGE_LIMITS = {
   ACCIDENTS_MAX_DAYS: 730,
   AIR_QUALITY_MAX_DAYS: 730,
   NOISE_MAX_DAYS: 1825,
+  // Multas: el dataset cubre meses, 1 ano de rango es suficiente para
+  // analitica habitual y evita scans masivos sobre filtros poco selectivos
+  FINES_MAX_DAYS: 365,
+  // Trafico: coleccion mas masiva (~24M docs); rango por defecto duro de 90 dias
+  // salvo filtros por puntoMedidaId u otros que reduzcan el scope
+  TRAFFIC_MAX_DAYS: 90,
   MAX_MILLISECONDS_CALCULATION: 24 * 60 * 60 * 1000
+};
+
+// Caps absolutos de payload para endpoints `/mapa` y `/mapa-calor`.
+// El frontend nunca renderiza mas de 1000 features simultaneas en Leaflet sin
+// virtualizar/cluster, asi que este cap cubre todos los casos legitimos y
+// previene queries patologicas que devuelvan miles de documentos.
+const MAP_LIMITS = {
+  DEFAULT_MAX: 1000, // generico para /mapa (FeatureCollection)
+  HEATMAP_MAX: 500, // mapa de calor (cada punto es una agregacion mas costosa)
+  MIN: 1
 };
 
 const ROUTE_SPECIFIC_LIMITS = {
@@ -157,5 +173,6 @@ module.exports = {
   SEARCH_LIMITS,
   DATE_RANGE_LIMITS,
   ROUTE_SPECIFIC_LIMITS,
-  VALIDATION_LIMITS
+  VALIDATION_LIMITS,
+  MAP_LIMITS
 };

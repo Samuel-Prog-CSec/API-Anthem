@@ -72,9 +72,73 @@ function centroidePorNombre(nombre) {
   return CENTROIDES_POR_NOMBRE[clave] || null;
 }
 
+// Conversiones aproximadas para Madrid (latitud media ~40.43)
+//   1 grado de latitud  ~ 111 km
+//   1 grado de longitud ~ cos(40deg) * 111 = 85.04 km
+const KM_POR_GRADO_LAT = 111;
+const KM_POR_GRADO_LNG_MADRID = 85.04;
+
+/**
+ * Derivar un bbox aproximado (cuadrado) alrededor del centroide del distrito.
+ *
+ * Sirve para filtrar recursos georreferenciados (multas, accidentes) por
+ * distrito cuando el dataset NO tiene campo distrito normalizado y solo
+ * guarda coordenadas. Limitaciones conocidas:
+ *
+ *   - Los distritos reales son poligonos irregulares; un cuadrado introduce
+ *     falsos positivos en distritos vecinos y falsos negativos en distritos
+ *     alargados o muy grandes (Fuencarral-El Pardo cubre el monte de El Pardo
+ *     que queda fuera de un radio razonable).
+ *   - El radio por defecto (4 km) cubre la zona urbana central de la mayoria
+ *     de distritos sin invadir vecinos demasiado. Para distritos perifericos
+ *     muy extensos, puede no incluir toda su superficie pero si la zona con
+ *     densidad de eventos urbanos.
+ *
+ * Cuando exista un poligono real de distrito en el modelo de Ubicaciones,
+ * sustituir esta aproximacion por un `$geoWithin` con poligono.
+ *
+ * @param {number|string} codOrNombre - codigo (1-21) o nombre del distrito
+ * @param {number} [radioKm=4] - radio en km del cuadrado, capeado a [1, 15]
+ * @returns {{ distrito: object, bbox: [number,number,number,number], radioKm: number }|null}
+ */
+function bboxDeDistrito(codOrNombre, radioKm = 4) {
+  if (codOrNombre === undefined || codOrNombre === null || codOrNombre === '') {
+    return null;
+  }
+
+  let distrito = null;
+  const trimmed = String(codOrNombre).trim();
+  if (/^\d+$/.test(trimmed)) {
+    distrito = centroidePorCodigo(trimmed);
+  } else {
+    distrito = centroidePorNombre(trimmed);
+  }
+  if (!distrito) {return null;}
+
+  // Cap defensivo del radio para evitar que un cliente solicite un cuadrado
+  // de 1000 km que cubra toda Espana
+  const radioCapeado = Math.max(1, Math.min(Number(radioKm) || 4, 15));
+
+  const [lng, lat] = distrito.coordenadas;
+  const deltaLat = radioCapeado / KM_POR_GRADO_LAT;
+  const deltaLng = radioCapeado / KM_POR_GRADO_LNG_MADRID;
+
+  return {
+    distrito,
+    bbox: [
+      lng - deltaLng,
+      lat - deltaLat,
+      lng + deltaLng,
+      lat + deltaLat
+    ],
+    radioKm: radioCapeado
+  };
+}
+
 module.exports = {
   CENTROIDES_DISTRITOS_MADRID,
   centroidePorCodigo,
   centroidePorNombre,
-  normalizarNombreDistrito
+  normalizarNombreDistrito,
+  bboxDeDistrito
 };

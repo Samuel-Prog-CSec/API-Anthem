@@ -6,12 +6,17 @@
 
 const Traffic = require('../models/Trafico');
 const Location = require('../models/Ubicacion');
-const { createInternalError, createNotFoundError } = require('../utils/errorUtils');
+const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, buildResponseMetadata, parseNumericParams, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
+const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES, MONGODB_TIMEOUTS } = require('../constants');
 const logger = require('../config/logger');
+
+// Maximo absoluto de dias para el endpoint /mapa. La coleccion de trafico
+// tiene ~138M docs; un rango mayor a 7 dias hace lookup masivo a locations.
+const TRAFICO_MAPA_MAX_DIAS = 7;
 
 /**
  * Obtener todas las mediciones de tráfico con filtros avanzados
@@ -429,11 +434,114 @@ const obtenerDatosHistoricos = async (req, res, next) => {
   }
 };
 
+/**
+ * Obtener mapa de trafico como FeatureCollection GeoJSON RFC 7946.
+ *
+ * Fuerza filtros de fecha y limite de 7 dias para no colapsar el backend
+ * con un $lookup masivo. Agrupa por puntoMedidaId con metricas medias en
+ * el periodo elegido.
+ *
+ * GET /api/v1/trafico/mapa
+ * Query params: startDate (req), endDate (req), tipoElemento, bbox
+ */
+const obtenerMapaTrafico = async (req, res, next) => {
+  try {
+    const { startDate, endDate, tipoElemento, bbox } = req.query;
+
+    if (!startDate || !endDate) {
+      return next(createBadRequestError(
+        'Se requieren los parametros startDate y endDate (formato YYYY-MM-DD)'
+      ));
+    }
+
+    const desde = new Date(startDate);
+    const hasta = new Date(endDate);
+    if (isNaN(desde.getTime()) || isNaN(hasta.getTime())) {
+      return next(createBadRequestError('startDate o endDate no son fechas validas'));
+    }
+    if (desde > hasta) {
+      return next(createBadRequestError('startDate debe ser anterior o igual a endDate'));
+    }
+
+    const diffDias = Math.ceil((hasta - desde) / (24 * 60 * 60 * 1000));
+    if (diffDias > TRAFICO_MAPA_MAX_DIAS) {
+      return next(createBadRequestError(
+        `El rango maximo para el mapa de trafico es ${TRAFICO_MAPA_MAX_DIAS} dias (solicitado: ${diffDias})`
+      ));
+    }
+
+    // Construir filtros base
+    const filtros = {
+      fecha: { $gte: desde, $lte: hasta }
+    };
+    if (tipoElemento) {
+      filtros.tipoElemento = String(tipoElemento).toUpperCase();
+    }
+
+    // Agregacion principal con lookup geo
+    const docs = await Traffic.obtenerAgregadoParaMapa(filtros);
+
+    // Filtro bbox post-lookup (en frontend o aqui)
+    let docsFiltrados = docs;
+    if (bbox) {
+      const partes = String(bbox).split(',').map(Number);
+      if (partes.length === 4 && partes.every(Number.isFinite)) {
+        const [minLng, minLat, maxLng, maxLat] = partes;
+        docsFiltrados = docs.filter(d => {
+          const coords = d.geometry?.coordinates;
+          if (!Array.isArray(coords) || coords.length < 2) {return false;}
+          const [lng, lat] = coords;
+          return lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat;
+        });
+      }
+    }
+
+    const featureCollection = documentosAFeatureCollection(
+      docsFiltrados,
+      (doc) => ({
+        id: doc.puntoMedidaId,
+        geometry: doc.geometry,
+        properties: {
+          puntoMedidaId: doc.puntoMedidaId,
+          nombre: doc.nombre || null,
+          distrito: doc.distrito || null,
+          tipoElemento: doc.tipoElemento,
+          intensidadMedia: doc.intensidadMedia,
+          ocupacionMedia: doc.ocupacionMedia,
+          cargaMedia: doc.cargaMedia,
+          velocidadMedia: doc.velocidadMedia,
+          porcentajeCongestion: doc.porcentajeCongestion,
+          totalMediciones: doc.totalMediciones
+        }
+      }),
+      {
+        recurso: 'trafico',
+        rango: { startDate, endDate, diasAnalizados: diffDias },
+        ...(tipoElemento && { tipoElemento: String(tipoElemento).toUpperCase() })
+      }
+    );
+
+    res.status(HTTP_STATUS.OK).json(
+      createResponse(featureCollection, 'Mapa de trafico generado exitosamente')
+    );
+
+  } catch (error) {
+    logger.error({
+      error: error.message,
+      stack: error.stack,
+      query: req.query,
+      endpoint: 'GET /api/v1/trafico/mapa'
+    }, 'Error al generar mapa de trafico');
+    next(createInternalError('Error al generar mapa de trafico', error));
+  }
+};
+
 module.exports = {
   obtenerDatosTrafico,
   obtenerTraficoPorPunto,
   obtenerEstadisticasTrafico,
   obtenerAnalisisCongestion,
-  obtenerDatosHistoricos
+  obtenerDatosHistoricos,
+  obtenerMapaTrafico
 };
 

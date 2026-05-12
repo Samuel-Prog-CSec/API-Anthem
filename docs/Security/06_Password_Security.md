@@ -532,7 +532,7 @@ userSchema.methods.resetFailedAttempts = async function() {
 **Controller de Autenticación:**
 
 ```javascript
-// src/controllers/authController.js
+// src/controllers/controladorAutenticacion.js
 const login = async (req, res) => {
   try {
     const { identifier, password } = req.body;

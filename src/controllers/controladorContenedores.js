@@ -10,6 +10,7 @@ const { createInternalError, createNotFoundError, createBadRequestError } = requ
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
+const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, GEO_LIMITS } = require('../constants');
 
 /**
@@ -446,6 +447,77 @@ exports.obtenerAnalisisCobertura = async (req, res, next) => {
 
   } catch (error) {
     next(createInternalError('Error al analizar cobertura', error));
+  }
+};
+
+/**
+ * Obtener mapa de contenedores como FeatureCollection GeoJSON RFC 7946.
+ *
+ * Endpoint paralelo a `/ubicaciones/mapa`, `/ruido/mapa`, `/multas/mapa`,
+ * etc. Devuelve cada contenedor como un Feature Point con propiedades
+ * minimas para popup/cluster en Leaflet.
+ *
+ * Acepta filtros opcionales para acotar volumen (bbox para viewport,
+ * tipoContenedor para capas tematicas, distrito/barrio para drill-down).
+ *
+ * @route GET /api/v1/contenedores/mapa
+ * @access Private
+ */
+exports.obtenerMapaContenedores = async (req, res, next) => {
+  try {
+    const { tipoContenedor, distrito, barrio, lote, bbox } = req.query;
+
+    // Parsear bbox: acepta CSV "minLng,minLat,maxLng,maxLat" o array
+    let bboxArray;
+    if (bbox) {
+      const parts = Array.isArray(bbox) ? bbox : String(bbox).split(',');
+      if (parts.length === 4) {
+        bboxArray = parts.map(p => parseFloat(p));
+        if (bboxArray.some(v => !Number.isFinite(v))) {
+          return next(createBadRequestError('bbox debe ser 4 numeros: minLng,minLat,maxLng,maxLat'));
+        }
+      } else {
+        return next(createBadRequestError('bbox debe contener exactamente 4 valores'));
+      }
+    }
+
+    const docs = await Contenedor.getMapFeatures({
+      tipoContenedor,
+      distrito,
+      barrio,
+      lote,
+      bbox: bboxArray
+    });
+
+    const featureCollection = documentosAFeatureCollection(
+      docs,
+      (doc) => ({
+        id: doc._id,
+        geometry: doc.location,
+        properties: {
+          codigoInternoSituado: doc.codigoInternoSituado,
+          tipoContenedor: doc.tipoContenedor,
+          cantidad: doc.cantidad,
+          lote: doc.lote,
+          distrito: doc.distrito,
+          barrio: doc.barrio,
+          direccion: doc.direccion?.completa || null
+        }
+      }),
+      {
+        recurso: 'contenedores',
+        ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
+        ...(distrito && { distrito }),
+        ...(barrio && { barrio })
+      }
+    );
+
+    res.status(HTTP_STATUS.OK).json(
+      createResponse(featureCollection, 'Mapa de contenedores generado exitosamente')
+    );
+
+  } catch (error) {
+    next(createInternalError('Error al generar mapa de contenedores', error));
   }
 };
 

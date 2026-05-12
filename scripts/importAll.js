@@ -9,8 +9,8 @@
  * Opciones:
  *   --force         Forzar sobrescritura de datos existentes
  *   --only=x,y,z    Ejecutar solo importadores especificos
- *                    Valores: locations,air,noise,traffic,censo,contenedores,multas,
- *                             accidents,scooters,bikes,bike-traffic
+ *                    Valores: ubicaciones,aire,ruido,trafico,censo,contenedores,multas,
+ *                             accidentes,patinetes,bicicletas,aforo-bicicletas
  *   --help          Mostrar ayuda
  */
 
@@ -20,6 +20,7 @@ process.env.SCRIPT_MODE = 'true';
 
 const { execFile } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const { importAllLogger: logger } = require('../src/config/scriptLogger');
 const mongoose = require('mongoose');
 const { connectDB } = require('../src/config/database');
@@ -28,13 +29,14 @@ const {
   dropIndicesSecundarios,
   recrearIndicesSecundarios
 } = require('./importation/helpers/gestorIndices');
+const { IMPORT_SUMMARIES_DIR } = require('./importation/helpers/importHelpers');
 
 const Trafico = require('../src/models/Trafico');
 const Censo = require('../src/models/Censo');
 const Multa = require('../src/models/Multa');
 
 const MODELOS_FASE3 = {
-  traffic: Trafico,
+  trafico: Trafico,
   censo: Censo,
   multas: Multa
 };
@@ -56,26 +58,26 @@ const imprimirError = (mensaje = '') => process.stderr.write(`${mensaje}\n`);
  * Fase 3: Datos pesados (trafico, censo, multas) - secuenciales para no saturar la BD
  */
 const IMPORTERS = {
-  locations: {
+  ubicaciones: {
     script: 'importation/importarUbicaciones.js',
     nombre: 'Ubicaciones',
     fase: 1,
     descripcion: 'Estaciones acusticas, puntos de trafico y rutas de transporte'
   },
-  air: {
-    script: 'importation/importAirQuality.js',
+  aire: {
+    script: 'importation/importarCalidadAire.js',
     nombre: 'Calidad del Aire',
     fase: 2,
     descripcion: 'Mediciones horarias de contaminantes atmosfericos (12 meses)'
   },
-  noise: {
-    script: 'importation/importNoise.js',
+  ruido: {
+    script: 'importation/importarRuido.js',
     nombre: 'Contaminacion Acustica',
     fase: 2,
     descripcion: 'Niveles de ruido por estacion y periodo del dia'
   },
-  traffic: {
-    script: 'importation/importTrafficData.js',
+  trafico: {
+    script: 'importation/importarTrafico.js',
     nombre: 'Datos de Trafico',
     fase: 3,
     descripcion: 'Intensidad y carga de trafico por punto de medicion'
@@ -98,25 +100,25 @@ const IMPORTERS = {
     fase: 3,
     descripcion: 'Datos de multas de trafico'
   },
-  accidents: {
+  accidentes: {
     script: 'importation/importarAccidentes.js',
     nombre: 'Accidentes',
     fase: 2,
     descripcion: 'Datos de accidentalidad vial'
   },
-  scooters: {
+  patinetes: {
     script: 'importation/importarPatinetes.js',
     nombre: 'Patinetes',
     fase: 2,
     descripcion: 'Asignacion de patinetes electricos'
   },
-  bikes: {
+  bicicletas: {
     script: 'importation/importarBicicletas.js',
     nombre: 'Bicicletas',
     fase: 2,
     descripcion: 'Disponibilidad de bicicletas publicas'
   },
-  'bike-traffic': {
+  'aforo-bicicletas': {
     script: 'importation/importarAforoBicicletas.js',
     nombre: 'Aforo Bicicletas',
     fase: 2,
@@ -169,7 +171,7 @@ Opciones:
   --only=x,y,z                  Ejecutar solo importadores especificos
   --skip-indices-management     No dropear/recrear indices en Fase 3 (legacy)
   --rebuild-indices=x[,y,z]     Solo recrear indices (sin importar). Recovery tras crash.
-                                Valores: traffic, censo, multas
+                                Valores: trafico, censo, multas
   --help                        Mostrar esta ayuda
 
 Importadores disponibles:`);
@@ -181,7 +183,7 @@ Importadores disponibles:`);
   imprimir(`
 Ejemplos:
   node scripts/importAll.js                          # Ejecutar todos
-  node scripts/importAll.js --only=locations,air,noise  # Solo los 3 dominios principales
+  node scripts/importAll.js --only=ubicaciones,aire,ruido  # Solo los 3 dominios principales
   node scripts/importAll.js --force                  # Forzar sobrescritura
 `);
 }
@@ -206,11 +208,15 @@ function runImporter(key, importerConfig, options) {
 
     logger.info({ importador: key, nombre: importerConfig.nombre }, `Iniciando importacion: ${importerConfig.nombre}`);
 
+    // Fase 3 carga colecciones pesadas (24M+ docs); 30 min no alcanza para Trafico.
+    // Fase 1 y 2 son ligeras: 30 min sigue siendo techo de seguridad sobrado.
+    const timeoutMs = importerConfig.fase === 3 ? 120 * 60 * 1000 : 30 * 60 * 1000;
+
     const child = execFile('node', [scriptPath, ...args], {
       cwd: path.join(__dirname, '..'),
       env: { ...process.env, SCRIPT_MODE: 'true' },
       maxBuffer: 50 * 1024 * 1024, // 50MB para scripts con mucha salida
-      timeout: 30 * 60 * 1000 // 30 minutos maximo por importador
+      timeout: timeoutMs
     }, (error, _stdout, _stderr) => {
       const duration = Date.now() - startTime;
       const durationStr = formatDuration(duration);
@@ -284,6 +290,78 @@ function formatDuration(ms) {
   const remainingSeconds = seconds % 60;
   if (minutes === 0) {return `${seconds}s`;}
   return `${minutes}m ${remainingSeconds}s`;
+}
+
+/**
+ * Leer summaries -latest.json escritos por cada importer y construir un
+ * resumen global consolidado (impreso en stdout y guardado a disco).
+ *
+ * @param {Array<string>} importerKeys - Claves de los importers ejecutados
+ * @param {string} runStartedAt - ISO timestamp del inicio del run global
+ * @returns {Object|null} - resumen consolidado o null si no hay summaries
+ */
+function emitirResumenGlobal(importerKeys, runStartedAt) {
+  if (!fs.existsSync(IMPORT_SUMMARIES_DIR)) {
+    return null;
+  }
+
+  const summaries = [];
+  for (const key of importerKeys) {
+    const file = path.join(IMPORT_SUMMARIES_DIR, `${key}-latest.json`);
+    if (!fs.existsSync(file)) {
+      continue;
+    }
+    try {
+      summaries.push(JSON.parse(fs.readFileSync(file, 'utf8')));
+    } catch (error) {
+      imprimirError(`  ! No se pudo leer ${file}: ${error.message}`);
+    }
+  }
+
+  if (summaries.length === 0) {
+    return null;
+  }
+
+  imprimir('\n=== Resumen consolidado de calidad de datos ===\n');
+  for (const s of summaries) {
+    const c = s.counts || {};
+    const inserted = c.inserted || 0;
+    const rejected = c.rejected || 0;
+    const total = c.totalProcessed || (inserted + rejected);
+    const success = total > 0 ? ((inserted / total) * 100).toFixed(1) : '0.0';
+
+    imprimir(`  ${s.importer.padEnd(18)} ${String(inserted).padStart(13)} ok | ${String(rejected).padStart(8)} rech | ${success}% exito`);
+
+    const top = (s.rejections || []).slice(0, 3);
+    if (top.length > 0) {
+      const desglose = top.map(r => `${r.razon}: ${r.cantidad}`).join('; ');
+      imprimir(`                     -> ${desglose}`);
+    }
+    if ((s.coercions || []).length > 0) {
+      const coerc = s.coercions.map(co => `${co.razon}: ${co.cantidad}`).join('; ');
+      imprimir(`                     coerciones: ${coerc}`);
+    }
+  }
+
+  const finishedAt = new Date().toISOString();
+  const runSummary = {
+    startedAt: runStartedAt,
+    finishedAt,
+    importers: summaries
+  };
+
+  const safeTimestamp = finishedAt.replace(/[:.]/g, '-');
+  const runFile = path.join(IMPORT_SUMMARIES_DIR, `run-${safeTimestamp}.summary.json`);
+  const latestFile = path.join(IMPORT_SUMMARIES_DIR, 'run-latest.summary.json');
+  try {
+    fs.writeFileSync(runFile, JSON.stringify(runSummary, null, 2));
+    fs.writeFileSync(latestFile, JSON.stringify(runSummary, null, 2));
+    imprimir(`\n  Resumen completo: ${path.relative(process.cwd(), latestFile)}`);
+  } catch (error) {
+    imprimirError(`  ! Error escribiendo resumen global: ${error.message}`);
+  }
+
+  return runSummary;
 }
 
 /**
@@ -488,6 +566,9 @@ async function main() {
     fallidos,
     resultados: results.map(r => ({ importador: r.key, exitoso: r.success, duracion: r.duration }))
   }, `Importacion masiva completada: ${exitosos}/${results.length} exitosos`);
+
+  // Resumen consolidado leyendo logs/import/<importer>-latest.json
+  emitirResumenGlobal(results.map(r => r.key), new Date(globalStart).toISOString());
 
   // Cerrar conexion del padre
   if (mongoose.connection.readyState === 1) {

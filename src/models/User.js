@@ -300,8 +300,8 @@ userSchema.statics.findByEmailOrUsername = function (identifier) {
 // ========================================
 // MEJORA: Reemplaza índices individuales por uno compuesto más eficiente
 // Soporta: Búsquedas por email, username, o ambos
-// Usado en: authController.js:54,141 - findByEmailOrUsername()
-// Usado en: authController.js:299,309 - Verificaciones de unicidad
+// Usado en: controladorAutenticacion.js:54,141 - findByEmailOrUsername()
+// Usado en: controladorAutenticacion.js:299,309 - Verificaciones de unicidad
 // Leftmost prefix permite queries solo con email
 // Unique constraint ya garantizado a nivel de campo
 userSchema.index(
@@ -327,7 +327,7 @@ userSchema.index(
 
 // Índice para consultas por último login (descendente)
 // Usado en: Queries de auditoría y análisis de actividad
-// Usado en: authController.js - actualización de lastLogin en login
+// Usado en: controladorAutenticacion.js - actualización de lastLogin en login
 // Soporta: Identificación de usuarios inactivos, análisis de engagement
 userSchema.index(
   { lastLogin: -1 },

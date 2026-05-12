@@ -311,16 +311,16 @@ trafficSchema.index({ tipoElemento: 1, fecha: -1 }, {
 // ÍNDICES PARA MÉTRICAS DE TRÁFICO
 // ========================================
 
-// Índice PARTIAL para velocidad media (solo para M-30 con velocidad != null)
-// El partialFilterExpression ya excluye los documentos sin velocidadMedia,
-// por lo que sparse era redundante (y MongoDB rechaza la combinacion sparse + partial).
+// Índice PARTIAL para velocidad media (solo para M-30 con velocidad numerica).
+// MongoDB rechaza $ne y $not en partialFilterExpression; usamos $type: 'number'
+// que excluye tanto el campo ausente como el valor null (excluye sparse implicito).
 // Ahorro de espacio: ~40-50% (no indexa documentos URB sin velocidad)
 // Usado en: Consultas de velocidad en M-30, análisis de fluidez
 // Soporta: GET /api/traffic?tipoElemento=M-30&sortBy=velocidadMedia
 trafficSchema.index({ 'metricas.velocidadMedia': -1, fecha: -1 }, {
   name: 'idx_traffic_speed_m30',
   partialFilterExpression: {
-    'metricas.velocidadMedia': { $ne: null },
+    'metricas.velocidadMedia': { $type: 'number' },
     tipoElemento: TRAFFIC_ELEMENT_TYPES.M30 // Solo M30 tiene velocidad
   }
 });
@@ -813,6 +813,9 @@ trafficSchema.statics.obtenerDatosHistoricosOptimizado = async function(filters 
  */
 trafficSchema.statics.getTrafficStatisticsOptimized = async function(filters = {}) {
   // Usar Promise.all para ejecutar agregaciones en paralelo
+  // Las 3 agregaciones llevan allowDiskUse:true porque el tipico filtro en
+  // produccion abarca varios dias sobre 138M documentos: el sort/group puede
+  // exceder el limite de 100MB en memoria sin disk spill.
   const [estadisticasGenerales, distribucionTipos, distribucionHoraria] = await Promise.all([
     // Estadísticas generales
     this.aggregate([
@@ -881,7 +884,7 @@ trafficSchema.statics.getTrafficStatisticsOptimized = async function(filters = {
           }
         }
       }
-    ]),
+    ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }),
 
     // Distribución por tipos de elemento
     this.aggregate([
@@ -953,6 +956,121 @@ trafficSchema.statics.getTrafficStatisticsOptimized = async function(filters = {
     porTipoElemento: distribucionTipos,
     porPeriodoDia: distribucionHoraria
   };
+};
+
+/**
+ * Obtener mapa de trafico como FeatureCollection GeoJSON RFC 7946.
+ *
+ * Patron paralelo a /ubicaciones/mapa, /ruido/mapa, etc. Pero adaptado al
+ * volumen masivo de trafico (138M docs):
+ *   - Los filtros de fecha son OBLIGATORIOS y limitados a 7 dias (validado
+ *     en la ruta antes de llegar aqui).
+ *   - Agrupa por puntoMedidaId, calcula medias por punto en el periodo.
+ *   - Hace $lookup a locations (PUNTO_TRAFICO) para extraer geometry.
+ *   - allowDiskUse:true por seguridad ante rangos amplios.
+ *
+ * @param {Object} filtros - { fecha: { $gte, $lte }, tipoElemento?, ... }
+ * @returns {Promise<Array>} Documentos agregados con geometria
+ */
+trafficSchema.statics.obtenerAgregadoParaMapa = async function(filtros = {}) {
+  const pipeline = [
+    { $match: filtros },
+    {
+      $group: {
+        _id: '$puntoMedidaId',
+        tipoElemento: { $first: '$tipoElemento' },
+        intensidadMedia: {
+          $avg: {
+            $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null]
+          }
+        },
+        ocupacionMedia: {
+          $avg: {
+            $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null]
+          }
+        },
+        cargaMedia: {
+          $avg: {
+            $cond: [{ $gte: ['$metricas.carga', 0] }, '$metricas.carga', null]
+          }
+        },
+        velocidadMedia: {
+          $avg: {
+            $cond: [{ $gte: ['$metricas.velocidadMedia', 0] }, '$metricas.velocidadMedia', null]
+          }
+        },
+        medicionesCongestionadas: {
+          $sum: {
+            $cond: [
+              { $in: ['$analisis.nivelCongestion', [CONGESTION_LEVELS.CONGESTIONADO, CONGESTION_LEVELS.COLAPSADO]] },
+              1,
+              0
+            ]
+          }
+        },
+        totalMediciones: { $sum: 1 }
+      }
+    },
+    {
+      $lookup: {
+        from: 'locations',
+        let: { puntoId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$tipo', LOCATION_TYPES.PUNTO_TRAFICO] },
+                  { $eq: ['$id_punto', '$$puntoId'] }
+                ]
+              }
+            }
+          },
+          { $project: { geometry: 1, distrito: 1, nombre: 1, _id: 0 } }
+        ],
+        as: 'ubicacion'
+      }
+    },
+    {
+      $addFields: {
+        ubicacion: { $arrayElemAt: ['$ubicacion', 0] }
+      }
+    },
+    // Solo conservar puntos con geometry conocida
+    { $match: { 'ubicacion.geometry': { $exists: true } } },
+    {
+      $project: {
+        _id: 0,
+        puntoMedidaId: '$_id',
+        tipoElemento: 1,
+        nombre: '$ubicacion.nombre',
+        distrito: '$ubicacion.distrito',
+        geometry: '$ubicacion.geometry',
+        intensidadMedia: { $round: ['$intensidadMedia', 2] },
+        ocupacionMedia: { $round: ['$ocupacionMedia', 2] },
+        cargaMedia: { $round: ['$cargaMedia', 2] },
+        velocidadMedia: { $round: ['$velocidadMedia', 2] },
+        porcentajeCongestion: {
+          $cond: [
+            { $gt: ['$totalMediciones', 0] },
+            {
+              $round: [
+                { $multiply: [{ $divide: ['$medicionesCongestionadas', '$totalMediciones'] }, 100] },
+                2
+              ]
+            },
+            0
+          ]
+        },
+        totalMediciones: 1
+      }
+    }
+  ];
+
+  return this.aggregate(pipeline).option({
+    allowDiskUse: true,
+    maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS
+  });
 };
 
 // Crear y exportar el modelo

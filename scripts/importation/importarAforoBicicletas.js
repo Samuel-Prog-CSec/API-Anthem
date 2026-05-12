@@ -24,15 +24,16 @@ const mongoose = require('mongoose');
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const { importBikeTrafficLogger: logger } = require('../../src/config/scriptLogger');
+const { importarAforoBicicletasLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const { DATASET_YEARS, VALIDATION_LIMITS, DAY_PERIODS } = require('../../src/constants');
 const {
   RejectionTracker,
   formatDuration,
-  calculateProcessingSpeed
+  calculateProcessingSpeed,
+  buildAndWriteSummary
 } = require('./helpers/importHelpers');
-const { normalizarTexto } = require('./helpers/normalizarEncoding');
+const { normalizarTexto, crearLectorCSV } = require('./helpers/normalizarEncoding');
 const { construirGeometryDesdeWGS84 } = require('./helpers/conversorCoordenadas');
 
 // Modelo
@@ -118,6 +119,7 @@ function registrarManejadoresSenales() {
   });
 
   process.on('uncaughtException', async (error) => {
+    console.error('UNCAUGHT EXCEPTION:', error);
     logger.fatal({ error: error.message, stack: error.stack }, 'Excepcion no capturada');
 
     try {
@@ -132,6 +134,7 @@ function registrarManejadoresSenales() {
   });
 
   process.on('unhandledRejection', async (reason) => {
+    console.error('UNHANDLED REJECTION:', reason);
     logger.fatal({ reason: String(reason) }, 'Promesa rechazada no manejada');
 
     try {
@@ -449,7 +452,7 @@ async function procesarCSV(options) {
       }
     };
 
-    stream = fs.createReadStream(IMPORT_CONFIG.dataFile)
+    stream = crearLectorCSV(IMPORT_CONFIG.dataFile)
       .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }));
 
     stream.on('data', async (row) => {
@@ -465,7 +468,7 @@ async function procesarCSV(options) {
 
         if (seenKeysInFile.has(recordKey)) {
           totalRejected++;
-          rejectionTracker.track(REJECTION_REASONS.DUPLICATE_IN_FILE);
+          rejectionTracker.track(REJECTION_REASONS.DUPLICATE_IN_FILE, { fila: totalProcessed, recordKey });
           return;
         }
 
@@ -491,7 +494,7 @@ async function procesarCSV(options) {
       } catch (error) {
         totalErrors++;
         totalRejected++;
-        rejectionTracker.track(error.message.split(':')[0] || 'ERROR_DESCONOCIDO');
+        rejectionTracker.track(error.message.split(':')[0] || 'ERROR_DESCONOCIDO', { fila: totalProcessed, error: error.message });
 
         // Solo loguear las primeras ocurrencias a nivel warn, despues debug
         if (totalRejected <= 20) {
@@ -618,6 +621,18 @@ async function main() {
     }, 'Error fatal durante la importacion');
     process.exitCode = 1;
   } finally {
+    buildAndWriteSummary('aforo-bicicletas', {
+      startTime,
+      counts: {
+        totalProcessed,
+        inserted: totalInserted,
+        rejected: totalRejected,
+        skipped: totalSkipped,
+        errors: totalErrors
+      },
+      rejectionTracker
+    });
+
     // Cerrar conexion
     if (mongoose.connection.readyState === 1) {
       logger.info('Cerrando conexion a MongoDB...');

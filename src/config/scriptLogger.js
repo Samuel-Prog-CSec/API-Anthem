@@ -70,31 +70,36 @@ if (isTest) {
 }
 
 /**
- * Loggers especializados para diferentes tipos de importación
+ * Loggers especializados para cada importador.
+ *
+ * Las claves siguen el patron `importar<Recurso>Logger` para mantener
+ * coherencia con la regla de CLAUDE.md de codigo de dominio en espanol.
+ * Los `scriptType` siguen el mismo patron para que el filtrado de logs
+ * por tipo sea uniforme.
  */
-const importAccidentsLogger = scriptLogger.child({ scriptType: 'import-accidents' });
-const importCensusLogger = scriptLogger.child({ scriptType: 'import-census' });
-const importTrafficLogger = scriptLogger.child({ scriptType: 'import-traffic' });
-const importFinesLogger = scriptLogger.child({ scriptType: 'import-fines' });
-const importNoiseLogger = scriptLogger.child({ scriptType: 'import-noise' });
-const importLocationsLogger = scriptLogger.child({ scriptType: 'import-locations' });
-const importAirQualityLogger = scriptLogger.child({ scriptType: 'import-air-quality' });
-const importScootersLogger = scriptLogger.child({ scriptType: 'import-scooters' });
-const importBikesLogger = scriptLogger.child({ scriptType: 'import-bikes' });
-const importContainersLogger = scriptLogger.child({ scriptType: 'import-containers' });
-const importBikeTrafficLogger = scriptLogger.child({ scriptType: 'import-bike-traffic' });
-const importAllLogger = scriptLogger.child({ scriptType: 'import-all' });
+const importarUbicacionesLogger = scriptLogger.child({ scriptType: 'importar-ubicaciones' });
+const importarCalidadAireLogger = scriptLogger.child({ scriptType: 'importar-calidad-aire' });
+const importarRuidoLogger = scriptLogger.child({ scriptType: 'importar-ruido' });
+const importarTraficoLogger = scriptLogger.child({ scriptType: 'importar-trafico' });
+const importarCensoLogger = scriptLogger.child({ scriptType: 'importar-censo' });
+const importarContenedoresLogger = scriptLogger.child({ scriptType: 'importar-contenedores' });
+const importarMultasLogger = scriptLogger.child({ scriptType: 'importar-multas' });
+const importarAccidentesLogger = scriptLogger.child({ scriptType: 'importar-accidentes' });
+const importarPatinetesLogger = scriptLogger.child({ scriptType: 'importar-patinetes' });
+const importarBicicletasLogger = scriptLogger.child({ scriptType: 'importar-bicicletas' });
+const importarAforoBicicletasLogger = scriptLogger.child({ scriptType: 'importar-aforo-bicicletas' });
+const importAllLogger = scriptLogger.child({ scriptType: 'importar-todos' });
 
 module.exports = scriptLogger;
-module.exports.importAccidentsLogger = importAccidentsLogger;
-module.exports.importCensusLogger = importCensusLogger;
-module.exports.importTrafficLogger = importTrafficLogger;
-module.exports.importFinesLogger = importFinesLogger;
-module.exports.importNoiseLogger = importNoiseLogger;
-module.exports.importLocationsLogger = importLocationsLogger;
-module.exports.importAirQualityLogger = importAirQualityLogger;
-module.exports.importScootersLogger = importScootersLogger;
-module.exports.importBikesLogger = importBikesLogger;
-module.exports.importContainersLogger = importContainersLogger;
-module.exports.importBikeTrafficLogger = importBikeTrafficLogger;
+module.exports.importarUbicacionesLogger = importarUbicacionesLogger;
+module.exports.importarCalidadAireLogger = importarCalidadAireLogger;
+module.exports.importarRuidoLogger = importarRuidoLogger;
+module.exports.importarTraficoLogger = importarTraficoLogger;
+module.exports.importarCensoLogger = importarCensoLogger;
+module.exports.importarContenedoresLogger = importarContenedoresLogger;
+module.exports.importarMultasLogger = importarMultasLogger;
+module.exports.importarAccidentesLogger = importarAccidentesLogger;
+module.exports.importarPatinetesLogger = importarPatinetesLogger;
+module.exports.importarBicicletasLogger = importarBicicletasLogger;
+module.exports.importarAforoBicicletasLogger = importarAforoBicicletasLogger;
 module.exports.importAllLogger = importAllLogger;

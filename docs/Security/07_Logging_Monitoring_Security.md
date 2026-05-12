@@ -332,7 +332,7 @@ Nosotros registramos **todos los eventos relacionados con seguridad** con contex
 #### Login Exitoso
 
 ```javascript
-// src/controllers/authController.js
+// src/controllers/controladorAutenticacion.js
 logger.info({
   event: 'auth.login.success',
   userId: user._id,

@@ -12,6 +12,7 @@ const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, buildResponseMetadata, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
+const { bboxDeDistrito } = require('../utils/centroidesDistritosMadrid');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, TIME_CONSTANTS, FINE_CONSTANTS, DASHBOARD_PERIODS, DEFAULT_SORT_FIELDS } = require('../constants');
 const logger = require('../config/logger');
 
@@ -449,11 +450,25 @@ const obtenerMetricasDashboard = async (req, res, next) => {
  * deriva en el importador).
  *
  * GET /api/v1/multas/mapa
- * Query params: startDate, endDate, calificacion, bbox
+ *
+ * Devuelve un FeatureCollection GeoJSON con multas georreferenciadas para
+ * renderizar en el mapa del frontend.
+ *
+ * Query params soportados:
+ *   - startDate, endDate, calificacion, tipoInfraccion: filtros de dominio
+ *   - bbox: 'minLng,minLat,maxLng,maxLat' (filtro espacial directo)
+ *   - distrito: codigo (1-21) o nombre del distrito. Cuando se proporciona,
+ *     y NO hay bbox explicito, se deriva un bbox aproximado a partir del
+ *     centroide del distrito (cuadrado de `radioKm` km, default 4 km).
+ *     Util para vistas cross-domain "por distrito" donde Multas no tiene
+ *     campo distrito normalizado y un filtro `lugar` regex daria falsos
+ *     positivos. Ver `bboxDeDistrito` para limitaciones de la aproximacion.
+ *   - radioKm: radio en km para el bbox derivado de distrito (1-15, default 4)
+ *   - limite: maximo de features (cap interno + validacion en route)
  */
 const obtenerMapaMultas = async (req, res, next) => {
   try {
-    const { bbox, limite } = req.query;
+    const { bbox, limite, distrito: distritoQuery, radioKm: radioKmQuery } = req.query;
 
     const filterConfig = [
       { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
@@ -466,8 +481,23 @@ const obtenerMapaMultas = async (req, res, next) => {
     // subdoc existe pero esta incompleto).
     filters['geometry.coordinates'] = { $exists: true, $ne: null, $type: 'array' };
 
-    if (bbox) {
-      const [minLng, minLat, maxLng, maxLat] = bbox.split(',').map(Number);
+    // Resolver bbox efectivo: bbox explicito tiene prioridad. Si no, intentar
+    // derivar desde el codigo/nombre de distrito.
+    let bboxString = bbox;
+    let distritoResuelto = null;
+    let bboxOrigen = bbox ? 'explicit' : null;
+
+    if (!bbox && distritoQuery) {
+      const result = bboxDeDistrito(distritoQuery, radioKmQuery);
+      if (result) {
+        distritoResuelto = result.distrito;
+        bboxString = result.bbox.join(',');
+        bboxOrigen = `distrito:${result.distrito.codigo}:radio${result.radioKm}km`;
+      }
+    }
+
+    if (bboxString) {
+      const [minLng, minLat, maxLng, maxLat] = bboxString.split(',').map(Number);
       if ([minLng, minLat, maxLng, maxLat].every(v => Number.isFinite(v))) {
         filters.geometry = {
           $geoWithin: { $box: [[minLng, minLat], [maxLng, maxLat]] }
@@ -475,7 +505,10 @@ const obtenerMapaMultas = async (req, res, next) => {
       }
     }
 
-    const limit = Math.min(parseInt(limite, 10) || 5000, 10000);
+    // Cap interno alineado con `MAP_LIMITS.DEFAULT_MAX` (la validacion previa
+    // en routes/multas.js ya rechaza valores >1000, este cap es defense in
+    // depth por si la ruta cambia en el futuro).
+    const limit = Math.min(parseInt(limite, 10) || 1000, 1000);
 
     const docs = await Multa.find(filters, {
       _id: 1,
@@ -508,6 +541,21 @@ const obtenerMapaMultas = async (req, res, next) => {
       }),
       { recurso: 'multas', limite: limit }
     );
+
+    // Anadir metadatos del bbox derivado para que el cliente sepa el origen
+    // y pueda mostrarlo en UI ("Mostrando multas de Centro - aproximacion 4km")
+    if (bboxOrigen) {
+      featureCollection._meta = featureCollection._meta || {};
+      featureCollection._meta.bboxOrigen = bboxOrigen;
+      if (distritoResuelto) {
+        featureCollection._meta.distrito = {
+          codigo: distritoResuelto.codigo,
+          nombre: distritoResuelto.nombre,
+          centroide: distritoResuelto.coordenadas,
+          aproximacion: 'bbox-cuadrado-desde-centroide'
+        };
+      }
+    }
 
     res.status(HTTP_STATUS.OK).json(
       createResponse(featureCollection, 'Mapa de multas generado exitosamente')

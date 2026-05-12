@@ -5,7 +5,7 @@
  * con procesamiento paralelo optimizado. Incluye mediciones horarias
  * de diferentes magnitudes (PM2.5, PM10, NO2, SO2, O3, CO, etc.)
  *
- * Uso: node scripts/importation/importAirQuality.js [opciones]
+ * Uso: node scripts/importation/importarCalidadAire.js [opciones]
  *
  * Opciones:
  *   --force         Sobrescribir datos existentes (upsert)
@@ -13,7 +13,7 @@
  *   --parallel=N    Archivos en paralelo (default: 4)
  *   --no-summary    Omitir resumen estadistico
  *
- * @module scripts/importation/importAirQuality
+ * @module scripts/importation/importarCalidadAire
  */
 
 // Configurar modo script para evitar reconexiones infinitas
@@ -22,13 +22,12 @@ process.env.SCRIPT_MODE = 'true';
 const fs = require('fs').promises;
 const path = require('path');
 const csv = require('csv-parser');
-const { createReadStream } = require('fs');
 const mongoose = require('mongoose');
 
 // Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const { importAirQualityLogger: logger } = require('../../src/config/scriptLogger');
+const { importarCalidadAireLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const {
   MAGNITUDES_PERMITIDAS,
@@ -40,9 +39,10 @@ const {
 const {
   RejectionTracker,
   formatDuration,
-  calculateProcessingSpeed
+  calculateProcessingSpeed,
+  buildAndWriteSummary
 } = require('./helpers/importHelpers');
-const { normalizarTexto } = require('./helpers/normalizarEncoding');
+const { normalizarTexto, crearLectorCSV } = require('./helpers/normalizarEncoding');
 
 // Modelo
 const AirQuality = require('../../src/models/CalidadAire');
@@ -123,7 +123,7 @@ function extractMonthFromFileName(fileName) {
  * @returns {Object} Datos procesados
  * @throws {Error} Si la validacion falla con razon especifica
  */
-function parseAirQualityRow(row, _sourceFile, _rowIndex) {
+function parsearFilaCalidadAire(row, _sourceFile, _rowIndex) {
   // Validar campos obligatorios basicos
   if (!row.PROVINCIA || !row.MUNICIPIO || !row.ESTACION || !row.MAGNITUD) {
     const missing = [];
@@ -273,7 +273,7 @@ function parseAirQualityRow(row, _sourceFile, _rowIndex) {
  * @param {Object} options - Opciones de procesamiento
  * @returns {Promise<Object>} Estadisticas de procesamiento
  */
-async function processAirQualityFile(filePath, options = {}) {
+async function procesarArchivoCalidadAire(filePath, options = {}) {
   const fileName = path.basename(filePath);
   logger.info({ fileName }, 'Procesando archivo de calidad del aire');
 
@@ -292,7 +292,7 @@ async function processAirQualityFile(filePath, options = {}) {
     const batch = [];
     let isProcessing = false;
 
-    const stream = createReadStream(filePath, { encoding: 'latin1' })
+    const stream = crearLectorCSV(filePath)
       .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }))
       .on('data', async (row) => {
         if (isProcessing || isShuttingDown) {return;}
@@ -300,7 +300,7 @@ async function processAirQualityFile(filePath, options = {}) {
         stats.totalRows++;
 
         try {
-          const airQualityData = parseAirQualityRow(row, fileName, stats.totalRows);
+          const airQualityData = parsearFilaCalidadAire(row, fileName, stats.totalRows);
 
           batch.push(airQualityData);
           stats.processedRows++;
@@ -554,7 +554,7 @@ async function processBatch(batch, options, stats) {
  * @param {Object} options - Opciones de importacion
  * @returns {Promise<Object>} Estadisticas finales
  */
-async function importAirQualityData(options = {}) {
+async function importarCalidadAireData(options = {}) {
   const importConfig = { ...IMPORT_CONFIG, ...options };
 
   logger.info({
@@ -616,7 +616,7 @@ async function importAirQualityData(options = {}) {
         const filePath = path.join(importConfig.dataDirectory, file);
         const fileIndex = i + batchIndex + 1;
 
-        return processAirQualityFile(filePath, importConfig)
+        return procesarArchivoCalidadAire(filePath, importConfig)
           .then(fileStats => {
             logger.info({
               file,
@@ -798,6 +798,8 @@ async function closeConnection() {
  * @returns {Promise<void>}
  */
 async function main() {
+  const startTime = Date.now();
+  let result;
   const args = process.argv.slice(2);
   const options = {
     skipExisting: !args.includes('--force'),
@@ -837,7 +839,7 @@ async function main() {
     logger.info({ registrosActuales: airQualityCount }, 'Estado actual de la base de datos');
 
     // Ejecutar importacion
-    const result = await importAirQualityData(options);
+    result = await importarCalidadAireData(options);
 
     if (isShuttingDown) {
       logger.warn('Importacion interrumpida por senal de cierre');
@@ -883,6 +885,20 @@ async function main() {
     process.exitCode = 1;
 
   } finally {
+    buildAndWriteSummary('aire', {
+      startTime,
+      counts: {
+        totalProcessed: result?.totalRows || 0,
+        inserted: result?.insertedRecords || 0,
+        rejected: rejectionTracker.totalRejected,
+        skipped: result?.skippedRecords || 0,
+        emptyRows: result?.emptyRows || 0,
+        errors: result?.errorRows || 0,
+        duplicates: result?.duplicateErrors || 0
+      },
+      rejectionTracker
+    });
+
     await closeConnection();
   }
 
@@ -908,11 +924,13 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT EXCEPTION:', error);
   logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION:', reason);
   logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
   process.exit(1);
 });
@@ -926,8 +944,8 @@ if (require.main === module) {
 }
 
 module.exports = {
-  importAirQualityData,
-  parseAirQualityRow,
-  processAirQualityFile,
+  importarCalidadAireData,
+  parsearFilaCalidadAire,
+  procesarArchivoCalidadAire,
   REJECTION_REASONS
 };
