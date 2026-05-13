@@ -20,11 +20,14 @@ const { USER_SECURITY, USER_ROLES } = require('../constants');
 const userSchema = new mongoose.Schema(
   {
     // Información básica del usuario
+    // Nota: `unique: true` ya genera un indice unico automaticamente.
+    // No se anade `index: true` redundante para evitar duplicar la escritura
+    // del indice en cada save.
     username: {
       type: String,
       required: [true, 'Nombre de usuario obligatorio'],
-      unique: true, // Índice único
-      trim: true, // Elimina espacios en blanco al inicio y final
+      unique: true,
+      trim: true,
       minlength: [
         USER_SECURITY.MIN_USERNAME_LENGTH,
         `El nombre de usuario debe tener al menos ${USER_SECURITY.MIN_USERNAME_LENGTH} caracteres`,
@@ -35,9 +38,8 @@ const userSchema = new mongoose.Schema(
       ],
       match: [
         /^[a-zA-Z0-9_-]+$/,
-        'El nombre de usuario solo puede contener letras, números, guiones y guiones bajos',
+        'El nombre de usuario solo puede contener letras, numeros, guiones y guiones bajos',
       ],
-      index: true, // Índice para búsquedas rápidas
     },
 
     email: {
@@ -48,9 +50,8 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       match: [
         /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
-        'Por favor, ingrese un email válido',
+        'Por favor, ingrese un email valido',
       ],
-      index: true,
     },
 
     /**
@@ -296,20 +297,13 @@ userSchema.statics.findByEmailOrUsername = function (identifier) {
  */
 
 // ========================================
-// ÍNDICE COMPUESTO: email + username (consolidado)
+// NOTA SOBRE INDICES DE CREDENCIALES
 // ========================================
-// MEJORA: Reemplaza índices individuales por uno compuesto más eficiente
-// Soporta: Búsquedas por email, username, o ambos
-// Usado en: controladorAutenticacion.js:54,141 - findByEmailOrUsername()
-// Usado en: controladorAutenticacion.js:299,309 - Verificaciones de unicidad
-// Leftmost prefix permite queries solo con email
-// Unique constraint ya garantizado a nivel de campo
-userSchema.index(
-  { email: 1, username: 1 },
-  {
-    name: 'idx_user_credentials',
-  }
-);
+// `email` y `username` ya tienen indice unico automatico via `unique: true` en
+// la definicion del campo. Se removio el indice compuesto `idx_user_credentials`
+// porque `findByEmailOrUsername` usa `$or: [{email}, {username}]` y MongoDB
+// NO aprovecha un indice compuesto para queries `$or`: usa cada indice
+// individual por separado. El compuesto era una escritura extra inutil.
 
 // ========================================
 // ÍNDICES TEMPORALES

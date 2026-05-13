@@ -16,7 +16,7 @@ const http = require('http');
 // Force restart for env update
 const { HTTP_STATUS } = require('./constants');
 const config = require('./config/config');
-const { connectDB } = require('./config/database');
+const { connectDB, stopPoolMonitor } = require('./config/database');
 const { validateCorsOrigin } = require('./config/corsValidator');
 const { warmupCacheAsync } = require('./config/cacheWarming');
 
@@ -35,8 +35,6 @@ const {
   validateRequest,
   securityLogger
 } = require('./middleware/security');
-
-const { performanceMonitor } = require('./middleware/performanceMonitor');
 
 const {
   globalErrorHandler,
@@ -73,10 +71,9 @@ app.set('trust proxy', config.security.trustedProxies);
 app.use(enrichRequestContext);
 app.use(httpLoggerMiddleware);
 
-
 /**
  * Deshabilitar header X-Powered-By
- * Mejora la seguridad evitando revelar la tecnología del servidor
+ * Mejora la seguridad evitando revelar la tecnologia del servidor
  */
 app.disable('x-powered-by');
 
@@ -88,21 +85,18 @@ app.disable('x-powered-by');
 // Manejo de timeout de peticiones
 app.use(timeoutHandler(config.api.timeout));
 
-// Headers de seguridad y protección
+// Headers de seguridad y proteccion
 app.use(helmetConfig);
 app.use(customSecurityHeaders);
 
-// IMPORTANTE: Validación ANTES de sanitización
-// La validación debe ocurrir primero para rechazar datos inválidos sin alterarlos
-// Si sanitizamos primero, podemos alterar datos válidos (ej: contraseñas con caracteres especiales)
-app.use(validateRequest);
-
-// Sanitización de entrada (prevenir inyección NoSQL)
-// Workaround para Express 5: req.query es inmutable, creamos una copia mutable
+// Workaround para Express 5: `req.query` y `req.params` son inmutables por
+// defecto. Tanto `validateRequest` (defensa HPP) como `sanitizeInput` y
+// `xssProtection` necesitan poder MUTAR esos objetos. Por eso se aplica
+// PRIMERO el workaround, no despues de validateRequest como antes (donde
+// la mutacion fallaba en silencio y la defensa HPP no aplicaba).
 app.use((req, res, next) => {
   if (req.query) {
     const mutableQuery = { ...req.query };
-    // Redefinimos property para permitir modificación por sanitizers
     Object.defineProperty(req, 'query', {
       value: mutableQuery,
       writable: true,
@@ -112,7 +106,7 @@ app.use((req, res, next) => {
   }
   if (req.params) {
     const mutableParams = { ...req.params };
-     Object.defineProperty(req, 'params', {
+    Object.defineProperty(req, 'params', {
       value: mutableParams,
       writable: true,
       enumerable: true,
@@ -122,11 +116,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// Se aplica DESPUÉS de validación para limpiar datos que ya pasaron las reglas de negocio
+// IMPORTANTE: Validacion ANTES de sanitizacion
+// La validacion rechaza datos invalidos sin alterarlos; si sanitizaramos primero
+// podriamos alterar datos validos (ej. contrasenas con caracteres especiales).
+app.use(validateRequest);
+
+// Sanitizacion contra inyeccion NoSQL (despues de validar)
 app.use(sanitizeInput);
 
-// Protección XSS (prevenir Cross-Site Scripting)
-// Se aplica al final para escapar caracteres antes de procesamiento
+// Proteccion XSS (escapar caracteres antes de procesamiento downstream)
 app.use(xssProtection);
 
 /**
@@ -238,19 +236,24 @@ app.use((req, res, next) => {
 
 /**
  * Middleware de Parsing de Body
- * Parsear cuerpos de peticiones entrantes
+ *
+ * Limite reducido a 100KB porque la API actual no acepta uploads ni
+ * payloads grandes (el payload mas grande legitimo es el registro de
+ * usuario, <1KB). Reducir el limite reduce la superficie de DoS por
+ * payload-bombing. Si en el futuro algun endpoint necesita mas tamano,
+ * aplicar `express.json({ limit: '1mb' })` localmente solo a esa ruta.
  */
 app.use(express.json({
-  limit: '10mb', // Limitar tamaño de payload JSON
+  limit: '100kb',
   verify: (req, res, buf) => {
-    // Almacenar body crudo para verificación de firma de webhooks si es necesario
+    // Almacenar body crudo para verificacion de firma de webhooks si es necesario
     req.rawBody = buf;
   }
 }));
 
 app.use(express.urlencoded({
   extended: true,
-  limit: '10mb'
+  limit: '100kb'
 }));
 
 /**
@@ -260,21 +263,14 @@ app.use(express.urlencoded({
 app.use(cookieParser());
 
 /**
- * Middleware de Logging
- * Logging de peticiones HTTP con Pino
- */
-app.use(httpLoggerMiddleware);
-app.use(enrichRequestContext);
-
-/**
- * Middleware de Monitoreo de Rendimiento
- * Rastrea tiempos de respuesta y registra peticiones lentas
- */
-app.use(performanceMonitor);
-
-/**
  * Rutas de la API
  * Montar todas las rutas de API bajo /api/v1
+ *
+ * Nota: el logging (httpLoggerMiddleware + enrichRequestContext) y el
+ * monitoreo de rendimiento (performanceMonitor) ya se aplican antes de
+ * este punto (logging) o dentro de routes/index.js (performanceMonitor).
+ * No duplicar aqui para evitar overhead (listeners y child loggers
+ * triplicados por peticion).
  */
 app.use(config.api.prefix + '/' + config.api.version, routes);
 
@@ -355,7 +351,12 @@ const startServer = async () => {
 
     // Manejo de apagado graceful
     const gracefulShutdown = (signal) => {
-      logger.info({ signal }, 'Señal de apagado recibida, iniciando apagado graceful');
+      logger.info({ signal }, 'Senal de apagado recibida, iniciando apagado graceful');
+
+      // Detener el monitor del pool antes de cerrar la conexion a Mongo para
+      // evitar que el setInterval intente consultar una conexion ya cerrada
+      // y para que el event loop pueda drenarse correctamente
+      stopPoolMonitor();
 
       server.close((err) => {
         if (err) {
@@ -364,15 +365,15 @@ const startServer = async () => {
           logger.info('Servidor cerrado');
         }
 
-        // Cerrar conexión a base de datos
+        // Cerrar conexion a base de datos
         require('mongoose').connection.close().then(() => {
-          logger.info('Conexión a base de datos cerrada');
+          logger.info('Conexion a base de datos cerrada');
           logger.info('Apagado graceful completado');
           process.exit(0);
         });
       });
 
-      // Forzar apagado después de 30 segundos
+      // Forzar apagado despues de 30 segundos
       setTimeout(() => {
         logger.fatal('No se pudieron cerrar las conexiones a tiempo, apagando forzosamente');
         process.exit(1);

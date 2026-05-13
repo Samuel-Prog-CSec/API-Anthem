@@ -8,9 +8,6 @@
 
 const express = require('express');
 const router = express.Router();
-const { HTTP_STATUS } = require('../constants');
-const { createResponse } = require('../utils/responseHelper');
-const logger = require('../config/logger');
 
 // Controladores
 const {
@@ -19,13 +16,13 @@ const {
   logout,
   getProfile,
   refreshAccessToken,
-  changePassword
+  changePassword,
+  verifyToken
 } = require('../controllers/controladorAutenticacion');
 
 // Middleware
 const { authenticate } = require('../middleware/auth');
 const { authLimiter, validateRequest } = require('../middleware/security');
-const { performanceMonitor } = require('../middleware/performanceMonitor');
 const {
   validateRegistration,
   validateLogin,
@@ -34,8 +31,7 @@ const {
   validateOptionalRefreshToken
 } = require('../middleware/validation');
 
-// Aplicar performanceMonitor a todas las rutas de autenticación
-router.use(performanceMonitor);
+// Nota: performanceMonitor se aplica una sola vez en routes/index.js
 
 /**
  * @route   POST /api/v1/auth/register
@@ -129,34 +125,8 @@ router.get('/me',
  * Response: Estado de validación del token e información del usuario
  */
 router.get('/verify-token',
-  authenticate, // Requiere autenticación
-  (req, res, next) => {
-    try {
-      // Si llegamos aquí, el token es válido (el middleware authenticate pasó)
-      res.status(HTTP_STATUS.OK).json(
-        createResponse(
-          {
-            user: {
-              id: req.user._id,
-              username: req.user.username,
-              email: req.user.email,
-              role: req.user.role,
-              isActive: req.user.isActive
-            },
-            tokenValid: true
-          },
-          'Token válido'
-        )
-      );
-    } catch (error) {
-      logger.error({
-        error: error.message,
-        stack: error.stack,
-        userId: req.user?._id
-      }, 'Error en verificación de token');
-      next(error);
-    }
-  }
+  authenticate, // Requiere autenticacion
+  verifyToken
 );
 
 /**

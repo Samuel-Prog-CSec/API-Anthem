@@ -8,7 +8,6 @@
  */
 
 const Censo = require('../models/Censo');
-const { createInternalError } = require('../utils/errorUtils');
 const {
   parseNumericParams,
   buildResponseMetadata
@@ -21,413 +20,343 @@ const {
   DATASET_YEARS,
   CENSUS_DEFAULTS
 } = require('../constants');
-const logger = require('../config/logger');
+const asyncHandler = require('../utils/asyncHandler');
 
 /**
  * Obtener estadisticas por distritos
  * GET /api/v1/censo/distritos/estadisticas
  */
-const obtenerEstadisticasDistritos = async (req, res, next) => {
-  try {
-    const { incluirBarrios = false } = req.query;
+const obtenerEstadisticasDistritos = asyncHandler(async (req, res) => {
+  const { incluirBarrios = false } = req.query;
 
-    const { año, mes } = parseNumericParams(
-      req.query,
-      ['año', 'mes'],
-      { año: DATASET_YEARS.DEFAULT_YEAR }
-    );
+  const { año, mes } = parseNumericParams(
+    req.query,
+    ['año', 'mes'],
+    { año: DATASET_YEARS.DEFAULT_YEAR }
+  );
 
-    const { districtStatistics, neighborhoodStatistics } = await Censo.getDistrictStatisticsOptimized({
+  const { districtStatistics, neighborhoodStatistics } = await Censo.getDistrictStatisticsOptimized({
+    año,
+    mes,
+    incluirBarrios: incluirBarrios === 'true'
+  });
+
+  const rankings = {
+    masHabitados: districtStatistics.slice(0, AGGREGATION_LIMITS.TOP_RESULTS),
+    masDiversos: [...districtStatistics]
+      .sort((a, b) => b.porcentajes.extranjeros - a.porcentajes.extranjeros)
+      .slice(0, AGGREGATION_LIMITS.TOP_RESULTS),
+    masProductivos: [...districtStatistics]
+      .sort((a, b) => b.porcentajes.poblacionProductiva - a.porcentajes.poblacionProductiva)
+      .slice(0, AGGREGATION_LIMITS.TOP_RESULTS)
+  };
+
+  const responseData = {
+    estadisticasDistritos: districtStatistics,
+    estadisticasBarrios: neighborhoodStatistics,
+    rankings,
+    resumen: {
+      totalDistritos: districtStatistics.length,
+      poblacionTotal: districtStatistics.reduce((acc, d) => acc + d.poblacion.total, 0),
+      promedioHabitantesPorDistrito: districtStatistics.length > 0
+        ? Math.round(districtStatistics.reduce((acc, d) => acc + d.poblacion.total, 0) / districtStatistics.length)
+        : 0
+    },
+    configuracion: buildResponseMetadata({
       año,
       mes,
       incluirBarrios: incluirBarrios === 'true'
-    });
+    })
+  };
 
-    const rankings = {
-      masHabitados: districtStatistics.slice(0, AGGREGATION_LIMITS.TOP_RESULTS),
-      masDiversos: [...districtStatistics]
-        .sort((a, b) => b.porcentajes.extranjeros - a.porcentajes.extranjeros)
-        .slice(0, AGGREGATION_LIMITS.TOP_RESULTS),
-      masProductivos: [...districtStatistics]
-        .sort((a, b) => b.porcentajes.poblacionProductiva - a.porcentajes.poblacionProductiva)
-        .slice(0, AGGREGATION_LIMITS.TOP_RESULTS)
-    };
-
-    const responseData = {
-      message: 'Estadisticas de distritos obtenidas exitosamente',
-      data: {
-        estadisticasDistritos: districtStatistics,
-        estadisticasBarrios: neighborhoodStatistics,
-        rankings,
-        resumen: {
-          totalDistritos: districtStatistics.length,
-          poblacionTotal: districtStatistics.reduce((acc, d) => acc + d.poblacion.total, 0),
-          promedioHabitantesPorDistrito: districtStatistics.length > 0 ?
-            Math.round(districtStatistics.reduce((acc, d) => acc + d.poblacion.total, 0) / districtStatistics.length) : 0
-        }
-      },
-      configuracion: buildResponseMetadata({
-        año,
-        mes,
-        incluirBarrios: incluirBarrios === 'true'
-      })
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadisticas de distritos obtenidas exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/v1/censo/distritos/estadisticas'
-    }, 'Error obteniendo estadisticas de distritos');
-    next(createInternalError('Error al obtener estadisticas de distritos', error));
-  }
-};
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadisticas de distritos obtenidas exitosamente'));
+});
 
 /**
  * Obtener analisis demografico avanzado
  * GET /api/v1/censo/analisis/demografico
  */
-const obtenerAnalisisDemografico = async (req, res, next) => {
-  try {
-    const { año, mes, distrito } = parseNumericParams(
-      req.query,
-      ['año', 'mes', 'distrito'],
-      { año: DATASET_YEARS.DEFAULT_YEAR }
-    );
+const obtenerAnalisisDemografico = asyncHandler(async (req, res) => {
+  const { año, mes, distrito } = parseNumericParams(
+    req.query,
+    ['año', 'mes', 'distrito'],
+    { año: DATASET_YEARS.DEFAULT_YEAR }
+  );
 
-    const result = await Censo.getOptimizedDemographicAnalysis({
-      año,
-      mes,
-      distrito
-    });
+  const result = await Censo.getOptimizedDemographicAnalysis({ año, mes, distrito });
 
-    const responseData = {
-      message: 'Analisis demografico obtenido exitosamente',
-      data: {
-        distribuciones: result.distribuciones,
-        indicadores: result.indicadores,
-        interpretacion: {
-          tasaDependencia: 'Relacion entre poblacion dependiente (menores + tercera edad) y poblacion productiva',
-          porcentajePoblacionProductiva: 'Porcentaje de poblacion en edad laboral (16-65 anos)',
-          porcentajeTerceraEdad: 'Porcentaje de poblacion mayor de 65 anos',
-          porcentajeExtranjeros: 'Porcentaje de poblacion extranjera sobre el total',
-          ratioGenero: 'Relacion hombres/mujeres (valor 1 = equilibrado)'
-        }
-      },
-      metadatos: result.metadatos
-    };
+  const responseData = {
+    distribuciones: result.distribuciones,
+    indicadores: result.indicadores,
+    interpretacion: {
+      tasaDependencia: 'Relacion entre poblacion dependiente (menores + tercera edad) y poblacion productiva',
+      porcentajePoblacionProductiva: 'Porcentaje de poblacion en edad laboral (16-65 anos)',
+      porcentajeTerceraEdad: 'Porcentaje de poblacion mayor de 65 anos',
+      porcentajeExtranjeros: 'Porcentaje de poblacion extranjera sobre el total',
+      ratioGenero: 'Relacion hombres/mujeres (valor 1 = equilibrado)'
+    },
+    metadatos: result.metadatos
+  };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Analisis demografico obtenido exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/v1/censo/analisis/demografico'
-    }, 'Error en analisis demografico');
-    next(createInternalError('Error en analisis demografico', error));
-  }
-};
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Analisis demografico obtenido exitosamente'));
+});
 
 /**
  * Obtener evolucion demografica temporal
  * GET /api/v1/censo/evolucion
  */
-const obtenerEvolucionDemografica = async (req, res, next) => {
-  try {
-    const { metrica = 'poblacionTotal' } = req.query; // poblacionTotal, extranjeros, productiva
+const obtenerEvolucionDemografica = asyncHandler(async (req, res) => {
+  const { metrica = 'poblacionTotal' } = req.query; // poblacionTotal, extranjeros, productiva
 
-    const { distrito, startYear, endYear } = parseNumericParams(
-      req.query,
-      ['distrito', 'startYear', 'endYear'],
-      { startYear: CENSUS_DEFAULTS.START_YEAR, endYear: CENSUS_DEFAULTS.END_YEAR }
-    );
+  const { distrito, startYear, endYear } = parseNumericParams(
+    req.query,
+    ['distrito', 'startYear', 'endYear'],
+    { startYear: CENSUS_DEFAULTS.START_YEAR, endYear: CENSUS_DEFAULTS.END_YEAR }
+  );
 
-    const matchFilters = {
-      año: { $gte: startYear, $lte: endYear }
-    };
+  const matchFilters = {
+    año: { $gte: startYear, $lte: endYear }
+  };
 
-    if (distrito) {
-      matchFilters['distrito.codigo'] = distrito;
-    }
-
-    // Metricas segun el parametro seleccionado
-    let metricas = {};
-    switch (metrica) {
-      case 'extranjeros':
-        metricas = {
-          valor: '$totalExtranjeros',
-          porcentaje: {
-            $multiply: [
-              { $divide: ['$totalExtranjeros', '$totalPoblacion'] },
-              100
-            ]
-          }
-        };
-        break;
-      case 'productiva':
-        metricas = {
-          valor: '$poblacionProductiva',
-          porcentaje: {
-            $multiply: [
-              { $divide: ['$poblacionProductiva', '$totalPoblacion'] },
-              100
-            ]
-          }
-        };
-        break;
-      case 'poblacionTotal':
-      default:
-        metricas = {
-          valor: '$totalPoblacion',
-          porcentaje: 100
-        };
-        break;
-    }
-
-    const evolucion = await Censo.aggregate([
-      { $match: matchFilters },
-      {
-        $group: {
-          _id: {
-            año: '$año',
-            mes: '$mes'
-          },
-          totalPoblacion: { $sum: '$estadisticas.totalPoblacion' },
-          totalExtranjeros: { $sum: '$estadisticas.totalExtranjeros' },
-          poblacionProductiva: {
-            $sum: {
-              $cond: ['$clasificacionEdad.esGrupoProductivo', '$estadisticas.totalPoblacion', 0]
-            }
-          }
-        }
-      },
-      { $addFields: metricas },
-      {
-        $project: {
-          periodo: {
-            año: '$_id.año',
-            mes: '$_id.mes'
-          },
-          valor: { $round: ['$valor', 0] },
-          porcentaje: { $round: ['$porcentaje', 2] },
-          totalPoblacion: '$totalPoblacion'
-        }
-      },
-      { $sort: { '_id.año': 1, '_id.mes': 1 } }
-    ])
-      .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
-
-    let tendencia = null;
-    if (evolucion.length > 1) {
-      const primerValor = evolucion[0].valor;
-      const ultimoValor = evolucion[evolucion.length - 1].valor;
-
-      tendencia = {
-        direccion: ultimoValor > primerValor ? 'CRECIENTE' : 'DECRECIENTE',
-        variacionAbsoluta: ultimoValor - primerValor,
-        variacionPorcentual: primerValor > 0 ?
-          ((ultimoValor - primerValor) / primerValor * 100).toFixed(2) : 0,
-        tasa: evolucion.length > 1 && primerValor > 0 ?
-          (Math.pow(ultimoValor / primerValor, 1 / (evolucion.length - 1)) - 1) * 100 : 0
-      };
-    }
-
-    const responseData = {
-      message: 'Evolucion demografica obtenida exitosamente',
-      data: {
-        evolucion,
-        tendencia,
-        estadisticasEvolucion: {
-          totalPeriodos: evolucion.length,
-          valorInicial: evolucion[0]?.valor || 0,
-          valorFinal: evolucion[evolucion.length - 1]?.valor || 0,
-          valorMaximo: evolucion.length > 0 ? Math.max(...evolucion.map(e => e.valor)) : 0,
-          valorMinimo: evolucion.length > 0 ? Math.min(...evolucion.map(e => e.valor)) : 0
-        }
-      },
-      configuracion: buildResponseMetadata({
-        distrito,
-        periodoAnalisis: { inicio: startYear, fin: endYear },
-        metrica
-      }, { nullLabel: CENSUS_DEFAULTS.DISTRICT_LABEL })
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Evolucion demografica obtenida exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/v1/censo/evolucion'
-    }, 'Error obteniendo evolucion demografica');
-    next(createInternalError('Error al obtener evolucion demografica', error));
+  if (distrito) {
+    matchFilters['distrito.codigo'] = distrito;
   }
-};
+
+  // Metricas segun el parametro seleccionado
+  let metricas = {};
+  switch (metrica) {
+    case 'extranjeros':
+      metricas = {
+        valor: '$totalExtranjeros',
+        porcentaje: {
+          $multiply: [
+            { $divide: ['$totalExtranjeros', '$totalPoblacion'] },
+            100
+          ]
+        }
+      };
+      break;
+    case 'productiva':
+      metricas = {
+        valor: '$poblacionProductiva',
+        porcentaje: {
+          $multiply: [
+            { $divide: ['$poblacionProductiva', '$totalPoblacion'] },
+            100
+          ]
+        }
+      };
+      break;
+    case 'poblacionTotal':
+    default:
+      metricas = {
+        valor: '$totalPoblacion',
+        porcentaje: 100
+      };
+      break;
+  }
+
+  const evolucion = await Censo.aggregate([
+    { $match: matchFilters },
+    {
+      $group: {
+        _id: { año: '$año', mes: '$mes' },
+        totalPoblacion: { $sum: '$estadisticas.totalPoblacion' },
+        totalExtranjeros: { $sum: '$estadisticas.totalExtranjeros' },
+        poblacionProductiva: {
+          $sum: {
+            $cond: ['$clasificacionEdad.esGrupoProductivo', '$estadisticas.totalPoblacion', 0]
+          }
+        }
+      }
+    },
+    { $addFields: metricas },
+    {
+      $project: {
+        periodo: { año: '$_id.año', mes: '$_id.mes' },
+        valor: { $round: ['$valor', 0] },
+        porcentaje: { $round: ['$porcentaje', 2] },
+        totalPoblacion: '$totalPoblacion'
+      }
+    },
+    { $sort: { '_id.año': 1, '_id.mes': 1 } }
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+
+  let tendencia = null;
+  if (evolucion.length > 1) {
+    const primerValor = evolucion[0].valor;
+    const ultimoValor = evolucion[evolucion.length - 1].valor;
+
+    tendencia = {
+      direccion: ultimoValor > primerValor ? 'CRECIENTE' : 'DECRECIENTE',
+      variacionAbsoluta: ultimoValor - primerValor,
+      variacionPorcentual: primerValor > 0
+        ? ((ultimoValor - primerValor) / primerValor * 100).toFixed(2)
+        : 0,
+      tasa: evolucion.length > 1 && primerValor > 0
+        ? (Math.pow(ultimoValor / primerValor, 1 / (evolucion.length - 1)) - 1) * 100
+        : 0
+    };
+  }
+
+  const responseData = {
+    evolucion,
+    tendencia,
+    estadisticasEvolucion: {
+      totalPeriodos: evolucion.length,
+      valorInicial: evolucion[0]?.valor || 0,
+      valorFinal: evolucion[evolucion.length - 1]?.valor || 0,
+      valorMaximo: evolucion.length > 0 ? Math.max(...evolucion.map(e => e.valor)) : 0,
+      valorMinimo: evolucion.length > 0 ? Math.min(...evolucion.map(e => e.valor)) : 0
+    },
+    configuracion: buildResponseMetadata({
+      distrito,
+      periodoAnalisis: { inicio: startYear, fin: endYear },
+      metrica
+    }, { nullLabel: CENSUS_DEFAULTS.DISTRICT_LABEL })
+  };
+
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Evolucion demografica obtenida exitosamente'));
+});
 
 /**
  * Obtener metricas del dashboard demografico
  * GET /api/v1/censo/dashboard
  */
-const obtenerDashboardDemografico = async (req, res, next) => {
-  try {
-    const { año, distrito } = parseNumericParams(
-      req.query,
-      ['año', 'distrito'],
-      { año: DATASET_YEARS.DEFAULT_YEAR }
-    );
+const obtenerDashboardDemografico = asyncHandler(async (req, res) => {
+  const { año, distrito } = parseNumericParams(
+    req.query,
+    ['año', 'distrito'],
+    { año: DATASET_YEARS.DEFAULT_YEAR }
+  );
 
-    const matchFilters = { año };
-    if (distrito) { matchFilters['distrito.codigo'] = distrito; }
+  const matchFilters = { año };
+  if (distrito) { matchFilters['distrito.codigo'] = distrito; }
 
-    // Metricas principales agregadas
-    const [metricas] = await Censo.aggregate([
+  // Metricas principales agregadas
+  const [metricas] = await Censo.aggregate([
+    { $match: matchFilters },
+    {
+      $group: {
+        _id: null,
+        poblacionTotal: { $sum: '$estadisticas.totalPoblacion' },
+        totalHombres: { $sum: '$estadisticas.totalHombres' },
+        totalMujeres: { $sum: '$estadisticas.totalMujeres' },
+        totalEspañoles: { $sum: '$estadisticas.totalEspañoles' },
+        totalExtranjeros: { $sum: '$estadisticas.totalExtranjeros' },
+        poblacionProductiva: {
+          $sum: {
+            $cond: ['$clasificacionEdad.esGrupoProductivo', '$estadisticas.totalPoblacion', 0]
+          }
+        },
+        terceraEdad: {
+          $sum: {
+            $cond: ['$clasificacionEdad.esTerceraEdad', '$estadisticas.totalPoblacion', 0]
+          }
+        },
+        distritosUnicos: { $addToSet: '$distrito.codigo' },
+        barriosUnicos: { $addToSet: '$barrio.codigo' }
+      }
+    },
+    {
+      $addFields: {
+        ratioGenero: {
+          $cond: [
+            { $gt: ['$totalMujeres', 0] },
+            { $divide: ['$totalHombres', '$totalMujeres'] },
+            0
+          ]
+        },
+        porcentajeExtranjeros: {
+          $cond: [
+            { $gt: ['$poblacionTotal', 0] },
+            { $multiply: [{ $divide: ['$totalExtranjeros', '$poblacionTotal'] }, 100] },
+            0
+          ]
+        },
+        porcentajePoblacionProductiva: {
+          $cond: [
+            { $gt: ['$poblacionTotal', 0] },
+            { $multiply: [{ $divide: ['$poblacionProductiva', '$poblacionTotal'] }, 100] },
+            0
+          ]
+        }
+      }
+    }
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+
+  // Queries en paralelo para mejor rendimiento
+  const [topDistritos, distribucionEdad] = await Promise.all([
+    Censo.aggregate([
       { $match: matchFilters },
       {
         $group: {
-          _id: null,
+          _id: {
+            codigo: '$distrito.codigo',
+            nombre: '$distrito.descripcion'
+          },
           poblacionTotal: { $sum: '$estadisticas.totalPoblacion' },
-          totalHombres: { $sum: '$estadisticas.totalHombres' },
-          totalMujeres: { $sum: '$estadisticas.totalMujeres' },
-          totalEspañoles: { $sum: '$estadisticas.totalEspañoles' },
-          totalExtranjeros: { $sum: '$estadisticas.totalExtranjeros' },
-          poblacionProductiva: {
-            $sum: {
-              $cond: ['$clasificacionEdad.esGrupoProductivo', '$estadisticas.totalPoblacion', 0]
-            }
-          },
-          terceraEdad: {
-            $sum: {
-              $cond: ['$clasificacionEdad.esTerceraEdad', '$estadisticas.totalPoblacion', 0]
-            }
-          },
-          distritosUnicos: { $addToSet: '$distrito.codigo' },
-          barriosUnicos: { $addToSet: '$barrio.codigo' }
+          diversidadCultural: { $avg: '$estadisticas.porcentajeExtranjeros' }
         }
+      },
+      { $sort: { poblacionTotal: -1 } },
+      { $limit: AGGREGATION_LIMITS.PREVIEW }
+    ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }),
+
+    Censo.aggregate([
+      { $match: matchFilters },
+      {
+        $group: {
+          _id: '$clasificacionEdad.grupoEdad',
+          poblacionTotal: { $sum: '$estadisticas.totalPoblacion' }
+        }
+      },
+      { $sort: { poblacionTotal: -1 } }
+    ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
+  ]);
+
+  const responseData = {
+    resumenGeneral: {
+      poblacionTotal: metricas?.poblacionTotal || 0,
+      totalDistritos: metricas?.distritosUnicos?.length || 0,
+      totalBarrios: metricas?.barriosUnicos?.length || 0,
+      ratioGenero: metricas?.ratioGenero || 0,
+      porcentajeExtranjeros: metricas?.porcentajeExtranjeros || 0,
+      porcentajePoblacionProductiva: metricas?.porcentajePoblacionProductiva || 0
+    },
+    topDistritos,
+    distribucionEdad,
+    indicadoresClaves: [
+      {
+        nombre: 'Poblacion Total',
+        valor: metricas?.poblacionTotal || 0,
+        icono: 'users',
+        tipo: 'absoluto'
       },
       {
-        $addFields: {
-          ratioGenero: {
-            $cond: [
-              { $gt: ['$totalMujeres', 0] },
-              { $divide: ['$totalHombres', '$totalMujeres'] },
-              0
-            ]
-          },
-          porcentajeExtranjeros: {
-            $cond: [
-              { $gt: ['$poblacionTotal', 0] },
-              { $multiply: [{ $divide: ['$totalExtranjeros', '$poblacionTotal'] }, 100] },
-              0
-            ]
-          },
-          porcentajePoblacionProductiva: {
-            $cond: [
-              { $gt: ['$poblacionTotal', 0] },
-              { $multiply: [{ $divide: ['$poblacionProductiva', '$poblacionTotal'] }, 100] },
-              0
-            ]
-          }
-        }
-      }
-    ])
-      .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
-
-    // Queries en paralelo para mejor rendimiento
-    const [topDistritos, distribucionEdad] = await Promise.all([
-      Censo.aggregate([
-        { $match: matchFilters },
-        {
-          $group: {
-            _id: {
-              codigo: '$distrito.codigo',
-              nombre: '$distrito.descripcion'
-            },
-            poblacionTotal: { $sum: '$estadisticas.totalPoblacion' },
-            diversidadCultural: { $avg: '$estadisticas.porcentajeExtranjeros' }
-          }
-        },
-        { $sort: { poblacionTotal: -1 } },
-        { $limit: AGGREGATION_LIMITS.PREVIEW }
-      ])
-        .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }),
-
-      Censo.aggregate([
-        { $match: matchFilters },
-        {
-          $group: {
-            _id: '$clasificacionEdad.grupoEdad',
-            poblacionTotal: { $sum: '$estadisticas.totalPoblacion' }
-          }
-        },
-        { $sort: { poblacionTotal: -1 } }
-      ])
-        .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
-    ]);
-
-    const responseData = {
-      message: 'Dashboard demografico obtenido exitosamente',
-      data: {
-        resumenGeneral: {
-          poblacionTotal: metricas?.poblacionTotal || 0,
-          totalDistritos: metricas?.distritosUnicos?.length || 0,
-          totalBarrios: metricas?.barriosUnicos?.length || 0,
-          ratioGenero: metricas?.ratioGenero || 0,
-          porcentajeExtranjeros: metricas?.porcentajeExtranjeros || 0,
-          porcentajePoblacionProductiva: metricas?.porcentajePoblacionProductiva || 0
-        },
-        topDistritos,
-        distribucionEdad,
-        indicadoresClaves: [
-          {
-            nombre: 'Poblacion Total',
-            valor: metricas?.poblacionTotal || 0,
-            icono: 'users',
-            tipo: 'absoluto'
-          },
-          {
-            nombre: 'Diversidad Cultural',
-            valor: (metricas?.porcentajeExtranjeros || 0).toFixed(1) + '%',
-            icono: 'globe',
-            tipo: 'porcentaje'
-          },
-          {
-            nombre: 'Poblacion Activa',
-            valor: (metricas?.porcentajePoblacionProductiva || 0).toFixed(1) + '%',
-            icono: 'briefcase',
-            tipo: 'porcentaje'
-          },
-          {
-            nombre: 'Equilibrio de Genero',
-            valor: (metricas?.ratioGenero || 0).toFixed(2),
-            icono: 'users',
-            tipo: 'ratio'
-          }
-        ]
+        nombre: 'Diversidad Cultural',
+        valor: (metricas?.porcentajeExtranjeros || 0).toFixed(1) + '%',
+        icono: 'globe',
+        tipo: 'porcentaje'
       },
-      configuracion: buildResponseMetadata({
-        año,
-        distrito
-      }, { nullLabel: CENSUS_DEFAULTS.DISTRICT_LABEL })
-    };
+      {
+        nombre: 'Poblacion Activa',
+        valor: (metricas?.porcentajePoblacionProductiva || 0).toFixed(1) + '%',
+        icono: 'briefcase',
+        tipo: 'porcentaje'
+      },
+      {
+        nombre: 'Equilibrio de Genero',
+        valor: (metricas?.ratioGenero || 0).toFixed(2),
+        icono: 'users',
+        tipo: 'ratio'
+      }
+    ],
+    configuracion: buildResponseMetadata({ año, distrito }, { nullLabel: CENSUS_DEFAULTS.DISTRICT_LABEL })
+  };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Dashboard demografico obtenido exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/v1/censo/dashboard'
-    }, 'Error obteniendo dashboard demografico');
-    next(createInternalError('Error al obtener dashboard demografico', error));
-  }
-};
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Dashboard demografico obtenido exitosamente'));
+});
 
 module.exports = {
   obtenerEstadisticasDistritos,

@@ -8,7 +8,7 @@
 require('dotenv').config();
 
 /**
- * Validar que todas las variables de entorno requeridas estén definidas
+ * Validar que todas las variables de entorno requeridas esten definidas
  *
  * @throws {Error} Si falta alguna variable de entorno requerida
  */
@@ -30,14 +30,21 @@ const validateEnvironment = () => {
   if (process.env.JWT_SECRET.length < MIN_JWT_SECRET_LENGTH || process.env.JWT_REFRESH_SECRET.length < MIN_JWT_SECRET_LENGTH) {
     const errorMessage = `[CRITICAL SECURITY] JWT_SECRET debe tener al menos ${MIN_JWT_SECRET_LENGTH} caracteres para mayor seguridad`;
 
-    // En producción, detener el servidor
+    // En produccion, detener el servidor
     if (process.env.NODE_ENV === 'production') {
       throw new Error(errorMessage);
     }
 
-    // En desarrollo, solo advertir (usar console.warn porque logger aún no está inicializado)
+    // En desarrollo, solo advertir (usar console.warn porque logger aun no esta inicializado)
     // eslint-disable-next-line no-console
     console.warn(`[WARNING] ${errorMessage}`);
+  }
+
+  // SEGURIDAD CRITICA: el modo test concede rol admin a cualquier peticion
+  // que envie la clave bypass. NUNCA debe estar activo en produccion: si
+  // se filtra, es un backdoor de severidad maxima.
+  if (process.env.TEST_MODE === 'true' && process.env.NODE_ENV === 'production') {
+    throw new Error('[CRITICAL SECURITY] TEST_MODE no puede activarse cuando NODE_ENV=production');
   }
 };
 
@@ -93,10 +100,18 @@ const config = {
     timeout: parseInt(process.env.API_TIMEOUT, 10) || 30000 // 30 segundos
   },
 
-  // Configuración de modo de pruebas (facilita desarrollo)
+  // Configuracion de modo de pruebas (facilita desarrollo)
+  //
+  // SEGURIDAD: si TEST_MODE=true y TEST_BYPASS_KEY no esta definida en .env,
+  // se genera una clave aleatoria cada arranque y se imprime en stdout. Asi
+  // evitamos un default hardcoded que un atacante podria adivinar si el
+  // operador olvida poner TEST_MODE=false en produccion.
   testMode: {
     enabled: process.env.TEST_MODE === 'true',
-    bypassKey: process.env.TEST_BYPASS_KEY || 'dev-testing-key-123', // Key simple para bypass
+    bypassKey: process.env.TEST_BYPASS_KEY
+      || (process.env.TEST_MODE === 'true'
+        ? require('crypto').randomBytes(32).toString('hex')
+        : null),
   }
 };
 
@@ -109,6 +124,8 @@ try {
   if (config.testMode.enabled) {
     // eslint-disable-next-line no-console
     console.warn(`[WARNING] MODO DE PRUEBAS HABILITADO: Seguridad relajada para desarrollo`);
+    // eslint-disable-next-line no-console
+    console.warn(`[TEST MODE] Clave bypass para esta sesion: ${config.testMode.bypassKey}`);
   }
 } catch (error) {
   // eslint-disable-next-line no-console

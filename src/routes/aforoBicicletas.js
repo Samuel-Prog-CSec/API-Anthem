@@ -1,38 +1,32 @@
 /**
  * Rutas de Aforo de Bicicletas
  *
- * Define todas las rutas relacionadas con la gestion y consulta de datos
- * de conteo de trafico de bicicletas en estaciones de aforo.
- * Incluye middlewares de autenticacion, validacion y limitacion de velocidad.
+ * Validaciones express-validator inline extraidas a
+ * `validators/validadorAforoBicicletas.js`.
  */
 
 const express = require('express');
-const { param, query } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { RATE_LIMITS, HTTP_STATUS } = require('../constants');
 
 const bikeTrafficController = require('../controllers/controladorAforoBicicletas');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
-const { performanceMonitor } = require('../middleware/performanceMonitor');
 const { etagMiddleware } = require('../middleware/etag');
 const logger = require('../config/logger');
-const {
-  validatePagination,
-  validateDateRange
-} = require('../middleware/validation');
+const { validatePagination, validateDateRange } = require('../middleware/validation');
 const { cacheMiddleware } = require('../middleware/cache');
+
+const {
+  validarObtenerConteos,
+  validarDistribucionHoraria,
+  validarComparativaEstaciones,
+  validarTendenciasDiarias,
+  validarDatosEstacion
+} = require('../validators/validadorAforoBicicletas');
 
 const router = express.Router();
 
-// Aplicar performanceMonitor a todas las rutas de aforo
-router.use(performanceMonitor);
-
-/**
- * Limitadores de velocidad
- */
-
-// Para consultas generales
 const generalLimit = rateLimit({
   windowMs: RATE_LIMITS.GENERAL.WINDOW_MS,
   max: RATE_LIMITS.GENERAL.MAX_REQUESTS,
@@ -45,46 +39,17 @@ const generalLimit = rateLimit({
   skip: (req) => req.user && req.user.role === 'admin'
 });
 
-/**
- * RUTAS PRINCIPALES
- */
-
-/**
- * @route   GET /api/bike-traffic
- * @desc    Obtener todos los registros de aforo con filtros
- * @access  Private
- */
 router.get('/',
   generalLimit,
   authenticate,
   validateDateRange,
   validatePagination,
-  [
-    query('identificador')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('El identificador debe ser una cadena de texto'),
-    query('distrito')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('El distrito debe ser una cadena de texto'),
-    query('hora')
-      .optional()
-      .isInt({ min: 0, max: 23 })
-      .withMessage('La hora debe ser un numero entre 0 y 23'),
-    validateRequest
-  ],
+  validarObtenerConteos,
+  validateRequest,
   cacheMiddleware('bikeTraffic'),
   bikeTrafficController.obtenerConteos
 );
 
-/**
- * @route   GET /api/bike-traffic/stats
- * @desc    Obtener estadisticas generales de aforo
- * @access  Private
- */
 router.get('/estadisticas',
   generalLimit,
   authenticate,
@@ -94,130 +59,61 @@ router.get('/estadisticas',
   bikeTrafficController.obtenerEstadisticas
 );
 
-/**
- * @route   GET /api/bike-traffic/hourly
- * @desc    Obtener distribucion horaria de trafico
- * @access  Private
- */
 router.get('/distribucion-horaria',
   generalLimit,
   authenticate,
-  [
-    query('identificador')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('El identificador debe ser una cadena de texto'),
-    query('distrito')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('El distrito debe ser una cadena de texto'),
-    validateRequest
-  ],
+  validarDistribucionHoraria,
+  validateRequest,
   validateDateRange,
   etagMiddleware,
   cacheMiddleware('bikeTraffic'),
   bikeTrafficController.obtenerDistribucionHoraria
 );
 
-/**
- * @route   GET /api/bike-traffic/stations
- * @desc    Obtener ranking de estaciones por trafico
- * @access  Private
- */
 router.get('/estaciones',
   generalLimit,
   authenticate,
-  [
-    query('limit')
-      .optional()
-      .isInt({ min: 1, max: 100 })
-      .withMessage('El limite debe ser un numero entre 1 y 100'),
-    query('distrito')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('El distrito debe ser una cadena de texto'),
-    validateRequest
-  ],
+  validarComparativaEstaciones,
+  validateRequest,
   validateDateRange,
   etagMiddleware,
   cacheMiddleware('bikeTraffic'),
   bikeTrafficController.obtenerComparativaEstaciones
 );
 
-/**
- * @route   GET /api/bike-traffic/trends/daily
- * @desc    Obtener tendencias diarias de trafico
- * @access  Private
- */
 router.get('/tendencias/diario',
   generalLimit,
   authenticate,
-  [
-    query('identificador')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('El identificador debe ser una cadena de texto'),
-    query('distrito')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('El distrito debe ser una cadena de texto'),
-    validateRequest
-  ],
+  validarTendenciasDiarias,
+  validateRequest,
   validateDateRange,
   cacheMiddleware('bikeTraffic'),
   bikeTrafficController.obtenerTendenciasDiarias
 );
 
-/**
- * @route   GET /api/bike-traffic/station/:identificador
- * @desc    Obtener datos de una estacion especifica
- * @access  Private
- */
 router.get('/estacion/:identificador',
   generalLimit,
   authenticate,
-  [
-    param('identificador')
-      .isString()
-      .trim()
-      .notEmpty()
-      .withMessage('El identificador de estacion es requerido'),
-    validateRequest
-  ],
+  validarDatosEstacion,
+  validateRequest,
   validateDateRange,
   cacheMiddleware('bikeTraffic'),
   bikeTrafficController.obtenerDatosEstacion
 );
 
-/**
- * @route   GET /api/v1/aforo-bicicletas/mapa
- * @desc    FeatureCollection GeoJSON agregado por estacion de aforo
- * @access  Privado
- */
 router.get('/mapa',
   generalLimit,
   authenticate,
-  // `validateDateRange` es una funcion factory que retorna un array
-  // de middlewares; hay que llamarla con parentesis para expandir.
+  // `validateDateRange` es factory: hay que llamarla con parentesis para expandir el array
   ...validateDateRange(),
   cacheMiddleware('bikeTraffic'),
   bikeTrafficController.obtenerMapaAforo
 );
 
-/**
- * Middleware de logging para todas las rutas de aforo
- */
 router.use((req, res, next) => {
   const start = Date.now();
-
   res.on('finish', () => {
     const duration = Date.now() - start;
-
     logger.debug({
       method: req.method,
       path: req.path,
@@ -227,13 +123,9 @@ router.use((req, res, next) => {
       query: Object.keys(req.query).length > 0 ? req.query : undefined
     }, 'Consulta de aforo de bicicletas completada');
   });
-
   next();
 });
 
-/**
- * Manejo de errores especifico para rutas de aforo
- */
 router.use((error, req, res, _next) => {
   logger.error({
     error: error.message,

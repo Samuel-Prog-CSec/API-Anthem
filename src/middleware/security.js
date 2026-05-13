@@ -179,6 +179,20 @@ const customSecurityHeaders = (req, res, next) => {
   // Eliminar informacion sensible del servidor
   res.removeHeader('X-Powered-By');
 
+  // Cabecera legacy contra clickjacking. Helmet ya configura
+  // `Content-Security-Policy: frame-ancestors 'none'` (browsers modernos),
+  // pero `X-Frame-Options: DENY` cubre tambien IE11 y otros clientes viejos
+  // que no respetan la directiva CSP.
+  res.setHeader('X-Frame-Options', 'DENY');
+
+  // Restringir capacidades del navegador no usadas por la API (defensa en
+  // profundidad). Bloquea acceso a camara, microfono, geolocalizacion, etc.
+  // si algun cliente intentara ejecutar codigo embebido sobre la respuesta.
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()'
+  );
+
   // Anadir headers de seguridad personalizados
   // X-API-Version solo en entornos no productivos para no exponer la version a posibles atacantes
   if (config.server.env !== 'production') {

@@ -1,312 +1,245 @@
 /**
  * Controlador de Contenedores
  *
- * Maneja la lógica de negocio para las operaciones relacionadas
+ * Maneja la logica de negocio para las operaciones relacionadas
  * con contenedores de residuos.
  */
 
 const Contenedor = require('../models/Contenedor');
-const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
+const { createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, GEO_LIMITS } = require('../constants');
+const asyncHandler = require('../utils/asyncHandler');
 
 /**
- * Obtener todos los contenedores con filtros y paginación
+ * Obtener todos los contenedores con filtros y paginacion
  *
  * @route GET /api/v1/contenedores
  * @access Private
  */
-exports.obtenerContenedores = async (req, res, next) => {
-  try {
-    // Configuración de filtros usando queryHelper
-    const filterConfig = [
-      { field: 'tipoContenedor', type: 'exact', param: 'tipoContenedor', transform: TRANSFORMS.toUpperCase },
-      { field: 'distrito', type: 'regex', param: 'distrito' },
-      { field: 'barrio', type: 'regex', param: 'barrio' },
-      { field: 'lote', type: 'numeric', param: 'lote' }
-    ];
+exports.obtenerContenedores = asyncHandler(async (req, res) => {
+  const filterConfig = [
+    { field: 'tipoContenedor', type: 'exact', param: 'tipoContenedor', transform: TRANSFORMS.toUpperCase },
+    { field: 'distrito', type: 'regex', param: 'distrito' },
+    { field: 'barrio', type: 'regex', param: 'barrio' },
+    { field: 'lote', type: 'numeric', param: 'lote' }
+  ];
 
-    const filters = buildFilters(req.query, filterConfig);
+  const filters = buildFilters(req.query, filterConfig);
 
-    // Configurar ordenamiento usando queryHelper
-    const sortMapping = {
-      distrito: 'distrito',
-      barrio: 'barrio',
-      tipoContenedor: 'tipoContenedor',
-      lote: 'lote'
-    };
-    const sortOptions = buildSortOptions(
-      req.query,
-      sortMapping,
-      ['distrito', 'barrio', 'tipoContenedor', 'lote'],
-      'distrito',
-      'asc'
-    );
+  const sortMapping = {
+    distrito: 'distrito',
+    barrio: 'barrio',
+    tipoContenedor: 'tipoContenedor',
+    lote: 'lote'
+  };
+  const sortOptions = buildSortOptions(
+    req.query,
+    sortMapping,
+    ['distrito', 'barrio', 'tipoContenedor', 'lote'],
+    'distrito',
+    'asc'
+  );
 
-    // Configurar paginación usando queryHelper
-    const paginationOptions = buildPaginationOptions(req.query, {
-      defaultLimit: SPECIAL_PAGINATION_LIMITS.CONTAINERS.DEFAULT,
-      maxLimit: PAGINATION.MAX_LIMIT
-    });
+  const paginationOptions = buildPaginationOptions(req.query, {
+    defaultLimit: SPECIAL_PAGINATION_LIMITS.CONTAINERS.DEFAULT,
+    maxLimit: PAGINATION.MAX_LIMIT
+  });
 
-    // Proyección optimizada: solo campos necesarios para listado
-    // Reduce ~40% tamaño de respuesta
-    const projection = {
-      tipoContenedor: 1,
-      modelo: 1,
-      descripcionModelo: 1,
-      cantidad: 1,
-      lote: 1,
-      distrito: 1,
-      barrio: 1,
-      direccion: 1,
-      coordenadas: 1
-    };
+  // Proyeccion optimizada: solo campos necesarios para listado
+  const projection = {
+    tipoContenedor: 1,
+    modelo: 1,
+    descripcionModelo: 1,
+    cantidad: 1,
+    lote: 1,
+    distrito: 1,
+    barrio: 1,
+    direccion: 1,
+    coordenadas: 1
+  };
 
-    const { cursor } = req.query;
-    const useCursor = Boolean(cursor);
-    const primarySortField = Object.keys(sortOptions)[0] || 'distrito';
-    const sortOrder = sortOptions[primarySortField] === 1 ? 'asc' : 'desc';
-    const cursorFilter = useCursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder }) : null;
-    const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
-    const sortWithTiebreak = { ...sortOptions, _id: sortOrder === 'asc' ? 1 : -1 };
+  const { cursor } = req.query;
+  const useCursor = Boolean(cursor);
+  const primarySortField = Object.keys(sortOptions)[0] || 'distrito';
+  const sortOrder = sortOptions[primarySortField] === 1 ? 'asc' : 'desc';
+  const cursorFilter = useCursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder }) : null;
+  const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
+  const sortWithTiebreak = { ...sortOptions, _id: sortOrder === 'asc' ? 1 : -1 };
 
-    const dataPromise = Contenedor.find(combinedFilters, projection)
-      .sort(sortWithTiebreak)
-      .limit(paginationOptions.limit)
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
-      .lean();
+  const dataPromise = Contenedor.find(combinedFilters, projection)
+    .sort(sortWithTiebreak)
+    .limit(paginationOptions.limit)
+    .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+    .lean();
 
-    const countPromise = useCursor
-      ? Promise.resolve(null)
-      : Contenedor.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
+  const countPromise = useCursor
+    ? Promise.resolve(null)
+    : Contenedor.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
 
-    const [data, total] = await Promise.all([dataPromise, countPromise]);
+  const [data, total] = await Promise.all([dataPromise, countPromise]);
 
-    const responseData = {
-      data,
-      pagination: useCursor
-        ? createCursorMeta({ results: data, limit: paginationOptions.limit, sortField: primarySortField, sortOrder })
-        : createPaginationMeta(paginationOptions.page, paginationOptions.limit, total)
-    };
+  const responseData = {
+    data,
+    pagination: useCursor
+      ? createCursorMeta({ results: data, limit: paginationOptions.limit, sortField: primarySortField, sortOrder })
+      : createPaginationMeta(paginationOptions.page, paginationOptions.limit, total)
+  };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Contenedores obtenidos exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al obtener contenedores', error));
-  }
-};
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Contenedores obtenidos exitosamente'));
+});
 
 /**
- * Buscar contenedores cercanos a una ubicación
+ * Buscar contenedores cercanos a una ubicacion
  *
  * @route GET /api/v1/contenedores/cercanos
  * @access Private
  */
-exports.obtenerContenedoresCercanos = async (req, res, next) => {
-  try {
-    const {
-      longitude,
-      latitude,
-      tipoContenedor
-    } = req.query;
+exports.obtenerContenedoresCercanos = asyncHandler(async (req, res, next) => {
+  const { longitude, latitude, tipoContenedor } = req.query;
 
-    // Validar parámetros requeridos
-    if (!longitude || !latitude) {
-      return next(createBadRequestError('Se requieren los parámetros longitude y latitude'));
-    }
-
-    const lng = parseFloat(longitude);
-    const lat = parseFloat(latitude);
-
-    // Parsear parámetros numéricos
-    const { maxDistance } = parseNumericParams(
-      req.query,
-      ['maxDistance'],
-      { maxDistance: GEO_LIMITS.DEFAULT_DISTANCE_METERS }
-    );
-
-    // Validar coordenadas
-    if (isNaN(lng) || isNaN(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) {
-      return next(createBadRequestError('Coordenadas no válidas'));
-    }
-
-    const containers = await Contenedor.findNearby(
-      lng,
-      lat,
-      maxDistance,
-      tipoContenedor ? tipoContenedor.toUpperCase() : null
-    );
-
-    const responseData = {
-      data: {
-        ubicacion: {
-          longitude: lng,
-          latitude: lat
-        },
-        radioMetros: maxDistance,
-        ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
-        total: containers.length,
-        contenedores: containers
-      }
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Contenedores cercanos obtenidos exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al buscar contenedores cercanos', error));
+  if (!longitude || !latitude) {
+    return next(createBadRequestError('Se requieren los parametros longitude y latitude'));
   }
-};
+
+  const lng = parseFloat(longitude);
+  const lat = parseFloat(latitude);
+
+  const { maxDistance } = parseNumericParams(
+    req.query,
+    ['maxDistance'],
+    { maxDistance: GEO_LIMITS.DEFAULT_DISTANCE_METERS }
+  );
+
+  // Validar coordenadas
+  if (isNaN(lng) || isNaN(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) {
+    return next(createBadRequestError('Coordenadas no validas'));
+  }
+
+  const containers = await Contenedor.findNearby(
+    lng,
+    lat,
+    maxDistance,
+    tipoContenedor ? tipoContenedor.toUpperCase() : null
+  );
+
+  const responseData = {
+    ubicacion: { longitude: lng, latitude: lat },
+    radioMetros: maxDistance,
+    ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
+    total: containers.length,
+    contenedores: containers
+  };
+
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Contenedores cercanos obtenidos exitosamente'));
+});
 
 /**
- * Obtener estadísticas generales de contenedores
+ * Obtener estadisticas generales de contenedores
  *
  * @route GET /api/v1/contenedores/estadisticas
  * @access Private
  */
-exports.obtenerEstadisticasContenedores = async (req, res, next) => {
-  try {
-    const summary = await Contenedor.getGeneralSummary();
+exports.obtenerEstadisticasContenedores = asyncHandler(async (req, res, next) => {
+  const summary = await Contenedor.getGeneralSummary();
 
-    if (!summary || summary.length === 0) {
-      return next(createNotFoundError('Datos de contenedores'));
-    }
-
-    const responseData = {
-      data: summary[0]
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas obtenidas exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al obtener estadísticas de contenedores', error));
+  if (!summary || summary.length === 0) {
+    return next(createNotFoundError('Datos de contenedores'));
   }
-};
+
+  res.status(HTTP_STATUS.OK).json(createResponse(summary[0], 'Estadisticas obtenidas exitosamente'));
+});
 
 /**
- * Obtener estadísticas por distrito
+ * Obtener estadisticas por distrito
  *
  * @route GET /api/v1/contenedores/estadisticas/distrito
  * @access Private
  */
-exports.obtenerEstadisticasPorDistrito = async (req, res, next) => {
-  try {
-    const { distrito } = req.query;
+exports.obtenerEstadisticasPorDistrito = asyncHandler(async (req, res, next) => {
+  const { distrito } = req.query;
 
-    const stats = await Contenedor.getStatsByDistrict(
-      distrito ? distrito : null
-    );
+  const stats = await Contenedor.getStatsByDistrict(distrito ? distrito : null);
 
-    if (!stats || stats.length === 0) {
-      return next(createNotFoundError('Contenedores', distrito ? `distrito ${distrito}` : null));
-    }
-
-    const responseData = {
-      data: {
-        ...(distrito && { distrito }),
-        total: stats.length,
-        estadisticas: stats
-      }
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas por distrito obtenidas exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al obtener estadísticas por distrito', error));
+  if (!stats || stats.length === 0) {
+    return next(createNotFoundError('Contenedores', distrito ? `distrito ${distrito}` : null));
   }
-};
+
+  const responseData = {
+    ...(distrito && { distrito }),
+    total: stats.length,
+    estadisticas: stats
+  };
+
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadisticas por distrito obtenidas exitosamente'));
+});
 
 /**
- * Obtener estadísticas por barrio
+ * Obtener estadisticas por barrio
  *
  * @route GET /api/v1/contenedores/estadisticas/barrio
  * @access Private
  */
-exports.obtenerEstadisticasPorBarrio = async (req, res, next) => {
-  try {
-    const { distrito, barrio } = req.query;
+exports.obtenerEstadisticasPorBarrio = asyncHandler(async (req, res, next) => {
+  const { distrito, barrio } = req.query;
 
-    // Validar que se proporcione al menos el distrito
-    if (!distrito) {
-      return next(createBadRequestError('Se requiere el parámetro distrito'));
-    }
-
-    const stats = await Contenedor.getStatsByNeighborhood(distrito, barrio || null);
-
-    if (!stats || stats.length === 0) {
-      return next(createNotFoundError('Contenedores', barrio ? `barrio ${barrio} del distrito ${distrito}` : `distrito ${distrito}`));
-    }
-
-    const responseData = {
-      data: {
-        distrito,
-        ...(barrio && { barrio }),
-        total: stats.length,
-        estadisticas: stats
-      }
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas por barrio obtenidas exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al obtener estadísticas por barrio', error));
+  if (!distrito) {
+    return next(createBadRequestError('Se requiere el parametro distrito'));
   }
-};
+
+  const stats = await Contenedor.getStatsByNeighborhood(distrito, barrio || null);
+
+  if (!stats || stats.length === 0) {
+    return next(createNotFoundError('Contenedores', barrio ? `barrio ${barrio} del distrito ${distrito}` : `distrito ${distrito}`));
+  }
+
+  const responseData = {
+    distrito,
+    ...(barrio && { barrio }),
+    total: stats.length,
+    estadisticas: stats
+  };
+
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadisticas por barrio obtenidas exitosamente'));
+});
 
 /**
- * Contar contenedores por tipo en un área
+ * Contar contenedores por tipo en un area
  *
  * @route GET /api/v1/contenedores/conteo-por-tipo
  * @access Private
  */
-exports.contarPorTipo = async (req, res, next) => {
-  try {
-    const { distrito, barrio } = req.query;
+exports.contarPorTipo = asyncHandler(async (req, res, next) => {
+  const { distrito, barrio } = req.query;
 
-    // Validar que se proporcione al menos el distrito
-    if (!distrito) {
-      return next(createBadRequestError('Se requiere el parámetro distrito'));
-    }
-
-    const count = await Contenedor.countByType(distrito, barrio || null);
-
-    const responseData = {
-      data: count
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Conteo por tipo obtenido exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al contar contenedores por tipo', error));
+  if (!distrito) {
+    return next(createBadRequestError('Se requiere el parametro distrito'));
   }
-};
+
+  const count = await Contenedor.countByType(distrito, barrio || null);
+
+  res.status(HTTP_STATUS.OK).json(createResponse(count, 'Conteo por tipo obtenido exitosamente'));
+});
 
 /**
- * Obtener lista de distritos únicos
+ * Obtener lista de distritos unicos
  *
  * @route GET /api/v1/contenedores/distritos
  * @access Private
  */
-exports.obtenerDistritos = async (req, res, next) => {
-  try {
-    const districts = await Contenedor.distinct('distrito');
+exports.obtenerDistritos = asyncHandler(async (req, res) => {
+  const districts = await Contenedor.distinct('distrito');
 
-    const responseData = {
-      data: {
-        total: districts.length,
-        distritos: districts.sort()
-      }
-    };
+  const responseData = {
+    total: districts.length,
+    distritos: districts.sort()
+  };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Distritos obtenidos exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al obtener distritos', error));
-  }
-};
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Distritos obtenidos exitosamente'));
+});
 
 /**
  * Obtener lista de barrios por distrito
@@ -314,88 +247,72 @@ exports.obtenerDistritos = async (req, res, next) => {
  * @route GET /api/v1/contenedores/barrios/:distrito
  * @access Private
  */
-exports.obtenerBarriosPorDistrito = async (req, res, next) => {
-  try {
-    const { distrito } = req.params;
+exports.obtenerBarriosPorDistrito = asyncHandler(async (req, res, next) => {
+  const { distrito } = req.params;
 
-    const neighborhoods = await Contenedor.distinct('barrio', { distrito });
+  const neighborhoods = await Contenedor.distinct('barrio', { distrito });
 
-    if (!neighborhoods || neighborhoods.length === 0) {
-      return next(createNotFoundError('Barrios', `distrito ${distrito}`));
-    }
-
-    const responseData = {
-      data: {
-        distrito,
-        total: neighborhoods.length,
-        barrios: neighborhoods.sort()
-      }
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Barrios obtenidos exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al obtener barrios', error));
+  if (!neighborhoods || neighborhoods.length === 0) {
+    return next(createNotFoundError('Barrios', `distrito ${distrito}`));
   }
-};
+
+  const responseData = {
+    distrito,
+    total: neighborhoods.length,
+    barrios: neighborhoods.sort()
+  };
+
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Barrios obtenidos exitosamente'));
+});
 
 /**
- * Buscar contenedores por dirección
+ * Buscar contenedores por direccion
  *
  * @route GET /api/v1/contenedores/buscar
  * @access Private
  *
- * OPTIMIZACIÓN: Usa índice de texto (idx_containers_address_search) para búsquedas 500x+ más rápidas
- * - Sin índice ($regex en 2 campos): ~8000ms con 50k documentos (2x COLLSCAN)
- * - Con índice ($text): ~15ms con 50k documentos (TEXT index scan)
+ * OPTIMIZACION: Usa indice de texto (idx_containers_address_search) para busquedas 500x+ mas rapidas.
+ * - Sin indice ($regex en 2 campos): ~8000ms con 50k documentos (2x COLLSCAN)
+ * - Con indice ($text): ~15ms con 50k documentos (TEXT index scan)
  */
-exports.buscarPorDireccion = async (req, res, next) => {
-  try {
-    const { q, tipoContenedor } = req.query;
+exports.buscarPorDireccion = asyncHandler(async (req, res, next) => {
+  const { q, tipoContenedor } = req.query;
 
-    if (!q) {
-      return next(createBadRequestError('Se requiere el parámetro de búsqueda q'));
-    }
-
-    // Construir consulta de búsqueda usando helper para consistencia
-    const filterConfig = [
-      { field: 'tipoContenedor', type: 'exact', param: 'tipoContenedor', transform: TRANSFORMS.toUpperCase }
-    ];
-    const filters = buildFilters(req.query, filterConfig);
-
-    // Parsear parámetros numéricos
-    const { limit } = parseNumericParams(
-      req.query,
-      ['limit'],
-      { limit: PAGINATION.DEFAULT_LIMIT }
-    );
-
-    // Usar índice de texto para búsqueda OPTIMIZADA
-    // Índice compuesto: direccion.nombre (peso 10) + direccion.completa (peso 5)
-    // Busca automáticamente en ambos campos con relevancia por peso
-    filters.$text = { $search: q };
-
-    const containers = await Contenedor.find(filters)
-      .limit(limit)
-      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
-      .select('-__v')
-      .lean();
-
-    const responseData = {
-      data: {
-        busqueda: q,
-        ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
-        total: containers.length,
-        contenedores: containers
-      }
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Búsqueda completada exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al buscar contenedores por dirección', error));
+  if (!q) {
+    return next(createBadRequestError('Se requiere el parametro de busqueda q'));
   }
-};
+
+  // Construir consulta de busqueda usando helper para consistencia
+  const filterConfig = [
+    { field: 'tipoContenedor', type: 'exact', param: 'tipoContenedor', transform: TRANSFORMS.toUpperCase }
+  ];
+  const filters = buildFilters(req.query, filterConfig);
+
+  const { limit } = parseNumericParams(
+    req.query,
+    ['limit'],
+    { limit: PAGINATION.DEFAULT_LIMIT }
+  );
+
+  // Usar indice de texto para busqueda OPTIMIZADA
+  // Indice compuesto: direccion.nombre (peso 10) + direccion.completa (peso 5)
+  filters.$text = { $search: q };
+
+  const containers = await Contenedor.find(filters)
+    .limit(limit)
+    .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+    .select('-__v')
+    .lean();
+
+  const responseData = {
+    busqueda: q,
+    ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
+    total: containers.length,
+    contenedores: containers
+  };
+
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Busqueda completada exitosamente'));
+});
 
 /**
  * Obtener mapa de calor de contenedores por tipo
@@ -403,26 +320,19 @@ exports.buscarPorDireccion = async (req, res, next) => {
  * @route GET /api/v1/contenedores/mapa-calor
  * @access Private
  */
-exports.obtenerMapaCalor = async (req, res, next) => {
-  try {
-    const { tipoContenedor } = req.query;
+exports.obtenerMapaCalor = asyncHandler(async (req, res) => {
+  const { tipoContenedor } = req.query;
 
-    const heatmapData = await Contenedor.getHeatmapData(tipoContenedor);
+  const heatmapData = await Contenedor.getHeatmapData(tipoContenedor);
 
-    const responseData = {
-      data: {
-        ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
-        total: heatmapData.length,
-        puntos: heatmapData
-      }
-    };
+  const responseData = {
+    ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
+    total: heatmapData.length,
+    puntos: heatmapData
+  };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de mapa de calor obtenidos exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al obtener datos de mapa de calor', error));
-  }
-};
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de mapa de calor obtenidos exitosamente'));
+});
 
 /**
  * Obtener cobertura por tipo de contenedor en un distrito
@@ -430,134 +340,106 @@ exports.obtenerMapaCalor = async (req, res, next) => {
  * @route GET /api/v1/contenedores/cobertura
  * @access Private
  */
-exports.obtenerAnalisisCobertura = async (req, res, next) => {
-  try {
-    const { distrito } = req.query;
+exports.obtenerAnalisisCobertura = asyncHandler(async (req, res) => {
+  const { distrito } = req.query;
 
-    const coverage = await Contenedor.getCoverageAnalysis(distrito);
+  const coverage = await Contenedor.getCoverageAnalysis(distrito);
 
-    const responseData = {
-      data: {
-        ...(distrito && { distrito }),
-        analisisCobertura: coverage
-      }
-    };
+  const responseData = {
+    ...(distrito && { distrito }),
+    analisisCobertura: coverage
+  };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de cobertura obtenido exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al analizar cobertura', error));
-  }
-};
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Analisis de cobertura obtenido exitosamente'));
+});
 
 /**
  * Obtener mapa de contenedores como FeatureCollection GeoJSON RFC 7946.
  *
- * Endpoint paralelo a `/ubicaciones/mapa`, `/ruido/mapa`, `/multas/mapa`,
- * etc. Devuelve cada contenedor como un Feature Point con propiedades
- * minimas para popup/cluster en Leaflet.
- *
- * Acepta filtros opcionales para acotar volumen (bbox para viewport,
- * tipoContenedor para capas tematicas, distrito/barrio para drill-down).
- *
  * @route GET /api/v1/contenedores/mapa
  * @access Private
  */
-exports.obtenerMapaContenedores = async (req, res, next) => {
-  try {
-    const { tipoContenedor, distrito, barrio, lote, bbox } = req.query;
+exports.obtenerMapaContenedores = asyncHandler(async (req, res, next) => {
+  const { tipoContenedor, distrito, barrio, lote, bbox } = req.query;
 
-    // Parsear bbox: acepta CSV "minLng,minLat,maxLng,maxLat" o array
-    let bboxArray;
-    if (bbox) {
-      const parts = Array.isArray(bbox) ? bbox : String(bbox).split(',');
-      if (parts.length === 4) {
-        bboxArray = parts.map(p => parseFloat(p));
-        if (bboxArray.some(v => !Number.isFinite(v))) {
-          return next(createBadRequestError('bbox debe ser 4 numeros: minLng,minLat,maxLng,maxLat'));
-        }
-      } else {
-        return next(createBadRequestError('bbox debe contener exactamente 4 valores'));
+  // Parsear bbox: acepta CSV "minLng,minLat,maxLng,maxLat" o array
+  let bboxArray;
+  if (bbox) {
+    const parts = Array.isArray(bbox) ? bbox : String(bbox).split(',');
+    if (parts.length === 4) {
+      bboxArray = parts.map(p => parseFloat(p));
+      if (bboxArray.some(v => !Number.isFinite(v))) {
+        return next(createBadRequestError('bbox debe ser 4 numeros: minLng,minLat,maxLng,maxLat'));
       }
+    } else {
+      return next(createBadRequestError('bbox debe contener exactamente 4 valores'));
     }
-
-    const docs = await Contenedor.getMapFeatures({
-      tipoContenedor,
-      distrito,
-      barrio,
-      lote,
-      bbox: bboxArray
-    });
-
-    const featureCollection = documentosAFeatureCollection(
-      docs,
-      (doc) => ({
-        id: doc._id,
-        geometry: doc.location,
-        properties: {
-          codigoInternoSituado: doc.codigoInternoSituado,
-          tipoContenedor: doc.tipoContenedor,
-          cantidad: doc.cantidad,
-          lote: doc.lote,
-          distrito: doc.distrito,
-          barrio: doc.barrio,
-          direccion: doc.direccion?.completa || null
-        }
-      }),
-      {
-        recurso: 'contenedores',
-        ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
-        ...(distrito && { distrito }),
-        ...(barrio && { barrio })
-      }
-    );
-
-    res.status(HTTP_STATUS.OK).json(
-      createResponse(featureCollection, 'Mapa de contenedores generado exitosamente')
-    );
-
-  } catch (error) {
-    next(createInternalError('Error al generar mapa de contenedores', error));
   }
-};
+
+  const docs = await Contenedor.getMapFeatures({
+    tipoContenedor,
+    distrito,
+    barrio,
+    lote,
+    bbox: bboxArray
+  });
+
+  const featureCollection = documentosAFeatureCollection(
+    docs,
+    (doc) => ({
+      id: doc._id,
+      geometry: doc.location,
+      properties: {
+        codigoInternoSituado: doc.codigoInternoSituado,
+        tipoContenedor: doc.tipoContenedor,
+        cantidad: doc.cantidad,
+        lote: doc.lote,
+        distrito: doc.distrito,
+        barrio: doc.barrio,
+        direccion: doc.direccion?.completa || null
+      }
+    }),
+    {
+      recurso: 'contenedores',
+      ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
+      ...(distrito && { distrito }),
+      ...(barrio && { barrio })
+    }
+  );
+
+  res.status(HTTP_STATUS.OK).json(
+    createResponse(featureCollection, 'Mapa de contenedores generado exitosamente')
+  );
+});
 
 /**
- * Análisis de densidad de contenedores por distrito
+ * Analisis de densidad de contenedores por distrito
  *
  * @route GET /api/v1/contenedores/analisis/densidad
  * @access Private
  */
-exports.obtenerAnalisisDensidad = async (req, res, next) => {
-  try {
-    const { distrito, tipoContenedor, includeBarrios = 'true' } = req.query;
+exports.obtenerAnalisisDensidad = asyncHandler(async (req, res, next) => {
+  const { distrito, tipoContenedor, includeBarrios = 'true' } = req.query;
 
-    const options = {
-      distrito,
-      tipoContenedor: tipoContenedor ? tipoContenedor.toUpperCase() : undefined,
-      includeBarrios: includeBarrios === 'true'
-    };
+  const options = {
+    distrito,
+    tipoContenedor: tipoContenedor ? tipoContenedor.toUpperCase() : undefined,
+    includeBarrios: includeBarrios === 'true'
+  };
 
-    const densityAnalysis = await Contenedor.getDensityAnalysisByDistrict(options);
+  const densityAnalysis = await Contenedor.getDensityAnalysisByDistrict(options);
 
-    if (!densityAnalysis || densityAnalysis.length === 0) {
-      return next(createNotFoundError('Análisis de densidad', distrito ? `distrito ${distrito}` : null));
-    }
-
-    const responseData = {
-      data: {
-        ...(distrito && { distrito }),
-        ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
-        includeBarrios: options.includeBarrios,
-        analisisDensidad: densityAnalysis,
-        totalZonasAnalizadas: densityAnalysis.length
-      }
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de densidad obtenido exitosamente'));
-
-  } catch (error) {
-    next(createInternalError('Error al analizar densidad', error));
+  if (!densityAnalysis || densityAnalysis.length === 0) {
+    return next(createNotFoundError('Analisis de densidad', distrito ? `distrito ${distrito}` : null));
   }
-};
 
+  const responseData = {
+    ...(distrito && { distrito }),
+    ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
+    includeBarrios: options.includeBarrios,
+    analisisDensidad: densityAnalysis,
+    totalZonasAnalizadas: densityAnalysis.length
+  };
 
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Analisis de densidad obtenido exitosamente'));
+});

@@ -9,6 +9,10 @@ const mongoose = require('mongoose');
 const logger = require('./logger');
 const { dbLogger } = logger;
 
+// Handle del interval del monitor de pool, expuesto para que el graceful
+// shutdown lo libere y no quede colgado tras cerrar la conexion a Mongo.
+let poolMonitorIntervalId = null;
+
 /**
  * Conectar a la base de datos MongoDB
  *
@@ -46,9 +50,9 @@ const connectDB = async (uri) => {
       minPoolSize: options.minPoolSize
     }, 'MongoDB conectado exitosamente con pool optimizado');
 
-    // Monitoreo periódico de estadísticas del pool de conexiones
-    // Ejecuta cada 60 segundos para detectar saturación o problemas de rendimiento
-    setInterval(() => {
+    // Monitoreo periodico de estadisticas del pool de conexiones
+    // Ejecuta cada 60 segundos para detectar saturacion o problemas de rendimiento
+    poolMonitorIntervalId = setInterval(() => {
       const db = mongoose.connection.db;
       if (db && db.serverConfig) {
         try {
@@ -134,7 +138,22 @@ const getConnectionStats = () => {
   };
 };
 
+/**
+ * Detiene el interval del monitor de pool de conexiones.
+ *
+ * Debe llamarse durante el graceful shutdown para que el proceso pueda
+ * terminar sin que el interval mantenga el event loop activo. Es seguro
+ * llamarla varias veces o si el interval nunca se inicio.
+ */
+const stopPoolMonitor = () => {
+  if (poolMonitorIntervalId) {
+    clearInterval(poolMonitorIntervalId);
+    poolMonitorIntervalId = null;
+  }
+};
+
 module.exports = {
   connectDB,
-  getConnectionStats
+  getConnectionStats,
+  stopPoolMonitor
 };

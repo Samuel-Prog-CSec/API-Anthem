@@ -20,7 +20,6 @@ const {
 } = require('../constants');
 const {
   createAuthError,
-  createInternalError,
   createConflictError,
   createNotFoundError,
   createBadRequestError,
@@ -42,6 +41,7 @@ const {
   logAccountLockout,
   logPasswordChange
 } = require('../utils/securityLogger');
+const asyncHandler = require('../utils/asyncHandler');
 
 // Las cookies van con Secure cuando el servidor sirve sobre HTTPS (produccion)
 // En desarrollo local sin HTTPS, Secure se desactiva para que el navegador acepte la cookie
@@ -65,95 +65,79 @@ const isValidTokenFormat = (token) =>
 /**
  * Controlador de Registro de Usuario
  *
- * Crea una nueva cuenta de usuario con validación y verificaciones de seguridad.
+ * Crea una nueva cuenta de usuario con validacion y verificaciones de seguridad.
  * Previene cuentas duplicadas y asegura la integridad de datos.
+ *
+ * Nota: el manejo de errores generales lo cubre `asyncHandler` + `globalErrorHandler`.
+ * Aqui se mantiene un catch especifico solo para errores de MongoDB (duplicate key,
+ * validation, cast) porque requieren transformacion via `handleMongoError`.
  *
  * @route POST /api/v1/auth/register
  * @access Public
  */
-const register = async (req, res, next) => {
+const register = asyncHandler(async (req, res, next) => {
+  const { username, email, password } = req.body;
+
+  // Validar fortaleza de contrasena ANTES de hashear
+  const passwordValidation = validatePassword(password);
+  if (!passwordValidation.isValid) {
+    return next(createBadRequestError('La contrasena no cumple los requisitos de seguridad', {
+      errors: passwordValidation.errors
+    }));
+  }
+
+  // Verificar si el usuario ya existe
+  const existingUser = await User.findByEmailOrUsername(email).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
+  if (existingUser) {
+    return next(createConflictError('Ya existe un usuario con este email o nombre de usuario'));
+  }
+
+  // Crear nuevo usuario. Capturamos errores de MongoDB localmente para
+  // transformarlos via handleMongoError antes de delegar al globalErrorHandler.
+  const user = new User({ username, email, password });
   try {
-    const { username, email, password } = req.body;
-
-    // Validar fortaleza de contraseña ANTES de hashear
-    const passwordValidation = validatePassword(password);
-    if (!passwordValidation.isValid) {
-      return next(createBadRequestError('La contraseña no cumple los requisitos de seguridad', {
-        errors: passwordValidation.errors
-      }));
-    }
-
-    // Verificar si el usuario ya existe
-    const existingUser = await User.findByEmailOrUsername(email).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
-    if (existingUser) {
-      return next(createConflictError('Ya existe un usuario con este email o nombre de usuario'));
-    }
-
-    // Crear nuevo usuario
-    const user = new User({
-      username,
-      email,
-      password
-    });
-
     await user.save();
-
-    // Generar access token y refresh token
-    const tokens = generateTokens(user);
-
-    // Preparar datos del usuario para respuesta (excluyendo información sensible)
-    const userData = {
-      id: user._id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      isActive: user.isActive,
-      createdAt: user.createdAt
-    };
-
-    // Establecer cookies HTTP-only seguras para los tokens
-    res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
-    res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
-
-    req.log.info({ username, email }, 'Nuevo usuario registrado exitosamente');
-
-    // Registrar evento de seguridad
-    logUserRegistration(user._id.toString(), email, username, req.ip);
-
-    res.status(HTTP_STATUS.CREATED).json(
-      createResponse(
-        {
-          user: userData,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken
-        },
-        'Usuario registrado exitosamente'
-      )
-    );
-
   } catch (error) {
-    authLogger.error({
-      error: error.message,
-      stack: error.stack,
-      username: req.body?.username,
-      endpoint: 'POST /api/auth/register'
-    }, 'Error en registro de usuario');
-
-    // Manejar errores de MongoDB
     if (error.code === 11000 || error.name === 'ValidationError' || error.name === 'CastError') {
       const mongoError = handleMongoError(error);
-      return res.status(mongoError.statusCode).json(
-        formatErrorResponse(mongoError)
-      );
+      return res.status(mongoError.statusCode).json(formatErrorResponse(mongoError));
     }
-
-    // Manejo robusto: no dependemos de next para evitar TypeError en cadenas incompletas
-    const internalError = createInternalError('Error durante el registro', error);
-    return res
-      .status(internalError.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR)
-      .json(formatErrorResponse(internalError));
+    throw error;
   }
-};
+
+  // Generar access token y refresh token
+  const tokens = generateTokens(user);
+
+  // Preparar datos del usuario para respuesta (excluyendo informacion sensible)
+  const userData = {
+    id: user._id,
+    username: user.username,
+    email: user.email,
+    role: user.role,
+    isActive: user.isActive,
+    createdAt: user.createdAt
+  };
+
+  // Establecer cookies HTTP-only seguras para los tokens
+  res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
+  res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
+
+  req.log.info({ username, email }, 'Nuevo usuario registrado exitosamente');
+
+  // Registrar evento de seguridad
+  logUserRegistration(user._id.toString(), email, username, req.ip);
+
+  res.status(HTTP_STATUS.CREATED).json(
+    createResponse(
+      {
+        user: userData,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken
+      },
+      'Usuario registrado exitosamente'
+    )
+  );
+});
 
 /**
  * Controlador de Login de Usuario
@@ -164,89 +148,78 @@ const register = async (req, res, next) => {
  * @route POST /api/v1/auth/login
  * @access Public
  */
-const login = async (req, res, next) => {
-  try {
-    const { identifier, password } = req.body;
+const login = asyncHandler(async (req, res, next) => {
+  const { identifier, password } = req.body;
 
-    // Buscar usuario por email o nombre de usuario
-    const user = await User.findByEmailOrUsername(identifier).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
-    if (!user) {
-      logLoginAttempt(false, identifier, null, req.ip, req.get('user-agent'), 'user_not_found');
-      return next(createAuthError('Credenciales inválidas'));
-    }
+  // Buscar usuario por email o nombre de usuario
+  const user = await User.findByEmailOrUsername(identifier).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
+  if (!user) {
+    logLoginAttempt(false, identifier, null, req.ip, req.get('user-agent'), 'user_not_found');
+    return next(createAuthError('Credenciales invalidas'));
+  }
 
-    // Verificar si la cuenta está bloqueada
-    if (user.isLocked) {
-      logLoginAttempt(false, identifier, user._id.toString(), req.ip, req.get('user-agent'), 'account_locked');
-      logAccountLockout(user._id.toString(), identifier, user.loginAttempts, user.lockUntil, req.ip);
+  // Verificar si la cuenta esta bloqueada
+  if (user.isLocked) {
+    logLoginAttempt(false, identifier, user._id.toString(), req.ip, req.get('user-agent'), 'account_locked');
+    logAccountLockout(user._id.toString(), identifier, user.loginAttempts, user.lockUntil, req.ip);
 
-      return res.status(HTTP_STATUS.LOCKED).json(
-        formatErrorResponse(
-          createAuthError('Cuenta bloqueada temporalmente por demasiados intentos fallidos')
-        )
-      );
-    }
-
-    // Verificar si la cuenta está activa
-    if (!user.isActive) {
-      logLoginAttempt(false, identifier, user._id.toString(), req.ip, req.get('user-agent'), 'account_inactive');
-      return next(createForbiddenError('La cuenta está desactivada'));
-    }
-
-    // Validar contraseña
-    const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) {
-      await user.handleFailedLogin();
-      logLoginAttempt(false, identifier, user._id.toString(), req.ip, req.get('user-agent'), 'invalid_password');
-      return next(createAuthError('Credenciales inválidas'));
-    }
-
-    // Manejar login exitoso
-    await user.handleSuccessfulLogin();
-
-    // Registrar login exitoso
-    logLoginAttempt(true, identifier, user._id.toString(), req.ip, req.get('user-agent'));
-
-    // Generar access token y refresh token
-    const tokens = generateTokens(user);
-
-    // Preparar datos del usuario para respuesta
-    const userData = {
-      id: user._id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      isActive: user.isActive,
-      lastLogin: new Date()
-    };
-
-    // Establecer cookies HTTP-only seguras para los tokens
-    res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
-    res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
-
-    req.log.info({ username: user.username, email: user.email }, 'Usuario inició sesión exitosamente');
-
-    res.status(HTTP_STATUS.OK).json(
-      createResponse(
-        {
-          user: userData,
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken
-        },
-        'Login exitoso'
+    return res.status(HTTP_STATUS.LOCKED).json(
+      formatErrorResponse(
+        createAuthError('Cuenta bloqueada temporalmente por demasiados intentos fallidos')
       )
     );
-
-  } catch (error) {
-    authLogger.error({
-      error: error.message,
-      stack: error.stack,
-      username: req.body?.username,
-      endpoint: 'POST /api/auth/login'
-    }, 'Error durante el login');
-    return next(createInternalError('Error durante el login', error));
   }
-};
+
+  // Verificar si la cuenta esta activa
+  if (!user.isActive) {
+    logLoginAttempt(false, identifier, user._id.toString(), req.ip, req.get('user-agent'), 'account_inactive');
+    return next(createForbiddenError('La cuenta esta desactivada'));
+  }
+
+  // Validar contrasena
+  const isPasswordValid = await user.comparePassword(password);
+  if (!isPasswordValid) {
+    await user.handleFailedLogin();
+    logLoginAttempt(false, identifier, user._id.toString(), req.ip, req.get('user-agent'), 'invalid_password');
+    return next(createAuthError('Credenciales invalidas'));
+  }
+
+  // Manejar login exitoso
+  await user.handleSuccessfulLogin();
+
+  // Registrar login exitoso
+  logLoginAttempt(true, identifier, user._id.toString(), req.ip, req.get('user-agent'));
+
+  // Generar access token y refresh token
+  const tokens = generateTokens(user);
+
+  // Preparar datos del usuario para respuesta
+  const userData = {
+    id: user._id,
+    username: user.username,
+    email: user.email,
+    role: user.role,
+    isActive: user.isActive,
+    lastLogin: new Date()
+  };
+
+  // Establecer cookies HTTP-only seguras para los tokens
+  res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
+  res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
+
+  req.log.info({ username: user.username, email: user.email }, 'Usuario inicio sesion exitosamente');
+
+  res.status(HTTP_STATUS.OK).json(
+    createResponse(
+      {
+        user: userData,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken
+      },
+      'Login exitoso'
+    )
+  );
+});
 
 /**
  * Controlador de Logout de Usuario
@@ -256,57 +229,46 @@ const login = async (req, res, next) => {
  * @route POST /api/v1/auth/logout
  * @access Private
  */
-const logout = async (req, res, next) => {
-  try {
-    // Obtener refresh token de cookies o body
-    const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+const logout = asyncHandler(async (req, res) => {
+  // Obtener refresh token de cookies o body
+  const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
 
-    // Si existe refresh token, agregarlo a lista negra (solo si formato es válido)
-    if (refreshToken) {
-      if (!isValidTokenFormat(refreshToken)) {
-        authLogger.warn({ ip: req.ip }, 'Refresh token con formato inválido durante logout');
-      } else {
-        try {
-          const decoded = await verifyRefreshToken(refreshToken);
-          const tokenExpiration = getTokenExpiration(refreshToken);
+  // Si existe refresh token, agregarlo a lista negra (solo si formato es valido)
+  if (refreshToken) {
+    if (!isValidTokenFormat(refreshToken)) {
+      authLogger.warn({ ip: req.ip }, 'Refresh token con formato invalido durante logout');
+    } else {
+      try {
+        const decoded = await verifyRefreshToken(refreshToken);
+        const tokenExpiration = getTokenExpiration(refreshToken);
 
-          await TokenBlacklist.addToken(
-            refreshToken,
-            decoded.id,
-            TOKEN_REVOCATION_REASONS.LOGOUT,
-            tokenExpiration
-          );
-        } catch (error) {
-          // El token podría estar ya expirado, continuar con logout
-          authLogger.warn({ error: error.message }, 'Refresh token inválido durante logout');
-        }
+        await TokenBlacklist.addToken(
+          refreshToken,
+          decoded.id,
+          TOKEN_REVOCATION_REASONS.LOGOUT,
+          tokenExpiration
+        );
+      } catch (error) {
+        // El token podria estar ya expirado, continuar con logout
+        authLogger.warn({ error: error.message }, 'Refresh token invalido durante logout');
       }
     }
-
-    // Limpiar cookies de autenticación (usar mismas flags que al setear)
-    res.clearCookie('accessToken', baseCookieOptions);
-    res.clearCookie('refreshToken', baseCookieOptions);
-    res.clearCookie('token', baseCookieOptions); // Nombre de cookie legacy
-
-    req.log.info({ username: req.user.username }, 'Usuario cerró sesión');
-
-    // Registrar evento de seguridad
-    logSessionTermination(req.user._id.toString(), 'logout', req.ip);
-
-    res.status(HTTP_STATUS.OK).json(
-      createResponse(null, 'Logout exitoso')
-    );
-
-  } catch (error) {
-    authLogger.error({
-      error: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      endpoint: 'POST /api/auth/logout'
-    }, 'Error durante el logout');
-    return next(createInternalError('Error durante el logout', error));
   }
-};
+
+  // Limpiar cookies de autenticacion (usar mismas flags que al setear)
+  res.clearCookie('accessToken', baseCookieOptions);
+  res.clearCookie('refreshToken', baseCookieOptions);
+  res.clearCookie('token', baseCookieOptions); // Nombre de cookie legacy
+
+  req.log.info({ username: req.user.username }, 'Usuario cerro sesion');
+
+  // Registrar evento de seguridad
+  logSessionTermination(req.user._id.toString(), 'logout', req.ip);
+
+  res.status(HTTP_STATUS.OK).json(
+    createResponse(null, 'Logout exitoso')
+  );
+});
 
 /**
  * Controlador de Obtención de Perfil de Usuario
@@ -316,34 +278,23 @@ const logout = async (req, res, next) => {
  * @route GET /api/v1/auth/me
  * @access Private
  */
-const getProfile = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user.id)
-      .select('-password')
-      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
-      .lean();
+const getProfile = asyncHandler(async (req, res, next) => {
+  const user = await User.findById(req.user.id)
+    .select('-password')
+    .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+    .lean();
 
-    if (!user) {
-      return next(createNotFoundError('Usuario', req.user.id));
-    }
-
-    res.status(HTTP_STATUS.OK).json(
-      createResponse(
-        'Perfil obtenido exitosamente',
-        { user }
-      )
-    );
-
-  } catch (error) {
-    authLogger.error({
-      error: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      endpoint: 'GET /api/auth/profile'
-    }, 'Error al obtener el perfil');
-    return next(createInternalError('Error al obtener el perfil', error));
+  if (!user) {
+    return next(createNotFoundError('Usuario', req.user.id));
   }
-};
+
+  res.status(HTTP_STATUS.OK).json(
+    createResponse(
+      { user },
+      'Perfil obtenido exitosamente'
+    )
+  );
+});
 
 /**
  * Controlador de Renovación de Access Token
@@ -354,118 +305,108 @@ const getProfile = async (req, res, next) => {
  * @route POST /api/v1/auth/refresh
  * @access Public (requiere refresh token válido)
  */
-const refreshAccessToken = async (req, res, next) => {
-  try {
-    // Extraer refresh token validado (body o cookie)
-    const refreshToken = req.validatedRefreshToken || req.body?.refreshToken || req.cookies?.refreshToken;
+const refreshAccessToken = asyncHandler(async (req, res, next) => {
+  // Extraer refresh token validado (body o cookie)
+  const refreshToken = req.validatedRefreshToken || req.body?.refreshToken || req.cookies?.refreshToken;
 
-    if (!refreshToken || !isValidTokenFormat(refreshToken)) {
-      return next(createAuthError('Refresh token requerido'));
-    }
-
-    // Verificar refresh token PRIMERO (fallar rápido con mismo error)
-    let decoded;
-    try {
-      decoded = await verifyRefreshToken(refreshToken);
-    } catch (_error) {
-      // Error genérico - no revelar si el token es inválido o está en lista negra
-      authLogger.warn({ ip: req.ip }, 'Token refresh fallido: token inválido');
-      return next(createAuthError('Token inválido o expirado'));
-    }
-
-    // Verificar si el token está en lista negra (después de verificación para evitar ataques de timing)
-    const isBlacklisted = await TokenBlacklist.isBlacklisted(refreshToken);
-    if (isBlacklisted) {
-      authLogger.warn({
-        userId: decoded.id,
-        ip: req.ip
-      }, 'Intento de reusar refresh token revocado');
-      return next(createAuthError('Token inválido o expirado'));
-    }
-
-    // Obtener usuario desde el token (incluir passwordChangedAt para verificación)
-    const user = await User.findById(decoded.id)
-      .select('-password +passwordChangedAt')
-      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
-      .lean();
-    if (!user) {
-      return next(createNotFoundError('Usuario', decoded.id));
-    }
-
-    // Verificar si la cuenta del usuario está activa
-    if (!user.isActive) {
-      return next(createForbiddenError('Cuenta desactivada'));
-    }
-
-    // Verificar si la cuenta está bloqueada
-    if (user.isLocked) {
-      return next(createForbiddenError('Cuenta bloqueada temporalmente'));
-    }
-
-    // SEGURIDAD CRÍTICA: Verificar si el usuario cambió su contraseña después de emitir este refresh token
-    // Esto invalida TODOS los tokens (access y refresh) emitidos antes del cambio de contraseña
-    if (user.passwordChangedAt) {
-      const changedTimestamp = parseInt(user.passwordChangedAt.getTime() / 1000, 10);
-      const tokenIssuedAt = decoded.iat;
-
-      if (tokenIssuedAt < changedTimestamp) {
-        authLogger.warn({
-          userId: user._id,
-          ip: req.ip,
-          tokenIat: tokenIssuedAt,
-          passwordChangedAt: changedTimestamp
-        }, 'Intento de usar refresh token emitido antes de cambio de contraseña');
-        return next(createAuthError('Token inválido o expirado'));
-      }
-    }
-
-    // Invalidar refresh token antiguo (rotación)
-    const tokenExpiration = getTokenExpiration(refreshToken);
-    await TokenBlacklist.addToken(
-      refreshToken,
-      user._id,
-      TOKEN_REVOCATION_REASONS.ROTATION,
-      tokenExpiration
-    );
-
-    // Generar NUEVO access token Y NUEVO refresh token
-    const tokens = generateTokens(user);
-
-    // Establecer nuevas cookies
-    res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
-    res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
-
-    authLogger.info({ userId: user._id }, 'Refresh token rotado exitosamente');
-
-    // Registrar evento de seguridad
-    logTokenRefresh(user._id.toString(), true, req.ip);
-
-    res.status(HTTP_STATUS.OK).json(
-      createResponse(
-        {
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-          user: {
-            id: user._id,
-            username: user.username,
-            email: user.email,
-            role: user.role,
-            isActive: user.isActive
-          }
-        },
-        'Token renovado exitosamente'
-      )
-    );
-
-  } catch (error) {
-    authLogger.error({
-      error: error.message,
-      stack: error.stack,
-      endpoint: 'POST /api/auth/refresh'
-    }, 'Error durante refresh token');
-    return next(createInternalError('Error al renovar el token', error));
+  if (!refreshToken || !isValidTokenFormat(refreshToken)) {
+    return next(createAuthError('Refresh token requerido'));
   }
-};
+
+  // Verificar refresh token PRIMERO (fallar rapido con mismo error)
+  let decoded;
+  try {
+    decoded = await verifyRefreshToken(refreshToken);
+  } catch (_error) {
+    // Error generico - no revelar si el token es invalido o esta en lista negra
+    authLogger.warn({ ip: req.ip }, 'Token refresh fallido: token invalido');
+    return next(createAuthError('Token invalido o expirado'));
+  }
+
+  // Verificar si el token esta en lista negra (despues de verificacion para evitar ataques de timing)
+  const isBlacklisted = await TokenBlacklist.isBlacklisted(refreshToken);
+  if (isBlacklisted) {
+    authLogger.warn({
+      userId: decoded.id,
+      ip: req.ip
+    }, 'Intento de reusar refresh token revocado');
+    return next(createAuthError('Token invalido o expirado'));
+  }
+
+  // Obtener usuario desde el token (incluir passwordChangedAt para verificacion)
+  const user = await User.findById(decoded.id)
+    .select('-password +passwordChangedAt')
+    .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+    .lean();
+  if (!user) {
+    return next(createNotFoundError('Usuario', decoded.id));
+  }
+
+  // Verificar si la cuenta del usuario esta activa
+  if (!user.isActive) {
+    return next(createForbiddenError('Cuenta desactivada'));
+  }
+
+  // Verificar si la cuenta esta bloqueada
+  if (user.isLocked) {
+    return next(createForbiddenError('Cuenta bloqueada temporalmente'));
+  }
+
+  // SEGURIDAD CRITICA: Verificar si el usuario cambio su contrasena despues de emitir este refresh token
+  // Esto invalida TODOS los tokens (access y refresh) emitidos antes del cambio de contrasena
+  if (user.passwordChangedAt) {
+    const changedTimestamp = parseInt(user.passwordChangedAt.getTime() / 1000, 10);
+    const tokenIssuedAt = decoded.iat;
+
+    if (tokenIssuedAt < changedTimestamp) {
+      authLogger.warn({
+        userId: user._id,
+        ip: req.ip,
+        tokenIat: tokenIssuedAt,
+        passwordChangedAt: changedTimestamp
+      }, 'Intento de usar refresh token emitido antes de cambio de contrasena');
+      return next(createAuthError('Token invalido o expirado'));
+    }
+  }
+
+  // Invalidar refresh token antiguo (rotacion)
+  const tokenExpiration = getTokenExpiration(refreshToken);
+  await TokenBlacklist.addToken(
+    refreshToken,
+    user._id,
+    TOKEN_REVOCATION_REASONS.ROTATION,
+    tokenExpiration
+  );
+
+  // Generar NUEVO access token Y NUEVO refresh token
+  const tokens = generateTokens(user);
+
+  // Establecer nuevas cookies
+  res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
+  res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
+
+  authLogger.info({ userId: user._id }, 'Refresh token rotado exitosamente');
+
+  // Registrar evento de seguridad
+  logTokenRefresh(user._id.toString(), true, req.ip);
+
+  res.status(HTTP_STATUS.OK).json(
+    createResponse(
+      {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+          isActive: user.isActive
+        }
+      },
+      'Token renovado exitosamente'
+    )
+  );
+});
 
 /**
  * Controlador de Cambio de Contraseña
@@ -476,66 +417,83 @@ const refreshAccessToken = async (req, res, next) => {
  * @route PUT /api/v1/auth/change-password
  * @access Private
  */
-const changePassword = async (req, res, next) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    const userId = req.user._id;
+const changePassword = asyncHandler(async (req, res, next) => {
+  const { currentPassword, newPassword } = req.body;
+  const userId = req.user._id;
 
-    // Obtener usuario con campo de contraseña
-    const user = await User.findById(userId)
-      .select('+password')
-      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
+  // Obtener usuario con campo de contrasena
+  const user = await User.findById(userId)
+    .select('+password')
+    .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
 
-    if (!user) {
-      return next(createNotFoundError('Usuario', userId));
-    }
-
-    // Verificar contraseña actual
-    const isPasswordValid = await user.comparePassword(currentPassword);
-    if (!isPasswordValid) {
-      logPasswordChange(userId.toString(), req.ip, false);
-      return next(createAuthError('Contraseña actual incorrecta'));
-    }
-
-    // Validar fortaleza de la nueva contraseña
-    const passwordValidation = validatePassword(newPassword);
-    if (!passwordValidation.isValid) {
-      return next(createBadRequestError('La nueva contraseña no cumple los requisitos de seguridad', {
-        errors: passwordValidation.errors
-      }));
-    }
-
-    // Verificar que la nueva contraseña sea diferente de la actual
-    const isSamePassword = await user.comparePassword(newPassword);
-    if (isSamePassword) {
-      return next(createBadRequestError('La nueva contraseña debe ser diferente de la actual'));
-    }
-
-    // Actualizar contraseña y timestamp de cambio
-    user.password = newPassword;
-    // Restamos 1 segundo para asegurar que el token creado inmediatamente después sea válido
-    user.passwordChangedAt = Date.now() - 1000;
-    await user.save();
-
-    // Registrar evento de seguridad
-    logPasswordChange(userId.toString(), req.ip, true);
-
-    req.log.info({ userId: userId.toString() }, 'Contraseña cambiada exitosamente');
-
-    res.status(HTTP_STATUS.OK).json(
-      createResponse('Contraseña cambiada exitosamente. Por favor, inicia sesión nuevamente con tu nueva contraseña.')
-    );
-
-  } catch (error) {
-    authLogger.error({
-      error: error.message,
-      stack: error.stack,
-      userId: req.user?.id,
-      endpoint: 'PUT /api/auth/change-password'
-    }, 'Error al cambiar contraseña');
-    return next(createInternalError('Error al cambiar la contraseña', error));
+  if (!user) {
+    return next(createNotFoundError('Usuario', userId));
   }
-};
+
+  // Verificar contrasena actual
+  const isPasswordValid = await user.comparePassword(currentPassword);
+  if (!isPasswordValid) {
+    logPasswordChange(userId.toString(), req.ip, false);
+    return next(createAuthError('Contrasena actual incorrecta'));
+  }
+
+  // Validar fortaleza de la nueva contrasena
+  const passwordValidation = validatePassword(newPassword);
+  if (!passwordValidation.isValid) {
+    return next(createBadRequestError('La nueva contrasena no cumple los requisitos de seguridad', {
+      errors: passwordValidation.errors
+    }));
+  }
+
+  // Verificar que la nueva contrasena sea diferente de la actual
+  const isSamePassword = await user.comparePassword(newPassword);
+  if (isSamePassword) {
+    return next(createBadRequestError('La nueva contrasena debe ser diferente de la actual'));
+  }
+
+  // Actualizar contrasena y timestamp de cambio
+  user.password = newPassword;
+  // Restamos 1 segundo para asegurar que el token creado inmediatamente despues sea valido
+  user.passwordChangedAt = Date.now() - 1000;
+  await user.save();
+
+  // Registrar evento de seguridad
+  logPasswordChange(userId.toString(), req.ip, true);
+
+  req.log.info({ userId: userId.toString() }, 'Contrasena cambiada exitosamente');
+
+  res.status(HTTP_STATUS.OK).json(
+    createResponse(null, 'Contrasena cambiada exitosamente. Por favor, inicia sesion nuevamente con tu nueva contrasena.')
+  );
+});
+
+/**
+ * Verifica que el token actual es valido y devuelve el usuario asociado.
+ *
+ * Cuando llega aqui el middleware `authenticate` ya valido el token, por lo
+ * que `req.user` esta siempre poblado. Sirve como endpoint de "ping" para que
+ * el frontend confirme su sesion sin tener que recargar el perfil completo.
+ *
+ * @route GET /api/v1/auth/verify-token
+ * @access Private
+ */
+const verifyToken = asyncHandler(async (req, res) => {
+  res.status(HTTP_STATUS.OK).json(
+    createResponse(
+      {
+        user: {
+          id: req.user._id,
+          username: req.user.username,
+          email: req.user.email,
+          role: req.user.role,
+          isActive: req.user.isActive
+        },
+        tokenValid: true
+      },
+      'Token valido'
+    )
+  );
+});
 
 module.exports = {
   register,
@@ -543,6 +501,7 @@ module.exports = {
   logout,
   getProfile,
   refreshAccessToken,
-  changePassword
+  changePassword,
+  verifyToken
 };
 

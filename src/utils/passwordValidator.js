@@ -5,6 +5,19 @@
  * antes de que sean hasheadas.
  */
 
+// Lista de contraseñas comunes (top-500 sintetizada a partir de fuentes
+// publicas: RockYou breach, SecLists, NIST common-passwords). Se carga una
+// sola vez al arranque y se indexa en un `Set` para lookup O(1).
+//
+// Comparacion: exact match case-insensitive (no `includes`). El patron
+// `includes` anterior bloqueaba contrasenas legitimas como
+// "MiPasswordEspecial2025!" solo por contener "password". El estandar NIST
+// recomienda match exacto sobre listas de contrasenas filtradas.
+const commonPasswordsList = require('./data/commonPasswords.json');
+const commonPasswordsSet = new Set(
+  commonPasswordsList.map(entry => entry.toLowerCase())
+);
+
 /**
  * Valida la fortaleza de una contraseña
  *
@@ -53,9 +66,11 @@ const validatePasswordStrength = (password) => {
     errors.push('La contraseña debe contener al menos un número');
   }
 
-  // Validar carácter especial
-  if (!/[@$!%*?&#+\-_=]/.test(password)) {
-    errors.push('La contraseña debe contener al menos un carácter especial (@$!%*?&#+\\-_=)');
+  // Validar caracter especial (cualquier no alfanumerico). Antes la lista era
+  // restrictiva y rechazaba caracteres comunes como ^, (, ), [, ], ~, etc.,
+  // generando errores confusos para usuarios con teclados internacionales.
+  if (!/[^A-Za-z0-9]/.test(password)) {
+    errors.push('La contraseña debe contener al menos un carácter especial (cualquier no alfanumérico)');
   }
 
   return {
@@ -65,36 +80,21 @@ const validatePasswordStrength = (password) => {
 };
 
 /**
- * Verifica si una contraseña es común o débil
+ * Verifica si una contraseña esta en la lista de contrasenas comunes.
+ *
+ * Comparacion exacta case-insensitive: solo se rechaza si la contrasena
+ * coincide exactamente con una entrada de la lista (tras `toLowerCase()`).
+ * Asi una contrasena fuerte que contenga un substring comun (ej:
+ * "MiClaveSegura2025!") no se ve bloqueada injustamente.
  *
  * @param {string} password - Contraseña a verificar
- * @returns {boolean} True si es una contraseña común
+ * @returns {boolean} True si la contrasena coincide con una comun
  */
 const isCommonPassword = (password) => {
-  // Lista de contraseñas comunes (se puede expandir)
-  const commonPasswords = [
-    'password',
-    'password123',
-    '12345678',
-    'qwerty',
-    'abc123',
-    'letmein',
-    'welcome',
-    'monkey',
-    '1234567890',
-    'Password1',
-    'Password123',
-    'admin',
-    'admin123',
-    'root',
-    'toor',
-    'pass',
-    'test'
-  ];
-
-  return commonPasswords.some(common =>
-    password.toLowerCase().includes(common.toLowerCase())
-  );
+  if (typeof password !== 'string' || password.length === 0) {
+    return false;
+  }
+  return commonPasswordsSet.has(password.toLowerCase());
 };
 
 /**

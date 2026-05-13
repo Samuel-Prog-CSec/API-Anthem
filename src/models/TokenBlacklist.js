@@ -15,11 +15,11 @@ const { TOKEN_REVOCATION_REASONS } = require('../constants');
  * Almacena refresh tokens invalidados con expiración automática.
  */
 const tokenBlacklistSchema = new mongoose.Schema({
+  // Nota: `unique: true` ya genera indice unico automaticamente, sin `index: true` redundante
   token: {
     type: String,
     required: true,
-    unique: true,
-    index: true
+    unique: true
   },
 
   userId: {
@@ -41,10 +41,11 @@ const tokenBlacklistSchema = new mongoose.Schema({
     index: true
   },
 
+  // Nota: el indice plano sobre `expiresAt` se omite porque el TTL declarado mas
+  // abajo (`expireAfterSeconds: 0`) ya crea el indice necesario sobre este campo.
   expiresAt: {
     type: Date,
-    required: true,
-    index: true
+    required: true
   }
 }, {
   timestamps: true,

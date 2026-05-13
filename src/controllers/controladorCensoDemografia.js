@@ -12,7 +12,6 @@
  */
 
 const Censo = require('../models/Censo');
-const { createInternalError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
 const {
   buildSortOptions,
@@ -32,15 +31,14 @@ const {
   DATASET_YEARS,
   CENSUS_DEFAULTS
 } = require('../constants');
-const logger = require('../config/logger');
+const asyncHandler = require('../utils/asyncHandler');
 
 /**
  * Obtener datos de censo con filtros
  * GET /api/v1/censo
  */
-const obtenerDatosCenso = async (req, res, next) => {
-  try {
-    const {
+const obtenerDatosCenso = asyncHandler(async (req, res) => {
+  const {
       distrito,
       barrio,
       grupoEdad,
@@ -192,66 +190,41 @@ const obtenerDatosCenso = async (req, res, next) => {
       }
     };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de censo obtenidos exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      endpoint: 'GET /api/v1/censo'
-    }, 'Error obteniendo datos de censo');
-    next(createInternalError('Error al obtener datos de censo', error));
-  }
-};
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de censo obtenidos exitosamente'));
+});
 
 /**
  * Obtener piramide poblacional
  * GET /api/v1/censo/piramide
  */
-const obtenerPiramidePoblacional = async (req, res, next) => {
-  try {
-    const {
-      incluirExtranjeros = true
-    } = req.query;
+const obtenerPiramidePoblacional = asyncHandler(async (req, res) => {
+  const { incluirExtranjeros = true } = req.query;
 
-    const { año, distrito } = parseNumericParams(
-      req.query,
-      ['año', 'distrito'],
-      { año: DATASET_YEARS.DEFAULT_YEAR }
-    );
+  const { año, distrito } = parseNumericParams(
+    req.query,
+    ['año', 'distrito'],
+    { año: DATASET_YEARS.DEFAULT_YEAR }
+  );
 
-    const result = await Censo.getOptimizedPopulationPyramid({
-      año,
+  const result = await Censo.getOptimizedPopulationPyramid({
+    año,
+    distrito,
+    incluirExtranjeros: incluirExtranjeros === 'true'
+  });
+
+  const responseData = {
+    piramideDetallada: result.piramideDetallada,
+    piramideSimplificada: result.piramideSimplificada,
+    totales: result.totales,
+    configuracion: buildResponseMetadata({
       distrito,
+      año,
       incluirExtranjeros: incluirExtranjeros === 'true'
-    });
+    }, { nullLabel: CENSUS_DEFAULTS.DISTRICT_LABEL })
+  };
 
-    const responseData = {
-      message: 'Piramide poblacional obtenida exitosamente',
-      data: {
-        piramideDetallada: result.piramideDetallada,
-        piramideSimplificada: result.piramideSimplificada,
-        totales: result.totales
-      },
-      configuracion: buildResponseMetadata({
-        distrito,
-        año,
-        incluirExtranjeros: incluirExtranjeros === 'true'
-      }, { nullLabel: CENSUS_DEFAULTS.DISTRICT_LABEL })
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Piramide poblacional obtenida exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/v1/censo/piramide'
-    }, 'Error obteniendo piramide poblacional');
-    next(createInternalError('Error al obtener piramide poblacional', error));
-  }
-};
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Piramide poblacional obtenida exitosamente'));
+});
 
 /**
  * Obtener resumen ligero de distritos con poblacion total
@@ -261,50 +234,42 @@ const obtenerPiramidePoblacional = async (req, res, next) => {
  * frontend que necesitan calcular metricas per capita (p.ej. multas
  * por habitante). Devuelve solo codigo, nombre y poblacion total.
  */
-const obtenerResumenDistritos = async (req, res, next) => {
-  try {
-    const { año = DATASET_YEARS.DEFAULT_YEAR, mes } = req.query;
+const obtenerResumenDistritos = asyncHandler(async (req, res) => {
+  const { año = DATASET_YEARS.DEFAULT_YEAR, mes } = req.query;
 
-    const matchFilter = { año: parseInt(año, 10) };
-    if (mes) {
-      matchFilter.mes = parseInt(mes, 10);
-    }
-
-    const resumen = await Censo.aggregate([
-      { $match: matchFilter },
-      {
-        $group: {
-          _id: '$distrito.codigo',
-          nombre: { $first: '$distrito.descripcion' },
-          totalPoblacion: { $sum: '$estadisticas.totalPoblacion' }
-        }
-      },
-      { $sort: { _id: 1 } },
-      {
-        $project: {
-          _id: 0,
-          codigo: '$_id',
-          nombre: 1,
-          totalPoblacion: 1
-        }
-      }
-    ]).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
-
-    return res.status(HTTP_STATUS.OK).json(
-      createResponse({
-        data: resumen,
-        totalDistritos: resumen.length,
-        filtros: { año: parseInt(año, 10), mes: mes ? parseInt(mes, 10) : null }
-      }, 'Resumen de distritos obtenido correctamente')
-    );
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack
-    }, 'Error obteniendo resumen de distritos');
-    next(createInternalError('Error al obtener resumen de distritos', error));
+  const matchFilter = { año: parseInt(año, 10) };
+  if (mes) {
+    matchFilter.mes = parseInt(mes, 10);
   }
-};
+
+  const resumen = await Censo.aggregate([
+    { $match: matchFilter },
+    {
+      $group: {
+        _id: '$distrito.codigo',
+        nombre: { $first: '$distrito.descripcion' },
+        totalPoblacion: { $sum: '$estadisticas.totalPoblacion' }
+      }
+    },
+    { $sort: { _id: 1 } },
+    {
+      $project: {
+        _id: 0,
+        codigo: '$_id',
+        nombre: 1,
+        totalPoblacion: 1
+      }
+    }
+  ]).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+
+  return res.status(HTTP_STATUS.OK).json(
+    createResponse({
+      data: resumen,
+      totalDistritos: resumen.length,
+      filtros: { año: parseInt(año, 10), mes: mes ? parseInt(mes, 10) : null }
+    }, 'Resumen de distritos obtenido correctamente')
+  );
+});
 
 module.exports = {
   obtenerDatosCenso,

@@ -1,438 +1,344 @@
 /**
- * Controlador de Tráfico
+ * Controlador de Trafico
  *
- * Gestiona las operaciones CRUD y consultas especializadas para datos de tráfico.
+ * Gestiona las operaciones CRUD y consultas especializadas para datos de trafico.
  */
 
 const Traffic = require('../models/Trafico');
 const Location = require('../models/Ubicacion');
-const { createInternalError, createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
+const { createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, buildResponseMetadata, parseNumericParams, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES, MONGODB_TIMEOUTS } = require('../constants');
-const logger = require('../config/logger');
+const asyncHandler = require('../utils/asyncHandler');
 
 // Maximo absoluto de dias para el endpoint /mapa. La coleccion de trafico
 // tiene ~138M docs; un rango mayor a 7 dias hace lookup masivo a locations.
 const TRAFICO_MAPA_MAX_DIAS = 7;
 
 /**
- * Obtener todas las mediciones de tráfico con filtros avanzados
- * GET /api/traffic
+ * Obtener todas las mediciones de trafico con filtros avanzados
+ * GET /api/v1/trafico
  */
-const obtenerDatosTrafico = async (req, res, next) => {
-  try {
-    logger.debug({
-      query: req.query,
-      userId: req.user?.id,
-      endpoint: 'GET /api/traffic'
-    }, 'Obteniendo datos de tráfico con filtros');
+const obtenerDatosTrafico = asyncHandler(async (req, res) => {
+  const {
+    page = PAGINATION.DEFAULT_PAGE,
+    limit = PAGINATION.DEFAULT_LIMIT,
+    sortBy = SORT_FIELDS.TRAFFIC.DEFAULT_SORT_BY,
+    sortOrder = SORT_FIELDS.DEFAULT_SORT_ORDER
+  } = req.query;
 
-    const {
-      page = PAGINATION.DEFAULT_PAGE,
-      limit = PAGINATION.DEFAULT_LIMIT,
-      sortBy = SORT_FIELDS.TRAFFIC.DEFAULT_SORT_BY,
-      sortOrder = SORT_FIELDS.DEFAULT_SORT_ORDER
-    } = req.query;
+  const paginationOptions = buildPaginationOptions(
+    { page, limit },
+    { defaultLimit: PAGINATION.DEFAULT_LIMIT, maxLimit: PAGINATION.MAX_LIMIT }
+  );
 
-    // Configurar paginación usando queryHelper
-    const paginationOptions = buildPaginationOptions(
-      { page, limit },
-      { defaultLimit: PAGINATION.DEFAULT_LIMIT, maxLimit: PAGINATION.MAX_LIMIT }
-    );
+  const { cursor } = req.query;
+  const useCursor = Boolean(cursor);
 
-    const { cursor } = req.query;
-    const useCursor = Boolean(cursor);
+  const filterConfig = [
+    { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+    { field: 'puntoMedidaId', type: 'exact', param: 'puntoMedidaId' },
+    { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase },
+    { field: 'analisis.nivelCongestion', type: 'exact', param: 'nivelCongestion', transform: TRANSFORMS.toUpperCase },
+    { field: 'calidadDatos.calidadGeneral', type: 'exact', param: 'calidad', transform: TRANSFORMS.toUpperCase }
+  ];
 
-    // Construir filtros usando buildFilters
-    const filterConfig = [
-      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-      { field: 'puntoMedidaId', type: 'exact', param: 'puntoMedidaId' },
-      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase },
-      { field: 'analisis.nivelCongestion', type: 'exact', param: 'nivelCongestion', transform: TRANSFORMS.toUpperCase },
-      { field: 'calidadDatos.calidadGeneral', type: 'exact', param: 'calidad', transform: TRANSFORMS.toUpperCase }
-    ];
+  const filters = buildFilters(req.query, filterConfig);
 
-    const filters = buildFilters(req.query, filterConfig);
+  const sortMapping = {
+    fecha: 'fecha',
+    intensidad: 'metricas.intensidad',
+    ocupacion: 'metricas.ocupacion',
+    puntoMedidaId: 'puntoMedidaId'
+  };
+  const sortOptions = buildSortOptions(
+    { sortBy, sortOrder },
+    sortMapping,
+    Object.keys(SORT_FIELDS.TRAFFIC),
+    'fecha',
+    'desc'
+  );
 
-    // Configurar ordenamiento usando queryHelper
-    const sortMapping = {
-      fecha: 'fecha',
-      intensidad: 'metricas.intensidad',
-      ocupacion: 'metricas.ocupacion',
-      puntoMedidaId: 'puntoMedidaId'
-    };
-    const sortOptions = buildSortOptions(
-      { sortBy, sortOrder },
-      sortMapping,
-      Object.keys(SORT_FIELDS.TRAFFIC),
-      'fecha',
-      'desc'
-    );
+  // Proyeccion optimizada: solo campos necesarios para listado
+  const projection = {
+    fecha: 1,
+    puntoMedidaId: 1,
+    tipoElemento: 1,
+    'metricas.intensidad': 1,
+    'metricas.velocidadMedia': 1,
+    'metricas.ocupacion': 1,
+    'metricas.carga': 1,
+    'calidadDatos.calidadGeneral': 1,
+    'analisis.nivelCongestion': 1,
+    'analisis.clasificacionIntensidad': 1
+  };
 
-    // Proyección optimizada: solo campos necesarios para listado
-    // Reduce ~40% tamaño de respuesta y memoria
-    const projection = {
-      fecha: 1,
-      puntoMedidaId: 1,
-      tipoElemento: 1,
-      'metricas.intensidad': 1,
-      'metricas.velocidadMedia': 1,
-      'metricas.ocupacion': 1,
-      'metricas.carga': 1,
-      'calidadDatos.calidadGeneral': 1,
-      'analisis.nivelCongestion': 1,
-      'analisis.clasificacionIntensidad': 1
-    };
+  const primarySortField = Object.keys(sortOptions)[0] || 'fecha';
+  const cursorSortOrder = sortOptions[primarySortField] === 1 ? 'asc' : 'desc';
+  const cursorFilter = useCursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder: cursorSortOrder }) : null;
+  const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
+  const sortWithTiebreak = { ...sortOptions, _id: cursorSortOrder === 'asc' ? 1 : -1 };
 
-    const primarySortField = Object.keys(sortOptions)[0] || 'fecha';
-    const cursorSortOrder = sortOptions[primarySortField] === 1 ? 'asc' : 'desc';
-    const cursorFilter = useCursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder: cursorSortOrder }) : null;
-    const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
-    const sortWithTiebreak = { ...sortOptions, _id: cursorSortOrder === 'asc' ? 1 : -1 };
+  // Pipeline de estadisticas: se ejecuta DENTRO del $facet en modo offset
+  // (ahorra una pasada completa de la coleccion de ~138M docs); en modo cursor
+  // se ejecuta en paralelo a la consulta de datos.
+  // NO usar $limit antes de $group: corrompe las estadisticas globales.
+  const statsPipeline = [
+    {
+      $group: {
+        _id: null,
+        intensidadPromedio: {
+          $avg: {
+            $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null]
+          }
+        },
+        ocupacionPromedio: {
+          $avg: {
+            $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null]
+          }
+        },
+        medicionesConfiables: {
+          $sum: {
+            $cond: [{ $in: ['$calidadDatos.calidadGeneral', [DATA_QUALITY_LEVELS.ALTA, DATA_QUALITY_LEVELS.MEDIA]] }, 1, 0]
+          }
+        }
+      }
+    }
+  ];
 
-    let trafficData = [];
-    let totalCount = null;
-    let trafficFacetFallback = false;
-    let trafficFacetError = null;
+  let trafficData = [];
+  let totalCount = null;
+  let trafficFacetFallback = false;
+  let trafficFacetError = null;
+  let statsObj = null;
 
-    if (useCursor) {
-      trafficData = await Traffic.find(combinedFilters, projection)
+  if (useCursor) {
+    [trafficData, statsObj] = await Promise.all([
+      Traffic.find(combinedFilters, projection)
         .sort(sortWithTiebreak)
         .limit(paginationOptions.limit)
         .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
-        .lean();
-    } else {
-      const facetResult = await executeFacetPagination({
-        model: Traffic,
-        filters,
-        sort: sortOptions,
-        projection,
-        pagination: paginationOptions,
-        maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS
-      });
-
-      trafficData = facetResult.data;
-      totalCount = facetResult.total;
-      trafficFacetFallback = facetResult.fallback;
-      trafficFacetError = facetResult.fallbackError;
-    }
-
-    // Calcular estadísticas básicas para la respuesta
-    const stats = await Traffic.aggregate([
-      { $match: filters },
-      // NO usar $limit antes de $group - corrompe las estadísticas globales
-      {
-        $group: {
-          _id: null,
-          intensidadPromedio: {
-            $avg: {
-              $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null]
-            }
-          },
-          ocupacionPromedio: {
-            $avg: {
-              $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null]
-            }
-          },
-          medicionesConfiables: {
-            $sum: {
-              $cond: [{ $in: ['$calidadDatos.calidadGeneral', [DATA_QUALITY_LEVELS.ALTA, DATA_QUALITY_LEVELS.MEDIA]] }, 1, 0]
-            }
-          }
-        }
-      }
-    ]);
-
-    const responseData = {
-      data: trafficData,
-      pagination: useCursor
-        ? createCursorMeta({ results: trafficData, limit: paginationOptions.limit, sortField: primarySortField, sortOrder: cursorSortOrder })
-        : createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalCount),
-      filters: {
-        applied: filters,
-        available: {
-          tipoElemento: Object.values(TRAFFIC_ELEMENT_TYPES),
-          nivelCongestion: Object.values(CONGESTION_LEVELS),
-          calidad: Object.values(DATA_QUALITY_LEVELS)
-        }
-      },
-      stats: stats[0] || {
-        intensidadPromedio: 0,
-        ocupacionPromedio: 0,
-        medicionesConfiables: 0
-      },
-      performance: useCursor ? {
-        cursorPagination: true
-      } : trafficFacetFallback ? {
-        facetFallback: true,
-        reason: trafficFacetError
-      } : undefined
-    };
-
-    logger.info({
-      totalItems: totalCount,
-      page: paginationOptions.page,
-      filtersApplied: Object.keys(filters).length,
-      endpoint: 'GET /api/traffic'
-    }, 'Datos de tráfico obtenidos exitosamente');
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de tráfico obtenidos exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/traffic'
-    }, 'Error al obtener datos de tráfico');
-    next(createInternalError('Error al obtener los datos de tráfico', error));
-  }
-};
-
-/**
- * Obtener datos de un punto de medida específico
- * GET /api/traffic/punto/:id
- */
-const obtenerTraficoPorPunto = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    // Parsear parámetros numéricos con valores por defecto
-    const { limit } = parseNumericParams(
-      req.query,
-      ['limit'],
-      { limit: PAGINATION.DEFAULT_LIMIT }
-    );
-
-    logger.debug({
-      puntoId: id,
-      query: req.query,
-      endpoint: 'GET /api/traffic/punto/:id'
-    }, 'Obteniendo datos de tráfico por punto');
-
-    // Construir filtros usando queryHelper
-    const filterConfig = [
-      { field: 'puntoMedidaId', type: 'exact', param: 'puntoMedidaId' },
-      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
-    ];
-    const filters = buildFilters({ ...req.query, puntoMedidaId: id }, filterConfig);
-
-    // Proyección optimizada para datos de punto específico
-    const projection = {
-      fecha: 1,
-      'metricas.intensidad': 1,
-      'metricas.velocidadMedia': 1,
-      'metricas.ocupacion': 1,
-      'metricas.carga': 1,
-      'calidadDatos.calidadGeneral': 1,
-      'analisis.nivelCongestion': 1
-    };
-
-    const [trafficData, pointInfo] = await Promise.all([
-      Traffic.find(filters, projection)
-        .sort({ fecha: -1 })
-        .limit(limit)
-        .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS) // Timeout de 10 segundos
         .lean(),
-      Location.findOne({
-        tipo: 'punto_trafico',
-        id_punto: id
-      })
-      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS) // Timeout de 5 segundos
-      .lean()
+      Traffic.aggregate([{ $match: filters }, ...statsPipeline])
+        .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
+        .exec()
+        .then(arr => arr?.[0] || null)
+        .catch(() => null)
     ]);
+  } else {
+    const facetResult = await executeFacetPagination({
+      model: Traffic,
+      filters,
+      sort: sortOptions,
+      projection,
+      pagination: paginationOptions,
+      statsPipeline,
+      maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS
+    });
 
-    if (!trafficData || trafficData.length === 0) {
-      return next(createNotFoundError('Datos de tráfico para el punto de medida', id));
-    }
-
-    // Calcular estadísticas del punto
-    const stats = await Traffic.aggregate([
-      { $match: filters },
-      // NO usar $limit antes de $group - corrompe las estadísticas
-      {
-        $group: {
-          _id: null,
-          totalMediciones: { $sum: 1 },
-          intensidadPromedio: {
-            $avg: { $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null] }
-          },
-          intensidadMaxima: {
-            $max: { $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null] }
-          },
-          ocupacionPromedio: {
-            $avg: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null] }
-          },
-          cargaPromedio: {
-            $avg: { $cond: [{ $gte: ['$metricas.carga', 0] }, '$metricas.carga', null] }
-          },
-          velocidadPromedio: {
-            $avg: { $cond: [{ $gte: ['$metricas.velocidadMedia', 0] }, '$metricas.velocidadMedia', null] }
-          }
-        }
-      }
-    ]);
-
-    const responseData = {
-      data: {
-        punto: pointInfo,
-        mediciones: trafficData,
-        estadisticas: stats[0] || {}
-      }
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de tráfico por punto obtenidos exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      puntoId: req.params.id,
-      endpoint: 'GET /api/traffic/punto/:id'
-    }, 'Error al obtener datos de tráfico por punto');
-    next(createInternalError('Error al obtener datos del punto de medida', error));
+    trafficData = facetResult.data;
+    totalCount = facetResult.total;
+    statsObj = facetResult.stats;
+    trafficFacetFallback = facetResult.fallback;
+    trafficFacetError = facetResult.fallbackError;
   }
-};
+
+  const responseData = {
+    data: trafficData,
+    pagination: useCursor
+      ? createCursorMeta({ results: trafficData, limit: paginationOptions.limit, sortField: primarySortField, sortOrder: cursorSortOrder })
+      : createPaginationMeta(paginationOptions.page, paginationOptions.limit, totalCount),
+    filters: {
+      applied: filters,
+      available: {
+        tipoElemento: Object.values(TRAFFIC_ELEMENT_TYPES),
+        nivelCongestion: Object.values(CONGESTION_LEVELS),
+        calidad: Object.values(DATA_QUALITY_LEVELS)
+      }
+    },
+    stats: statsObj || {
+      intensidadPromedio: 0,
+      ocupacionPromedio: 0,
+      medicionesConfiables: 0
+    },
+    performance: useCursor
+      ? { cursorPagination: true }
+      : trafficFacetFallback
+        ? { facetFallback: true, reason: trafficFacetError }
+        : undefined
+  };
+
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de trafico obtenidos exitosamente'));
+});
 
 /**
- * Obtener estadísticas generales de tráfico
- * GET /api/traffic/stats
+ * Obtener datos de un punto de medida especifico
+ * GET /api/v1/trafico/punto/:id
  */
-const obtenerEstadisticasTrafico = async (req, res, next) => {
-  try {
-    const { tipoElemento: _tipoElemento } = req.query;
+const obtenerTraficoPorPunto = asyncHandler(async (req, res, next) => {
+  const { id } = req.params;
 
-    logger.debug({
-      query: req.query,
-      endpoint: 'GET /api/traffic/stats'
-    }, 'Obteniendo estadísticas de tráfico');
+  const { limit } = parseNumericParams(
+    req.query,
+    ['limit'],
+    { limit: PAGINATION.DEFAULT_LIMIT }
+  );
 
-    // Construir filtros usando queryHelper
-    const filterConfig = [
-      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase }
-    ];
-    const filters = buildFilters(req.query, filterConfig);
+  const filterConfig = [
+    { field: 'puntoMedidaId', type: 'exact', param: 'puntoMedidaId' },
+    { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
+  ];
+  const filters = buildFilters({ ...req.query, puntoMedidaId: id }, filterConfig);
 
-    // Llamar al método optimizado del modelo (3 agregaciones en paralelo)
-    const statistics = await Traffic.getTrafficStatisticsOptimized(filters);
+  // Proyeccion optimizada para datos de punto especifico
+  const projection = {
+    fecha: 1,
+    'metricas.intensidad': 1,
+    'metricas.velocidadMedia': 1,
+    'metricas.ocupacion': 1,
+    'metricas.carga': 1,
+    'calidadDatos.calidadGeneral': 1,
+    'analisis.nivelCongestion': 1
+  };
 
-    const responseData = {
-      data: statistics,
+  const [trafficData, pointInfo] = await Promise.all([
+    Traffic.find(filters, projection)
+      .sort({ fecha: -1 })
+      .limit(limit)
+      .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
+      .lean(),
+    Location.findOne({ tipo: 'punto_trafico', id_punto: id })
+      .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+      .lean()
+  ]);
+
+  if (!trafficData || trafficData.length === 0) {
+    return next(createNotFoundError('Datos de trafico para el punto de medida', id));
+  }
+
+  // Calcular estadisticas del punto (NO usar $limit antes de $group)
+  const stats = await Traffic.aggregate([
+    { $match: filters },
+    {
+      $group: {
+        _id: null,
+        totalMediciones: { $sum: 1 },
+        intensidadPromedio: {
+          $avg: { $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null] }
+        },
+        intensidadMaxima: {
+          $max: { $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null] }
+        },
+        ocupacionPromedio: {
+          $avg: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null] }
+        },
+        cargaPromedio: {
+          $avg: { $cond: [{ $gte: ['$metricas.carga', 0] }, '$metricas.carga', null] }
+        },
+        velocidadPromedio: {
+          $avg: { $cond: [{ $gte: ['$metricas.velocidadMedia', 0] }, '$metricas.velocidadMedia', null] }
+        }
+      }
+    }
+  ]);
+
+  const responseData = {
+    punto: pointInfo,
+    mediciones: trafficData,
+    estadisticas: stats[0] || {}
+  };
+
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de trafico por punto obtenidos exitosamente'));
+});
+
+/**
+ * Obtener estadisticas generales de trafico
+ * GET /api/v1/trafico/estadisticas
+ */
+const obtenerEstadisticasTrafico = asyncHandler(async (req, res) => {
+  const filterConfig = [
+    { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+    { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase }
+  ];
+  const filters = buildFilters(req.query, filterConfig);
+
+  // Llamar al metodo optimizado del modelo (3 agregaciones en paralelo)
+  const statistics = await Traffic.getTrafficStatisticsOptimized(filters);
+
+  const responseData = {
+    data: statistics,
+    periodo: {
+      inicio: filters.fecha?.$gte,
+      fin: filters.fecha?.$lte
+    }
+  };
+
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadisticas de trafico obtenidas exitosamente'));
+});
+
+/**
+ * Obtener analisis de congestion por zonas
+ * GET /api/v1/trafico/congestion
+ */
+const obtenerAnalisisCongestion = asyncHandler(async (req, res) => {
+  const { groupBy = 'distrito' } = req.query;
+
+  const filterConfig = [
+    { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
+  ];
+  const filters = buildFilters(req.query, filterConfig);
+
+  const analisis = await Traffic.obtenerAnalisisCongestionOptimized(filters, groupBy);
+
+  const responseData = {
+    analisis,
+    agrupacion: groupBy,
+    periodo: {
+      inicio: filters.fecha?.$gte,
+      fin: filters.fecha?.$lte
+    },
+    total: analisis.length
+  };
+
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Analisis de congestion obtenido exitosamente'));
+});
+
+/**
+ * Obtener datos historicos para graficos (agregados por periodo)
+ * GET /api/v1/trafico/historico
+ */
+const obtenerDatosHistoricos = asyncHandler(async (req, res) => {
+  const {
+    aggregation = 'hour' // hour, day, week, month
+  } = req.query;
+
+  const filterConfig = [
+    { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+    { field: 'puntoMedidaId', type: 'exact', param: 'puntoMedidaId' },
+    { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase }
+  ];
+  const filters = buildFilters(req.query, filterConfig);
+
+  const historicalData = await Traffic.obtenerDatosHistoricosOptimized(filters, aggregation);
+
+  const responseData = {
+    serie: historicalData,
+    configuracion: buildResponseMetadata({
+      agregacion: aggregation,
+      filtros: filters,
       periodo: {
         inicio: filters.fecha?.$gte,
         fin: filters.fecha?.$lte
       }
-    };
+    }),
+    total: historicalData.length
+  };
 
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadísticas de tráfico obtenidas exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/traffic/stats'
-    }, 'Error obteniendo estadísticas de tráfico');
-    next(createInternalError('Error al obtener estadísticas de tráfico', error));
-  }
-};
-
-/**
- * Obtener análisis de congestión por zonas
- * GET /api/traffic/congestion-analysis
- */
-const obtenerAnalisisCongestion = async (req, res, next) => {
-  try {
-    const { groupBy = 'distrito' } = req.query;
-
-    // Construir filtros usando queryHelper
-    const filterConfig = [
-      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
-    ];
-    const filters = buildFilters(req.query, filterConfig);
-
-    // Llamar al método optimizado del modelo
-    const analysis = await Traffic.obtenerAnalisisCongestionOptimized(filters, groupBy);
-
-    const responseData = {
-      data: {
-        analisis: analysis,
-        agrupacion: groupBy,
-        periodo: {
-          inicio: filters.fecha?.$gte,
-          fin: filters.fecha?.$lte
-        },
-        total: analysis.length
-      }
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Análisis de congestión obtenido exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/traffic/congestion-analysis'
-    }, 'Error en análisis de congestión');
-    next(createInternalError('Error al analizar la congestión', error));
-  }
-};
-
-/**
- * Obtener datos históricos para gráficos (agregados por periodo)
- * GET /api/traffic/historical
- */
-const obtenerDatosHistoricos = async (req, res, next) => {
-  try {
-    const {
-      aggregation = 'hour', // hour, day, week, month
-      puntoMedidaId: _puntoMedidaId,
-      tipoElemento: _tipoElemento
-    } = req.query;
-
-    // Construir filtros usando queryHelper
-    const filterConfig = [
-      { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-      { field: 'puntoMedidaId', type: 'exact', param: 'puntoMedidaId' },
-      { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase }
-    ];
-    const filters = buildFilters(req.query, filterConfig);
-
-    // Llamar al método optimizado del modelo
-    const historicalData = await Traffic.obtenerDatosHistoricosOptimized(filters, aggregation);
-
-    const responseData = {
-      data: {
-        serie: historicalData,
-        configuracion: buildResponseMetadata({
-          agregacion: aggregation,
-          filtros: filters,
-          periodo: {
-            inicio: filters.fecha?.$gte,
-            fin: filters.fecha?.$lte
-          }
-        }),
-        total: historicalData.length
-      }
-    };
-
-    res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos históricos obtenidos exitosamente'));
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/traffic/historical'
-    }, 'Error al obtener datos históricos');
-    next(createInternalError('Error al obtener datos históricos', error));
-  }
-};
+  res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos historicos obtenidos exitosamente'));
+});
 
 /**
  * Obtener mapa de trafico como FeatureCollection GeoJSON RFC 7946.
@@ -444,97 +350,86 @@ const obtenerDatosHistoricos = async (req, res, next) => {
  * GET /api/v1/trafico/mapa
  * Query params: startDate (req), endDate (req), tipoElemento, bbox
  */
-const obtenerMapaTrafico = async (req, res, next) => {
-  try {
-    const { startDate, endDate, tipoElemento, bbox } = req.query;
+const obtenerMapaTrafico = asyncHandler(async (req, res, next) => {
+  const { startDate, endDate, tipoElemento, bbox } = req.query;
 
-    if (!startDate || !endDate) {
-      return next(createBadRequestError(
-        'Se requieren los parametros startDate y endDate (formato YYYY-MM-DD)'
-      ));
-    }
-
-    const desde = new Date(startDate);
-    const hasta = new Date(endDate);
-    if (isNaN(desde.getTime()) || isNaN(hasta.getTime())) {
-      return next(createBadRequestError('startDate o endDate no son fechas validas'));
-    }
-    if (desde > hasta) {
-      return next(createBadRequestError('startDate debe ser anterior o igual a endDate'));
-    }
-
-    const diffDias = Math.ceil((hasta - desde) / (24 * 60 * 60 * 1000));
-    if (diffDias > TRAFICO_MAPA_MAX_DIAS) {
-      return next(createBadRequestError(
-        `El rango maximo para el mapa de trafico es ${TRAFICO_MAPA_MAX_DIAS} dias (solicitado: ${diffDias})`
-      ));
-    }
-
-    // Construir filtros base
-    const filtros = {
-      fecha: { $gte: desde, $lte: hasta }
-    };
-    if (tipoElemento) {
-      filtros.tipoElemento = String(tipoElemento).toUpperCase();
-    }
-
-    // Agregacion principal con lookup geo
-    const docs = await Traffic.obtenerAgregadoParaMapa(filtros);
-
-    // Filtro bbox post-lookup (en frontend o aqui)
-    let docsFiltrados = docs;
-    if (bbox) {
-      const partes = String(bbox).split(',').map(Number);
-      if (partes.length === 4 && partes.every(Number.isFinite)) {
-        const [minLng, minLat, maxLng, maxLat] = partes;
-        docsFiltrados = docs.filter(d => {
-          const coords = d.geometry?.coordinates;
-          if (!Array.isArray(coords) || coords.length < 2) {return false;}
-          const [lng, lat] = coords;
-          return lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat;
-        });
-      }
-    }
-
-    const featureCollection = documentosAFeatureCollection(
-      docsFiltrados,
-      (doc) => ({
-        id: doc.puntoMedidaId,
-        geometry: doc.geometry,
-        properties: {
-          puntoMedidaId: doc.puntoMedidaId,
-          nombre: doc.nombre || null,
-          distrito: doc.distrito || null,
-          tipoElemento: doc.tipoElemento,
-          intensidadMedia: doc.intensidadMedia,
-          ocupacionMedia: doc.ocupacionMedia,
-          cargaMedia: doc.cargaMedia,
-          velocidadMedia: doc.velocidadMedia,
-          porcentajeCongestion: doc.porcentajeCongestion,
-          totalMediciones: doc.totalMediciones
-        }
-      }),
-      {
-        recurso: 'trafico',
-        rango: { startDate, endDate, diasAnalizados: diffDias },
-        ...(tipoElemento && { tipoElemento: String(tipoElemento).toUpperCase() })
-      }
-    );
-
-    res.status(HTTP_STATUS.OK).json(
-      createResponse(featureCollection, 'Mapa de trafico generado exitosamente')
-    );
-
-  } catch (error) {
-    logger.error({
-      error: error.message,
-      stack: error.stack,
-      query: req.query,
-      endpoint: 'GET /api/v1/trafico/mapa'
-    }, 'Error al generar mapa de trafico');
-    next(createInternalError('Error al generar mapa de trafico', error));
+  if (!startDate || !endDate) {
+    return next(createBadRequestError(
+      'Se requieren los parametros startDate y endDate (formato YYYY-MM-DD)'
+    ));
   }
-};
+
+  const desde = new Date(startDate);
+  const hasta = new Date(endDate);
+  if (isNaN(desde.getTime()) || isNaN(hasta.getTime())) {
+    return next(createBadRequestError('startDate o endDate no son fechas validas'));
+  }
+  if (desde > hasta) {
+    return next(createBadRequestError('startDate debe ser anterior o igual a endDate'));
+  }
+
+  const diffDias = Math.ceil((hasta - desde) / (24 * 60 * 60 * 1000));
+  if (diffDias > TRAFICO_MAPA_MAX_DIAS) {
+    return next(createBadRequestError(
+      `El rango maximo para el mapa de trafico es ${TRAFICO_MAPA_MAX_DIAS} dias (solicitado: ${diffDias})`
+    ));
+  }
+
+  // Construir filtros base
+  const filtros = {
+    fecha: { $gte: desde, $lte: hasta }
+  };
+  if (tipoElemento) {
+    filtros.tipoElemento = String(tipoElemento).toUpperCase();
+  }
+
+  // Agregacion principal con lookup geo
+  const docs = await Traffic.obtenerAgregadoParaMapa(filtros);
+
+  // Filtro bbox post-lookup
+  let docsFiltrados = docs;
+  if (bbox) {
+    const partes = String(bbox).split(',').map(Number);
+    if (partes.length === 4 && partes.every(Number.isFinite)) {
+      const [minLng, minLat, maxLng, maxLat] = partes;
+      docsFiltrados = docs.filter(d => {
+        const coords = d.geometry?.coordinates;
+        if (!Array.isArray(coords) || coords.length < 2) { return false; }
+        const [lng, lat] = coords;
+        return lng >= minLng && lng <= maxLng && lat >= minLat && lat <= maxLat;
+      });
+    }
+  }
+
+  const featureCollection = documentosAFeatureCollection(
+    docsFiltrados,
+    (doc) => ({
+      id: doc.puntoMedidaId,
+      geometry: doc.geometry,
+      properties: {
+        puntoMedidaId: doc.puntoMedidaId,
+        nombre: doc.nombre || null,
+        distrito: doc.distrito || null,
+        tipoElemento: doc.tipoElemento,
+        intensidadMedia: doc.intensidadMedia,
+        ocupacionMedia: doc.ocupacionMedia,
+        cargaMedia: doc.cargaMedia,
+        velocidadMedia: doc.velocidadMedia,
+        porcentajeCongestion: doc.porcentajeCongestion,
+        totalMediciones: doc.totalMediciones
+      }
+    }),
+    {
+      recurso: 'trafico',
+      rango: { startDate, endDate, diasAnalizados: diffDias },
+      ...(tipoElemento && { tipoElemento: String(tipoElemento).toUpperCase() })
+    }
+  );
+
+  res.status(HTTP_STATUS.OK).json(
+    createResponse(featureCollection, 'Mapa de trafico generado exitosamente')
+  );
+});
 
 module.exports = {
   obtenerDatosTrafico,
@@ -544,4 +439,3 @@ module.exports = {
   obtenerDatosHistoricos,
   obtenerMapaTrafico
 };
-

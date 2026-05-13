@@ -6,7 +6,6 @@
  */
 
 const express = require('express');
-const { query } = require('express-validator');
 
 const { ROUTE_SPECIFIC_LIMITS, HTTP_STATUS } = require('../constants');
 
@@ -14,9 +13,9 @@ const { ROUTE_SPECIFIC_LIMITS, HTTP_STATUS } = require('../constants');
 const { authenticate } = require('../middleware/auth');
 const { adminOnly } = require('../middleware/authorization');
 const { validateRequest } = require('../middleware/security');
-const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { validarLimpiezaCache } = require('../validators/validadorAdmin');
 
-// Utilidades de caché
+// Utilidades de cache y monitoreo (getPerformanceStats se usa en endpoints, no como middleware)
 const { clearCache, getCacheStats } = require('../middleware/cache');
 const { getPerformanceStats } = require('../middleware/performanceMonitor');
 const { getETagStats } = require('../middleware/etag');
@@ -25,8 +24,7 @@ const logger = require('../config/logger');
 
 const router = express.Router();
 
-// Aplicar performanceMonitor a todas las rutas de admin
-router.use(performanceMonitor);
+// Nota: performanceMonitor se aplica una sola vez en routes/index.js
 
 /**
  * @route   GET /api/v1/admin/cache/stats
@@ -85,20 +83,7 @@ router.get('/cache/stats',
 router.delete('/cache/clear',
   authenticate,
   adminOnly,
-
-  query('type')
-    .optional()
-    .isString()
-    .trim()
-    .withMessage('Type debe ser una cadena de texto válida'),
-
-  query('pattern')
-    .optional()
-    .isString()
-    .trim()
-    .isLength({ min: ROUTE_SPECIFIC_LIMITS.ADMIN.PATTERN_MIN_LENGTH, max: ROUTE_SPECIFIC_LIMITS.ADMIN.PATTERN_MAX_LENGTH })
-    .withMessage(`Pattern debe tener entre ${ROUTE_SPECIFIC_LIMITS.ADMIN.PATTERN_MIN_LENGTH} y ${ROUTE_SPECIFIC_LIMITS.ADMIN.PATTERN_MAX_LENGTH} caracteres`),
-
+  ...validarLimpiezaCache,
   validateRequest,
 
   (req, res, next) => {

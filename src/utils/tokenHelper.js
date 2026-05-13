@@ -123,10 +123,19 @@ const verifyRefreshToken = async (token) => {
 };
 
 /**
- * Extrae el token del header Authorization o cookies
+ * Extrae el token del header Authorization o de la cookie `accessToken`.
+ *
+ * Orden de extraccion:
+ * 1. Header `Authorization: Bearer <token>` (uso principal del frontend SPA).
+ * 2. Cookie httpOnly `accessToken` (alineada con el nombre que emite
+ *    `controladorAutenticacion` en register/login/refresh).
+ *
+ * No se acepta token en query string en NINGUN entorno: los query params
+ * suelen quedar logueados en proxies, browsers y herramientas de devtools,
+ * lo que filtra el token a terceros sin que el usuario lo perciba.
  *
  * @param {object} req - Objeto request de Express
- * @returns {string|null} Token extraído o null si no se encontró
+ * @returns {string|null} Token extraido o null si no se encontro
  */
 const extractToken = (req) => {
   // Verificar header Authorization
@@ -135,18 +144,9 @@ const extractToken = (req) => {
     return authHeader.substring(7);
   }
 
-  // Verificar cookies
-  if (req.cookies && req.cookies.token) {
-    return req.cookies.token;
-  }
-
-  // Verificar parámetro de query (SOLO en desarrollo - riesgo de seguridad en producción)
-  if (req.query && req.query.token) {
-    // Bloquear tokens en query string en producción
-    if (config.server.env === 'production') {
-      throw new Error('Token en query string no permitido en producción');
-    }
-    return req.query.token;
+  // Verificar cookie httpOnly `accessToken` (alineada con `res.cookie('accessToken', ...)` del controller)
+  if (req.cookies && req.cookies.accessToken) {
+    return req.cookies.accessToken;
   }
 
   return null;

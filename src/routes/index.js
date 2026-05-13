@@ -11,6 +11,8 @@ const { HTTP_STATUS } = require('../constants');
 const { createResponse } = require('../utils/responseHelper');
 const { getConnectionStats } = require('../config/database');
 const { performanceMonitor } = require('../middleware/performanceMonitor');
+const { authenticate } = require('../middleware/auth');
+const { adminOnly } = require('../middleware/authorization');
 
 // Import route modules
 const authRoutes = require('./auth');
@@ -45,7 +47,6 @@ router.get('/', (req, res) => {
 
   res.status(HTTP_STATUS.OK).json(
     createResponse(
-      'La API REST de la Smart City Anthem está operativa',
       {
         api: {
           name: 'API REST Anthem Smart City',
@@ -73,21 +74,24 @@ router.get('/', (req, res) => {
           admin: `/api/${config.api.version}/admin`,
           salud: `/api/${config.api.version}/health`,
         }
-      }
+      },
+      'La API REST de la Smart City Anthem esta operativa'
     )
   );
 });
 
 /**
  * @route   GET /api/v1/health
- * @desc    Detailed health check endpoint
- * @access  Public
+ * @desc    Health check detallado (solo administradores)
+ * @access  Private (admin)
  *
- * Proporciona un estado de salud completo, que incluye la conectividad
- * de la base de datos, los recursos del sistema y las dependencias del
- * servicio.
+ * Proporciona un estado de salud completo, incluyendo conectividad a base
+ * de datos, recursos del sistema y dependencias. Requiere rol admin porque
+ * expone informacion de tech stack (plataforma, version de Node, uso de
+ * memoria) util para fingerprinting de atacantes. El healthcheck publico
+ * vive en `GET /health` (server.js) y solo devuelve status + uptime.
  */
-router.get('/health', (req, res) => {
+router.get('/health', authenticate, adminOnly, (req, res) => {
   const healthData = {
     status: 'healthy',
     timestamp: new Date().toISOString(),
@@ -132,26 +136,30 @@ router.get('/health', (req, res) => {
 
   res.status(statusCode).json(
     createResponse(
-      `Estado de la API: ${healthData.status}`,
-      healthData
+      healthData,
+      `Estado de la API: ${healthData.status}`
     )
   );
 });
 
 /**
  * @route   GET /api/v1/cors-test
- * @desc    CORS diagnostic endpoint
- * @access  Public
+ * @desc    Endpoint de diagnostico CORS (solo en entornos no productivos)
+ * @access  Public (gatedo por NODE_ENV)
  *
- * Endpoint para diagnosticar configuración de CORS.
- * Útil para debugging en desarrollo.
+ * Endpoint para diagnosticar configuracion de CORS durante desarrollo.
+ * En produccion devuelve 404 porque expone la lista de origenes permitidos,
+ * que es informacion de configuracion util para un atacante.
  */
-router.get('/cors-test', (req, res) => {
+router.get('/cors-test', (req, res, next) => {
+  if (config.server.env === 'production') {
+    return next();
+  }
+
   const origin = req.get('origin') || 'No origin header';
 
   res.status(HTTP_STATUS.OK).json(
     createResponse(
-      'CORS test successful',
       {
         origin: origin,
         allowedOrigins: config.security.corsOrigins,
@@ -167,9 +175,10 @@ router.get('/cors-test', (req, res) => {
           'vary': res.get('vary')
         },
         message: origin !== 'No origin header'
-          ? 'Your origin is allowed by CORS policy'
-          : 'Request has no origin (likely same-origin or non-browser client)'
-      }
+          ? 'El origen esta permitido por la politica CORS'
+          : 'La peticion no tiene origin (probablemente mismo origen o cliente no-navegador)'
+      },
+      'Diagnostico de CORS completado'
     )
   );
 });

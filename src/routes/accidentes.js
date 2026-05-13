@@ -1,27 +1,21 @@
 /**
  * Rutas de Accidentalidad
  *
- * Define todas las rutas relacionadas con la gestión y consulta de datos de accidentes.
- * Incluye middlewares de autenticación, validación y limitación de velocidad.
+ * Las validaciones express-validator de mapa/heatmap se extraen a
+ * `validators/validadorAccidentes.js`. Las validaciones compartidas
+ * (paginacion, filtros, fechas, file number, distrito) siguen en
+ * `middleware/validation.js`.
  */
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { query } = require('express-validator');
 
-const {
-  USER_ROLES,
-  RATE_LIMITS,
-  DATE_RANGE_LIMITS,
-  MAP_LIMITS,
-  SEVERITY_LEVELS
-} = require('../constants');
+const { USER_ROLES, RATE_LIMITS, DATE_RANGE_LIMITS } = require('../constants');
 
 const accidentController = require('../controllers/controladorAccidentes');
 const { authenticate } = require('../middleware/auth');
 const { cacheMiddleware } = require('../middleware/cache');
 const { validateRequest } = require('../middleware/security');
-const { performanceMonitor } = require('../middleware/performanceMonitor');
 const { etagMiddleware } = require('../middleware/etag');
 const logger = require('../config/logger');
 const {
@@ -31,18 +25,16 @@ const {
   validateAccidentFilters,
   validateFileNumber
 } = require('../middleware/validation');
-
+const {
+  validarMapaCalorAccidentes,
+  validarMapaAccidentes
+} = require('../validators/validadorAccidentes');
 
 const router = express.Router();
 
-// Aplicar performanceMonitor a todas las rutas de accidentes
-router.use(performanceMonitor);
+// Nota: performanceMonitor se aplica una sola vez en routes/index.js
 
-/**
- * Limitadores de velocidad específicos
- */
-
-// Para consultas generales
+// Limitador general para todos los endpoints de accidentes
 const generalLimit = rateLimit({
   windowMs: RATE_LIMITS.GENERAL.WINDOW_MS,
   max: RATE_LIMITS.GENERAL.MAX_REQUESTS,
@@ -52,26 +44,11 @@ const generalLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => {
-    return req.user && req.user.role === USER_ROLES.ADMIN;
-  }
+  skip: (req) => req.user && req.user.role === USER_ROLES.ADMIN
 });
 
 /**
- * RUTAS PRINCIPALES
- */
-
-/**
- * @route   GET /api/v1/accidents
- * @desc    Obtener datos de accidentalidad con filtros avanzados
- * @access  Privado (requiere autenticación)
- * @rateLimit 100 requests por 15 minutos
- * @query   {string} startDate - Fecha de inicio (ISO8601)
- * @query   {string} endDate - Fecha de fin (ISO8601)
- * @query   {string} tipoAccidente - Tipo de accidente
- * @query   {string} gravedad - Gravedad del accidente
- * @query   {number} page - Página (defecto: 1)
- * @query   {number} limit - Elementos por página (defecto: 50, max: 100)
+ * GET /api/v1/accidentes
  */
 router.get('/',
   generalLimit,
@@ -84,10 +61,7 @@ router.get('/',
 );
 
 /**
- * @route   GET /api/accidents/expediente/:numero
- * @desc    Obtener accidente específico por número de expediente
- * @access  Privado
- * @rateLimit 100 requests per 15 minutes
+ * GET /api/v1/accidentes/expediente/:numero
  */
 router.get('/expediente/:numero',
   generalLimit,
@@ -97,26 +71,20 @@ router.get('/expediente/:numero',
 );
 
 /**
- * @route   GET /api/accidents/stats
- * @desc    Obtener estadísticas generales de accidentalidad
- * @access  Privado
- * @rateLimit 100 requests per 15 minutes
+ * GET /api/v1/accidentes/estadisticas
  */
 router.get('/estadisticas',
   generalLimit,
   authenticate,
   validateDistrictQuery,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
-  etagMiddleware, // ETags para estadísticas agregadas (datos estables)
+  etagMiddleware,
   cacheMiddleware('statistics', (req) => `accidents:stats:${JSON.stringify(req.query)}`),
   accidentController.obtenerEstadisticasAccidentes
 );
 
 /**
- * @route   GET /api/accidents/district-comparison
- * @desc    Obtener comparativa entre distritos
- * @access  Privado
- * @rateLimit 100 requests per 15 minutes
+ * GET /api/v1/accidentes/comparativa-distritos
  */
 router.get('/comparativa-distritos',
   generalLimit,
@@ -131,10 +99,8 @@ router.get('/comparativa-distritos',
  */
 router.use((req, res, next) => {
   const start = Date.now();
-
   res.on('finish', () => {
     const duration = Date.now() - start;
-
     logger.debug({
       method: req.method,
       path: req.path,
@@ -144,32 +110,16 @@ router.use((req, res, next) => {
       query: Object.keys(req.query).length > 0 ? req.query : undefined
     }, 'Consulta de accidentes completada');
   });
-
   next();
 });
 
 /**
- * @route   GET /api/v1/accidentes/mapa-calor
- * @desc    Obtener datos agrupados para mapa de calor de accidentes
- * @access  Privado
- *
- * Cap de `limite` y `precision` mas conservador que /mapa porque cada punto del
- * heatmap es una agregacion (no un documento crudo) y costaria mas iterar
- * miles de puntos en el cliente Leaflet.
+ * GET /api/v1/accidentes/mapa-calor
  */
 router.get('/mapa-calor',
   generalLimit,
   authenticate,
-  [
-    query('limite').optional().isInt({ min: MAP_LIMITS.MIN, max: MAP_LIMITS.HEATMAP_MAX })
-      .withMessage(`limite debe estar entre ${MAP_LIMITS.MIN} y ${MAP_LIMITS.HEATMAP_MAX}`),
-    query('precision').optional().isInt({ min: 50, max: 500 })
-      .withMessage('precision debe estar entre 50 y 500 metros'),
-    query('distrito').optional().trim().isLength({ min: 2, max: 100 }).escape(),
-    query('gravedad').optional().isIn(Object.values(SEVERITY_LEVELS.ACCIDENT))
-      .withMessage('gravedad invalida'),
-    query('tipoAccidente').optional().trim().escape()
-  ],
+  validarMapaCalorAccidentes,
   validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   cacheMiddleware('accidents'),
@@ -177,23 +127,12 @@ router.get('/mapa-calor',
 );
 
 /**
- * @route   GET /api/v1/accidentes/mapa
- * @desc    Devuelve FeatureCollection GeoJSON para visualizacion en mapas
- * @access  Privado
+ * GET /api/v1/accidentes/mapa
  */
 router.get('/mapa',
   generalLimit,
   authenticate,
-  [
-    query('limite').optional().isInt({ min: MAP_LIMITS.MIN, max: MAP_LIMITS.DEFAULT_MAX })
-      .withMessage(`limite debe estar entre ${MAP_LIMITS.MIN} y ${MAP_LIMITS.DEFAULT_MAX}`),
-    query('distrito').optional().trim().isLength({ min: 2, max: 100 }).escape(),
-    query('gravedad').optional().isIn(Object.values(SEVERITY_LEVELS.ACCIDENT))
-      .withMessage('gravedad invalida'),
-    query('tipoAccidente').optional().trim().escape(),
-    query('bbox').optional().matches(/^-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*$/)
-      .withMessage('bbox debe ser minLng,minLat,maxLng,maxLat')
-  ],
+  validarMapaAccidentes,
   validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   cacheMiddleware('accidents'),

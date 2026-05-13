@@ -8,6 +8,7 @@
 const NodeCache = require('node-cache');
 const logger = require('../config/logger');
 const { cacheLogger } = logger;
+const config = require('../config/config');
 const { HTTP_STATUS } = require('../constants');
 const { generateCacheKeyFromRequest, generateStatsCacheKey } = require('../utils/cacheKeyGenerator');
 
@@ -16,22 +17,61 @@ const STALE_GRACE_SECONDS = 60; // Mantener entradas expiradas 60s adicionales p
 const NEAR_EXPIRY_RATIO = 0.2; // Si queda <20% del TTL, se dispara una revalidación en background
 const MIN_NEAR_EXPIRY_MS = 5000; // Evitar umbrales demasiado pequeños
 
-// Configuración centralizada por tipo de caché (TTL ajustados para datos estáticos)
+// Configuracion centralizada por tipo de cache (TTL ajustados para datos estaticos)
 const CACHE_CONFIG = {
-  demographic: { stdTTL: 86400 * 7, checkperiod: 3600, maxKeys: 20000 }, // Datos estáticos, 7 días
-  statistics: { stdTTL: 86400, checkperiod: 1800, maxKeys: 15000 }, // Estadísticas diarias, 24h
-  traffic: { stdTTL: 86400, checkperiod: 1800, maxKeys: 20000 }, // Datos históricos, 24h
-  static: { stdTTL: 0, checkperiod: 7200, maxKeys: 50000 }, // Configuración/ubicaciones, sin expiración
+  demographic: { stdTTL: 86400 * 7, checkperiod: 3600, maxKeys: 20000 }, // Datos estaticos, 7 dias
+  statistics: { stdTTL: 86400, checkperiod: 1800, maxKeys: 15000 }, // Estadisticas diarias, 24h
+  traffic: { stdTTL: 86400, checkperiod: 1800, maxKeys: 20000 }, // Datos historicos, 24h
+  static: { stdTTL: 0, checkperiod: 7200, maxKeys: 50000 }, // Configuracion/ubicaciones, sin expiracion
   airQuality: { stdTTL: 86400, checkperiod: 1800, maxKeys: 15000 }, // 24h
-  bikes: { stdTTL: 86400, checkperiod: 1800, maxKeys: 5000 }, // Datos históricos
-  containers: { stdTTL: 0, checkperiod: 7200, maxKeys: 50000 }, // Estáticos
-  noise: { stdTTL: 86400, checkperiod: 1800, maxKeys: 10000 } // 24h
+  bikes: { stdTTL: 86400, checkperiod: 1800, maxKeys: 5000 }, // Datos historicos
+  containers: { stdTTL: 0, checkperiod: 7200, maxKeys: 50000 }, // Estaticos
+  noise: { stdTTL: 86400, checkperiod: 1800, maxKeys: 10000 }, // 24h
+  fines: { stdTTL: 86400, checkperiod: 1800, maxKeys: 15000 } // Multas historicas, 24h
 };
 
 // Mapa de promesas en vuelo para evitar thundering herd en el mismo cacheKey
 const pendingRequests = new Map();
 // Mapa de revalidaciones en background para no lanzar múltiples refrescos simultáneos
 const backgroundRefreshes = new Map();
+
+// TTL de seguridad (ms) para entradas de los mapas de control de concurrencia.
+// Si un handler crashea antes de disparar `res.finish`/`res.close`, la limpieza
+// natural no ocurre y la entrada quedaria en memoria para siempre. Este TTL
+// actua como red de seguridad: tras `CONTROL_MAPS_SAFETY_TTL_MS` se elimina
+// la entrada si sigue presente, evitando crecimiento ilimitado de memoria.
+const CONTROL_MAPS_SAFETY_TTL_MS = 30000;
+
+/**
+ * Inserta una entrada en un Map global de control con TTL de seguridad.
+ *
+ * Si transcurridos `ttlMs` la entrada sigue presente y es la MISMA (===) que
+ * la insertada, se elimina automaticamente. Se compara por identidad para no
+ * borrar entradas que ya hayan sido reemplazadas por otra peticion concurrente.
+ *
+ * El timer usa `unref()` para no bloquear el cierre del proceso al apagar el
+ * servidor (graceful shutdown).
+ *
+ * @param {Map}     map   - Mapa global donde insertar.
+ * @param {string}  key   - Clave (normalmente cacheKey).
+ * @param {*}       value - Valor a insertar.
+ * @param {number} [ttlMs=CONTROL_MAPS_SAFETY_TTL_MS] - TTL en milisegundos.
+ */
+const setWithSafetyTtl = (map, key, value, ttlMs = CONTROL_MAPS_SAFETY_TTL_MS) => {
+  map.set(key, value);
+  const timer = setTimeout(() => {
+    if (map.get(key) === value) {
+      map.delete(key);
+      cacheLogger.warn(
+        { cacheKey: key, ttlMs },
+        'Entrada de control eliminada por TTL de seguridad (handler no limpio)'
+      );
+    }
+  }, ttlMs);
+  if (typeof timer.unref === 'function') {
+    timer.unref();
+  }
+};
 
 /**
  * Cache L2 de fallback ante errores de la base de datos.
@@ -54,23 +94,23 @@ const fallbackCache = new NodeCache({
   deleteOnExpire: true
 });
 
-const buildCache = (config) => {
+const buildCache = (cacheConfig) => {
   const instance = new NodeCache({
-    ...config,
+    ...cacheConfig,
     useClones: false,
     deleteOnExpire: true
   });
-  instance.options._swrGraceSeconds = config._swrGraceSeconds || STALE_GRACE_SECONDS;
+  instance.options._swrGraceSeconds = cacheConfig._swrGraceSeconds || STALE_GRACE_SECONDS;
   return instance;
 };
 
 /**
- * Middleware de caché para optimización de consultas frecuentes
+ * Middleware de cache para optimizacion de consultas frecuentes
  */
 const caches = Object.fromEntries(
-  Object.entries(CACHE_CONFIG).map(([key, config]) => [
+  Object.entries(CACHE_CONFIG).map(([key, cacheConfig]) => [
     key,
-    buildCache({ ...config, _swrGraceSeconds: STALE_GRACE_SECONDS })
+    buildCache({ ...cacheConfig, _swrGraceSeconds: STALE_GRACE_SECONDS })
   ])
 );
 
@@ -106,22 +146,33 @@ const scheduleBackgroundRefresh = (req, cacheType, cacheKey) => {
 
   const refreshPromise = (async () => {
     try {
-      const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+      // SEGURIDAD: construir la URL con `config.server.host`/`port` en vez de
+      // `req.get('host')` para evitar SSRF. Un cliente malicioso podria
+      // enviar `Host: internal-service:8080` y forzar al server a hacer
+      // peticiones internas con el JWT del usuario adjunto.
+      const baseUrl = `http://${config.server.host}:${config.server.port}`;
+      const url = `${baseUrl}${req.originalUrl}`;
+
+      // Reenviamos solo el header Authorization (no cookies ni Host) para
+      // que el background refresh se autentique como el usuario, pero sin
+      // arrastrar headers que podrian sesgar el resultado.
+      const refreshHeaders = { 'x-cache-refresh': '1' };
+      if (req.headers.authorization) {
+        refreshHeaders.authorization = req.headers.authorization;
+      }
+
       await fetch(url, {
-        headers: {
-          ...req.headers,
-          'x-cache-refresh': '1'
-        },
+        headers: refreshHeaders,
         method: req.method
       });
     } catch (error) {
-      cacheLogger.warn({ cacheKey, cacheType, error: error.message }, 'Revalidación de caché fallida');
+      cacheLogger.warn({ cacheKey, cacheType, error: error.message }, 'Revalidacion de cache fallida');
     } finally {
       backgroundRefreshes.delete(cacheKey);
     }
   })();
 
-  backgroundRefreshes.set(cacheKey, refreshPromise);
+  setWithSafetyTtl(backgroundRefreshes, cacheKey, refreshPromise);
 };
 
 const respondFromCache = (res, cacheType, cacheKey, payload, status = 'HIT') => {
@@ -249,7 +300,7 @@ const cacheMiddleware = (cacheType = 'traffic', keyGenerator = null) => {
       // Evitar Unhandled Rejection si nadie espera esta promesa (ej: si la petición falla y no hay clientes concurrentes)
       pendingEntry.promise.catch(() => {});
 
-      pendingRequests.set(cacheKey, pendingEntry);
+      setWithSafetyTtl(pendingRequests, cacheKey, pendingEntry);
 
       const cleanupPending = () => {
         if (pendingRequests.has(cacheKey)) {

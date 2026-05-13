@@ -16,14 +16,11 @@ const {
   NIVELES_PRIORIDAD_PATINETES,
   NIVELES_DEMANDA_PATINETES,
   TIPOS_INFORME_PATINETES,
-  AGGREGATION_LIMITS,
   UMBRALES_DENSIDAD_PATINETES,
   UMBRALES_DEMANDA_PATINETES,
   UMBRALES_CONCENTRACION_MERCADO,
-  TIME_CONSTANTS,
   VALIDATION_LIMITS,
   DATASET_YEARS,
-  MONGODB_TIMEOUTS,
   AREAS_CLAVE_PATINETES
 } = require('../constants');
 
@@ -542,543 +539,51 @@ scooterAssignmentSchema.pre('save', function(next) {
 });
 
 /**
- * Método estático para obtener resumen de asignación desde un documento lean
- * @param {Object} doc - Documento de asignación (puede ser lean o instancia)
- * @returns {Object} Resumen de la asignación
+ * Metodos estaticos delegados a `services/asignacionPatinetesService.js`.
+ *
+ * El service contiene la implementacion real de las 9 funciones (resumen,
+ * estadisticas por distrito, analisis mercado, zonas concentracion, panel,
+ * optimizacion, filtros, detalles area, comparativa temporal); el modelo
+ * expone wrappers thin para mantener la API publica clasica.
  */
+const asignacionPatinetesService = require('../services/asignacionPatinetesService');
+
 scooterAssignmentSchema.statics.obtenerResumenAsignacion = function(doc) {
-  return {
-    ubicacion: {
-      distrito: doc.distrito?.nombre || doc.distrito,
-      barrio: doc.barrio?.nombre || doc.barrio
-    },
-    estadisticas: {
-      totalPatinetes: doc.estadisticas?.totalPatinetes || 0,
-      totalProveedores: doc.estadisticas?.totalProveedores || 0,
-      proveedoresActivos: doc.estadisticas?.proveedoresActivos || 0,
-      densidad: doc.estadisticas?.densidadPatinetes || 'N/A'
-    },
-    distribucion: {
-      proveedorDominante: doc.analisisDistribucion?.proveedorDominante || 'N/A',
-      concentracion: doc.analisisDistribucion?.concentracionMercado || 'N/A',
-      indiceHHI: doc.analisisDistribucion?.indiceHerfindahl || 0
-    },
-    clasificacion: {
-      tipoZona: doc.clasificacionArea?.tipoZona || 'N/A',
-      prioridad: doc.clasificacionArea?.prioridadServicio || 'N/A',
-      demanda: doc.clasificacionArea?.demandaEstimada || 'N/A'
-    },
-    proveedores: (doc.proveedores || []).filter(p => p.activo && p.cantidad > 0).map(p => ({
-      nombre: p.nombre,
-      cantidad: p.cantidad,
-      porcentaje: (doc.estadisticas?.totalPatinetes || 0) > 0 ?
-        (p.cantidad / doc.estadisticas.totalPatinetes) * 100 : 0
-    }))
-  };
+  return asignacionPatinetesService.obtenerResumenAsignacion(doc);
 };
 
-/**
- * Métodos estáticos para consultas agregadas
- */
-
-/**
- * Obtener estadísticas por distrito
- */
-scooterAssignmentSchema.statics.obtenerEstadisticasDistrito = function(fecha = null) {
-  const matchCondition = {};
-  if (fecha) {
-    matchCondition.fechaAsignacion = {
-      $gte: new Date(fecha),
-      $lt: new Date(new Date(fecha).getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY)
-    };
-  }
-
-  return this.aggregate([
-    { $match: matchCondition },
-    {
-      $group: {
-        _id: '$distrito.nombre',
-        totalPatinetes: { $sum: '$estadisticas.totalPatinetes' },
-        totalBarrios: { $sum: 1 },
-        promedioPatinetesPorBarrio: { $avg: '$estadisticas.totalPatinetes' },
-        densidadPromedio: { $avg: '$estadisticas.promedioPatinetesPorProveedor' },
-        zonasMayorDemanda: {
-          $sum: {
-            $cond: [
-              { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.MUY_ALTA] },
-              1,
-              0
-            ]
-          }
-        }
-      }
-    },
-    {
-      $sort: { totalPatinetes: -1 }
-    }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+scooterAssignmentSchema.statics.obtenerEstadisticasDistrito = function(fecha) {
+  return asignacionPatinetesService.obtenerEstadisticasDistrito(this, fecha);
 };
 
-/**
- * Obtener análisis de mercado por proveedor
- */
-scooterAssignmentSchema.statics.obtenerAnalisisMercadoProveedores = function(fecha = null) {
-  const matchCondition = {};
-  if (fecha) {
-    matchCondition.fechaAsignacion = {
-      $gte: new Date(fecha),
-      $lt: new Date(new Date(fecha).getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY)
-    };
-  }
-
-  return this.aggregate([
-    { $match: matchCondition },
-    { $unwind: { path: '$proveedores', preserveNullAndEmptyArrays: true } },
-    {
-      $match: {
-        'proveedores.activo': true,
-        'proveedores.cantidad': { $gt: 0 }
-      }
-    },
-    {
-      $group: {
-        _id: '$proveedores.nombre',
-        totalPatinetes: { $sum: '$proveedores.cantidad' },
-        areasOperacion: { $sum: 1 },
-        promedioPatinetesPorArea: { $avg: '$proveedores.cantidad' },
-        distritos: { $addToSet: '$distrito.nombre' },
-        zonasAlta: {
-          $sum: {
-            $cond: [
-              { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.MUY_ALTA] },
-              1,
-              0
-            ]
-          }
-        }
-      }
-    },
-    {
-      $addFields: {
-        totalDistritos: { $size: '$distritos' }
-      }
-    },
-    {
-      $sort: { totalPatinetes: -1 }
-    }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+scooterAssignmentSchema.statics.obtenerAnalisisMercadoProveedores = function(fecha) {
+  return asignacionPatinetesService.obtenerAnalisisMercadoProveedores(this, fecha);
 };
 
-/**
- * Obtener zonas de mayor concentración
- */
-scooterAssignmentSchema.statics.obtenerZonasMayorConcentracion = function(limite = 20, fecha = null) {
-  const matchCondition = {};
-  if (fecha) {
-    matchCondition.fechaAsignacion = {
-      $gte: new Date(fecha),
-      $lt: new Date(new Date(fecha).getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY)
-    };
-  }
-
-  return this.aggregate([
-    { $match: matchCondition },
-    {
-      $project: {
-        distrito: '$distrito.nombre',
-        barrio: '$barrio.nombre',
-        totalPatinetes: '$estadisticas.totalPatinetes',
-        densidad: '$estadisticas.densidadPatinetes',
-        tipoZona: '$clasificacionArea.tipoZona',
-        demanda: '$clasificacionArea.demandaEstimada',
-        concentracion: '$analisisDistribucion.concentracionMercado',
-        proveedorDominante: '$analisisDistribucion.proveedorDominante'
-      }
-    },
-    {
-      $sort: { totalPatinetes: -1 }
-    },
-    {
-      $limit: limite
-    }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+scooterAssignmentSchema.statics.obtenerZonasMayorConcentracion = function(limite, fecha) {
+  return asignacionPatinetesService.obtenerZonasMayorConcentracion(this, limite, fecha);
 };
 
-/**
- * Obtener dashboard de distribución
- */
-scooterAssignmentSchema.statics.obtenerPanelDistribucion = function(fecha = null) {
-  const matchCondition = {};
-  if (fecha) {
-    matchCondition.fechaAsignacion = {
-      $gte: new Date(fecha),
-      $lt: new Date(new Date(fecha).getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY)
-    };
-  }
-
-  return this.aggregate([
-    { $match: matchCondition },
-    {
-      $facet: {
-        resumenGeneral: [
-          {
-            $group: {
-              _id: null,
-              totalPatinetes: { $sum: '$estadisticas.totalPatinetes' },
-              totalAreas: { $sum: 1 },
-              promedioPatinetesPorArea: { $avg: '$estadisticas.totalPatinetes' },
-              areasAltaDensidad: {
-                $sum: {
-                  $cond: [
-                    { $in: ['$estadisticas.densidadPatinetes', [NIVELES_DENSIDAD_PATINETES.ALTA, NIVELES_DENSIDAD_PATINETES.MUY_ALTA]] },
-                    1,
-                    0
-                  ]
-                }
-              }
-            }
-          }
-        ],
-        distribucionPorTipoZona: [
-          {
-            $group: {
-              _id: '$clasificacionArea.tipoZona',
-              totalPatinetes: { $sum: '$estadisticas.totalPatinetes' },
-              areas: { $sum: 1 },
-              promedio: { $avg: '$estadisticas.totalPatinetes' }
-            }
-          },
-          { $sort: { totalPatinetes: -1 } }
-        ],
-        distribucionPorDensidad: [
-          {
-            $group: {
-              _id: '$estadisticas.densidadPatinetes',
-              areas: { $sum: 1 },
-              totalPatinetes: { $sum: '$estadisticas.totalPatinetes' }
-            }
-          }
-        ],
-        concentracionMercado: [
-          {
-            $group: {
-              _id: '$analisisDistribucion.concentracionMercado',
-              areas: { $sum: 1 },
-              hhiPromedio: { $avg: '$analisisDistribucion.indiceHerfindahl' }
-            }
-          }
-        ]
-      }
-    }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+scooterAssignmentSchema.statics.obtenerPanelDistribucion = function(fecha) {
+  return asignacionPatinetesService.obtenerPanelDistribucion(this, fecha);
 };
 
-/**
- * Obtener análisis de optimización de distribución
- * Identifica áreas sobreabastecidas y subabastecidas con recomendaciones
- */
-scooterAssignmentSchema.statics.obtenerDatosAnalisisOptimizacion = function(fecha = null) {
-  const matchCondition = {};
-  if (fecha) {
-    const fechaInicio = new Date(fecha);
-    const fechaFin = new Date(fechaInicio.getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY);
-    matchCondition.fechaAsignacion = { $gte: fechaInicio, $lt: fechaFin };
-  }
-
-  return Promise.all([
-    // Análisis de desbalance oferta-demanda
-    this.aggregate([
-      { $match: matchCondition },
-      {
-        $addFields: {
-          demandaNumerica: {
-            $switch: {
-              branches: [
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.BAJA] }, then: 1 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.MEDIA] }, then: 2 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.ALTA] }, then: 3 },
-                { case: { $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.MUY_ALTA] }, then: 4 }
-              ],
-              default: 2
-            }
-          },
-          ofertaNumerica: {
-            $switch: {
-              branches: [
-                { case: { $eq: ['$estadisticas.densidadPatinetes', NIVELES_DENSIDAD_PATINETES.BAJA] }, then: 1 },
-                { case: { $eq: ['$estadisticas.densidadPatinetes', NIVELES_DENSIDAD_PATINETES.MEDIA] }, then: 2 },
-                { case: { $eq: ['$estadisticas.densidadPatinetes', NIVELES_DENSIDAD_PATINETES.ALTA] }, then: 3 },
-                { case: { $eq: ['$estadisticas.densidadPatinetes', NIVELES_DENSIDAD_PATINETES.MUY_ALTA] }, then: 4 }
-              ],
-              default: 2
-            }
-          }
-        }
-      },
-      {
-        $addFields: {
-          balanceOfertaDemanda: { $subtract: ['$ofertaNumerica', '$demandaNumerica'] },
-          tipoDesbalance: {
-            $switch: {
-              branches: [
-                { case: { $gt: ['$balanceOfertaDemanda', 1] }, then: 'SOBREABASTECIDO' },
-                { case: { $lt: ['$balanceOfertaDemanda', -1] }, then: 'SUBABASTECIDO' },
-                { case: { $eq: ['$balanceOfertaDemanda', 0] }, then: 'EQUILIBRADO' }
-              ],
-              default: 'LIGERAMENTE_DESBALANCEADO'
-            }
-          }
-        }
-      },
-      {
-        $group: {
-          _id: '$tipoDesbalance',
-          areas: { $sum: 1 },
-          totalPatinetes: { $sum: '$estadisticas.totalPatinetes' },
-          ejemplos: {
-            $push: {
-              distrito: '$distrito.nombre',
-              barrio: '$barrio.nombre',
-              patinetes: '$estadisticas.totalPatinetes',
-              demanda: '$clasificacionArea.demandaEstimada',
-              densidad: '$estadisticas.densidadPatinetes',
-              balance: '$balanceOfertaDemanda'
-            }
-          }
-        }
-      },
-      { $addFields: { ejemplos: { $slice: ['$ejemplos', 5] } } }
-    ]),
-
-    // Recomendaciones de redistribución
-    this.aggregate([
-      { $match: matchCondition },
-      {
-        $project: {
-          distrito: '$distrito.nombre',
-          barrio: '$barrio.nombre',
-          patinetes: '$estadisticas.totalPatinetes',
-          demanda: '$clasificacionArea.demandaEstimada',
-          densidad: '$estadisticas.densidadPatinetes',
-          prioridad: '$clasificacionArea.prioridadServicio',
-          tipoZona: '$clasificacionArea.tipoZona',
-          concentracion: '$analisisDistribucion.concentracionMercado'
-        }
-      },
-      {
-        $addFields: {
-          necesitaAtencion: {
-            $or: [
-              { $and: [{ $in: ['$demanda', [NIVELES_DEMANDA_PATINETES.ALTA, NIVELES_DEMANDA_PATINETES.MUY_ALTA]] }, { $eq: ['$densidad', NIVELES_DENSIDAD_PATINETES.BAJA] }] },
-              { $and: [{ $eq: ['$demanda', NIVELES_DEMANDA_PATINETES.BAJA] }, { $in: ['$densidad', [NIVELES_DENSIDAD_PATINETES.ALTA, NIVELES_DENSIDAD_PATINETES.MUY_ALTA]] }] },
-              { $eq: ['$concentracion', CONCENTRACION_MERCADO_PATINETES.ALTA_CONCENTRACION] }
-            ]
-          }
-        }
-      },
-      { $match: { necesitaAtencion: true } },
-      { $sort: { patinetes: -1 } },
-      { $limit: AGGREGATION_LIMITS.PREVIEW }
-    ])
-  ]).then(([analisisDesbalance, recomendaciones]) => ({
-    analisisDesbalance,
-    recomendaciones
-  }));
+scooterAssignmentSchema.statics.obtenerDatosAnalisisOptimizacion = function(fecha) {
+  return asignacionPatinetesService.obtenerDatosAnalisisOptimizacion(this, fecha);
 };
 
-/**
- * Obtener asignaciones con filtros complejos y paginación
- * Consolida la lógica de filtrado, ordenación, paginación y projection
- * @param {Object} filters - Filtros construidos desde queryHelper
- * @param {Object} sortOptions - Opciones de ordenación
- * @param {Object} pagination - Opciones de paginación (skip, limit)
- * @param {Object} projection - Proyección condicional de campos
- * @returns {Promise<Object>} - Datos paginados con metadata
- */
-scooterAssignmentSchema.statics.obtenerAsignacionesConFiltros = async function(filters, sortOptions, pagination, projection = {}) {
-  const { skip, limit } = pagination;
-
-  // Consulta principal con projection
-  const query = this.find(filters, projection)
-    .sort(sortOptions)
-    .skip(skip)
-    .limit(limit)
-    .lean();
-
-  // Total de documentos que coinciden con filtros
-  const total = await this.countDocuments(filters);
-
-  // Ejecutar consulta
-  const asignaciones = await query;
-
-  return {
-    asignaciones,
-    total,
-    page: Math.floor(skip / limit) + 1,
-    totalPages: Math.ceil(total / limit),
-    hasNextPage: skip + limit < total,
-    hasPrevPage: skip > 0
-  };
+scooterAssignmentSchema.statics.obtenerAsignacionesConFiltros = function(filters, sortOptions, pagination, projection) {
+  return asignacionPatinetesService.obtenerAsignacionesConFiltros(this, filters, sortOptions, pagination, projection);
 };
 
-/**
- * Obtener detalles optimizados de un área específica
- * Incluye datos del área, historial y comparación con áreas similares
- * @param {String} distrito - Nombre del distrito
- * @param {String} barrio - Nombre del barrio
- * @param {Date|null} fecha - Fecha específica o null para más reciente
- * @returns {Promise<Object>} - Detalles completos del área
- */
-scooterAssignmentSchema.statics.obtenerDetallesAreaOptimizado = async function(distrito, barrio, fecha = null) {
-  // Construir filtro base usando búsqueda exacta (case-insensitive)
-  // NO usamos $text aquí porque necesitamos match exacto de distrito+barrio
-  // $text haría búsqueda parcial, no exacta
-  const baseFilter = {
-    'distrito.nombre': distrito,
-    'barrio.nombre': barrio
-  };
-
-  // Buscar el área específica
-  const areaFilter = { ...baseFilter };
-  if (fecha) {
-    const fechaInicio = new Date(fecha);
-    const fechaFin = new Date(fechaInicio.getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY);
-    areaFilter.fechaAsignacion = { $gte: fechaInicio, $lt: fechaFin };
-  } else {
-    // Si no hay fecha, buscar el más reciente
-    const ultimoRegistro = await this.findOne(baseFilter)
-      .sort({ fechaAsignacion: -1 })
-      .lean();
-
-    if (!ultimoRegistro) {
-      return null;
-    }
-
-    const fechaInicio = new Date(ultimoRegistro.fechaAsignacion);
-    const fechaFin = new Date(fechaInicio.getTime() + TIME_CONSTANTS.MILLISECONDS_PER_DAY);
-    areaFilter.fechaAsignacion = { $gte: fechaInicio, $lt: fechaFin };
-  }
-
-  // Ejecutar consultas en paralelo
-  const [area, historial, areasSimilares] = await Promise.all([
-    // 1. Área principal
-    this.findOne(areaFilter).lean(),
-
-    // 2. Historial (últimos 10 registros) - solo si no se especificó fecha
-    fecha ? Promise.resolve([]) : this.find(baseFilter)
-      .select('fechaAsignacion estadisticas.totalPatinetes estadisticas.densidadPatinetes')
-      .sort({ fechaAsignacion: -1 })
-      .limit(10)
-      .lean(),
-
-    // 3. Áreas similares (misma clasificación, diferente ubicación)
-    (async () => {
-      const areaTemp = await this.findOne(areaFilter).lean();
-      if (!areaTemp) {
-        return [];
-      }
-
-      return this.find({
-        'clasificacionArea.tipoZona': areaTemp.clasificacionArea.tipoZona,
-        'distrito.nombre': { $ne: areaTemp.distrito.nombre },
-        fechaAsignacion: areaTemp.fechaAsignacion
-      })
-      .select('distrito.nombre barrio.nombre estadisticas.totalPatinetes')
-      .sort({ 'estadisticas.totalPatinetes': -1 })
-      .limit(5)
-      .lean();
-    })()
-  ]);
-
-  if (!area) {
-    return null;
-  }
-
-  return {
-    area,
-    historial,
-    areasSimilares
-  };
+scooterAssignmentSchema.statics.obtenerDetallesAreaOptimizado = function(distrito, barrio, fecha) {
+  return asignacionPatinetesService.obtenerDetallesAreaOptimizado(this, distrito, barrio, fecha);
 };
 
-/**
- * Obtener comparativa temporal entre ubicaciones
- * Agrupa datos por fecha y ubicación con estadísticas agregadas
- * @param {Date} fechaInicio - Fecha de inicio del rango
- * @param {Date} fechaFin - Fecha de fin del rango
- * @param {String|null} distrito - Distrito específico o null para todos
- * @param {String} agrupacion - Tipo de agrupación: 'distrito' o 'barrio'
- * @returns {Promise<Object>} - Datos procesados listos para frontend
- */
-scooterAssignmentSchema.statics.obtenerDatosComparativaTemporal = async function(fechaInicio, fechaFin, distrito = null, agrupacion = 'distrito') {
-  // Construir condición de match
-  const matchCondition = {
-    fechaAsignacion: {
-      $gte: new Date(fechaInicio),
-      $lte: new Date(fechaFin)
-    }
-  };
-
-  // Si hay filtro por distrito, usar match exacto (case-sensitive como en BD)
-  // NO usar RegExp porque degrada performance en agregaciones
-  if (distrito) {
-    matchCondition['distrito.nombre'] = distrito;
-  }
-
-  // Campo de agrupación dinámico
-  const groupField = agrupacion === 'barrio' ?
-    { distrito: '$distrito.nombre', barrio: '$barrio.nombre' } :
-    '$distrito.nombre';
-
-  // Ejecutar agregación
-  const comparativa = await this.aggregate([
-    { $match: matchCondition },
-    {
-      $group: {
-        _id: {
-          fecha: {
-            $dateToString: {
-              format: '%Y-%m-%d',
-              date: '$fechaAsignacion'
-            }
-          },
-          ubicacion: groupField
-        },
-        totalPatinetes: { $sum: '$estadisticas.totalPatinetes' },
-        totalProveedores: { $avg: '$estadisticas.totalProveedores' },
-        densidadPromedio: { $avg: '$estadisticas.promedioPatinetesPorProveedor' }
-      }
-    },
-    {
-      $sort: { '_id.fecha': 1, '_id.ubicacion': 1 }
-    }
-  ]);
-
-  // Procesar datos para estructura amigable al frontend
-  const processedData = {};
-  comparativa.forEach(item => {
-    const fecha = item._id.fecha;
-    const ubicacion = typeof item._id.ubicacion === 'object' ?
-      `${item._id.ubicacion.distrito} - ${item._id.ubicacion.barrio}` :
-      item._id.ubicacion;
-
-    if (!processedData[ubicacion]) {
-      processedData[ubicacion] = [];
-    }
-
-    processedData[ubicacion].push({
-      fecha,
-      totalPatinetes: item.totalPatinetes,
-      totalProveedores: Math.round(item.totalProveedores),
-      densidadPromedio: Math.round(item.densidadPromedio * 100) / 100
-    });
-  });
-
-  return {
-    comparativa: processedData,
-    totalUbicaciones: Object.keys(processedData).length
-  };
+scooterAssignmentSchema.statics.obtenerDatosComparativaTemporal = function(fechaInicio, fechaFin, distrito, agrupacion) {
+  return asignacionPatinetesService.obtenerDatosComparativaTemporal(this, fechaInicio, fechaFin, distrito, agrupacion);
 };
+
 
 // Crear y exportar el modelo
 const AsignacionPatinetes = mongoose.model('AsignacionPatinetes', scooterAssignmentSchema);

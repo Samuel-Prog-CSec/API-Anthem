@@ -34,18 +34,23 @@ const {
  * Valida la entrada de registro de usuario incluyendo nombre de usuario, email, contraseña
  * e información opcional de perfil.
  */
+// Nota: NO se aplica `.escape()` a username/email/identifier porque el regex
+// `USERNAME_PATTERN` ya restringe los caracteres permitidos a alfanumericos
+// + guiones, y los emails los normaliza `normalizeEmail`. La proteccion XSS
+// global (`xssProtection` en middleware/security.js) y el escape automatico
+// de React en el frontend cubren el resto. Aplicar `.escape()` aqui solo
+// causaba que apellidos como `O'Brien` se guardaran como `O&#x27;Brien` en BD.
 const validateRegistration = [
   body('username')
     .trim()
     .isLength({ min: USER_VALIDATION.MIN_USERNAME_LENGTH, max: USER_VALIDATION.MAX_USERNAME_LENGTH })
     .withMessage(`El nombre de usuario debe tener entre ${USER_VALIDATION.MIN_USERNAME_LENGTH} y ${USER_VALIDATION.MAX_USERNAME_LENGTH} caracteres`)
     .matches(USER_VALIDATION.USERNAME_PATTERN)
-    .withMessage('El nombre de usuario solo puede contener letras, números, guiones y guiones bajos')
-    .escape()
+    .withMessage('El nombre de usuario solo puede contener letras, numeros, guiones y guiones bajos')
     .custom(async (value) => {
-      // Validación adicional de nombre de usuario
+      // Validacion adicional de nombre de usuario
       if (USER_VALIDATION.FORBIDDEN_USERNAMES.includes(value.toLowerCase())) {
-        throw new Error('Este nombre de usuario no está permitido');
+        throw new Error('Este nombre de usuario no esta permitido');
       }
       return true;
     }),
@@ -53,22 +58,21 @@ const validateRegistration = [
   body('email')
     .trim()
     .isEmail()
-    .withMessage('Por favor proporciona una dirección de email válida')
+    .withMessage('Por favor proporciona una direccion de email valida')
     .normalizeEmail()
-    .escape()
     .isLength({ max: USER_VALIDATION.MAX_EMAIL_LENGTH })
-    .withMessage('La dirección de email es demasiado larga'),
+    .withMessage('La direccion de email es demasiado larga'),
 
   body('password')
     .isLength({ min: USER_VALIDATION.MIN_PASSWORD_LENGTH, max: USER_VALIDATION.MAX_PASSWORD_LENGTH })
-    .withMessage(`La contraseña debe tener entre ${USER_VALIDATION.MIN_PASSWORD_LENGTH} y ${USER_VALIDATION.MAX_PASSWORD_LENGTH} caracteres`)
+    .withMessage(`La contrasena debe tener entre ${USER_VALIDATION.MIN_PASSWORD_LENGTH} y ${USER_VALIDATION.MAX_PASSWORD_LENGTH} caracteres`)
     .matches(USER_VALIDATION.PASSWORD_PATTERN)
-    .withMessage('La contraseña debe contener al menos una letra mayúscula, una minúscula, un número y un carácter especial'),
+    .withMessage('La contrasena debe contener al menos una letra mayuscula, una minuscula, un numero y un caracter especial'),
 
   body('role')
     .optional()
     .isIn(Object.values(USER_ROLES))
-    .withMessage('Rol inválido')
+    .withMessage('Rol invalido')
 ];
 
 /**
@@ -76,20 +80,20 @@ const validateRegistration = [
  *
  * Valida las credenciales de inicio de sesión (email/nombre de usuario y contraseña).
  */
+// Nota: el identifier NO se escapa (ver comentario en validateRegistration)
 const validateLogin = [
   body('identifier')
     .trim()
     .notEmpty()
     .withMessage('Se requiere email o nombre de usuario')
     .isLength({ min: USER_VALIDATION.MIN_IDENTIFIER_LENGTH, max: USER_VALIDATION.MAX_IDENTIFIER_LENGTH })
-    .withMessage(`El identificador debe tener entre ${USER_VALIDATION.MIN_IDENTIFIER_LENGTH} y ${USER_VALIDATION.MAX_IDENTIFIER_LENGTH} caracteres`)
-    .escape(),
+    .withMessage(`El identificador debe tener entre ${USER_VALIDATION.MIN_IDENTIFIER_LENGTH} y ${USER_VALIDATION.MAX_IDENTIFIER_LENGTH} caracteres`),
 
   body('password')
     .notEmpty()
-    .withMessage('Se requiere contraseña')
+    .withMessage('Se requiere contrasena')
     .isLength({ min: 1, max: USER_VALIDATION.MAX_PASSWORD_LENGTH })
-    .withMessage(`La contraseña no puede exceder ${USER_VALIDATION.MAX_PASSWORD_LENGTH} caracteres`)
+    .withMessage(`La contrasena no puede exceder ${USER_VALIDATION.MAX_PASSWORD_LENGTH} caracteres`)
 ];
 
 /**

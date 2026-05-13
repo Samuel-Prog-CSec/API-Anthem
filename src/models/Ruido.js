@@ -4,6 +4,10 @@
  * Esquema de Mongoose para almacenar y gestionar datos de contaminación acústica
  * provenientes de las estaciones de monitorización de ruido distribuidas por la ciudad.
  * Incluye niveles de ruido por periodos del día y estadísticas acústicas.
+ *
+ * La logica de agregaciones, ranking y analisis normativo vive en
+ * `services/ruidoService.js`. Este archivo expone solo el schema, los indices,
+ * los hooks pre-save y wrappers thin sobre los metodos estaticos.
  */
 
 const mongoose = require('mongoose');
@@ -16,11 +20,10 @@ const {
 const {
   NOISE_LIMITS,
   NOISE_METRIC_FIELDS,
-  AGGREGATION_LIMITS,
-  MONGODB_TIMEOUTS,
   DATASET_YEARS,
   VALIDATION_LIMITS
 } = require('../constants');
+const ruidoService = require('../services/ruidoService');
 
 /**
  * Esquema de Contaminación Acústica
@@ -156,26 +159,14 @@ const noiseMonitoringSchema = new mongoose.Schema({
         }
       }
     },
-    // Validación de coherencia en el orden de percentiles con tolerancia
     // Tolerancia de 0.5 dB para permitir pequeñas anomalías de sensores
     validate: {
       validator: function(p) {
-        const TOLERANCE = 0.5; // Tolerancia de 0.5 dB para errores de medición
-
-        // Validar orden decreciente con tolerancia: las01 >= las10 >= las50 >= las90 >= las99
-        // Solo validar si los valores existen
-        if (p.las01 != null && p.las10 != null && (p.las01 + TOLERANCE) < p.las10) {
-          return false;
-        }
-        if (p.las10 != null && p.las50 != null && (p.las10 + TOLERANCE) < p.las50) {
-          return false;
-        }
-        if (p.las50 != null && p.las90 != null && (p.las50 + TOLERANCE) < p.las90) {
-          return false;
-        }
-        if (p.las90 != null && p.las99 != null && (p.las90 + TOLERANCE) < p.las99) {
-          return false;
-        }
+        const TOLERANCE = 0.5;
+        if (p.las01 != null && p.las10 != null && (p.las01 + TOLERANCE) < p.las10) {return false;}
+        if (p.las10 != null && p.las50 != null && (p.las10 + TOLERANCE) < p.las50) {return false;}
+        if (p.las50 != null && p.las90 != null && (p.las50 + TOLERANCE) < p.las90) {return false;}
+        if (p.las90 != null && p.las99 != null && (p.las90 + TOLERANCE) < p.las99) {return false;}
         return true;
       },
       message: 'Los percentiles deben estar aproximadamente en orden decreciente: LAS01 >= LAS10 >= LAS50 >= LAS90 >= LAS99 (tolerancia ±0.5 dB)'
@@ -184,39 +175,17 @@ const noiseMonitoringSchema = new mongoose.Schema({
 
   // Metadatos de calidad y procesamiento
   dataQuality: {
-    hasValidData: {
-      type: Boolean,
-      default: true
-    },
-    missingFields: [{
-      type: String,
-      enum: Object.values(NOISE_METRIC_FIELDS)
-    }],
-    qualityScore: {
-      type: Number,
-      default: 1
-    },
-    exceedsLegalLimits: {
-      type: Boolean,
-      default: false
-    },
-    warnings: [{
-      type: String
-    }]
+    hasValidData: { type: Boolean, default: true },
+    missingFields: [{ type: String, enum: Object.values(NOISE_METRIC_FIELDS) }],
+    qualityScore: { type: Number, default: 1 },
+    exceedsLegalLimits: { type: Boolean, default: false },
+    warnings: [{ type: String }]
   },
 
-  // Información de procesamiento
   processingInfo: {
-    importedAt: {
-      type: Date,
-      default: Date.now
-    },
-    sourceFile: {
-      type: String,
-      trim: true
-    }
+    importedAt: { type: Date, default: Date.now },
+    sourceFile: { type: String, trim: true }
   }
-
 }, {
   timestamps: true,
   versionKey: false,
@@ -224,116 +193,53 @@ const noiseMonitoringSchema = new mongoose.Schema({
 });
 
 /**
- * Índices para optimización de consultas
+ * Indices para optimizacion de consultas.
  */
 
-// ========================================
-// ÍNDICE ÚNICO - Prevención de duplicados
-// ========================================
-// Garantiza que no haya mediciones duplicadas para misma estación + período
-// Combinación: nmt (código estación) + año + mes
-// Cada estación tiene máximo una medición por mes
-// CRÍTICO: NO ELIMINAR
+// Indice unico: prevencion de duplicados (estacion + periodo)
 noiseMonitoringSchema.index(
   { nmt: 1, año: 1, mes: 1 },
   { unique: true, name: 'unique_station_period' }
 );
 
-// ========================================
-// ÍNDICES PRINCIPALES - Consultas frecuentes
-// ========================================
+// Series temporales por estacion
+noiseMonitoringSchema.index({ nmt: 1, fecha: 1 }, { name: 'idx_noise_station_timeline' });
 
-// Índice compuesto: estación (nmt) + fecha
-// Usado en: GET /api/noise-monitoring?nmt=X&startDate=Y&endDate=Z
-// Soporta: Series temporales por estación específica
-// Ejemplo: "Evolución del ruido en estación NMT-001"
-noiseMonitoringSchema.index({ nmt: 1, fecha: 1 }, {
-  name: 'idx_noise_station_timeline'
-});
+// Filtros combinados fecha + nmt + nivel
+noiseMonitoringSchema.index({ fecha: -1, nmt: 1, laeq24: -1 }, { name: 'idx_noise_date_station_level', sparse: true });
 
-// OPTIMIZACIÓN DE RENDIMIENTO: Índice compuesto fecha + nmt + laeq24
-// Mejora: 5-10x más rápido en queries con filtros combinados
-// Soporta: GET /api/noise-monitoring?startDate=X&endDate=Y&nmt=Z&minLevel=N
-noiseMonitoringSchema.index({ fecha: -1, nmt: 1, laeq24: -1 }, {
-  name: 'idx_noise_date_station_level',
-  sparse: true
-});
+// Alertas de ruido (picos por fecha)
+noiseMonitoringSchema.index({ fecha: 1, laeq24: 1 }, { name: 'idx_noise_date_level_alerts', sparse: true });
 
-// Índice compuesto: fecha + nivel LAeq24
-// Usado en: Identificación de picos de contaminación acústica
-// Soporta: Alertas de ruido, búsqueda de niveles extremos
-// LAeq24: Nivel sonoro continuo equivalente ponderado A de 24h
-// SPARSE: Solo documentos con laeq24 válido (no null)
-noiseMonitoringSchema.index({ fecha: 1, laeq24: 1 }, {
-  name: 'idx_noise_date_level_alerts',
-  sparse: true
-});
+// Estaciones mas ruidosas recientes
+noiseMonitoringSchema.index({ fecha: -1, laeq24: -1 }, { name: 'idx_noise_recent_levels', sparse: true });
 
-// Índice para consultas recientes con nivel de ruido
-// Usado en: Dashboards en tiempo real, "Estaciones más ruidosas hoy"
-// Sort: fecha descendente + laeq24 descendente
-noiseMonitoringSchema.index({ fecha: -1, laeq24: -1 }, {
-  name: 'idx_noise_recent_levels',
-  sparse: true
-});
+// Busqueda por nombre + series temporales
+noiseMonitoringSchema.index({ nombre: 1, fecha: -1 }, { name: 'idx_noise_station_name_timeline' });
 
-// ========================================
-// ÍNDICES POR NOMBRE DE ESTACIÓN
-// ========================================
+// Periodo + nombre
+noiseMonitoringSchema.index({ año: 1, mes: 1, nombre: 1 }, { name: 'idx_noise_period_station_name' });
 
-// Índice compuesto: nombre + fecha (desc)
-// Usado en: GET /api/noise-monitoring?nombre=PLAZA+MAYOR
-// Soporta: Búsqueda por nombre de ubicación con series temporales
-noiseMonitoringSchema.index({ nombre: 1, fecha: -1 }, {
-  name: 'idx_noise_station_name_timeline'
-});
+// Analisis de cumplimiento normativo
+noiseMonitoringSchema.index({ fecha: 1, nivelDiurno: 1, nivelNocturno: 1 }, { name: 'idx_noise_compliance_analysis', sparse: true });
 
-// Índice compuesto: año + mes + nombre
-// Usado en: Búsquedas por nombre en período específico
-// Ejemplo: GET /api/noise-monitoring?nombre=CENTRO&año=2051&mes=1
-noiseMonitoringSchema.index({ año: 1, mes: 1, nombre: 1 }, {
-  name: 'idx_noise_period_station_name'
-});
-
-// ========================================
-// ÍNDICES PARA ANÁLISIS DE CUMPLIMIENTO
-// ========================================
-
-// Índice compuesto para análisis normativo
-// Usado en: Detección de incumplimientos de límites legales
-// Soporta: Agregaciones que filtran por nivelDiurno > 65dB, nivelNocturno > 55dB
-// SPARSE: Solo documentos con niveles válidos
-noiseMonitoringSchema.index({ fecha: 1, nivelDiurno: 1, nivelNocturno: 1 }, {
-  name: 'idx_noise_compliance_analysis',
-  sparse: true
-});
-
-// ========================================
-// ÍNDICE DE BÚSQUEDA TEXTUAL
-// ========================================
-// Índice de texto completo para búsqueda por nombre de estación
-// Usado en: Búsqueda con $text "Plaza", "Centro", etc.
-// Soporta: Autocompletado, búsqueda flexible
-noiseMonitoringSchema.index({ nombre: 'text' }, {
-  name: 'idx_noise_text_search'
-});
+// Busqueda textual por nombre
+noiseMonitoringSchema.index({ nombre: 'text' }, { name: 'idx_noise_text_search' });
 
 /**
- * Middleware pre-save para procesamiento de calidad de datos y alertas legales.
- * Usa firma async sin `next()` segun la convencion Mongoose v8+/v9.
+ * Middleware pre-save: procesamiento de calidad de datos y alertas legales.
+ * Firma async sin `next()` (convencion Mongoose v8+/v9).
  */
 noiseMonitoringSchema.pre('save', async function() {
   const missingFields = [];
   let validFields = 0;
-  const totalFields = 5; // nivelDiurno, nivelVespertino, nivelNocturno, laeq24, percentiles
+  const totalFields = 5;
   const warnings = [];
 
-  // Garantizar sub-doc dataQuality inicializado
   if (!this.dataQuality) {
     this.dataQuality = {};
   }
 
-  // Limites legales normativos (dB) - desde constantes centralizadas
   const { DIURNO, VESPERTINO, NOCTURNO } = NOISE_LIMITS;
 
   if (this.nivelDiurno === null || this.nivelDiurno === undefined) {
@@ -372,13 +278,11 @@ noiseMonitoringSchema.pre('save', async function() {
     validFields++;
   }
 
-  // Verificar percentiles
   const percentileFields = ['las01', 'las10', 'las50', 'las90', 'las99'];
   const percentilesDoc = this.percentiles || {};
   const validPercentiles = percentileFields.filter(field =>
     percentilesDoc[field] !== null && percentilesDoc[field] !== undefined
   );
-
   if (validPercentiles.length === 0) {
     missingFields.push('percentiles');
   } else {
@@ -392,462 +296,43 @@ noiseMonitoringSchema.pre('save', async function() {
 });
 
 /**
- * Constantes de límites normativos de ruido (dB)
+ * Constantes de limites normativos de ruido (dB).
  */
 noiseMonitoringSchema.statics.LIMITES_NORMATIVOS = NOISE_LIMITS;
 
 /**
- * Obtener estadísticas agregadas con cumplimiento normativo
- * @param {Object} filters - Filtros de fecha y estación
- * @param {String} groupBy - Agrupación: 'station', 'month', 'year'
- * @returns {Promise<Object>} Estadísticas y resumen
+ * Metodos estaticos delegados a `services/ruidoService.js`.
+ *
+ * El service contiene la implementacion real de las agregaciones y analisis;
+ * el modelo solo expone wrappers para mantener la API publica clasica
+ * `Ruido.metodoX(...)`. Asi los controllers no necesitan importar el service
+ * directamente y se conserva la convencion de Mongoose.
  */
-noiseMonitoringSchema.statics.getStatisticsOptimized = async function(filters, groupBy = 'station') {
-  const matchStage = { ...filters, 'dataQuality.hasValidData': true };
-
-  // Configurar agrupación
-  const groupByConfig = {
-    station: { nmt: '$nmt', nombre: '$nombre' },
-    month: { año: '$año', mes: '$mes' },
-    year: { año: '$año' }
-  }[groupBy] || { nmt: '$nmt', nombre: '$nombre' };
-
-  const sortStage = {
-    station: { '_id.nmt': 1 },
-    month: { '_id.año': -1, '_id.mes': -1 },
-    year: { '_id.año': -1 }
-  }[groupBy] || { '_id.nmt': 1 };
-
-  const { DIURNO, VESPERTINO, NOCTURNO } = this.LIMITES_NORMATIVOS;
-
-  // Pipeline de agregación optimizado
-  const [estadisticas, resumenGeneral] = await Promise.all([
-    // Estadísticas por grupo
-    this.aggregate([
-      { $match: matchStage },
-      {
-        $group: {
-          _id: groupByConfig,
-          promedioDiurno: { $avg: '$nivelDiurno' },
-          promedioVespertino: { $avg: '$nivelVespertino' },
-          promedioNocturno: { $avg: '$nivelNocturno' },
-          promedioLaeq24: { $avg: '$laeq24' },
-          maximoDiurno: { $max: '$nivelDiurno' },
-          maximoVespertino: { $max: '$nivelVespertino' },
-          maximoNocturno: { $max: '$nivelNocturno' },
-          maximoLaeq24: { $max: '$laeq24' },
-          minimoDiurno: { $min: '$nivelDiurno' },
-          minimoVespertino: { $min: '$nivelVespertino' },
-          minimoNocturno: { $min: '$nivelNocturno' },
-          minimoLaeq24: { $min: '$laeq24' },
-          totalMediciones: { $sum: 1 },
-          incumplimientosDiurnos: { $sum: { $cond: [{ $gt: ['$nivelDiurno', DIURNO] }, 1, 0] } },
-          incumplimientosVespertinos: { $sum: { $cond: [{ $gt: ['$nivelVespertino', VESPERTINO] }, 1, 0] } },
-          incumplimientosNocturnos: { $sum: { $cond: [{ $gt: ['$nivelNocturno', NOCTURNO] }, 1, 0] } }
-        }
-      },
-      {
-        $addFields: {
-          cumplimientoDiurno: {
-            $multiply: [
-              { $divide: [{ $subtract: ['$totalMediciones', '$incumplimientosDiurnos'] }, '$totalMediciones'] },
-              100
-            ]
-          },
-          cumplimientoVespertino: {
-            $multiply: [
-              { $divide: [{ $subtract: ['$totalMediciones', '$incumplimientosVespertinos'] }, '$totalMediciones'] },
-              100
-            ]
-          },
-          cumplimientoNocturno: {
-            $multiply: [
-              { $divide: [{ $subtract: ['$totalMediciones', '$incumplimientosNocturnos'] }, '$totalMediciones'] },
-              100
-            ]
-          }
-        }
-      },
-      { $sort: sortStage },
-      { $limit: AGGREGATION_LIMITS.SMALL }
-    ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }),
-
-    // Resumen general
-    this.aggregate([
-      { $match: matchStage },
-      {
-        $group: {
-          _id: null,
-          totalRegistros: { $sum: 1 },
-          estacionesUnicas: { $addToSet: '$nmt' },
-          promedioGeneralLaeq24: { $avg: '$laeq24' },
-          fechaInicio: { $min: '$fecha' },
-          fechaFin: { $max: '$fecha' },
-          totalIncumplimientos: {
-            $sum: {
-              $add: [
-                { $cond: [{ $gt: ['$nivelDiurno', DIURNO] }, 1, 0] },
-                { $cond: [{ $gt: ['$nivelVespertino', VESPERTINO] }, 1, 0] },
-                { $cond: [{ $gt: ['$nivelNocturno', NOCTURNO] }, 1, 0] }
-              ]
-            }
-          }
-        }
-      }
-    ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
-  ]);
-
-  const resumen = resumenGeneral[0] ? {
-    ...resumenGeneral[0],
-    totalEstaciones: resumenGeneral[0].estacionesUnicas.length,
-    porcentajeCumplimientoGeneral: resumenGeneral[0].totalRegistros > 0
-      ? ((resumenGeneral[0].totalRegistros * 3 - resumenGeneral[0].totalIncumplimientos) / (resumenGeneral[0].totalRegistros * 3)) * 100
-      : 0
-  } : null;
-
-  return { estadisticas, resumen };
+noiseMonitoringSchema.statics.getStatisticsOptimized = function(filters, groupBy) {
+  return ruidoService.getStatisticsOptimized(this, filters, groupBy);
 };
 
-/**
- * Obtener ranking de estaciones por nivel de ruido
- * @param {Object} filters - Filtros de fecha
- * @param {String} sortBy - Campo de ordenación: 'laeq24', 'diurno', 'vespertino', 'nocturno'
- * @param {Number} limit - Límite de resultados
- * @returns {Promise<Array>} Ranking de estaciones
- */
-noiseMonitoringSchema.statics.getRankingOptimized = function(filters, sortBy = 'laeq24', limit = 20) {
-  const matchStage = { ...filters, 'dataQuality.hasValidData': true };
-
-  const sortField = {
-    laeq24: '$promedioLaeq24',
-    diurno: '$promedioDiurno',
-    vespertino: '$promedioVespertino',
-    nocturno: '$promedioNocturno'
-  }[sortBy] || '$promedioLaeq24';
-
-  const pipeline = [
-    { $match: matchStage },
-    {
-      $group: {
-        _id: { nmt: '$nmt', nombre: '$nombre' },
-        promedioLaeq24: { $avg: '$laeq24' },
-        promedioDiurno: { $avg: '$nivelDiurno' },
-        promedioVespertino: { $avg: '$nivelVespertino' },
-        promedioNocturno: { $avg: '$nivelNocturno' },
-        maximoLaeq24: { $max: '$laeq24' },
-        totalMediciones: { $sum: 1 },
-        fechaInicio: { $min: '$fecha' },
-        fechaFin: { $max: '$fecha' }
-      }
-    },
-    { $sort: { [sortField.substring(1)]: -1 } },
-    { $limit: limit }
-  ];
-
-  return this.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+noiseMonitoringSchema.statics.getRankingOptimized = function(filters, sortBy, limit) {
+  return ruidoService.getRankingOptimized(this, filters, sortBy, limit);
 };
 
-/**
- * Calcular cumplimiento normativo para un registro
- * @param {Object} niveles - Objeto con nivelDiurno, nivelVespertino, nivelNocturno
- * @returns {Object} Objeto con cumplimiento por período
- */
 noiseMonitoringSchema.statics.calculateRegulatoryCompliance = function(niveles) {
-  const { DIURNO, VESPERTINO, NOCTURNO } = this.LIMITES_NORMATIVOS;
-
-  return {
-    diurno: niveles.nivelDiurno <= DIURNO,
-    vespertino: niveles.nivelVespertino <= VESPERTINO,
-    nocturno: niveles.nivelNocturno <= NOCTURNO,
-    global: niveles.nivelDiurno <= DIURNO && niveles.nivelVespertino <= VESPERTINO && niveles.nivelNocturno <= NOCTURNO
-  };
+  return ruidoService.calculateRegulatoryCompliance(niveles);
 };
 
-/**
- * Comparación entre estaciones de monitorización
- *
- * Compara niveles de ruido entre múltiples estaciones en un periodo determinado.
- * Utiliza el índice idx_noise_station_timeline para optimización.
- *
- * @param {Object} options - Opciones de comparación
- * @param {Array<Number>} options.stations - Array de NMT de estaciones a comparar
- * @param {Date} options.startDate - Fecha de inicio del periodo
- * @param {Date} options.endDate - Fecha de fin del periodo
- * @param {String} [options.metric='laeq24'] - Métrica a comparar: 'laeq24', 'nivelDiurno', 'nivelVespertino', 'nivelNocturno'
- * @returns {Promise<Array>} Array con datos comparativos de cada estación
- *
- * @example
- * const comparison = await NoiseMonitoring.getStationComparison({
- *   stations: [1, 2, 3],
- *   startDate: new Date('2051-01-01'),
- *   endDate: new Date('2051-12-31'),
- *   metric: 'laeq24'
- * });
- */
 noiseMonitoringSchema.statics.getStationComparison = function(options) {
-  const { stations, startDate, endDate, metric = 'laeq24' } = options;
-
-  if (!stations || !Array.isArray(stations) || stations.length === 0) {
-    throw new Error('Se requiere un array de estaciones para comparar');
-  }
-
-  if (!startDate || !endDate) {
-    throw new Error('Se requieren fechas de inicio y fin');
-  }
-
-  const metricField = `$${metric}`;
-  const matchStage = {
-    nmt: { $in: stations },
-    fecha: { $gte: startDate, $lte: endDate },
-    [metric]: { $ne: null }
-  };
-
-  const pipeline = [
-    { $match: matchStage },
-    {
-      $group: {
-        _id: { nmt: '$nmt', nombre: '$nombre' },
-        promedioNivel: { $avg: metricField },
-        minimoNivel: { $min: metricField },
-        maximoNivel: { $max: metricField },
-        desviacionEstandar: { $stdDevPop: metricField },
-        totalMediciones: { $sum: 1 },
-        medicionesValidas: {
-          $sum: { $cond: [{ $ne: [metricField, null] }, 1, 0] }
-        }
-      }
-    },
-    {
-      $project: {
-        nmt: '$_id.nmt',
-        nombre: '$_id.nombre',
-        promedioNivel: { $round: ['$promedioNivel', 2] },
-        minimoNivel: { $round: ['$minimoNivel', 2] },
-        maximoNivel: { $round: ['$maximoNivel', 2] },
-        desviacionEstandar: { $round: ['$desviacionEstandar', 2] },
-        totalMediciones: 1,
-        medicionesValidas: 1,
-        rangoVariacion: {
-          $round: [{ $subtract: ['$maximoNivel', '$minimoNivel'] }, 2]
-        },
-        calidadDatos: {
-          $round: [
-            { $multiply: [{ $divide: ['$medicionesValidas', '$totalMediciones'] }, 100] },
-            2
-          ]
-        },
-        _id: 0
-      }
-    },
-    { $sort: { promedioNivel: -1 } }
-  ];
-
-  return this.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+  return ruidoService.getStationComparison(this, options);
 };
 
-/**
- * Análisis de tendencias temporales de ruido
- *
- * Analiza la evolución temporal de los niveles de ruido agrupados por diferentes
- * periodos (día, mes, año). Utiliza índices temporales para optimización.
- *
- * @param {Object} options - Opciones de análisis
- * @param {Number} [options.nmt] - NMT de estación específica (opcional)
- * @param {Date} options.startDate - Fecha de inicio del análisis
- * @param {Date} options.endDate - Fecha de fin del análisis
- * @param {String} [options.groupBy='month'] - Agrupación temporal: 'day', 'month', 'year'
- * @param {String} [options.metric='laeq24'] - Métrica a analizar
- * @returns {Promise<Array>} Array con tendencias temporales
- *
- * @example
- * const trends = await NoiseMonitoring.getTemporalTrends({
- *   nmt: 1,
- *   startDate: new Date('2051-01-01'),
- *   endDate: new Date('2051-12-31'),
- *   groupBy: 'month',
- *   metric: 'laeq24'
- * });
- */
 noiseMonitoringSchema.statics.getTemporalTrends = function(options) {
-  const { nmt, startDate, endDate, groupBy = 'month', metric = 'laeq24' } = options;
-
-  if (!startDate || !endDate) {
-    throw new Error('Se requieren fechas de inicio y fin');
-  }
-
-  const matchStage = {
-    fecha: { $gte: startDate, $lte: endDate },
-    [metric]: { $ne: null }
-  };
-
-  if (nmt) {
-    matchStage.nmt = nmt;
-  }
-
-  const metricField = `$${metric}`;
-
-  // Definir agrupación según el periodo
-  let groupId;
-  let sortField;
-
-  switch (groupBy) {
-    case 'day':
-      groupId = {
-        año: '$año',
-        mes: '$mes',
-        dia: { $dayOfMonth: '$fecha' }
-      };
-      sortField = { 'periodo.año': 1, 'periodo.mes': 1, 'periodo.dia': 1 };
-      break;
-    case 'year':
-      groupId = { año: '$año' };
-      sortField = { 'periodo.año': 1 };
-      break;
-    case 'month':
-    default:
-      groupId = { año: '$año', mes: '$mes' };
-      sortField = { 'periodo.año': 1, 'periodo.mes': 1 };
-      break;
-  }
-
-  const pipeline = [
-    { $match: matchStage },
-    {
-      $group: {
-        _id: groupId,
-        promedioNivel: { $avg: metricField },
-        minimoNivel: { $min: metricField },
-        maximoNivel: { $max: metricField },
-        desviacionEstandar: { $stdDevPop: metricField },
-        totalMediciones: { $sum: 1 },
-        estacionesUnicas: { $addToSet: '$nmt' }
-      }
-    },
-    {
-      $project: {
-        _id: 0,
-        periodo: '$_id',
-        promedioNivel: { $round: ['$promedioNivel', 2] },
-        minimoNivel: { $round: ['$minimoNivel', 2] },
-        maximoNivel: { $round: ['$maximoNivel', 2] },
-        desviacionEstandar: { $round: ['$desviacionEstandar', 2] },
-        rangoVariacion: {
-          $round: [{ $subtract: ['$maximoNivel', '$minimoNivel'] }, 2]
-        },
-        totalMediciones: 1,
-        totalEstaciones: { $size: '$estacionesUnicas' }
-      }
-    },
-    { $sort: sortField }
-  ];
-
-  return this.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+  return ruidoService.getTemporalTrends(this, options);
 };
 
-/**
- * Análisis de cumplimiento normativo por zona
- *
- * Analiza el cumplimiento de límites normativos de ruido por estación y periodo.
- * Calcula porcentajes de cumplimiento y detecta incumplimientos críticos.
- * Utiliza el índice idx_noise_compliance_analysis para optimización.
- *
- * @param {Object} options - Opciones de análisis
- * @param {Date} options.startDate - Fecha de inicio del análisis
- * @param {Date} options.endDate - Fecha de fin del análisis
- * @param {Array<Number>} [options.stations] - Array de NMT específicos (opcional)
- * @returns {Promise<Object>} Objeto con análisis de cumplimiento y estadísticas
- *
- * @example
- * const compliance = await NoiseMonitoring.getComplianceAnalysisByZone({
- *   startDate: new Date('2051-01-01'),
- *   endDate: new Date('2051-12-31'),
- *   stations: [1, 2, 3]
- * });
- */
-noiseMonitoringSchema.statics.getComplianceAnalysisByZone = async function(options) {
-  const { startDate, endDate, stations } = options;
-
-  if (!startDate || !endDate) {
-    throw new Error('Se requieren fechas de inicio y fin');
-  }
-
-  const { DIURNO, VESPERTINO, NOCTURNO } = this.LIMITES_NORMATIVOS;
-  const matchStage = { fecha: { $gte: startDate, $lte: endDate } };
-
-  if (stations && Array.isArray(stations) && stations.length > 0) {
-    matchStage.nmt = { $in: stations };
-  }
-
-  const buildComplianceCondition = (field, limit) => ({
-    cumple: {
-      $sum: {
-        $cond: [{ $and: [{ $ne: [`$${field}`, null] }, { $lte: [`$${field}`, limit] }] }, 1, 0]
-      }
-    },
-    incumple: {
-      $sum: {
-        $cond: [{ $and: [{ $ne: [`$${field}`, null] }, { $gt: [`$${field}`, limit] }] }, 1, 0]
-      }
-    },
-    promedio: { $avg: `$${field}` },
-    maximo: { $max: `$${field}` }
-  });
-
-  const estaciones = await this.aggregate([
-    { $match: matchStage },
-    {
-      $group: {
-        _id: { nmt: '$nmt', nombre: '$nombre' },
-        totalMediciones: { $sum: 1 },
-        ...buildComplianceCondition('nivelDiurno', DIURNO),
-        ...buildComplianceCondition('nivelVespertino', VESPERTINO),
-        ...buildComplianceCondition('nivelNocturno', NOCTURNO),
-        promedioLaeq24: { $avg: '$laeq24' }
-      }
-    },
-    {
-      $project: {
-        _id: 0,
-        nmt: '$_id.nmt',
-        nombre: '$_id.nombre',
-        totalMediciones: 1,
-        cumplimiento: {
-          diurno: {
-            cumple: '$cumple',
-            incumple: '$incumple',
-            porcentaje: {
-              $round: [{
-                $multiply: [{ $divide: ['$cumple', { $add: ['$cumple', '$incumple'] }] }, 100]
-              }, 2]
-            },
-            limite: DIURNO,
-            promedio: { $round: ['$promedio', 2] },
-            maximo: { $round: ['$maximo', 2] }
-          }
-        },
-        promedioGeneralLaeq24: { $round: ['$promedioLaeq24', 2] }
-      }
-    }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
-
-  const resumenGlobal = {
-    totalEstaciones: estaciones.length,
-    cumplimientoPromedioGlobal: estaciones.length > 0
-      ? Math.round(estaciones.reduce((sum, e) => sum + (e.cumplimiento?.diurno?.porcentaje || 0), 0) / estaciones.length * 100) / 100
-      : 0,
-    periodo: { inicio: startDate, fin: endDate },
-    limites: { diurno: DIURNO, vespertino: VESPERTINO, nocturno: NOCTURNO }
-  };
-
-  return { estaciones, resumen: resumenGlobal };
+noiseMonitoringSchema.statics.getComplianceAnalysisByZone = function(options) {
+  return ruidoService.getComplianceAnalysisByZone(this, options);
 };
 
-// Crear y exportar el modelo
-const NoiseMonitoring = mongoose.model('NoiseMonitoring', noiseMonitoringSchema);
-
-module.exports = NoiseMonitoring;
-
-// Transformación para reducir tamaño de respuesta
+// Transformacion JSON: ocultar metadatos internos en respuestas
 noiseMonitoringSchema.set('toJSON', {
   transform: (_doc, ret) => {
     delete ret.createdAt;
@@ -857,3 +342,7 @@ noiseMonitoringSchema.set('toJSON', {
     return ret;
   }
 });
+
+const NoiseMonitoring = mongoose.model('NoiseMonitoring', noiseMonitoringSchema);
+
+module.exports = NoiseMonitoring;

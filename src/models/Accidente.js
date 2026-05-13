@@ -13,7 +13,6 @@ const {
   TIPOS_VEHICULO,
   TIPOS_PERSONA,
   TIPOS_LESION,
-  MAPEO_SEVERIDAD_LESIONES,
   WEATHER_CONDITIONS,
   DAY_PERIODS,
   WORKDAY_TYPES,
@@ -23,9 +22,9 @@ const {
   BINARY_INDICATORS,
   DATASET_YEARS,
   VALIDATION_LIMITS,
-  MONGODB_TIMEOUTS,
   GEOMETRY_TYPES
 } = require('../constants');
+const accidenteService = require('../services/accidenteService');
 
 /**
  * Sub-esquema para información de la persona afectada
@@ -581,469 +580,57 @@ accidentSchema.pre('save', function(next) {
 });
 
 /**
- * Métodos estáticos para consultas agregadas
- */
-
-/**
- * Obtener estadísticas por periodo
+ * Metodos estaticos delegados a `services/accidenteService.js`.
+ *
+ * El service contiene la implementacion real de las 11 agregaciones y
+ * el heatmap; el modelo expone wrappers thin para mantener la API
+ * publica clasica `Accidente.metodoX(...)`.
  */
 accidentSchema.statics.obtenerEstadisticasPorPeriodo = function(startDate, endDate) {
-  return this.aggregate([
-    {
-      $match: {
-        fecha: { $gte: startDate, $lte: endDate }
-      }
-    },
-    {
-      $group: {
-        _id: null,
-        totalAccidentes: { $sum: 1 },
-        accidentesGraves: {
-          $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
-          }
-        },
-        accidentesMortales: {
-          $sum: {
-            $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0]
-          }
-        },
-        atropellos: {
-          $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', TIPOS_ACCIDENTE.ATROPELLO_A_PERSONA] }, 1, 0]
-          }
-        },
-        accidentesConAlcohol: {
-          $sum: {
-            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0]
-          }
-        }
-      }
-    }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+  return accidenteService.obtenerEstadisticasPorPeriodo(this, startDate, endDate);
 };
 
-/**
- * Obtener puntos negros de accidentes
- */
-accidentSchema.statics.obtenerPuntosNegros = function(limit = 10, startDate = null, endDate = null) {
-  const matchConditions = {};
-
-  if (startDate && endDate) {
-    matchConditions.fecha = { $gte: startDate, $lte: endDate };
-  }
-
-  return this.aggregate([
-    { $match: matchConditions },
-    {
-      $group: {
-        _id: {
-          calle: '$ubicacion.calle',
-          distrito: '$ubicacion.nombreDistrito'
-        },
-        totalAccidentes: { $sum: 1 },
-        accidentesGraves: {
-          $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
-          }
-        },
-        tiposAccidente: { $addToSet: '$circunstancias.tipoAccidente' },
-        puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
-      }
-    },
-    {
-      $addFields: {
-        indiceGravedad: {
-          $multiply: ['$puntuacionGravedadPromedio', '$totalAccidentes']
-        }
-      }
-    },
-    { $sort: { indiceGravedad: -1, totalAccidentes: -1 } },
-    { $limit: limit }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+accidentSchema.statics.obtenerPuntosNegros = function(limit, startDate, endDate) {
+  return accidenteService.obtenerPuntosNegros(this, limit, startDate, endDate);
 };
 
-/**
- * Obtener análisis por tipo de vehículo
- */
-accidentSchema.statics.obtenerAnalisisPorVehiculo = function(startDate = null, endDate = null) {
-  const matchConditions = {};
-
-  if (startDate && endDate) {
-    matchConditions.fecha = { $gte: startDate, $lte: endDate };
-  }
-
-  return this.aggregate([
-    { $match: matchConditions },
-    {
-      $group: {
-        _id: '$vehiculo.tipo',
-        totalAccidentes: { $sum: 1 },
-        accidentesGraves: {
-          $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
-          }
-        },
-        puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
-      }
-    },
-    {
-      $addFields: {
-        porcentajeGravedad: {
-          $multiply: [
-            { $divide: ['$accidentesGraves', '$totalAccidentes'] },
-            100
-          ]
-        }
-      }
-    },
-    { $sort: { totalAccidentes: -1 } }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+accidentSchema.statics.obtenerAnalisisPorVehiculo = function(startDate, endDate) {
+  return accidenteService.obtenerAnalisisPorVehiculo(this, startDate, endDate);
 };
 
-/**
- * Obtener patrones temporales
- */
-accidentSchema.statics.obtenerPatronesTemporales = function(groupBy = 'hora') {
-  const groupField = groupBy === 'hora' ? '$franjaHoraria' :
-                    groupBy === 'diaSemana' ? '$analisis.diaSemana' :
-                    '$analisis.periodoDia';
-
-  return this.aggregate([
-    {
-      $group: {
-        _id: groupField,
-        totalAccidentes: { $sum: 1 },
-        accidentesGraves: {
-          $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
-          }
-        }
-      }
-    },
-    { $sort: { _id: 1 } }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+accidentSchema.statics.obtenerPatronesTemporales = function(groupBy) {
+  return accidenteService.obtenerPatronesTemporales(this, groupBy);
 };
 
-/**
- * Obtener comparativa completa entre distritos con todos los indicadores
- * @param {Object} filters - Filtros de consulta
- * @returns {Promise<Array>} Comparativa de distritos con métricas y porcentajes
- */
-accidentSchema.statics.obtenerComparativaDistritos = function(filters = {}) {
-  return this.aggregate([
-    { $match: filters },
-    {
-      $group: {
-        _id: '$ubicacion.nombreDistrito',
-        totalAccidentes: { $sum: 1 },
-        accidentesGraves: {
-          $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
-          }
-        },
-        accidentesMortales: {
-          $sum: {
-            $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0]
-          }
-        },
-        atropellos: {
-          $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', TIPOS_ACCIDENTE.ATROPELLO_A_PERSONA] }, 1, 0]
-          }
-        },
-        accidentesAlcohol: {
-          $sum: {
-            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0]
-          }
-        },
-        puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' },
-        turismos: {
-          $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', TIPOS_VEHICULO.TURISMO] }, 1, 0]
-          }
-        },
-        motocicletas: {
-          $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', TIPOS_VEHICULO.MOTOCICLETA_MAS_125CC] }, 1, 0]
-          }
-        },
-        bicicletas: {
-          $sum: {
-            $cond: [{ $eq: ['$vehiculo.tipo', TIPOS_VEHICULO.BICICLETA] }, 1, 0]
-          }
-        }
-      }
-    },
-    {
-      $addFields: {
-        porcentajeGravedad: {
-          $multiply: [
-            { $divide: ['$accidentesGraves', '$totalAccidentes'] },
-            100
-          ]
-        },
-        porcentajeAtropellos: {
-          $multiply: [
-            { $divide: ['$atropellos', '$totalAccidentes'] },
-            100
-          ]
-        },
-        porcentajeAlcohol: {
-          $multiply: [
-            { $divide: ['$accidentesAlcohol', '$totalAccidentes'] },
-            100
-          ]
-        },
-        indiceRiesgoTotal: {
-          $add: [
-            '$totalAccidentes',
-            { $multiply: ['$accidentesGraves', 2] },
-            { $multiply: ['$accidentesMortales', 5] }
-          ]
-        }
-      }
-    },
-    { $sort: { totalAccidentes: -1 } }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+accidentSchema.statics.obtenerComparativaDistritos = function(filters) {
+  return accidenteService.obtenerComparativaDistritos(this, filters);
 };
 
-/**
- * Obtener análisis de seguridad por calle con índice de riesgo calculado
- * @param {Object} filters - Filtros de consulta
- * @param {Number} limit - Límite de calles a retornar
- * @returns {Promise<Array>} Calles ordenadas por índice de riesgo
- */
-accidentSchema.statics.obtenerAnalisisSeguridadCalles = function(filters = {}, limit = 20) {
-  return this.aggregate([
-    { $match: filters },
-    {
-      $group: {
-        _id: {
-          calle: '$ubicacion.calle',
-          distrito: '$ubicacion.nombreDistrito'
-        },
-        totalAccidentes: { $sum: 1 },
-        accidentesGraves: {
-          $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
-          }
-        },
-        atropellos: {
-          $sum: {
-            $cond: [{ $eq: ['$circunstancias.tipoAccidente', TIPOS_ACCIDENTE.ATROPELLO_A_PERSONA] }, 1, 0]
-          }
-        },
-        accidentesAlcohol: {
-          $sum: {
-            $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0]
-          }
-        },
-        indiceSeveridad: { $avg: '$analisis.puntuacionGravedad' }
-      }
-    },
-    {
-      $addFields: {
-        indiceRiesgo: {
-          $add: [
-            { $multiply: ['$totalAccidentes', 0.3] },
-            { $multiply: ['$accidentesGraves', 0.4] },
-            { $multiply: ['$atropellos', 0.2] },
-            { $multiply: ['$accidentesAlcohol', 0.1] }
-          ]
-        }
-      }
-    },
-    { $sort: { indiceRiesgo: -1 } },
-    { $limit: limit }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+accidentSchema.statics.obtenerAnalisisSeguridadCalles = function(filters, limit) {
+  return accidenteService.obtenerAnalisisSeguridadCalles(this, filters, limit);
 };
 
-/**
- * Obtener análisis temporal de tendencias por año y mes
- * @param {Object} filters - Filtros de consulta
- * @returns {Promise<Array>} Tendencias ordenadas cronológicamente
- */
-accidentSchema.statics.obtenerAnalisisTendencias = function(filters = {}) {
-  return this.aggregate([
-    { $match: filters },
-    {
-      $group: {
-        _id: {
-          año: '$año',
-          mes: '$mes'
-        },
-        totalAccidentes: { $sum: 1 },
-        accidentesGraves: {
-          $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
-          }
-        }
-      }
-    },
-    { $sort: { '_id.año': 1, '_id.mes': 1 } }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+accidentSchema.statics.obtenerAnalisisTendencias = function(filters) {
+  return accidenteService.obtenerAnalisisTendencias(this, filters);
 };
 
-/**
- * Obtener correlación entre condiciones meteorológicas y accidentes
- * @param {Object} filters - Filtros de consulta
- * @returns {Promise<Array>} Estadísticas por condición meteorológica
- */
-accidentSchema.statics.obtenerCorrelacionMeteorologica = function(filters = {}) {
-  return this.aggregate([
-    { $match: filters },
-    {
-      $group: {
-        _id: '$circunstancias.estadoMeteorologico',
-        totalAccidentes: { $sum: 1 },
-        accidentesGraves: {
-          $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
-          }
-        }
-      }
-    },
-    {
-      $addFields: {
-        porcentajeGravedad: {
-          $multiply: [
-            { $divide: ['$accidentesGraves', '$totalAccidentes'] },
-            100
-          ]
-        }
-      }
-    },
-    { $sort: { totalAccidentes: -1 } }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+accidentSchema.statics.obtenerCorrelacionMeteorologica = function(filters) {
+  return accidenteService.obtenerCorrelacionMeteorologica(this, filters);
 };
 
-/**
- * Obtener distribución de accidentes por distrito con métricas de gravedad
- * @param {Object} filters - Filtros de consulta
- * @param {Number} limit - Límite de distritos a retornar
- * @returns {Promise<Array>} Distribución por distrito ordenada por total de accidentes
- */
-accidentSchema.statics.obtenerDistribucionDistritos = function(filters = {}, limit = 15) {
-  return this.aggregate([
-    { $match: filters },
-    {
-      $group: {
-        _id: '$ubicacion.nombreDistrito',
-        totalAccidentes: { $sum: 1 },
-        accidentesGraves: {
-          $sum: {
-            $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0]
-          }
-        },
-        puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
-      }
-    },
-    { $sort: { totalAccidentes: -1 } },
-    { $limit: limit }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+accidentSchema.statics.obtenerDistribucionDistritos = function(filters, limit) {
+  return accidenteService.obtenerDistribucionDistritos(this, filters, limit);
 };
 
-/**
- * Obtener análisis de factores de riesgo más frecuentes
- * @param {Object} filters - Filtros de consulta
- * @returns {Promise<Array>} Factores de riesgo ordenados por frecuencia
- */
-accidentSchema.statics.obtenerAnalisisFactoresRiesgo = function(filters = {}) {
-  return this.aggregate([
-    { $match: filters },
-    // NO usar $limit antes de $unwind/$group - corrompe las estadísticas
-    { $unwind: { path: '$analisis.factoresRiesgo', preserveNullAndEmptyArrays: true } },
-    {
-      $group: {
-        _id: '$analisis.factoresRiesgo',
-        cantidad: { $sum: 1 }
-      }
-    },
-    { $sort: { cantidad: -1 } }
-  ])
-    .option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+accidentSchema.statics.obtenerAnalisisFactoresRiesgo = function(filters) {
+  return accidenteService.obtenerAnalisisFactoresRiesgo(this, filters);
 };
 
-/**
- * Obtener datos optimizados para mapa de calor de accidentes
- * Agrupa puntos cercanos para reducir ruido visual en el mapa
- * @param {Object} filters - Filtros de consulta (fecha, gravedad, etc.)
- * @param {Number} limite - Máximo número de accidentes a procesar
- * @param {Number} precision - Distancia en metros para agrupar puntos (default: 100m)
- * @returns {Promise<Object>} Datos del heatmap con puntos agrupados y estadísticas
- */
-accidentSchema.statics.obtenerDatosMapaCalor = async function(filters = {}, limite = 500, precision = 100) {
-  // Añadir filtros obligatorios de coordenadas válidas
-  const queryFilters = {
-    ...filters,
-    'ubicacion.coordenadas.x': { $exists: true, $ne: null },
-    'ubicacion.coordenadas.y': { $exists: true, $ne: null }
-  };
-
-  // Obtener accidentes con coordenadas
-  const heatmapData = await this.find(queryFilters)
-    .select({
-      'ubicacion.coordenadas': 1,
-      'circunstancias.gravedad': 1,
-      'analisis.puntuacionGravedad': 1,
-      'personaAfectada.tipoLesion': 1,
-      fecha: 1
-    })
-    .limit(parseInt(limite, 10))
-    .lean();
-
-  // Agrupar puntos cercanos para reducir ruido en el mapa
-  const groupedPoints = {};
-
-  heatmapData.forEach(accident => {
-    const x = Math.round(accident.ubicacion.coordenadas.x / precision) * precision;
-    const y = Math.round(accident.ubicacion.coordenadas.y / precision) * precision;
-    const key = `${x},${y}`;
-
-    if (!groupedPoints[key]) {
-      groupedPoints[key] = {
-        coordenadas: { x, y },
-        accidentes: [],
-        totalAccidentes: 0,
-        accidentesGraves: 0,
-        puntuacionGravedadPromedio: 0
-      };
-    }
-
-    groupedPoints[key].accidentes.push(accident);
-    groupedPoints[key].totalAccidentes++;
-
-    if (MAPEO_SEVERIDAD_LESIONES.GRAVES.includes(accident.circunstancias.gravedad)) {
-      groupedPoints[key].accidentesGraves++;
-    }
-
-    groupedPoints[key].puntuacionGravedadPromedio =
-      (groupedPoints[key].puntuacionGravedadPromedio + accident.analisis.puntuacionGravedad) /
-      groupedPoints[key].totalAccidentes;
-  });
-
-  // Transformar a formato de heatmap para frontend
-  const heatmapPoints = Object.values(groupedPoints).map(group => ({
-    lat: group.coordenadas.y,
-    lng: group.coordenadas.x,
-    weight: group.totalAccidentes,
-    intensity: group.puntuacionGravedadPromedio,
-    details: {
-      totalAccidentes: group.totalAccidentes,
-      accidentesGraves: group.accidentesGraves,
-      porcentajeGravedad: (group.accidentesGraves / group.totalAccidentes) * 100
-    }
-  }));
-
-  return {
-    puntos: heatmapPoints,
-    estadisticas: {
-      totalPuntos: heatmapPoints.length,
-      totalAccidentes: heatmapData.length
-    }
-  };
+accidentSchema.statics.obtenerDatosMapaCalor = function(filters, limite, precision) {
+  return accidenteService.obtenerDatosMapaCalor(this, filters, limite, precision);
 };
+
+
 
 // Crear y exportar el modelo
 const Accidente = mongoose.model('Accidente', accidentSchema);

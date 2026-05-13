@@ -1,26 +1,19 @@
 /**
- * Rutas de Tráfico
+ * Rutas de Trafico
  *
- * Define todas las rutas relacionadas con la gestión y consulta de datos de tráfico.
- * Incluye middlewares de autenticación, validación y limitación de velocidad.
+ * Validaciones express-validator inline extraidas a
+ * `validators/validadorTrafico.js`. Validaciones compartidas siguen en
+ * `middleware/validation.js`.
  */
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { query, param } = require('express-validator');
 
 const controladorTrafico = require('../controllers/controladorTrafico');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
-const { performanceMonitor } = require('../middleware/performanceMonitor');
 const { etagMiddleware } = require('../middleware/etag');
-const {
-  TRAFFIC_ELEMENT_TYPES,
-  RATE_LIMITS,
-  DATE_RANGE_LIMITS,
-  ROUTE_SPECIFIC_LIMITS,
-  HTTP_STATUS
-} = require('../constants');
+const { RATE_LIMITS, DATE_RANGE_LIMITS, HTTP_STATUS } = require('../constants');
 const {
   validatePagination,
   validateDateRange,
@@ -28,18 +21,17 @@ const {
 } = require('../middleware/validation');
 const { cacheMiddleware } = require('../middleware/cache');
 const logger = require('../config/logger');
-
+const {
+  validarTraficoPorPunto,
+  validarEstadisticasTrafico,
+  validarAnalisisCongestion,
+  validarHistoricoTrafico,
+  validarMapaTrafico
+} = require('../validators/validadorTrafico');
 
 const router = express.Router();
 
-// Aplicar performanceMonitor a todas las rutas de tráfico
-router.use(performanceMonitor);
-
-/**
- * Limitadores de velocidad específicos para diferentes tipos de consultas
- */
-
-// Para consultas generales (más restrictivo)
+// Limitador general (mas restrictivo) para consultas de trafico
 const generalLimit = rateLimit({
   windowMs: RATE_LIMITS.GENERAL.WINDOW_MS,
   max: RATE_LIMITS.GENERAL.MAX_REQUESTS,
@@ -49,21 +41,11 @@ const generalLimit = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => {
-    // Saltear limitación para administradores
-    return req.user && req.user.role === 'admin';
-  }
+  skip: (req) => req.user && req.user.role === 'admin'
 });
 
 /**
- * RUTAS PRINCIPALES
- */
-
-/**
- * @route   GET /api/v1/trafico
- * @desc    Obtener todas las mediciones de tráfico con filtros
- * @access  Private
- * @rateLimit 100 requests per 15 minutes
+ * GET /api/v1/trafico
  */
 router.get('/',
   generalLimit,
@@ -78,52 +60,28 @@ router.get('/',
 );
 
 /**
- * @route   GET /api/v1/trafico/punto/:id
- * @desc    Obtener datos de tráfico de un punto específico
- * @access  Private
- * @rateLimit 100 requests per 15 minutes
+ * GET /api/v1/trafico/punto/:id
  */
 router.get('/punto/:id',
   generalLimit,
   authenticate,
-  [
-    param('id')
-      .matches(/^\d+$/)
-      .withMessage('ID de punto debe ser numérico'),
-
-    query('limit')
-      .optional()
-      .isInt({ min: 1, max: ROUTE_SPECIFIC_LIMITS.TRAFFIC.PUNTO_MAX_LIMIT })
-      .withMessage(`Límite debe ser entre 1 y ${ROUTE_SPECIFIC_LIMITS.TRAFFIC.PUNTO_MAX_LIMIT} para consultas de punto`),
-
-    validateRequest
-  ],
+  validarTraficoPorPunto,
+  validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
   controladorTrafico.obtenerTraficoPorPunto
 );
 
 /**
- * @route   GET /api/v1/trafico/estadisticas
- * @desc    Obtener estadísticas generales de tráfico
- * @access  Private
- * @rateLimit 5 requests per minute (heavy query)
+ * GET /api/v1/trafico/estadisticas
  */
 router.get('/estadisticas',
   generalLimit,
-  heavyQueryLimiter, // Heavy query limiter for statistics
+  heavyQueryLimiter,
   authenticate,
-  [
-    query('tipoElemento')
-      .optional()
-      .isIn(Object.values(TRAFFIC_ELEMENT_TYPES))
-      .withMessage(`Tipo de elemento debe ser ${Object.values(TRAFFIC_ELEMENT_TYPES).join(' o ')}`),
-
-    validateRequest
-  ],
+  validarEstadisticasTrafico,
+  validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
-  // ETags para estadísticas agregadas (datos relativamente estables)
   etagMiddleware,
-  // Caché de 5 minutos para estadísticas de tráfico (datos volátiles)
   cacheMiddleware('traffic', (req) =>
     `traffic-stats-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.tipoElemento || 'all'}`
   ),
@@ -131,24 +89,14 @@ router.get('/estadisticas',
 );
 
 /**
- * @route   GET /api/v1/trafico/analisis-congestion
- * @desc    Obtener análisis de congestión por zonas
- * @access  Private
- * @rateLimit 100 requests per 15 minutes
+ * GET /api/v1/trafico/analisis-congestion
  */
 router.get('/analisis-congestion',
   generalLimit,
   authenticate,
-  [
-    query('groupBy')
-      .optional()
-      .isIn(['distrito', 'tipoElemento'])
-      .withMessage('Agrupación debe ser por distrito o tipoElemento'),
-
-    validateRequest
-  ],
+  validarAnalisisCongestion,
+  validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
-  // Caché de 5 minutos para análisis de congestión
   cacheMiddleware('traffic', (req) =>
     `traffic-congestion-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.groupBy || 'distrito'}`
   ),
@@ -156,30 +104,15 @@ router.get('/analisis-congestion',
 );
 
 /**
- * @route   GET /api/v1/trafico/historico
- * @desc    Obtener datos históricos para gráficos
- * @access  Private
- * @rateLimit 100 requests per 15 minutes
+ * GET /api/v1/trafico/historico
  */
 router.get('/historico',
   generalLimit,
   authenticate,
-  [
-    query('aggregation')
-      .optional()
-      .isIn(['hour', 'day', 'week', 'month'])
-      .withMessage('Agregación debe ser hour, day, week o month'),
-
-    query('puntoMedidaId')
-      .optional()
-      .matches(/^\d+$/)
-      .withMessage('ID de punto de medida debe ser numérico'),
-
-    validateRequest
-  ],
+  validarHistoricoTrafico,
+  validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
   validateTrafficFilters,
-  // Caché de 5 minutos para datos históricos
   cacheMiddleware('traffic', (req) =>
     `traffic-historical-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.aggregation || 'hour'}-${req.query.puntoMedidaId || 'all'}-${req.query.tipoElemento || 'all'}`
   ),
@@ -187,53 +120,24 @@ router.get('/historico',
 );
 
 /**
- * @route   GET /api/v1/trafico/mapa
- * @desc    Mapa de trafico como FeatureCollection GeoJSON (RFC 7946)
- * @access  Private
- *
- * Filtros obligatorios: startDate, endDate (rango max 7 dias).
- * Filtros opcionales: tipoElemento (URB|M30), bbox (minLng,minLat,maxLng,maxLat).
+ * GET /api/v1/trafico/mapa
  */
 router.get('/mapa',
   generalLimit,
   authenticate,
-  [
-    query('startDate')
-      .notEmpty()
-      .withMessage('startDate es obligatorio (formato YYYY-MM-DD)')
-      .isISO8601()
-      .withMessage('startDate debe ser una fecha ISO 8601 valida'),
-    query('endDate')
-      .notEmpty()
-      .withMessage('endDate es obligatorio (formato YYYY-MM-DD)')
-      .isISO8601()
-      .withMessage('endDate debe ser una fecha ISO 8601 valida'),
-    query('tipoElemento')
-      .optional()
-      .isIn(Object.values(TRAFFIC_ELEMENT_TYPES))
-      .withMessage(`tipoElemento debe ser uno de: ${Object.values(TRAFFIC_ELEMENT_TYPES).join(', ')}`),
-    query('bbox')
-      .optional()
-      .matches(/^-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?$/)
-      .withMessage('bbox debe tener formato minLng,minLat,maxLng,maxLat'),
-    validateRequest
-  ],
-  // Cache de 5 minutos: el rango (start/end) es parte de la clave
+  validarMapaTrafico,
+  validateRequest,
   cacheMiddleware('traffic', (req) =>
     `traffic-mapa-${req.query.startDate}-${req.query.endDate}-${req.query.tipoElemento || 'all'}-${req.query.bbox || 'all'}`
   ),
   controladorTrafico.obtenerMapaTrafico
 );
 
-/**
- * Middleware de logging para todas las rutas de tráfico
- */
+// Middleware de logging
 router.use((req, res, next) => {
   const start = Date.now();
-
   res.on('finish', () => {
     const duration = Date.now() - start;
-
     logger.debug({
       method: req.method,
       path: req.path,
@@ -243,13 +147,10 @@ router.use((req, res, next) => {
       query: Object.keys(req.query).length > 0 ? req.query : undefined
     }, 'Consulta de tráfico completada');
   });
-
   next();
 });
 
-/**
- * Manejo de errores específico para rutas de tráfico
- */
+// Manejo de errores especifico
 router.use((error, req, res, _next) => {
   logger.error({
     error: error.message,
@@ -259,7 +160,6 @@ router.use((error, req, res, _next) => {
     userId: req.user?.id
   }, 'Error en rutas de tráfico');
 
-  // Si el error ya fue manejado, pasarlo al siguiente middleware
   if (error.status || error.statusCode) {
     return res.status(error.status || error.statusCode).json({
       success: false,
@@ -267,7 +167,6 @@ router.use((error, req, res, _next) => {
     });
   }
 
-  // Error específico de tráfico
   res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
     success: false,
     message: 'Error interno en el procesamiento de datos de tráfico',
