@@ -63,22 +63,36 @@ const heavyQueryLimiter = rateLimit({
  */
 const helmetConfig = helmet({
   // Content Security Policy - Configuración restrictiva para API REST
-  // No servimos HTML/CSS/JS, por lo que bloqueamos todo
+  // No servimos HTML/CSS/JS, por lo que bloqueamos todo (defense-in-depth
+  // contra respuestas que erroneamente devuelvan HTML interpretable)
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'none'"], // No cargar ningún recurso
-      frameAncestors: ["'none'"] // No permitir ser embebido en iframes
+      frameAncestors: ["'none'"], // No permitir ser embebido en iframes
+      baseUri: ["'none'"], // Bloquear inyeccion de <base href>
+      formAction: ["'none'"] // Ningun formulario debe poder hacer submit
     },
   },
 
-  // Headers de Cross-Origin Resource Sharing
-  crossOriginEmbedderPolicy: false, // Deshabilitar para compatibilidad de API
+  // Cross-Origin Embedder Policy: deshabilitado intencionalmente.
+  // COEP `require-corp` rompe consumo cross-origin sin CORP coordinado en TODOS
+  // los recursos (incluida cada respuesta de la API). Para una API REST
+  // consumida por un SPA en otro origen no aporta defensa relevante.
+  crossOriginEmbedderPolicy: false,
+
+  // CORP cross-origin: permite que el frontend (otro origen) lea las respuestas.
+  // Cambiar a `same-site` solo si frontend y API comparten dominio en produccion.
   crossOriginResourcePolicy: { policy: 'cross-origin' },
+
+  // COOP same-origin: aisla este origen (proceso) del de otras ventanas. Mitiga
+  // ataques XS-Leak (Spectre, ventanas abiertas con `window.opener`).
+  crossOriginOpenerPolicy: { policy: 'same-origin' },
 
   // Referrer Policy
   referrerPolicy: { policy: 'no-referrer' },
 
-  // HSTS deshabilitado - proyecto universitario sin HTTPS
+  // HSTS deshabilitado - proyecto universitario sin HTTPS.
+  // En produccion habilitar: { maxAge: 63072000, includeSubDomains: true, preload: true }
   hsts: false
 });
 

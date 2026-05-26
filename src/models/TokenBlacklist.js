@@ -16,10 +16,21 @@ const { TOKEN_REVOCATION_REASONS } = require('../constants');
  */
 const tokenBlacklistSchema = new mongoose.Schema({
   // Nota: `unique: true` ya genera indice unico automaticamente, sin `index: true` redundante
+  // Se mantiene `token` por compatibilidad con entradas legacy (tokens emitidos
+  // antes de la migracion a jti). Las nuevas entradas usan `jti` y dejan `token`
+  // como string corto descriptivo (ej. "rev:<jti>") para satisfacer la unicidad.
   token: {
     type: String,
     required: true,
     unique: true
+  },
+
+  // jti (JWT ID): identificador unico por token (~36 bytes UUID v4).
+  // Permite revocar tokens almacenando solo el id en lugar del payload completo.
+  // Sparse: tokens legacy sin jti no rompen el indice unico.
+  jti: {
+    type: String,
+    index: { unique: true, sparse: true }
   },
 
   userId: {
@@ -76,7 +87,7 @@ tokenBlacklistSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
  * @returns {Promise<Document>} Entrada de lista negra creada
  * @throws {Error} Si falta token o expiresAt
  */
-tokenBlacklistSchema.statics.addToken = async function(token, userId, reason = 'rotation', expiresAt) {
+tokenBlacklistSchema.statics.addToken = async function(token, userId, reason = 'rotation', expiresAt, jti = null) {
   if (!token || !userId || !expiresAt) {
     throw new Error('Token, userId, and expiresAt are required for blacklisting');
   }
@@ -88,19 +99,45 @@ tokenBlacklistSchema.statics.addToken = async function(token, userId, reason = '
   }
 
   try {
-    return await this.create({
+    const doc = {
       token,
       userId,
       reason,
       expiresAt: expirationDate
-    });
+    };
+    if (jti) {
+      doc.jti = jti;
+    }
+    return await this.create(doc);
   } catch (error) {
     // Si es error de duplicado, el token ya está en blacklist (OK)
     if (error.code === 11000) {
-      return this.findOne({ token });
+      return jti ? this.findOne({ jti }) : this.findOne({ token });
     }
     throw error;
   }
+};
+
+/**
+ * Agrega un token a la lista negra usando solo su jti.
+ *
+ * Variante liviana de `addToken`: no almacena el payload completo del token,
+ * solo el identificador unico. Util cuando el verify ya validó el token y
+ * el `jti` es suficiente para futuras comprobaciones.
+ *
+ * @param {string} jti - JWT ID unico del token a revocar
+ * @param {string} userId - ID del usuario propietario
+ * @param {string} reason - Razon de revocacion
+ * @param {Date} expiresAt - Fecha de expiracion natural del token
+ * @returns {Promise<Document>} Entrada creada
+ */
+tokenBlacklistSchema.statics.addJti = async function(jti, userId, reason = 'rotation', expiresAt) {
+  if (!jti) {
+    throw new Error('jti is required for blacklisting');
+  }
+  // `token` recibe un descriptor corto que satisface el indice unico
+  // y no expone el JWT real en la BD.
+  return this.addToken(`rev:${jti}`, userId, reason, expiresAt, jti);
 };
 
 /**
@@ -116,6 +153,24 @@ tokenBlacklistSchema.statics.isBlacklisted = async function(token) {
   }
 
   const entry = await this.findOne({ token }).lean();
+  return !!entry;
+};
+
+/**
+ * Verifica si un jti esta en la lista negra.
+ *
+ * Mas eficiente que `isBlacklisted` porque consulta por un campo de tamano fijo
+ * (UUID) en lugar del JWT completo. Preferir esta variante para tokens emitidos
+ * tras la migracion a jti.
+ *
+ * @param {string} jti - JWT ID a verificar
+ * @returns {Promise<boolean>} True si el jti esta revocado
+ */
+tokenBlacklistSchema.statics.isJtiBlacklisted = async function(jti) {
+  if (!jti) {
+    return false;
+  }
+  const entry = await this.findOne({ jti }).lean();
   return !!entry;
 };
 

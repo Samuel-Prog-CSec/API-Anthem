@@ -6,6 +6,7 @@
  *
  */
 
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const TokenBlacklist = require('../models/TokenBlacklist');
 const config = require('../config/config');
@@ -61,6 +62,19 @@ const isValidTokenFormat = (token) =>
   typeof token === 'string'
   && token.length <= TOKEN_VALIDATION.MAX_TOKEN_LENGTH
   && TOKEN_VALIDATION.JWT_REGEX.test(token);
+
+// Hash bcrypt placeholder usado cuando el usuario no existe en login.
+// Realiza un compare contra este hash para igualar el tiempo de respuesta con
+// el de un login real con contrasena incorrecta. Mitiga ataques de timing que
+// podrian enumerar usuarios validos midiendo la latencia entre "usuario
+// inexistente" (rapido) vs "usuario existe, contrasena mala" (slow por bcrypt).
+// El hash corresponde a una string aleatoria que nunca coincidira con input
+// real; coste regenerado en cada arranque para evitar dependencia de un valor
+// fijo en disco.
+const TIMING_DUMMY_HASH = bcrypt.hashSync(
+  `dummy-${Date.now()}-${Math.random()}`,
+  config.security.bcryptSaltRounds
+);
 
 /**
  * Controlador de Registro de Usuario
@@ -155,6 +169,11 @@ const login = asyncHandler(async (req, res, next) => {
   // Buscar usuario por email o nombre de usuario
   const user = await User.findByEmailOrUsername(identifier).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
   if (!user) {
+    // Mitigacion de timing attack: ejecutar bcrypt.compare dummy para igualar
+    // tiempo de respuesta con un login fallido por contrasena incorrecta. Sin
+    // esto, la diferencia de latencia entre "no existe" (~5ms) y "existe pero
+    // mala" (~150ms con bcrypt cost 12) permite enumerar usuarios validos.
+    await bcrypt.compare(password || '', TIMING_DUMMY_HASH);
     logLoginAttempt(false, identifier, null, req.ip, req.get('user-agent'), 'user_not_found');
     return next(createAuthError('Credenciales invalidas'));
   }
@@ -243,12 +262,23 @@ const logout = asyncHandler(async (req, res) => {
         const decoded = await verifyRefreshToken(refreshToken);
         const tokenExpiration = getTokenExpiration(refreshToken);
 
-        await TokenBlacklist.addToken(
-          refreshToken,
-          decoded.id,
-          TOKEN_REVOCATION_REASONS.LOGOUT,
-          tokenExpiration
-        );
+        // Preferir revocacion por jti (mas eficiente). Fallback a token completo
+        // para entradas legacy emitidas antes de la migracion a jti.
+        if (decoded.jti) {
+          await TokenBlacklist.addJti(
+            decoded.jti,
+            decoded.id,
+            TOKEN_REVOCATION_REASONS.LOGOUT,
+            tokenExpiration
+          );
+        } else {
+          await TokenBlacklist.addToken(
+            refreshToken,
+            decoded.id,
+            TOKEN_REVOCATION_REASONS.LOGOUT,
+            tokenExpiration
+          );
+        }
       } catch (error) {
         // El token podria estar ya expirado, continuar con logout
         authLogger.warn({ error: error.message }, 'Refresh token invalido durante logout');
@@ -325,7 +355,11 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
   }
 
   // Verificar si el token esta en lista negra (despues de verificacion para evitar ataques de timing)
-  const isBlacklisted = await TokenBlacklist.isBlacklisted(refreshToken);
+  // Tokens nuevos: lookup por jti (rapido, indice unique sobre UUID).
+  // Tokens legacy sin jti: lookup por el JWT completo.
+  const isBlacklisted = decoded.jti
+    ? await TokenBlacklist.isJtiBlacklisted(decoded.jti)
+    : await TokenBlacklist.isBlacklisted(refreshToken);
   if (isBlacklisted) {
     authLogger.warn({
       userId: decoded.id,
@@ -370,14 +404,24 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
     }
   }
 
-  // Invalidar refresh token antiguo (rotacion)
+  // Invalidar refresh token antiguo (rotacion).
+  // Preferir revocacion por jti para ahorrar espacio en la blacklist.
   const tokenExpiration = getTokenExpiration(refreshToken);
-  await TokenBlacklist.addToken(
-    refreshToken,
-    user._id,
-    TOKEN_REVOCATION_REASONS.ROTATION,
-    tokenExpiration
-  );
+  if (decoded.jti) {
+    await TokenBlacklist.addJti(
+      decoded.jti,
+      user._id,
+      TOKEN_REVOCATION_REASONS.ROTATION,
+      tokenExpiration
+    );
+  } else {
+    await TokenBlacklist.addToken(
+      refreshToken,
+      user._id,
+      TOKEN_REVOCATION_REASONS.ROTATION,
+      tokenExpiration
+    );
+  }
 
   // Generar NUEVO access token Y NUEVO refresh token
   const tokens = generateTokens(user);

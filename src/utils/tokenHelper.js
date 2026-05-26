@@ -7,10 +7,27 @@
  */
 
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const config = require('../config/config');
+
+// Tolerancia de reloj para verify (segundos). Mitiga rechazos espurios cuando
+// el reloj del cliente difiere ligeramente del servidor (NTP drift, VMs).
+// Valor conservador: 5s suficiente para Internet publico, no abre ventana.
+const CLOCK_TOLERANCE_SECONDS = 5;
+
+/**
+ * Genera un identificador unico de token (jti) para revocacion individual.
+ * Usa crypto.randomUUID (incluido en Node 14.17+) sin dependencias externas.
+ *
+ * @returns {string} UUID v4 unico
+ */
+const generateJti = () => crypto.randomUUID();
 
 /**
  * Genera un token de acceso JWT
+ *
+ * Incluye `jti` (JWT ID) unico para permitir revocacion individual del token
+ * sin necesidad de almacenar el payload completo en la blacklist.
  *
  * @param {object} payload - Datos del payload del token
  * @param {string} expiresIn - Tiempo de expiración del token (opcional)
@@ -24,13 +41,18 @@ const generateAccessToken = (payload, expiresIn = config.jwt.expiresIn) => {
       expiresIn,
       algorithm: config.jwt.algorithm,
       issuer: config.jwt.issuer,
-      audience: config.jwt.audience
+      audience: config.jwt.audience,
+      jwtid: generateJti()
     }
   );
 };
 
 /**
  * Genera un token de refresco (expiración más larga)
+ *
+ * Incluye `jti` (JWT ID) unico para que la blacklist pueda almacenar solo el
+ * identificador (~36 bytes) en lugar del refresh token completo. Reduce
+ * tamano de la coleccion y permite revocacion liviana.
  *
  * @param {object} payload - Datos del payload del token
  * @returns {string} Token de refresco generado
@@ -43,7 +65,8 @@ const generateRefreshToken = (payload) => {
       expiresIn: config.jwt.refreshExpiresIn, // Configurado desde variable de entorno
       algorithm: config.jwt.algorithm,
       issuer: config.jwt.issuer,
-      audience: 'api-rest-auth-refresh'
+      audience: 'api-rest-auth-refresh',
+      jwtid: generateJti()
     }
   );
 };
@@ -80,7 +103,8 @@ const verifyToken = async (token) => {
     return jwt.verify(token, config.jwt.secret, {
       algorithms: [config.jwt.algorithm],
       issuer: config.jwt.issuer,
-      audience: config.jwt.audience
+      audience: config.jwt.audience,
+      clockTolerance: CLOCK_TOLERANCE_SECONDS
     });
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -107,7 +131,8 @@ const verifyRefreshToken = async (token) => {
     return jwt.verify(token, config.jwt.refreshSecret, {
       algorithms: [config.jwt.algorithm],
       issuer: config.jwt.issuer,
-      audience: 'api-rest-auth-refresh'
+      audience: 'api-rest-auth-refresh',
+      clockTolerance: CLOCK_TOLERANCE_SECONDS
     });
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -177,8 +202,10 @@ module.exports = {
   generateAccessToken,
   generateRefreshToken,
   generateTokens,
+  generateJti,
   verifyToken,
   verifyRefreshToken,
   extractToken,
-  getTokenExpiration
+  getTokenExpiration,
+  CLOCK_TOLERANCE_SECONDS
 };

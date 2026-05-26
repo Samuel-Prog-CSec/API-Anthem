@@ -21,6 +21,39 @@ const isTest = process.env.NODE_ENV === 'test';
 /**
  * Opciones de configuración de Pino según el entorno
  */
+/**
+ * Rutas que SIEMPRE se redactan, sin importar el entorno.
+ *
+ * Razon: dejar passwords/tokens/cookies en logs de desarrollo es un riesgo
+ * (los logs pueden compartirse en QA, GitHub issues, capturas de pantalla).
+ * Mejor uniformidad: si una clave es secreta, se redacta siempre.
+ */
+const REDACT_PATHS = [
+  'password',
+  'newPassword',
+  'currentPassword',
+  'token',
+  'accessToken',
+  'refreshToken',
+  'authorization',
+  'cookie',
+  'req.body.password',
+  'req.body.newPassword',
+  'req.body.currentPassword',
+  'req.body.refreshToken',
+  'req.body.accessToken',
+  'req.body.token',
+  'req.headers.authorization',
+  'req.headers.cookie',
+  'req.cookies.accessToken',
+  'req.cookies.refreshToken',
+  'req.cookies.token',
+  'res.headers["set-cookie"]',
+  'creditCard',
+  'cvv',
+  'ssn'
+];
+
 const pinoConfig = {
   // Nivel de log según entorno
   level: process.env.LOG_LEVEL || (isDevelopment ? 'debug' : 'info'),
@@ -31,6 +64,14 @@ const pinoConfig = {
     transport: getLogTransport()
   }),
 
+  // Redact universal: aplica en desarrollo y produccion para evitar fugas
+  // accidentales por logs compartidos. `remove: true` elimina la clave en
+  // lugar de sustituirla por "[Redacted]" (mejor higiene).
+  redact: {
+    paths: REDACT_PATHS,
+    remove: true
+  },
+
   // Configuración para producción
   ...(!isDevelopment && {
     formatters: {
@@ -38,23 +79,7 @@ const pinoConfig = {
         return { level: label };
       }
     },
-    timestamp: pino.stdTimeFunctions.isoTime,
-    redact: {
-      paths: [
-        'password',
-        'token',
-        'accessToken',
-        'refreshToken',
-        'authorization',
-        'cookie',
-        'req.headers.authorization',
-        'req.headers.cookie',
-        'creditCard',
-        'cvv',
-        'ssn'
-      ],
-      remove: true
-    }
+    timestamp: pino.stdTimeFunctions.isoTime
   }),
 
   // Campos base que se incluyen en todos los logs
