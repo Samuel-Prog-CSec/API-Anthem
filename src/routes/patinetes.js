@@ -18,6 +18,7 @@ const {
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
+const { generatePrefixedCacheKey } = require('../utils/cacheKeyGenerator');
 const { etagMiddleware } = require('../middleware/etag');
 const {
   validarAsignacionesPatinetes,
@@ -34,7 +35,7 @@ router.get('/',
   authenticate,
   validarAsignacionesPatinetes,
   validateRequest,
-  cacheMiddleware('traffic', (req) => `scooters:list:${JSON.stringify(req.query)}`),
+  cacheMiddleware('traffic', (req) => generatePrefixedCacheKey('scooters:list', req.query)),
   obtenerAsignaciones
 );
 

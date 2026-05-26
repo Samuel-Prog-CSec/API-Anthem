@@ -28,6 +28,7 @@ const scooterAssignmentRoutes = require('./patinetes');
 const bikeAvailabilityRoutes = require('./bicicletas');
 const contenedorRoutes = require('./contenedores');
 const bikeTrafficCountRoutes = require('./aforoBicicletas');
+const pedestrianTrafficCountRoutes = require('./aforoPeatones');
 
 // Aplicar performanceMonitor GLOBALMENTE a todas las rutas de la API
 router.use(performanceMonitor);
@@ -70,6 +71,7 @@ router.get('/', (req, res) => {
           patinetes: `/api/${config.api.version}/patinetes`,
           bicicletas: `/api/${config.api.version}/bicicletas`,
           aforoBicicletas: `/api/${config.api.version}/aforo-bicicletas`,
+          aforoPeatones: `/api/${config.api.version}/aforo-peatones`,
           contenedores: `/api/${config.api.version}/contenedores`,
           admin: `/api/${config.api.version}/admin`,
           salud: `/api/${config.api.version}/health`,
@@ -201,6 +203,7 @@ router.use('/patinetes', scooterAssignmentRoutes);
 // Mount mobility and infrastructure routes
 router.use('/bicicletas', bikeAvailabilityRoutes);
 router.use('/aforo-bicicletas', bikeTrafficCountRoutes);
+router.use('/aforo-peatones', pedestrianTrafficCountRoutes);
 router.use('/contenedores', contenedorRoutes);
 
 // Mount administration routes

@@ -17,17 +17,35 @@ const STALE_GRACE_SECONDS = 60; // Mantener entradas expiradas 60s adicionales p
 const NEAR_EXPIRY_RATIO = 0.2; // Si queda <20% del TTL, se dispara una revalidación en background
 const MIN_NEAR_EXPIRY_MS = 5000; // Evitar umbrales demasiado pequeños
 
-// Configuracion centralizada por tipo de cache (TTL ajustados para datos estaticos)
+/**
+ * Configuracion centralizada por tipo de cache.
+ *
+ * Criterio de TTL:
+ *  - El dataset Smart City 2051 es estatico entre re-imports, asi que en
+ *    teoria podriamos usar TTL infinito en todo lo que dependa solo de BD.
+ *    En la practica preferimos 24h como techo razonable para que un
+ *    re-import (1-2h, ver scripts/importAll.js) se propague sin reinicio.
+ *  - `demographic` baja de 7 dias a 24h por el mismo motivo: si reimportamos
+ *    el censo, no queremos servir respuestas viejas durante toda la semana.
+ *  - `static`/`containers` (ubicaciones, configuracion) bajan de TTL=0
+ *    (infinito) a 24h por consistencia y para evitar entradas inmortales
+ *    en memoria si la app no se reinicia durante mucho tiempo.
+ *
+ * `maxKeys` actua como techo defensivo contra explosiones de cardinalidad
+ * (queries con muchas combinaciones de filtros). Si se alcanza, node-cache
+ * empezara a rechazar nuevas entradas con error (capturado por buildCache).
+ */
+const DIA_EN_SEGUNDOS = 24 * 3600;
 const CACHE_CONFIG = {
-  demographic: { stdTTL: 86400 * 7, checkperiod: 3600, maxKeys: 20000 }, // Datos estaticos, 7 dias
-  statistics: { stdTTL: 86400, checkperiod: 1800, maxKeys: 15000 }, // Estadisticas diarias, 24h
-  traffic: { stdTTL: 86400, checkperiod: 1800, maxKeys: 20000 }, // Datos historicos, 24h
-  static: { stdTTL: 0, checkperiod: 7200, maxKeys: 50000 }, // Configuracion/ubicaciones, sin expiracion
-  airQuality: { stdTTL: 86400, checkperiod: 1800, maxKeys: 15000 }, // 24h
-  bikes: { stdTTL: 86400, checkperiod: 1800, maxKeys: 5000 }, // Datos historicos
-  containers: { stdTTL: 0, checkperiod: 7200, maxKeys: 50000 }, // Estaticos
-  noise: { stdTTL: 86400, checkperiod: 1800, maxKeys: 10000 }, // 24h
-  fines: { stdTTL: 86400, checkperiod: 1800, maxKeys: 15000 } // Multas historicas, 24h
+  demographic: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 20000 }, // Censo, 24h
+  statistics: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 15000 }, // Estadisticas, 24h
+  traffic: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 20000 }, // Trafico historico, 24h
+  static: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 3600, maxKeys: 50000 }, // Configuracion, 24h
+  airQuality: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 15000 }, // Aire, 24h
+  bikes: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 5000 }, // Bicicletas, 24h
+  containers: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 3600, maxKeys: 50000 }, // Contenedores, 24h
+  noise: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 10000 }, // Ruido, 24h
+  fines: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 15000 } // Multas, 24h
 };
 
 // Mapa de promesas en vuelo para evitar thundering herd en el mismo cacheKey

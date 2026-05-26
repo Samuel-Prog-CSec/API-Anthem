@@ -74,9 +74,15 @@ function esWGS84Valida(lon, lat) {
 /**
  * Convertir UTM ETRS89 zona 30N a lon/lat WGS84.
  *
+ * CONTRATO: devuelve `null` cuando la entrada esta fuera de los rangos
+ * definidos en `VALIDATION_LIMITS.UTM_*` o cuando el resultado WGS84
+ * cae fuera de la peninsula. Es responsabilidad del caller comprobar
+ * el null y decidir si rechazar la fila, dejar la geometria como
+ * `undefined` (campo opcional) o registrar el caso en su tracker.
+ *
  * @param {number} x - Coordenada X UTM (este)
  * @param {number} y - Coordenada Y UTM (norte)
- * @returns {{ lon: number, lat: number }|null} null si la entrada es invalida
+ * @returns {{ lon: number, lat: number }|null}
  */
 function utm30NToLatLon(x, y) {
   if (!esUTMValida(x, y)) {
@@ -91,6 +97,10 @@ function utm30NToLatLon(x, y) {
 
 /**
  * Convertir lon/lat WGS84 a UTM ETRS89 zona 30N.
+ *
+ * CONTRATO: devuelve `null` si las coordenadas WGS84 estan fuera de
+ * rango o si el resultado UTM cae fuera del bbox peninsular.
+ * Mismas reglas de manejo que `utm30NToLatLon`.
  *
  * @param {number} lat
  * @param {number} lon
@@ -109,7 +119,15 @@ function latLonToUTM30N(lat, lon) {
 
 /**
  * Construir un objeto `geometry` GeoJSON Point valido a partir de
- * UTM ETRS89 zona 30N. Devuelve null si la conversion falla.
+ * UTM ETRS89 zona 30N.
+ *
+ * CONTRATO: devuelve `null` si la conversion falla (UTM fuera de rango
+ * o resultado WGS84 invalido). El caller decide si:
+ *   - rechazar la fila (track al RejectionTracker con motivo
+ *     COORDENADAS_FUERA_DE_RANGO),
+ *   - guardar la fila sin geometry (`geometry: undefined`, queda fuera
+ *     del indice 2dsphere pero no rompe queries no geo),
+ *   - re-intentar con otra fuente (campo lat/lon alternativo).
  *
  * @param {number} x - UTM X
  * @param {number} y - UTM Y
@@ -127,8 +145,10 @@ function construirGeometryDesdeUTM(x, y) {
 }
 
 /**
- * Construir GeoJSON Point a partir de lon/lat directos. Devuelve
- * null si los valores estan fuera de rango.
+ * Construir GeoJSON Point a partir de lon/lat directos.
+ *
+ * CONTRATO: devuelve `null` si las coordenadas estan fuera del bbox
+ * peninsular. Mismas reglas de manejo que `construirGeometryDesdeUTM`.
  *
  * @param {number} lon
  * @param {number} lat

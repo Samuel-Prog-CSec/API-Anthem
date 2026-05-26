@@ -31,7 +31,8 @@ const {
   RejectionTracker,
   formatDuration,
   calculateProcessingSpeed,
-  buildAndWriteSummary
+  buildAndWriteSummary,
+  parsearNumeroFormatoEspanol
 } = require('./helpers/importHelpers');
 const { crearLectorCSV } = require('./helpers/normalizarEncoding');
 
@@ -148,21 +149,10 @@ function registrarManejadoresSenales() {
   });
 }
 
-/**
- * Parsear numero con formato espanol (coma decimal, punto miles)
- * @param {string|number} value - Valor a parsear
- * @returns {number} Valor numerico o 0 si invalido
- */
-function parsearNumeroEspanol(value) {
-  if (value === null || value === undefined || value === '') {return 0;}
-
-  const normalized = value.toString()
-    .replace(/\./g, '')
-    .replace(/,/g, '.');
-
-  const parsed = parseFloat(normalized);
-  return isNaN(parsed) ? 0 : parsed;
-}
+// Alias local del helper compartido en `importHelpers`. Mantenemos el
+// nombre `parsearNumeroEspanol` para no cambiar todas las llamadas
+// internas del importador (riesgo bajo, valor alto).
+const parsearNumeroEspanol = parsearNumeroFormatoEspanol;
 
 /**
  * Codigos de razon de rechazo para trazabilidad
@@ -213,7 +203,9 @@ function parsearFecha(dateStr) {
     throw new Error(`${REJECTION_REASONS.YEAR_OUT_OF_RANGE}: ano=${year}, rango=[${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR}]`);
   }
 
-  const date = new Date(year, month, day);
+  // Date.UTC para evitar desfases de TZ del runtime en fechas sin hora
+  // (sino, en Madrid podia dejar getDate() en el dia anterior).
+  const date = new Date(Date.UTC(year, month, day));
   if (isNaN(date.getTime())) {
     throw new Error(`${REJECTION_REASONS.INVALID_DATE}: valor='${dateStr}'`);
   }
@@ -340,14 +332,17 @@ async function procesarLote(batch, options) {
         result.inserted = insertedCount;
         result.skipped = batch.length - insertedCount;
 
-        // Loguear cada duplicado individual
+        // Loguear cada duplicado individual y trackearlo en el summary,
+        // para que no quede como rechazo silencioso al revisar el resumen.
         if (error.writeErrors) {
           error.writeErrors.forEach(writeErr => {
             if (writeErr.code === 11000) {
               const duplicateDoc = batch[writeErr.index];
+              const fechaIso = duplicateDoc?.dia?.toISOString().split('T')[0];
+              rejectionTracker.track(REJECTION_REASONS.DUPLICATE_KEY, { fecha: fechaIso });
               logger.warn(
                 {
-                  fecha: duplicateDoc?.dia?.toISOString().split('T')[0],
+                  fecha: fechaIso,
                   razon: REJECTION_REASONS.DUPLICATE_KEY,
                   detalle: 'Clave unica ya existe en BD'
                 },

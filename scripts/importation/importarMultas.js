@@ -158,8 +158,8 @@ function parseMultaRow(row, sourceFile, rowIndex) {
     año = añoCSV;
   }
 
-  // Crear fecha basada en mes y año
-  const fecha = new Date(año, mes - 1, 1);
+  // Crear fecha basada en mes y año (UTC para evitar desfases de TZ)
+  const fecha = new Date(Date.UTC(año, mes - 1, 1));
 
   // Procesar coordenadas via framework unificado.
   // Multas tiene perfil con utm.unidades='m' y wgs84=null. Coordenadas
@@ -283,7 +283,13 @@ function parseMultaRow(row, sourceFile, rowIndex) {
   const geometry = geometryDerivada;
 
   // Crear objeto de multa (campos de texto normalizados para corregir
-  // mojibake latin1 del CSV)
+  // mojibake latin1 del CSV).
+  //
+  // OJO: si `geometry` es null, NO incluimos la clave en el objeto. Si
+  // pasaramos `geometry: undefined`, Mongoose detecta el path y aplica
+  // los defaults del subdocumento (geometry.type='Point'), generando
+  // `{ type: 'Point' }` sin `coordinates`, que el indice 2dsphere
+  // rechaza silenciosamente y rompe TODA la insercion del batch.
   const multa = {
     fecha,
     mes,
@@ -291,8 +297,6 @@ function parseMultaRow(row, sourceFile, rowIndex) {
     hora: row.HORA || '00.00',
     calificacion,
     lugar: normalizarTexto(row.LUGAR, 'NO ESPECIFICADO'),
-    coordenadas: Object.keys(coordenadas).length > 0 ? coordenadas : undefined,
-    geometry: geometry || undefined,
     importeBoletín: Math.max(0, importe),
     tieneDescuento,
     puntosDetraídos: Math.max(0, Math.min(puntos, VALIDATION_LIMITS.DRIVER_POINTS_MAX)),
@@ -303,6 +307,17 @@ function parseMultaRow(row, sourceFile, rowIndex) {
       archivoOrigen: sourceFile
     }
   };
+
+  // Solo anadir `coordenadas` y `geometry` si tenemos datos validos. La
+  // asignacion condicional evita que Mongoose genere subdocumentos con
+  // defaults aplicados (geometry.type='Point' sin coordinates), que
+  // romperia el indice 2dsphere y haria fallar el batch entero.
+  if (Object.keys(coordenadas).length > 0) {
+    multa.coordenadas = coordenadas;
+  }
+  if (geometry) {
+    multa.geometry = geometry;
+  }
 
   // Calcular campos derivados que el pre-save hook normalmente computa,
   // pero que bulkWrite omite al no ejecutar middleware de Mongoose
@@ -595,7 +610,14 @@ async function processBatchUpsert(batch, stats) {
   }));
 
   try {
-    const result = await Fine.bulkWrite(operations, {
+    // Usamos `Fine.collection.bulkWrite` (driver nativo) en vez de
+    // `Fine.bulkWrite` (Mongoose). Con Mongoose 9 + `bypassDocumentValidation`,
+    // `Fine.bulkWrite(... updateOne + upsert)` retorna `{ upsertedCount: 0,
+    // matchedCount: 0, hasWriteErrors: false }` SILENCIOSAMENTE: el batch
+    // se reporta como exitoso pero no inserta nada (verificado contra
+    // el dataset 2051 con docs que no traen `geometry`). El driver nativo
+    // no tiene ese problema porque salta el casting/validacion Mongoose.
+    const result = await Fine.collection.bulkWrite(operations, {
       ordered: false,
       bypassDocumentValidation: true
     });

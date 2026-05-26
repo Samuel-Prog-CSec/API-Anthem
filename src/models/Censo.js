@@ -693,25 +693,22 @@ censusSchema.methods.getDemographicDistribution = function() {
  */
 const censoService = require('../services/censoService');
 
-censusSchema.statics.getOptimizedPopulationPyramid = function(options) {
-  return censoService.getOptimizedPopulationPyramid(this, options);
+censusSchema.statics.obtenerPiramidePoblacionalOptimizada = function(options) {
+  return censoService.obtenerPiramidePoblacionalOptimizada(this, options);
 };
 
-censusSchema.statics.getOptimizedDemographicAnalysis = function(options) {
-  return censoService.getOptimizedDemographicAnalysis(this, options);
+censusSchema.statics.obtenerAnalisisDemograficoOptimizado = function(options) {
+  return censoService.obtenerAnalisisDemograficoOptimizado(this, options);
 };
 
-censusSchema.statics.findWithOptions = function(options) {
-  return censoService.findWithOptions(this, options);
+censusSchema.statics.buscarConOpciones = function(options) {
+  return censoService.buscarConOpciones(this, options);
 };
 
-censusSchema.statics.getDistrictStatisticsOptimized = function(options) {
-  return censoService.getDistrictStatisticsOptimized(this, options);
+censusSchema.statics.obtenerEstadisticasDistritoOptimizadas = function(options) {
+  return censoService.obtenerEstadisticasDistritoOptimizadas(this, options);
 };
 
-censusSchema.statics.getDemographicEvolutionOptimized = function(options) {
-  return censoService.getDemographicEvolutionOptimized(this, options);
-};
 
 
 // Crear y exportar el modelo

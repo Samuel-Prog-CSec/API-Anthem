@@ -88,6 +88,7 @@ const importarAccidentesLogger = scriptLogger.child({ scriptType: 'importar-acci
 const importarPatinetesLogger = scriptLogger.child({ scriptType: 'importar-patinetes' });
 const importarBicicletasLogger = scriptLogger.child({ scriptType: 'importar-bicicletas' });
 const importarAforoBicicletasLogger = scriptLogger.child({ scriptType: 'importar-aforo-bicicletas' });
+const importarAforoPeatonesLogger = scriptLogger.child({ scriptType: 'importar-aforo-peatones' });
 const importAllLogger = scriptLogger.child({ scriptType: 'importar-todos' });
 
 module.exports = scriptLogger;
@@ -102,4 +103,5 @@ module.exports.importarAccidentesLogger = importarAccidentesLogger;
 module.exports.importarPatinetesLogger = importarPatinetesLogger;
 module.exports.importarBicicletasLogger = importarBicicletasLogger;
 module.exports.importarAforoBicicletasLogger = importarAforoBicicletasLogger;
+module.exports.importarAforoPeatonesLogger = importarAforoPeatonesLogger;
 module.exports.importAllLogger = importAllLogger;

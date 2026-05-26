@@ -18,7 +18,7 @@ const ESCALAR_AGG = { allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_
 /**
  * Piramide poblacional detallada y simplificada (2 agregaciones en paralelo).
  */
-const getOptimizedPopulationPyramid = async function(Model, options) {
+const obtenerPiramidePoblacionalOptimizada = async function(Model, options) {
   const { año = DATASET_YEARS.DEFAULT_YEAR, distrito = null, incluirExtranjeros = true } = options;
 
   const matchFilters = { año: parseInt(año, 10) };
@@ -112,7 +112,7 @@ const getOptimizedPopulationPyramid = async function(Model, options) {
 /**
  * Analisis demografico completo con $facet.
  */
-const getOptimizedDemographicAnalysis = async function(Model, options) {
+const obtenerAnalisisDemograficoOptimizado = async function(Model, options) {
   const { año = DATASET_YEARS.DEFAULT_YEAR, mes = null, distrito = null } = options;
 
   const matchFilters = { año: parseInt(año, 10) };
@@ -198,7 +198,7 @@ const getOptimizedDemographicAnalysis = async function(Model, options) {
 /**
  * Query builder con cursor support y stats opcionales.
  */
-const findWithOptions = async function(Model, options) {
+const buscarConOpciones = async function(Model, options) {
   const {
     filters = {},
     sort = { fechaCenso: -1 },
@@ -273,7 +273,7 @@ const findWithOptions = async function(Model, options) {
 /**
  * Estadisticas por distritos con opcion de incluir barrios.
  */
-const getDistrictStatisticsOptimized = async function(Model, options) {
+const obtenerEstadisticasDistritoOptimizadas = async function(Model, options) {
   const { año, mes, incluirBarrios = false } = options;
 
   const matchCondition = { año: parseInt(año) };
@@ -363,55 +363,9 @@ const getDistrictStatisticsOptimized = async function(Model, options) {
   return { districtStatistics, neighborhoodStatistics };
 };
 
-/**
- * Evolucion demografica temporal.
- */
-const getDemographicEvolutionOptimized = async function(Model, options) {
-  const {
-    distrito,
-    metrica = 'poblacionTotal',
-    startYear = DATASET_YEARS.MIN_YEAR,
-    endYear = DATASET_YEARS.MAX_YEAR
-  } = options;
-
-  const matchFilters = {
-    año: { $gte: parseInt(startYear), $lte: parseInt(endYear) }
-  };
-  if (distrito) {
-    matchFilters['distrito.codigo'] = parseInt(distrito);
-  }
-
-  const metricaField = {
-    poblacionTotal: '$estadisticas.totalPoblacion',
-    porcentajeExtranjeros: '$estadisticas.porcentajeExtranjeros',
-    totalEspañoles: '$estadisticas.totalEspañoles',
-    totalExtranjeros: '$estadisticas.totalExtranjeros'
-  }[metrica] || '$estadisticas.totalPoblacion';
-
-  return Model.aggregate([
-    { $match: matchFilters },
-    {
-      $group: {
-        _id: { año: '$año', mes: '$mes' },
-        valor: { $sum: metricaField }
-      }
-    },
-    {
-      $project: {
-        _id: 0,
-        año: '$_id.año',
-        mes: '$_id.mes',
-        valor: { $round: ['$valor', 2] }
-      }
-    },
-    { $sort: { '_id.año': 1, '_id.mes': 1 } }
-  ]).option(ESCALAR_AGG);
-};
-
 module.exports = {
-  getOptimizedPopulationPyramid,
-  getOptimizedDemographicAnalysis,
-  findWithOptions,
-  getDistrictStatisticsOptimized,
-  getDemographicEvolutionOptimized
+  obtenerPiramidePoblacionalOptimizada,
+  obtenerAnalisisDemograficoOptimizado,
+  buscarConOpciones,
+  obtenerEstadisticasDistritoOptimizadas
 };

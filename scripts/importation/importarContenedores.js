@@ -229,12 +229,18 @@ function normalizeContainerType(tipo) {
 }
 
 /**
- * Generar clave unica para el contenedor
- * @param {Object} data - Datos del contenedor
- * @returns {string} Clave unica
+ * Generar clave unica para el contenedor.
+ *
+ * Antes la clave usaba `coordenadas.x/y` (UTM). Como `extraerCoordenadasModulo`
+ * puede devolver `utm: null` cuando el CSV solo trae WGS84 validos (caso
+ * habitual en este dataset municipal), tomamos las coordenadas finales
+ * GeoJSON (`location.coordinates = [lon, lat]`), que siempre estan
+ * presentes tras una validacion exitosa. Asi la deduplicacion sigue
+ * funcionando aunque UTM no este.
  */
 function generateUniqueKey(data) {
-  return `${data.codigoInternoSituado}_${data.tipoContenedor}_${data.coordenadas.x}_${data.coordenadas.y}`;
+  const [lon, lat] = data.location?.coordinates || [0, 0];
+  return `${data.codigoInternoSituado}_${data.tipoContenedor}_${lon}_${lat}`;
 }
 
 /**

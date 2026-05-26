@@ -92,15 +92,16 @@ const register = asyncHandler(async (req, res, next) => {
     return next(createConflictError('Ya existe un usuario con este email o nombre de usuario'));
   }
 
-  // Crear nuevo usuario. Capturamos errores de MongoDB localmente para
-  // transformarlos via handleMongoError antes de delegar al globalErrorHandler.
+  // Crear nuevo usuario. Capturamos errores de MongoDB conocidos
+  // (duplicate key, validacion, cast) y los transformamos via handleMongoError
+  // a un AppError tipado, que el globalErrorHandler convertira en respuesta
+  // HTTP. Otros errores se propagan sin transformar.
   const user = new User({ username, email, password });
   try {
     await user.save();
   } catch (error) {
     if (error.code === 11000 || error.name === 'ValidationError' || error.name === 'CastError') {
-      const mongoError = handleMongoError(error);
-      return res.status(mongoError.statusCode).json(formatErrorResponse(mongoError));
+      return next(handleMongoError(error));
     }
     throw error;
   }

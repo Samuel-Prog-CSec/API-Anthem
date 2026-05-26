@@ -101,11 +101,13 @@ const bikeTrafficCountSchema = new mongoose.Schema({
 
     // Geometria GeoJSON WGS84 para el endpoint /aforo-bicicletas/mapa
     // y para queries geoespaciales `$near`/`$geoWithin`.
+    // NO usar `default: 'Point'`: Mongoose crearia subdocumentos vacios
+    // que rompen el indice 2dsphere sparse. Se crea solo cuando el
+    // importador asigna geometry explicitamente.
     geometry: {
       type: {
         type: String,
-        enum: [GEOMETRY_TYPES.POINT],
-        default: GEOMETRY_TYPES.POINT
+        enum: [GEOMETRY_TYPES.POINT]
       },
       coordinates: {
         type: [Number],

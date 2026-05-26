@@ -58,15 +58,20 @@ const obtenerUbicaciones = asyncHandler(async (req, res, next) => {
     maxLimit: SPECIAL_PAGINATION_LIMITS.LOCATIONS.MAX
   });
 
-  // Proyeccion optimizada: solo campos esenciales
+  // Proyeccion optimizada: campos esenciales + distrito + id_punto para
+  // poder rellenar las celdas de la tabla de ubicaciones (que renderiza
+  // distrito y identificador del punto).
   const projection = {
     tipo: 1,
     nombre: 1,
     'coordenadas.x': 1,
-    'coordenadas.y': 1
+    'coordenadas.y': 1,
+    distrito: 1,
+    id_punto: 1,
+    nmt: 1
   };
 
-  const { data: ubicaciones, total } = await Location.findWithOptions({
+  const { data: ubicaciones, total } = await Location.buscarConOpciones({
     filters,
     geoQuery,
     sort: { nombre: 1 },
@@ -100,8 +105,12 @@ const obtenerPuntosMedicion = asyncHandler(async (req, res, next) => {
     return next(createBadRequestError('Tipo de medicion no valido. Use: acustica, trafico'));
   }
 
+  // Incluir distrito (numerico, 1-21 para puntos de trafico) y id_punto
+  // para que el frontend pueda mostrarlos en la tabla de detalle. Antes la
+  // proyeccion solo traia nombre/coords/nmt/cod_cent y la columna distrito
+  // aparecia siempre como "-".
   const puntos = await Location.find({ tipo: tiposValidos[measurementType] })
-    .select('nombre coordenadas nmt cod_cent geometry')
+    .select('nombre coordenadas nmt cod_cent id_punto distrito tipo_elem geometry')
     .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
     .lean();
 

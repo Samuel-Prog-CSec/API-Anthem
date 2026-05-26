@@ -119,7 +119,7 @@ exports.obtenerContenedoresCercanos = asyncHandler(async (req, res, next) => {
     return next(createBadRequestError('Coordenadas no validas'));
   }
 
-  const containers = await Contenedor.findNearby(
+  const containers = await Contenedor.buscarCercanos(
     lng,
     lat,
     maxDistance,
@@ -144,7 +144,7 @@ exports.obtenerContenedoresCercanos = asyncHandler(async (req, res, next) => {
  * @access Private
  */
 exports.obtenerEstadisticasContenedores = asyncHandler(async (req, res, next) => {
-  const summary = await Contenedor.getGeneralSummary();
+  const summary = await Contenedor.obtenerResumenGeneral();
 
   if (!summary || summary.length === 0) {
     return next(createNotFoundError('Datos de contenedores'));
@@ -162,7 +162,7 @@ exports.obtenerEstadisticasContenedores = asyncHandler(async (req, res, next) =>
 exports.obtenerEstadisticasPorDistrito = asyncHandler(async (req, res, next) => {
   const { distrito } = req.query;
 
-  const stats = await Contenedor.getStatsByDistrict(distrito ? distrito : null);
+  const stats = await Contenedor.obtenerEstadisticasPorDistrito(distrito ? distrito : null);
 
   if (!stats || stats.length === 0) {
     return next(createNotFoundError('Contenedores', distrito ? `distrito ${distrito}` : null));
@@ -190,7 +190,7 @@ exports.obtenerEstadisticasPorBarrio = asyncHandler(async (req, res, next) => {
     return next(createBadRequestError('Se requiere el parametro distrito'));
   }
 
-  const stats = await Contenedor.getStatsByNeighborhood(distrito, barrio || null);
+  const stats = await Contenedor.obtenerEstadisticasPorBarrio(distrito, barrio || null);
 
   if (!stats || stats.length === 0) {
     return next(createNotFoundError('Contenedores', barrio ? `barrio ${barrio} del distrito ${distrito}` : `distrito ${distrito}`));
@@ -219,7 +219,7 @@ exports.contarPorTipo = asyncHandler(async (req, res, next) => {
     return next(createBadRequestError('Se requiere el parametro distrito'));
   }
 
-  const count = await Contenedor.countByType(distrito, barrio || null);
+  const count = await Contenedor.contarPorTipo(distrito, barrio || null);
 
   res.status(HTTP_STATUS.OK).json(createResponse(count, 'Conteo por tipo obtenido exitosamente'));
 });
@@ -323,7 +323,7 @@ exports.buscarPorDireccion = asyncHandler(async (req, res, next) => {
 exports.obtenerMapaCalor = asyncHandler(async (req, res) => {
   const { tipoContenedor } = req.query;
 
-  const heatmapData = await Contenedor.getHeatmapData(tipoContenedor);
+  const heatmapData = await Contenedor.obtenerDatosMapaCalor(tipoContenedor);
 
   const responseData = {
     ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
@@ -343,7 +343,7 @@ exports.obtenerMapaCalor = asyncHandler(async (req, res) => {
 exports.obtenerAnalisisCobertura = asyncHandler(async (req, res) => {
   const { distrito } = req.query;
 
-  const coverage = await Contenedor.getCoverageAnalysis(distrito);
+  const coverage = await Contenedor.obtenerAnalisisCobertura(distrito);
 
   const responseData = {
     ...(distrito && { distrito }),
@@ -376,7 +376,7 @@ exports.obtenerMapaContenedores = asyncHandler(async (req, res, next) => {
     }
   }
 
-  const docs = await Contenedor.getMapFeatures({
+  const docs = await Contenedor.obtenerCaracteristicasMapa({
     tipoContenedor,
     distrito,
     barrio,
@@ -427,7 +427,7 @@ exports.obtenerAnalisisDensidad = asyncHandler(async (req, res, next) => {
     includeBarrios: includeBarrios === 'true'
   };
 
-  const densityAnalysis = await Contenedor.getDensityAnalysisByDistrict(options);
+  const densityAnalysis = await Contenedor.obtenerAnalisisDensidadPorDistrito(options);
 
   if (!densityAnalysis || densityAnalysis.length === 0) {
     return next(createNotFoundError('Analisis de densidad', distrito ? `distrito ${distrito}` : null));

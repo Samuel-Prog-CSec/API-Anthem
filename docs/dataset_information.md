@@ -205,3 +205,35 @@ por defecto y marca `metadatos.calificacionInferida = true`. Para cuadros
 BI que comparen severidades, conviene filtrar o segmentar por ese flag —
 de lo contrario LEVE saldría sobrerrepresentado por absorber filas
 realmente desconocidas.
+
+## CSV en `datos_hpe/` que NO se importan y por qué
+
+El dataset contiene varios archivos que están físicamente en `datos_hpe/`
+pero no tienen importador asociado. Esta es una decisión deliberada, no un
+olvido:
+
+- **`Anthem_CTC_Callejero.csv`** (~90 MB): mojibake severo (UTF-8 leído
+  como latin1 en origen) y, sobre todo, es un directorio de calles (datos
+  de referencia), no de mediciones Smart City. Las ubicaciones
+  geográficas que sí tienen valor analítico ya entran por
+  `Anthem_CTC_PuntoMedidaTrafico.csv` y por los GPX de transporte.
+
+- **`Anthem_CTC_InstalacionesFotovoltaicas.csv`** (~20 KB): año del CSV
+  es 2049, no 2051 — fuera del rango oficial del dataset. Además, las
+  coordenadas tienen mojibake crítico (literales tipo
+  "40.397.074.625.115.900" para latitud, parsing imposible). Se descarta
+  por integridad.
+
+- **`Anthem_CTC_CallesEstacionamientoRegulado.csv`** (~3 MB) y
+  **`Anthem_CTC_Taxi_*.csv`**: datos legacy/referencia sin endpoint
+  asociado en la API. Si se quisieran exponer harían falta modelo +
+  controller + ruta + frontend nuevos; queda fuera del scope actual.
+
+- **`Anthem_CTC_PeatonesAforo.csv`** (~19 MB): **SÍ se importa** desde
+  esta iteración. Aforo horario peatonal 2051 con lat/lon WGS84 directos.
+  Modelo: `AforoPeatones`. Endpoints: `/aforo-peatones` y `/aforo-peatones/mapa`.
+
+- **`Anthem_CTC_OcupacionAparcamientosRotacionales.csv`** (~40 KB):
+  estructurado y con año 2051, pero volumen muy pequeño (poco valor BI
+  para el coste de modelo + endpoint + página frontend). Queda como
+  posible extensión.

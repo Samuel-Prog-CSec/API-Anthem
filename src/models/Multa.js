@@ -81,11 +81,16 @@ const multaSchema = new mongoose.Schema({
 
   // Geometria GeoJSON WGS84 derivada desde UTM en el importador. Necesaria
   // para queries `$near`/`$geoWithin` y el endpoint GET /multas/mapa.
+  // OJO: NO usar `default: 'Point'` en `geometry.type`. Si lo usaras,
+  // Mongoose creara automaticamente `geometry: { type: 'Point' }` sin
+  // `coordinates` en cualquier doc que no lo provea, y el indice
+  // 2dsphere fallaria silenciosamente (`Can't extract geo keys`)
+  // rompiendo todo el bulkWrite. Sin default, el subdocumento solo se
+  // crea cuando el importador lo asigna explicitamente con coordinates.
   geometry: {
     type: {
       type: String,
-      enum: [GEOMETRY_TYPES.POINT],
-      default: GEOMETRY_TYPES.POINT
+      enum: [GEOMETRY_TYPES.POINT]
     },
     coordinates: {
       type: [Number],
@@ -328,20 +333,20 @@ multaSchema.pre('save', function(next) {
 /**
  * Metodos estaticos delegados a `services/multaService.js`.
  */
-multaSchema.statics.getStatisticsOptimized = function(options) {
-  return multaService.getStatisticsOptimized(this, options);
+multaSchema.statics.obtenerEstadisticasOptimizadas = function(options) {
+  return multaService.obtenerEstadisticasOptimizadas(this, options);
 };
 
-multaSchema.statics.getLocationRankingOptimized = function(options) {
-  return multaService.getLocationRankingOptimized(this, options);
+multaSchema.statics.obtenerRankingUbicacionesOptimizado = function(options) {
+  return multaService.obtenerRankingUbicacionesOptimizado(this, options);
 };
 
-multaSchema.statics.getTemporalAnalysisOptimized = function(options) {
-  return multaService.getTemporalAnalysisOptimized(this, options);
+multaSchema.statics.obtenerAnalisisTemporalOptimizado = function(options) {
+  return multaService.obtenerAnalisisTemporalOptimizado(this, options);
 };
 
-multaSchema.statics.getDashboardMetrics = function(fechaInicio, fechaFin, options) {
-  return multaService.getDashboardMetrics(this, fechaInicio, fechaFin, options);
+multaSchema.statics.obtenerMetricasPanel = function(fechaInicio, fechaFin, options) {
+  return multaService.obtenerMetricasPanel(this, fechaInicio, fechaFin, options);
 };
 
 const Multa = mongoose.model('Multa', multaSchema);

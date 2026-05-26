@@ -35,7 +35,7 @@ const obtenerEstadisticasDistritos = asyncHandler(async (req, res) => {
     { año: DATASET_YEARS.DEFAULT_YEAR }
   );
 
-  const { districtStatistics, neighborhoodStatistics } = await Censo.getDistrictStatisticsOptimized({
+  const { districtStatistics, neighborhoodStatistics } = await Censo.obtenerEstadisticasDistritoOptimizadas({
     año,
     mes,
     incluirBarrios: incluirBarrios === 'true'
@@ -83,7 +83,7 @@ const obtenerAnalisisDemografico = asyncHandler(async (req, res) => {
     { año: DATASET_YEARS.DEFAULT_YEAR }
   );
 
-  const result = await Censo.getOptimizedDemographicAnalysis({ año, mes, distrito });
+  const result = await Censo.obtenerAnalisisDemograficoOptimizado({ año, mes, distrito });
 
   const responseData = {
     distribuciones: result.distribuciones,

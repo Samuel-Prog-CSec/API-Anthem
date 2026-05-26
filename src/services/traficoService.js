@@ -229,7 +229,7 @@ const obtenerDatosHistoricosOptimizado = async function(Model, filters = {}, agg
  * allowDiskUse:true porque el filtro tipico abarca varios dias sobre 138M
  * documentos: el sort/group puede exceder 100MB en memoria.
  */
-const getTrafficStatisticsOptimized = async function(Model, filters = {}) {
+const obtenerEstadisticasTraficoOptimizadas = async function(Model, filters = {}) {
   const [estadisticasGenerales, distribucionTipos, distribucionHoraria] = await Promise.all([
     Model.aggregate([
       { $match: filters },
@@ -411,6 +411,6 @@ const obtenerAgregadoParaMapa = async function(Model, filtros = {}) {
 module.exports = {
   obtenerAnalisisCongestionOptimizado,
   obtenerDatosHistoricosOptimizado,
-  getTrafficStatisticsOptimized,
+  obtenerEstadisticasTraficoOptimizadas,
   obtenerAgregadoParaMapa
 };

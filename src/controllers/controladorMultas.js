@@ -13,7 +13,7 @@ const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, pars
 const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { bboxDeDistrito } = require('../utils/centroidesDistritosMadrid');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, TIME_CONSTANTS, FINE_CONSTANTS, DASHBOARD_PERIODS, DEFAULT_SORT_FIELDS } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, SEVERITY_LEVELS, INFRACTION_TYPES, DATA_QUALITY_LEVELS, MONGODB_TIMEOUTS, AGGREGATION_LIMITS, TIME_CONSTANTS, FINE_CONSTANTS, DASHBOARD_PERIODS, DEFAULT_SORT_FIELDS, DATASET_YEARS } = require('../constants');
 const asyncHandler = require('../utils/asyncHandler');
 
 /**
@@ -208,7 +208,7 @@ const obtenerEstadisticasMultas = asyncHandler(async (req, res) => {
     { limit: AGGREGATION_LIMITS.MONTHLY_STATS }
   );
 
-  const result = await Multa.getStatisticsOptimized({
+  const result = await Multa.obtenerEstadisticasOptimizadas({
     startDate: startDate ? new Date(startDate) : null,
     endDate: endDate ? new Date(endDate) : null,
     groupBy,
@@ -241,7 +241,7 @@ const obtenerRankingUbicaciones = asyncHandler(async (req, res) => {
     { limit: AGGREGATION_LIMITS.TOP_RESULTS }
   );
 
-  const ranking = await Multa.getLocationRankingOptimized({
+  const ranking = await Multa.obtenerRankingUbicacionesOptimizado({
     startDate: startDate ? new Date(startDate) : null,
     endDate: endDate ? new Date(endDate) : null,
     tipoInfraccion,
@@ -270,7 +270,7 @@ const obtenerRankingUbicaciones = asyncHandler(async (req, res) => {
 const obtenerAnalisisTemporal = asyncHandler(async (req, res) => {
   const { startDate, endDate, tipoAnalisis = 'monthly' } = req.query;
 
-  const result = await Multa.getTemporalAnalysisOptimized({
+  const result = await Multa.obtenerAnalisisTemporalOptimizado({
     startDate: startDate ? new Date(startDate) : null,
     endDate: endDate ? new Date(endDate) : null,
     tipoAnalisis
@@ -299,23 +299,26 @@ const obtenerAnalisisTemporal = asyncHandler(async (req, res) => {
 const obtenerMetricasDashboard = asyncHandler(async (req, res) => {
   const { periodo = '30days' } = req.query;
 
-  // Calcular fechas segun el periodo
-  const ahora = new Date();
+  // El dataset cubre el anho 2051. Los rangos del panel se calculan con
+  // respecto al ULTIMO dia del dataset (31/12/2051), no a `new Date()`.
+  // Si usasemos la fecha actual (>=2026) todas las queries devolverian 0
+  // documentos porque las multas estan etiquetadas con fechas de 2051.
+  const fechaFin = new Date(`${DATASET_YEARS.DEFAULT_END_DATE}T23:59:59.999Z`);
   let fechaInicio;
 
   switch (periodo) {
     case '7days':
-      fechaInicio = new Date(ahora.getTime() - DASHBOARD_PERIODS.DAYS_7 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
+      fechaInicio = new Date(fechaFin.getTime() - DASHBOARD_PERIODS.DAYS_7 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
       break;
     case '90days':
-      fechaInicio = new Date(ahora.getTime() - DASHBOARD_PERIODS.DAYS_90 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
+      fechaInicio = new Date(fechaFin.getTime() - DASHBOARD_PERIODS.DAYS_90 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
       break;
     case 'year':
-      fechaInicio = new Date(ahora.getFullYear(), 0, 1);
+      fechaInicio = new Date(`${DATASET_YEARS.DEFAULT_START_DATE}T00:00:00.000Z`);
       break;
     case '30days':
     default:
-      fechaInicio = new Date(ahora.getTime() - DASHBOARD_PERIODS.DAYS_30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
+      fechaInicio = new Date(fechaFin.getTime() - DASHBOARD_PERIODS.DAYS_30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
       break;
   }
 
@@ -325,7 +328,7 @@ const obtenerMetricasDashboard = asyncHandler(async (req, res) => {
     metricasGenerales,
     topInfracciones,
     evolucionDiaria
-  } = await Multa.getDashboardMetrics(fechaInicio, ahora);
+  } = await Multa.obtenerMetricasPanel(fechaInicio, fechaFin);
 
   const metricsGeneral = metricasGenerales;
 
@@ -333,7 +336,7 @@ const obtenerMetricasDashboard = asyncHandler(async (req, res) => {
     periodo: {
       descripcion: periodo,
       fechaInicio,
-      fechaFin: ahora
+      fechaFin
     },
     metricas: {
       general: metricsGeneral || {

@@ -91,6 +91,26 @@ const generateStatsCacheKey = (url, query = {}) => {
 };
 
 /**
+ * Genera una clave de caché determinista a partir de un prefijo descriptivo
+ * (recurso + operacion) y la query de la request.
+ *
+ * Sustituye al antipatron `${prefijo}:${JSON.stringify(req.query)}` que se
+ * usaba en las rutas: ese formato no es determinista (el orden de las
+ * claves del query parseado puede variar) y produce misses de cache para
+ * queries logicamente identicas. Internamente se usa la misma logica que
+ * `generateSecureCacheKey` (sort alfabetico + hash SHA-256), garantizando
+ * que `?a=1&b=2` y `?b=2&a=1` colisionen en la misma entrada.
+ *
+ * @param {string} prefix - Prefijo descriptivo, p.ej. `accidents:list`.
+ * @param {Object} query - `req.query` de Express.
+ * @returns {string} Clave en formato `${prefix}:${hash16}`.
+ */
+const generatePrefixedCacheKey = (prefix, query = {}) => {
+  const hash = generateSecureCacheKey('GET', prefix, query).split(':')[2];
+  return `${prefix}:${hash}`;
+};
+
+/**
  * Valida si una clave de caché tiene el formato correcto
  *
  * @param {string} key - Clave de caché a validar
@@ -112,5 +132,6 @@ module.exports = {
   generateSecureCacheKey,
   generateCacheKeyFromRequest,
   generateStatsCacheKey,
+  generatePrefixedCacheKey,
   isValidCacheKey
 };

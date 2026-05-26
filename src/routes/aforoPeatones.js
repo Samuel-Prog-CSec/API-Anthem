@@ -1,21 +1,22 @@
 /**
- * Rutas de Aforo de Bicicletas
+ * Rutas de Aforo de Peatones
  *
- * Validaciones express-validator inline extraidas a
- * `validators/validadorAforoBicicletas.js`.
+ * Estructura paralela a `aforoBicicletas.js`. Las validaciones
+ * express-validator viven en `validators/validadorAforoPeatones.js`.
  */
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { RATE_LIMITS, HTTP_STATUS } = require('../constants');
 
-const bikeTrafficController = require('../controllers/controladorAforoBicicletas');
+const pedestrianTrafficController = require('../controllers/controladorAforoPeatones');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest } = require('../middleware/security');
 const { etagMiddleware } = require('../middleware/etag');
 const logger = require('../config/logger');
 const { validatePagination, validateDateRange } = require('../middleware/validation');
 const { cacheMiddleware } = require('../middleware/cache');
+const { generatePrefixedCacheKey } = require('../utils/cacheKeyGenerator');
 
 const {
   validarObtenerConteos,
@@ -23,7 +24,7 @@ const {
   validarComparativaEstaciones,
   validarTendenciasDiarias,
   validarDatosEstacion
-} = require('../validators/validadorAforoBicicletas');
+} = require('../validators/validadorAforoPeatones');
 
 const router = express.Router();
 
@@ -31,13 +32,20 @@ const generalLimit = rateLimit({
   windowMs: RATE_LIMITS.GENERAL.WINDOW_MS,
   max: RATE_LIMITS.GENERAL.MAX_REQUESTS,
   message: {
-    error: 'Demasiadas consultas de aforo de bicicletas. Intente nuevamente en 15 minutos.',
+    error: 'Demasiadas consultas de aforo de peatones. Intente nuevamente en 15 minutos.',
     retryAfter: RATE_LIMITS.GENERAL.RETRY_AFTER
   },
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => req.user && req.user.role === 'admin'
 });
+
+// Cache reutiliza la instancia configurada para trafico (aforo horario
+// peatonal tiene perfil de cardinalidad y volatilidad similar al de
+// bicicletas y trafico vehicular). Si se observase desplazamiento de
+// caches o invalidaciones cruzadas se podria anadir una instancia
+// dedicada en `middleware/cache.js`.
+const CACHE_BUCKET = 'traffic';
 
 router.get('/',
   generalLimit,
@@ -46,8 +54,8 @@ router.get('/',
   validatePagination,
   validarObtenerConteos,
   validateRequest,
-  cacheMiddleware('bikeTraffic'),
-  bikeTrafficController.obtenerConteos
+  cacheMiddleware(CACHE_BUCKET, (req) => generatePrefixedCacheKey('pedestrian:list', req.query)),
+  pedestrianTrafficController.obtenerConteos
 );
 
 router.get('/estadisticas',
@@ -55,8 +63,8 @@ router.get('/estadisticas',
   authenticate,
   ...validateDateRange(),
   etagMiddleware,
-  cacheMiddleware('bikeTraffic'),
-  bikeTrafficController.obtenerEstadisticas
+  cacheMiddleware(CACHE_BUCKET, (req) => generatePrefixedCacheKey('pedestrian:stats', req.query)),
+  pedestrianTrafficController.obtenerEstadisticas
 );
 
 router.get('/distribucion-horaria',
@@ -66,8 +74,8 @@ router.get('/distribucion-horaria',
   validateRequest,
   ...validateDateRange(),
   etagMiddleware,
-  cacheMiddleware('bikeTraffic'),
-  bikeTrafficController.obtenerDistribucionHoraria
+  cacheMiddleware(CACHE_BUCKET, (req) => generatePrefixedCacheKey('pedestrian:hourly', req.query)),
+  pedestrianTrafficController.obtenerDistribucionHoraria
 );
 
 router.get('/estaciones',
@@ -77,8 +85,8 @@ router.get('/estaciones',
   validateRequest,
   ...validateDateRange(),
   etagMiddleware,
-  cacheMiddleware('bikeTraffic'),
-  bikeTrafficController.obtenerComparativaEstaciones
+  cacheMiddleware(CACHE_BUCKET, (req) => generatePrefixedCacheKey('pedestrian:stations', req.query)),
+  pedestrianTrafficController.obtenerComparativaEstaciones
 );
 
 router.get('/tendencias/diario',
@@ -87,8 +95,8 @@ router.get('/tendencias/diario',
   validarTendenciasDiarias,
   validateRequest,
   ...validateDateRange(),
-  cacheMiddleware('bikeTraffic'),
-  bikeTrafficController.obtenerTendenciasDiarias
+  cacheMiddleware(CACHE_BUCKET, (req) => generatePrefixedCacheKey('pedestrian:trends-daily', req.query)),
+  pedestrianTrafficController.obtenerTendenciasDiarias
 );
 
 router.get('/estacion/:identificador',
@@ -97,8 +105,8 @@ router.get('/estacion/:identificador',
   validarDatosEstacion,
   validateRequest,
   ...validateDateRange(),
-  cacheMiddleware('bikeTraffic'),
-  bikeTrafficController.obtenerDatosEstacion
+  cacheMiddleware(CACHE_BUCKET, (req) => generatePrefixedCacheKey(`pedestrian:station:${req.params.identificador}`, req.query)),
+  pedestrianTrafficController.obtenerDatosEstacion
 );
 
 router.get('/mapa',
@@ -106,8 +114,8 @@ router.get('/mapa',
   authenticate,
   // `validateDateRange` es factory: hay que llamarla con parentesis para expandir el array
   ...validateDateRange(),
-  cacheMiddleware('bikeTraffic'),
-  bikeTrafficController.obtenerMapaAforo
+  cacheMiddleware(CACHE_BUCKET, (req) => generatePrefixedCacheKey('pedestrian:mapa', req.query)),
+  pedestrianTrafficController.obtenerMapaAforo
 );
 
 router.use((req, res, next) => {
@@ -121,7 +129,7 @@ router.use((req, res, next) => {
       duration: `${duration}ms`,
       userId: req.user?.id,
       query: Object.keys(req.query).length > 0 ? req.query : undefined
-    }, 'Consulta de aforo de bicicletas completada');
+    }, 'Consulta de aforo de peatones completada');
   });
   next();
 });
@@ -133,7 +141,7 @@ router.use((error, req, res, _next) => {
     path: req.path,
     method: req.method,
     userId: req.user?.id
-  }, 'Error en rutas de aforo de bicicletas');
+  }, 'Error en rutas de aforo de peatones');
 
   if (error.status || error.statusCode) {
     return res.status(error.status || error.statusCode).json({
@@ -144,7 +152,7 @@ router.use((error, req, res, _next) => {
 
   res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json({
     success: false,
-    message: 'Error interno en el procesamiento de datos de aforo de bicicletas',
+    message: 'Error interno en el procesamiento de datos de aforo de peatones',
     requestId: req.id || Date.now()
   });
 });

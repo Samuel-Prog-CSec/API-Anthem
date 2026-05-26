@@ -227,8 +227,8 @@ function parseCensusRow(row, sourceFile, rowIndex) {
 
   const { mes, año } = dateInfo;
 
-  // Crear fecha del censo
-  const fechaCenso = new Date(año, mes - 1, 1);
+  // Crear fecha del censo (UTC para evitar desfases de TZ)
+  const fechaCenso = new Date(Date.UTC(año, mes - 1, 1));
 
   // Extraer datos poblacionales usando helpers
   const españolesHombres = parseInteger(row.EspanolesHombres, 0);
@@ -261,15 +261,20 @@ function parseCensusRow(row, sourceFile, rowIndex) {
     return null;
   }
 
-  // Validar código de distrito
-  const codigoDistrito = parseInteger(row.COD_DISTRITO, 1);
+  // Validar código de distrito.
+  // Soporte de BOM UTF-8: si el CSV (ej. Censo_082051) tiene BOM y se lee
+  // como latin1, la primera columna queda como "ï»¿COD_DISTRITO". Buscamos
+  // por sufijo para tolerar ambos formatos.
+  const distritoKey = Object.keys(row).find(k => k.endsWith('COD_DISTRITO'));
+  const codDistritoRaw = distritoKey ? row[distritoKey] : row.COD_DISTRITO;
+  const codigoDistrito = parseInteger(codDistritoRaw, 1);
   if (codigoDistrito < 1 || codigoDistrito > 99) {
     const razon = REJECTION_REASONS.CODIGO_DISTRITO_INVALIDO;
-    const nivel = rejectionTracker.shouldLogWarn(razon, { codigoDistrito: row.COD_DISTRITO }) ? 'warn' : 'debug';
+    const nivel = rejectionTracker.shouldLogWarn(razon, { codigoDistrito: codDistritoRaw }) ? 'warn' : 'debug';
     logger[nivel]({
       fila: rowIndex,
       razon,
-      datosOriginales: { codigoDistrito: row.COD_DISTRITO }
+      datosOriginales: { codigoDistrito: codDistritoRaw }
     }, 'Fila rechazada: codigo de distrito invalido');
     return null;
   }

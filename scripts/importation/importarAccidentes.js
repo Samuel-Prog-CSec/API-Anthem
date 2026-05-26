@@ -398,7 +398,12 @@ function parsearFecha(fechaStr, rowIndex) {
     throw new Error(REJECTION_REASONS.FECHA_FUERA_RANGO);
   }
 
-  const date = new Date(year, month - 1, day);
+  // Usar Date.UTC para evitar desfase de TZ del runtime: el constructor
+  // multiparam `new Date(year, month, day)` interpreta los componentes
+  // en zona local (en Madrid podia desplazar la fecha 1-2h hacia atras y
+  // dejar `getDate()` en el dia anterior). Date.UTC fija siempre UTC,
+  // que es lo que esperan las queries posteriores (modelos sin tz).
+  const date = new Date(Date.UTC(year, month - 1, day));
 
   if (isNaN(date.getTime())) {
     const razon = REJECTION_REASONS.FECHA_FORMATO_INVALIDO;
@@ -415,9 +420,11 @@ function parsearFecha(fechaStr, rowIndex) {
   // la convertimos al ultimo dia existente del mismo mes. En este dataset ficticio
   // las "fechas calendario-imposibles" se interpretan como un desajuste menor del
   // generador de datos, no como dato corrupto. Se conserva mes y año intactos.
-  if (date.getMonth() !== month - 1 || date.getFullYear() !== year) {
-    const ultimoDia = new Date(year, month, 0).getDate();
-    const dateCoercida = new Date(year, month - 1, ultimoDia);
+  if (date.getUTCMonth() !== month - 1 || date.getUTCFullYear() !== year) {
+    // El truco `Date.UTC(year, month, 0)` devuelve el ultimo dia del mes
+    // (month-1) en UTC, evitando ambiguedades de TZ.
+    const ultimoDia = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const dateCoercida = new Date(Date.UTC(year, month - 1, ultimoDia));
     rejectionTracker.coerce('FECHA_COERCIDA_AL_ULTIMO_DIA_DEL_MES', {
       fila: rowIndex,
       original: fechaStr,
@@ -563,7 +570,13 @@ function validarYTransformarFila(row, rowIndex) {
   // sexo, cod_lesividad, lesividad, coordenada_x_utm, coordenada_y_utm,
   // positiva_alcohol, positiva_droga
 
-  const numExpedienteRaw = row.num_expediente || row['\uFEFFnum_expediente'];
+  // El CSV puede traer un BOM UTF-8 (EF BB BF) que al leerse con encoding
+  // latin1 se convierte en "\u00EF\u00BB\u00BF" (3 chars), por lo que la cabecera real
+  // es "\u00EF\u00BB\u00BFnum_expediente" en vez de "num_expediente". Como no podemos
+  // garantizar el formato exacto del BOM en runs futuros, buscamos la
+  // clave por sufijo (cualquier key cuyo nombre termine en "num_expediente").
+  const expedienteKey = Object.keys(row).find(k => k.endsWith('num_expediente'));
+  const numExpedienteRaw = expedienteKey ? row[expedienteKey] : undefined;
   const numeroExpediente = numExpedienteRaw?.toString().trim();
   if (!numeroExpediente) {
     const razon = REJECTION_REASONS.NUMERO_EXPEDIENTE_FALTANTE;

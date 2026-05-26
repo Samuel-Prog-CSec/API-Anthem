@@ -176,8 +176,8 @@ function parsearFilaCalidadAire(row, _sourceFile, _rowIndex) {
     throw new Error(`${REJECTION_REASONS.DATE_OUT_OF_RANGE}: ano=${año}, mes=${mes}, dia=${dia}`);
   }
 
-  // Crear fecha
-  const fecha = new Date(año, mes - 1, dia);
+  // Crear fecha en UTC (evita desfases de zona horaria del runtime)
+  const fecha = new Date(Date.UTC(año, mes - 1, dia));
   if (isNaN(fecha.getTime())) {
     throw new Error(`${REJECTION_REASONS.INVALID_DATE}: ano=${año}, mes=${mes}, dia=${dia}`);
   }

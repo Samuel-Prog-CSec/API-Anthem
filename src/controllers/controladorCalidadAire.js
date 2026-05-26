@@ -103,7 +103,7 @@ const obtenerDatosCalidadAire = asyncHandler(async (req, res, next) => {
     filters: {
       applied: Object.keys(filters).length > 0 ? filters : null,
       available: {
-        magnitudes: AirQuality.getMagnitudes()
+        magnitudes: AirQuality.obtenerMagnitudes()
       }
     },
     performance: airQualityFacetFallback ? {
@@ -134,11 +134,11 @@ const obtenerEstadisticasCalidadAire = asyncHandler(async (req, res) => {
   const filters = buildFilters(req.query, filterConfig);
 
   // Llamar al metodo optimizado del modelo
-  const result = await AirQuality.getStatisticsOptimized(filters, groupBy);
+  const result = await AirQuality.obtenerEstadisticasOptimizadas(filters, groupBy);
 
   const responseData = {
     ...result,
-    magnitudes: AirQuality.getMagnitudes()
+    magnitudes: AirQuality.obtenerMagnitudes()
   };
 
   res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Estadisticas de calidad de aire obtenidas exitosamente'));
@@ -157,7 +157,7 @@ const obtenerTendenciasCalidadAire = asyncHandler(async (req, res, next) => {
   }
 
   // Llamar al metodo optimizado del modelo
-  const result = await AirQuality.getTrendsOptimized(
+  const result = await AirQuality.obtenerTendenciasOptimizadas(
     provincia,
     municipio,
     magnitud,
@@ -178,7 +178,7 @@ const obtenerTendenciasCalidadAire = asyncHandler(async (req, res, next) => {
       provincia: provNum,
       municipio: munNum,
       magnitud: magNum,
-      magnitudDescripcion: AirQuality.getMagnitudes()[magNum]
+      magnitudDescripcion: AirQuality.obtenerMagnitudes()[magNum]
     }
   };
 

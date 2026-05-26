@@ -308,28 +308,28 @@ noiseMonitoringSchema.statics.LIMITES_NORMATIVOS = NOISE_LIMITS;
  * `Ruido.metodoX(...)`. Asi los controllers no necesitan importar el service
  * directamente y se conserva la convencion de Mongoose.
  */
-noiseMonitoringSchema.statics.getStatisticsOptimized = function(filters, groupBy) {
-  return ruidoService.getStatisticsOptimized(this, filters, groupBy);
+noiseMonitoringSchema.statics.obtenerEstadisticasOptimizadas = function(filters, groupBy) {
+  return ruidoService.obtenerEstadisticasOptimizadas(this, filters, groupBy);
 };
 
-noiseMonitoringSchema.statics.getRankingOptimized = function(filters, sortBy, limit) {
-  return ruidoService.getRankingOptimized(this, filters, sortBy, limit);
+noiseMonitoringSchema.statics.obtenerRankingOptimizado = function(filters, sortBy, limit) {
+  return ruidoService.obtenerRankingOptimizado(this, filters, sortBy, limit);
 };
 
-noiseMonitoringSchema.statics.calculateRegulatoryCompliance = function(niveles) {
-  return ruidoService.calculateRegulatoryCompliance(niveles);
+noiseMonitoringSchema.statics.calcularCumplimientoNormativo = function(niveles) {
+  return ruidoService.calcularCumplimientoNormativo(niveles);
 };
 
-noiseMonitoringSchema.statics.getStationComparison = function(options) {
-  return ruidoService.getStationComparison(this, options);
+noiseMonitoringSchema.statics.obtenerComparativaEstaciones = function(options) {
+  return ruidoService.obtenerComparativaEstaciones(this, options);
 };
 
-noiseMonitoringSchema.statics.getTemporalTrends = function(options) {
-  return ruidoService.getTemporalTrends(this, options);
+noiseMonitoringSchema.statics.obtenerTendenciasTemporales = function(options) {
+  return ruidoService.obtenerTendenciasTemporales(this, options);
 };
 
-noiseMonitoringSchema.statics.getComplianceAnalysisByZone = function(options) {
-  return ruidoService.getComplianceAnalysisByZone(this, options);
+noiseMonitoringSchema.statics.obtenerAnalisisCumplimientoPorZona = function(options) {
+  return ruidoService.obtenerAnalisisCumplimientoPorZona(this, options);
 };
 
 // Transformacion JSON: ocultar metadatos internos en respuestas

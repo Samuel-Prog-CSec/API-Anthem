@@ -516,8 +516,9 @@ async function procesarArchivoTrafico(filePath) {
           // Procesar lote cuando alcance el tamaño configurado
           if (batch.length >= BATCH_SIZE) {
             stream.pause();
-            const currentBatch = [...batch];
-            batch.length = 0;
+            // splice(0) hace snapshot + vaciado atomico en una sola
+            // operacion (mas claro que [...batch] + batch.length=0).
+            const currentBatch = batch.splice(0);
 
             processBatch(currentBatch)
               .then(() => {

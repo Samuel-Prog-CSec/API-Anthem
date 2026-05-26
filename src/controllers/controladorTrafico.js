@@ -266,7 +266,7 @@ const obtenerEstadisticasTrafico = asyncHandler(async (req, res) => {
   const filters = buildFilters(req.query, filterConfig);
 
   // Llamar al metodo optimizado del modelo (3 agregaciones en paralelo)
-  const statistics = await Traffic.getTrafficStatisticsOptimized(filters);
+  const statistics = await Traffic.obtenerEstadisticasTraficoOptimizadas(filters);
 
   const responseData = {
     data: statistics,

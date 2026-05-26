@@ -394,7 +394,7 @@ Las agregaciones complejas escritas directamente en controllers causaban:
 
 ```javascript
 // ❌ noiseMonitoringController.js - 50 líneas de agregación
-const getStationComparison = async (req, res, next) => {
+const obtenerComparativaEstaciones = async (req, res, next) => {
   const pipeline = [
     { $match: { fecha: { $gte: startDate, $lte: endDate } } },
     {
@@ -417,7 +417,7 @@ const getStationComparison = async (req, res, next) => {
 
 ```javascript
 // ✅ models/NoiseMonitoring.js
-noiseMonitoringSchema.statics.getStationComparison =
+noiseMonitoringSchema.statics.obtenerComparativaEstaciones =
   async function(startDate, endDate, limit = 20) {
     const pipeline = [
       { $match: { fecha: { $gte: startDate, $lte: endDate } } },
@@ -435,11 +435,11 @@ noiseMonitoringSchema.statics.getStationComparison =
     return this.aggregate(pipeline);
   };
 
-// ✅ controllers/noiseMonitoringController.js - Limpio y legible
-const getStationComparison = async (req, res, next) => {
+// ✅ controllers/controladorRuido.js - Limpio y legible
+const obtenerComparativaEstaciones = async (req, res, next) => {
   const { startDate, endDate, limit } = req.query;
 
-  const estaciones = await NoiseMonitoring.getStationComparison(
+  const estaciones = await NoiseMonitoring.obtenerComparativaEstaciones(
     new Date(startDate),
     new Date(endDate),
     parseInt(limit) || 20
@@ -454,7 +454,7 @@ const getStationComparison = async (req, res, next) => {
 
 **Ventajas:**
 - **Reutilización:** Método usado en múltiples controllers
-- **Testabilidad:** Podemos testear `getStationComparison()` de forma aislada
+- **Testabilidad:** Podemos testear `obtenerComparativaEstaciones()` de forma aislada
 - **Mantenibilidad:** Cambios en la agregación en un solo lugar
 - **Legibilidad:** Controllers más cortos y enfocados en HTTP
 
@@ -464,13 +464,13 @@ Hemos creado 7 métodos estáticos en 3 modelos:
 
 | Modelo | Método | Propósito |
 |--------|--------|-----------|
-| NoiseMonitoring | `getStationComparison()` | Comparar estaciones de ruido |
-| NoiseMonitoring | `getTemporalTrends()` | Tendencias temporales |
-| NoiseMonitoring | `getComplianceAnalysisByZone()` | Análisis de cumplimiento |
-| Container | `getDensityAnalysisByDistrict()` | Densidad de contenedores |
-| Container | `getHeatmapData()` | Datos para mapa de calor |
-| BikeAvailability | `getUsageTrends()` | Tendencias de uso |
-| BikeAvailability | `getDemandPrediction()` | Predicción de demanda |
+| NoiseMonitoring | `obtenerComparativaEstaciones()` | Comparar estaciones de ruido |
+| NoiseMonitoring | `obtenerTendenciasTemporales()` | Tendencias temporales |
+| NoiseMonitoring | `obtenerAnalisisCumplimientoPorZona()` | Análisis de cumplimiento |
+| Contenedor | `obtenerAnalisisDensidadPorDistrito()` | Densidad de contenedores |
+| Contenedor | `obtenerDatosMapaCalor()` | Datos para mapa de calor |
+| DisponibilidadBicicletas | `obtenerTendenciasUso()` | Tendencias de uso |
+| DisponibilidadBicicletas | `obtenerPrediccionDemanda()` | Predicción de demanda |
 
 ### Resultados obtenidos
 
@@ -1172,7 +1172,7 @@ trafficSchema.statics.getHistoricalDataOptimized = async function(filters, aggre
 };
 
 // Census.js - Estadísticas demográficas
-censusSchema.statics.getDistrictStatisticsOptimized = async function(filters) {
+censusSchema.statics.obtenerEstadisticasDistritoOptimizadas = async function(filters) {
   return this.aggregate(pipeline)
     .allowDiskUse(true)  // +200K documentos por mes
     .maxTimeMS(10000);

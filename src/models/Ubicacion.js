@@ -270,7 +270,7 @@ locationSchema.pre('save', function(next) {
  *
  * @example
  * // Búsqueda geoespacial con filtros
- * const resultado = await Location.findWithOptions({
+ * const resultado = await Location.buscarConOpciones({
  *   filters: { tipo: 'punto_trafico', activo: true },
  *   geoQuery: { coordinates: [-3.7038, 40.4168], maxDistance: 1000 },
  *   sort: { nombre: 1 },
@@ -281,13 +281,13 @@ locationSchema.pre('save', function(next) {
  *
  * @example
  * // Búsqueda simple sin geolocalización
- * const resultado = await Location.findWithOptions({
+ * const resultado = await Location.buscarConOpciones({
  *   filters: { activo: true },
  *   sort: { nombre: 1 },
  *   pagination: { skip: 0, limit: 50 }
  * });
  */
-locationSchema.statics.findWithOptions = async function(options) {
+locationSchema.statics.buscarConOpciones = async function(options) {
   const {
     filters = {},
     geoQuery = null,

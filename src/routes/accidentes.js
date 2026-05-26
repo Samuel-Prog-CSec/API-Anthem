@@ -15,6 +15,7 @@ const { USER_ROLES, RATE_LIMITS, DATE_RANGE_LIMITS } = require('../constants');
 const accidentController = require('../controllers/controladorAccidentes');
 const { authenticate } = require('../middleware/auth');
 const { cacheMiddleware } = require('../middleware/cache');
+const { generatePrefixedCacheKey } = require('../utils/cacheKeyGenerator');
 const { validateRequest } = require('../middleware/security');
 const { etagMiddleware } = require('../middleware/etag');
 const logger = require('../config/logger');
@@ -56,7 +57,7 @@ router.get('/',
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   validatePagination,
   validateAccidentFilters,
-  cacheMiddleware('statistics', (req) => `accidents:list:${JSON.stringify(req.query)}`),
+  cacheMiddleware('statistics', (req) => generatePrefixedCacheKey('accidents:list', req.query)),
   accidentController.obtenerAccidentes
 );
 
@@ -79,7 +80,7 @@ router.get('/estadisticas',
   validateDistrictQuery,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   etagMiddleware,
-  cacheMiddleware('statistics', (req) => `accidents:stats:${JSON.stringify(req.query)}`),
+  cacheMiddleware('statistics', (req) => generatePrefixedCacheKey('accidents:stats', req.query)),
   accidentController.obtenerEstadisticasAccidentes
 );
 
@@ -90,7 +91,7 @@ router.get('/comparativa-distritos',
   generalLimit,
   authenticate,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
-  cacheMiddleware('statistics', (req) => `accidents:district-comp:${JSON.stringify(req.query)}`),
+  cacheMiddleware('statistics', (req) => generatePrefixedCacheKey('accidents:district-comp', req.query)),
   accidentController.obtenerComparativaDistritos
 );
 

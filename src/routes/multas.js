@@ -22,6 +22,7 @@ const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { etagMiddleware } = require('../middleware/etag');
 const { cacheMiddleware } = require('../middleware/cache');
+const { generatePrefixedCacheKey } = require('../utils/cacheKeyGenerator');
 const {
   validarObtenerMultas,
   validarEstadisticasMultas,
@@ -44,7 +45,7 @@ router.get('/',
   authenticate,
   ...validarObtenerMultas,
   validateRequest,
-  cacheMiddleware('statistics', (req) => `fines:list:${JSON.stringify(req.query)}`),
+  cacheMiddleware('statistics', (req) => generatePrefixedCacheKey('fines:list', req.query)),
   obtenerMultas
 );
 
@@ -116,7 +117,7 @@ router.get('/mapa',
   authenticate,
   validarMapaMultas,
   validateRequest,
-  cacheMiddleware('fines', (req) => `fines:mapa:${JSON.stringify(req.query)}`),
+  cacheMiddleware('fines', (req) => generatePrefixedCacheKey('fines:mapa', req.query)),
   obtenerMapaMultas
 );
 

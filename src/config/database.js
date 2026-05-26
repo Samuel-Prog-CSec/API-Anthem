@@ -25,18 +25,57 @@ let poolMonitorIntervalId = null;
  */
 const connectDB = async (uri) => {
   try {
+    // GUARDA ANTI-DOCKER / ANTI-DUAL-STACK
+    //
+    // Historico: en Windows con MongoDB nativo y Docker simultaneos, usar
+    // `localhost:27017` provocaba que la app conectase al contenedor (via
+    // IPv6 ::1 -> port forwarding del runtime) mientras MongoDB Compass
+    // (que usa 127.0.0.1) veia el nativo. Resultado: la app reportaba BD
+    // vacia y los importadores rellenaban la base equivocada.
+    //
+    // Para evitar regresion, detectamos el patron y avisamos en arranque.
+    // No abortamos para no romper despliegues legitimos donde `localhost`
+    // o `host.docker.internal` SI sean correctos (Docker compose, K8s).
+    if (/mongodb:\/\/(localhost|host\.docker\.internal)(:|\/)/i.test(uri)) {
+      dbLogger.warn({
+        uri: uri.replace(/\/\/[^@]+@/, '//<credentials>@'),
+        recomendacion: 'Usar 127.0.0.1 en local para evitar conflictos IPv4/IPv6 con Docker'
+      }, 'DATABASE_URI usa `localhost` o `host.docker.internal`. En desarrollo local sobre Windows esto puede acabar conectando al contenedor en vez del MongoDB nativo. Si es intencional ignorar este aviso.');
+    }
+
+    // Configuracion global de Mongoose antes de la conexion.
+    // strictQuery: descarta campos no declarados en el schema en las queries
+    // (.find, .updateOne, etc.). En Mongoose 7+ el default ya es true, pero
+    // lo hacemos explicito para que sea obvio en code review y robusto frente
+    // a cambios de default en futuras versiones.
+    mongoose.set('strictQuery', true);
+
     const esScriptMode = process.env.SCRIPT_MODE === 'true';
     const options = {
       // Configuraciones optimizadas de conexión para alto rendimiento
-      maxPoolSize: esScriptMode ? 50 : 20, // Mas slots paralelos durante imports masivos
-      minPoolSize: 5, // Mantener algunas conexiones calientes
-      maxIdleTimeMS: 60000, // Mantener conexiones inactivas hasta 60s
-      serverSelectionTimeoutMS: 5000, // Tiempo máximo para intentar conectar
-      socketTimeoutMS: 60000, // Tiempo máximo que una conexión permanece abierta
+      // Pool calibrado para servidor long-running OLTP con algo de OLAP
+      // (estadisticas + endpoints /mapa). En scripts se amplia para soportar
+      // 11 importadores en paralelo durante la fase 2.
+      maxPoolSize: esScriptMode ? 50 : 20,
+      minPoolSize: 5, // Pre-warm 5 conexiones para evitar latencia en arranque
+      maxIdleTimeMS: 60000, // Reciclar conexiones inactivas tras 60s
+      serverSelectionTimeoutMS: 5000, // Failover rapido si BD no responde
+      socketTimeoutMS: 60000, // Permite agregaciones pesadas (mapas, stats)
 
       // Configuraciones adicionales de performance
       connectTimeoutMS: 10000, // Timeout de conexión inicial (10s)
       heartbeatFrequencyMS: 10000, // Frecuencia de heartbeat para detectar fallos (10s)
+
+      // Comportamiento de buffering
+      // bufferCommands=true (default Mongoose): si la conexion se cae, las
+      // queries se encolan hasta que vuelve. En desarrollo es conveniente.
+      // En produccion seria preferible false para fallar rapido, pero
+      // mantenemos default por compatibilidad con el ciclo de import + dev.
+      bufferCommands: true,
+
+      // Identificador de la aplicacion en logs/metrics de MongoDB.
+      // Util cuando varios servicios apuntan al mismo cluster.
+      appName: esScriptMode ? 'API-Anthem-scripts' : 'API-Anthem-server',
     };
 
     // Conectar a MongoDB

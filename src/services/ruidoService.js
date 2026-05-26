@@ -34,7 +34,7 @@ const LIMITES_NORMATIVOS = NOISE_LIMITS;
  * @param {String} [groupBy='station'] - Agrupacion: 'station', 'month', 'year'.
  * @returns {Promise<{estadisticas:Array, resumen:Object|null}>}
  */
-const getStatisticsOptimized = async function(Model, filters, groupBy = 'station') {
+const obtenerEstadisticasOptimizadas = async function(Model, filters, groupBy = 'station') {
   const matchStage = { ...filters, 'dataQuality.hasValidData': true };
 
   const groupByConfig = {
@@ -141,7 +141,7 @@ const getStatisticsOptimized = async function(Model, filters, groupBy = 'station
 /**
  * Obtener ranking de estaciones por nivel de ruido.
  */
-const getRankingOptimized = function(Model, filters, sortBy = 'laeq24', limit = 20) {
+const obtenerRankingOptimizado = function(Model, filters, sortBy = 'laeq24', limit = 20) {
   const matchStage = { ...filters, 'dataQuality.hasValidData': true };
 
   const sortField = {
@@ -176,7 +176,7 @@ const getRankingOptimized = function(Model, filters, sortBy = 'laeq24', limit = 
 /**
  * Calcular cumplimiento normativo para un registro puntual.
  */
-const calculateRegulatoryCompliance = function(niveles) {
+const calcularCumplimientoNormativo = function(niveles) {
   const { DIURNO, VESPERTINO, NOCTURNO } = LIMITES_NORMATIVOS;
   return {
     diurno: niveles.nivelDiurno <= DIURNO,
@@ -192,7 +192,7 @@ const calculateRegulatoryCompliance = function(niveles) {
 /**
  * Comparacion entre estaciones de monitorizacion.
  */
-const getStationComparison = function(Model, options) {
+const obtenerComparativaEstaciones = function(Model, options) {
   const { stations, startDate, endDate, metric = 'laeq24' } = options;
 
   if (!stations || !Array.isArray(stations) || stations.length === 0) {
@@ -253,7 +253,7 @@ const getStationComparison = function(Model, options) {
 /**
  * Analisis de tendencias temporales de ruido.
  */
-const getTemporalTrends = function(Model, options) {
+const obtenerTendenciasTemporales = function(Model, options) {
   const { nmt, startDate, endDate, groupBy = 'month', metric = 'laeq24' } = options;
 
   if (!startDate || !endDate) {
@@ -323,7 +323,7 @@ const getTemporalTrends = function(Model, options) {
 /**
  * Analisis de cumplimiento normativo por zona.
  */
-const getComplianceAnalysisByZone = async function(Model, options) {
+const obtenerAnalisisCumplimientoPorZona = async function(Model, options) {
   const { startDate, endDate, stations } = options;
 
   if (!startDate || !endDate) {
@@ -398,10 +398,10 @@ const getComplianceAnalysisByZone = async function(Model, options) {
 
 module.exports = {
   LIMITES_NORMATIVOS,
-  getStatisticsOptimized,
-  getRankingOptimized,
-  calculateRegulatoryCompliance,
-  getStationComparison,
-  getTemporalTrends,
-  getComplianceAnalysisByZone
+  obtenerEstadisticasOptimizadas,
+  obtenerRankingOptimizado,
+  calcularCumplimientoNormativo,
+  obtenerComparativaEstaciones,
+  obtenerTendenciasTemporales,
+  obtenerAnalisisCumplimientoPorZona
 };

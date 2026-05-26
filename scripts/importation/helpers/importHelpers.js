@@ -317,6 +317,36 @@ function parseNumber(value, defaultValue = 0) {
 }
 
 /**
+ * Parsear numero con formato espanol clasico: punto como separador de
+ * miles + coma como decimal. Pensado para datos municipales tipo
+ * "1.085,25" -> 1085.25. A diferencia de `parseNumber`, que solo
+ * reemplaza una coma, esta variante elimina TODOS los puntos antes de
+ * convertir la coma en punto decimal.
+ *
+ *   parsearNumeroFormatoEspanol('1.085,25') -> 1085.25
+ *   parsearNumeroFormatoEspanol('1,5')      -> 1.5
+ *   parsearNumeroFormatoEspanol('1085')     -> 1085
+ *   parsearNumeroFormatoEspanol('')         -> defaultValue
+ *   parsearNumeroFormatoEspanol('abc')      -> defaultValue
+ *
+ * @param {string|number} value
+ * @param {number} [defaultValue=0]
+ * @returns {number}
+ */
+function parsearNumeroFormatoEspanol(value, defaultValue = 0) {
+  if (value === null || value === undefined || value === '') {
+    return defaultValue;
+  }
+
+  const normalized = value.toString()
+    .replace(/\./g, '')
+    .replace(/,/g, '.');
+
+  const parsed = parseFloat(normalized);
+  return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
  * Variante estricta de `parseNumber`. A diferencia del permisivo, exige
  * que el string completo sea un numero valido tras limpieza:
  *
@@ -510,6 +540,7 @@ module.exports = {
   MAX_SAMPLES_POR_RAZON,
   parseNumber,
   parseNumeroEstricto,
+  parsearNumeroFormatoEspanol,
   parseInteger,
   parsearFechaHoraUTC,
   cleanString,

@@ -13,7 +13,7 @@ const { MONGODB_TIMEOUTS, AGGREGATION_LIMITS } = require('../constants');
 /**
  * Estadisticas optimizadas con paralelizacion via Promise.all.
  */
-const getStatisticsOptimized = async function(Model, options) {
+const obtenerEstadisticasOptimizadas = async function(Model, options) {
   const { startDate = null, endDate = null, groupBy = 'month', limit = 12 } = options;
 
   const matchStage = {};
@@ -121,7 +121,7 @@ const getStatisticsOptimized = async function(Model, options) {
 /**
  * Ranking de ubicaciones con mas multas.
  */
-const getLocationRankingOptimized = async function(Model, options) {
+const obtenerRankingUbicacionesOptimizado = async function(Model, options) {
   const { startDate = null, endDate = null, tipoInfraccion = null, limit = 20 } = options;
 
   const matchFilters = {};
@@ -162,7 +162,7 @@ const getLocationRankingOptimized = async function(Model, options) {
 /**
  * Analisis temporal con calculo de tendencia.
  */
-const getTemporalAnalysisOptimized = async function(Model, options) {
+const obtenerAnalisisTemporalOptimizado = async function(Model, options) {
   const { startDate = null, endDate = null, tipoAnalisis = 'monthly' } = options;
 
   const matchFilters = {};
@@ -254,7 +254,7 @@ const getTemporalAnalysisOptimized = async function(Model, options) {
 /**
  * Metricas agregadas del dashboard (3 pipelines en paralelo con allSettled).
  */
-const getDashboardMetrics = async function(Model, fechaInicio, fechaFin, options = {}) {
+const obtenerMetricasPanel = async function(Model, fechaInicio, fechaFin, options = {}) {
   const topLimit = options.topInfraccionesLimit ?? AGGREGATION_LIMITS.PREVIEW;
   const maxTimeMS = options.maxTimeMS ?? MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS;
   const matchPeriodo = { fecha: { $gte: fechaInicio, $lte: fechaFin } };
@@ -307,11 +307,12 @@ const getDashboardMetrics = async function(Model, fechaInicio, fechaFin, options
     { $sort: { '_id.fecha': 1 } }
   ];
 
-  // allSettled: una agregacion lenta o fallida no debe descartar el resto del dashboard
+  // allSettled: una agregacion lenta o fallida no debe descartar el resto del dashboard.
+  // Mongoose 9 elimino Aggregate.prototype.maxTimeMS(); ahora se pasa via .option({maxTimeMS}).
   const [resGenerales, resTop, resEvolucion] = await Promise.allSettled([
-    Model.aggregate(pipelineGenerales).maxTimeMS(maxTimeMS).exec(),
-    Model.aggregate(pipelineTopInfracciones).maxTimeMS(maxTimeMS).exec(),
-    Model.aggregate(pipelineEvolucionDiaria).maxTimeMS(maxTimeMS).exec()
+    Model.aggregate(pipelineGenerales).option({ maxTimeMS }).exec(),
+    Model.aggregate(pipelineTopInfracciones).option({ maxTimeMS }).exec(),
+    Model.aggregate(pipelineEvolucionDiaria).option({ maxTimeMS }).exec()
   ]);
 
   return {
@@ -322,8 +323,8 @@ const getDashboardMetrics = async function(Model, fechaInicio, fechaFin, options
 };
 
 module.exports = {
-  getStatisticsOptimized,
-  getLocationRankingOptimized,
-  getTemporalAnalysisOptimized,
-  getDashboardMetrics
+  obtenerEstadisticasOptimizadas,
+  obtenerRankingUbicacionesOptimizado,
+  obtenerAnalisisTemporalOptimizado,
+  obtenerMetricasPanel
 };

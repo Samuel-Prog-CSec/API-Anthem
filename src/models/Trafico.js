@@ -362,8 +362,8 @@ trafficSchema.statics.obtenerDatosHistoricosOptimizado = function(filters, aggre
   return traficoService.obtenerDatosHistoricosOptimizado(this, filters, aggregation);
 };
 
-trafficSchema.statics.getTrafficStatisticsOptimized = function(filters) {
-  return traficoService.getTrafficStatisticsOptimized(this, filters);
+trafficSchema.statics.obtenerEstadisticasTraficoOptimizadas = function(filters) {
+  return traficoService.obtenerEstadisticasTraficoOptimizadas(this, filters);
 };
 
 trafficSchema.statics.obtenerAgregadoParaMapa = function(filtros) {

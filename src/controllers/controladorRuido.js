@@ -93,7 +93,7 @@ const obtenerDatosRuido = asyncHandler(async (req, res) => {
   // Agregar cumplimiento normativo usando metodo del modelo
   const dataWithCompliance = data.map(item => ({
     ...item,
-    cumplimientoNormativo: NoiseMonitoring.calculateRegulatoryCompliance(item)
+    cumplimientoNormativo: NoiseMonitoring.calcularCumplimientoNormativo(item)
   }));
 
   const responseData = {
@@ -123,7 +123,7 @@ const obtenerEstadisticasRuido = asyncHandler(async (req, res) => {
 
   const matchStage = buildFilters(req.query, filterConfig);
 
-  const { estadisticas, resumen } = await NoiseMonitoring.getStatisticsOptimized(matchStage, groupBy);
+  const { estadisticas, resumen } = await NoiseMonitoring.obtenerEstadisticasOptimizadas(matchStage, groupBy);
 
   const responseData = {
     estadisticas,
@@ -162,7 +162,7 @@ const obtenerRankingRuido = asyncHandler(async (req, res) => {
 
   const matchStage = buildFilters(req.query, filterConfig);
 
-  const ranking = await NoiseMonitoring.getRankingOptimized(matchStage, orderBy, limit);
+  const ranking = await NoiseMonitoring.obtenerRankingOptimizado(matchStage, orderBy, limit);
 
   const responseData = {
     ranking,
@@ -192,7 +192,7 @@ const obtenerRankingRuido = asyncHandler(async (req, res) => {
 const obtenerCumplimientoPorZona = asyncHandler(async (req, res, next) => {
   const { startDate, endDate, threshold = NOISE_THRESHOLDS.DEFAULT, zoneType = ZONE_TYPES.MIXED } = req.query;
 
-  const compliance = await NoiseMonitoring.getComplianceAnalysisByZone({
+  const compliance = await NoiseMonitoring.obtenerAnalisisCumplimientoPorZona({
     startDate: startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE),
     endDate: endDate ? new Date(endDate) : new Date(DATASET_YEARS.DEFAULT_END_DATE),
     threshold: Number(threshold),
@@ -239,7 +239,7 @@ const obtenerTendenciasTemporales = asyncHandler(async (req, res, next) => {
     options.nmt = parseInt(nmt, 10);
   }
 
-  const trends = await NoiseMonitoring.getTemporalTrends(options);
+  const trends = await NoiseMonitoring.obtenerTendenciasTemporales(options);
 
   const responseData = {
     data: trends,

@@ -21,6 +21,7 @@ const { CENSUS_DEFAULTS, DATASET_YEARS } = require('../constants');
 const { authenticate } = require('../middleware/auth');
 const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
+const { generatePrefixedCacheKey } = require('../utils/cacheKeyGenerator');
 const { etagMiddleware } = require('../middleware/etag');
 
 const {
@@ -42,7 +43,7 @@ router.get('/',
   authenticate,
   validarDatosCenso,
   validateRequest,
-  cacheMiddleware('demographic', (req) => `census:list:${JSON.stringify(req.query)}`),
+  cacheMiddleware('demographic', (req) => generatePrefixedCacheKey('census:list', req.query)),
   obtenerDatosCenso
 );
 

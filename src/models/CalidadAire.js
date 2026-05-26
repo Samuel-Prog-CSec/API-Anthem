@@ -218,7 +218,7 @@ airQualitySchema.index({ provincia: 1, municipio: 1, fecha: -1 }, {
 // ÍNDICE CONSOLIDADO para estadísticas y agregaciones
 // MEJORA: Reemplaza 2 índices con overlap significativo
 // Soporta: Agregaciones por magnitud + provincia con filtros de calidad
-// Usado en: Métodos estáticos getStatisticsOptimized(), getTrendsOptimized()
+// Usado en: Métodos estáticos obtenerEstadisticasOptimizadas(), obtenerTendenciasOptimizadas()
 // Cubre queries con: magnitud, magnitud+provincia, magnitud+provincia+validMeasurements, magnitud+provincia+validMeasurements+fecha
 airQualitySchema.index({
   magnitud: 1,
@@ -289,7 +289,7 @@ airQualitySchema.pre('save', function(next) {
  * Método estático para obtener magnitudes disponibles
  * @returns {Object} Mapa de códigos de magnitud a descripciones
  */
-airQualitySchema.statics.getMagnitudes = function() {
+airQualitySchema.statics.obtenerMagnitudes = function() {
   return AIR_QUALITY_MAGNITUDES;
 };
 
@@ -301,7 +301,7 @@ airQualitySchema.statics.getMagnitudes = function() {
  * @param {String} groupBy - Tipo de agrupación: 'day', 'month', 'year', 'station'
  * @returns {Promise<Object>} Estadísticas agregadas y resumen general
  */
-airQualitySchema.statics.getStatisticsOptimized = async function(filters = {}, groupBy = 'day') {
+airQualitySchema.statics.obtenerEstadisticasOptimizadas = async function(filters = {}, groupBy = 'day') {
   // Construir stage de match
   const matchStage = { ...filters };
   matchStage['processingMetadata.validMeasurements'] = { $gt: 0 };
@@ -445,7 +445,7 @@ airQualitySchema.statics.getStatisticsOptimized = async function(filters = {}, g
  * @param {Date} endDate - Fecha de fin (opcional)
  * @returns {Promise<Object>} Tendencias diarias y estadísticas
  */
-airQualitySchema.statics.getTrendsOptimized = async function(provincia, municipio, magnitud, startDate, endDate) {
+airQualitySchema.statics.obtenerTendenciasOptimizadas = async function(provincia, municipio, magnitud, startDate, endDate) {
   const matchFilters = {
     provincia: parseInt(provincia),
     municipio: parseInt(municipio),

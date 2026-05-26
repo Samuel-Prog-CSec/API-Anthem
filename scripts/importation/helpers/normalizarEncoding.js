@@ -89,6 +89,15 @@ const REEMPLAZOS_CONTEXTUALES = [
  *
  * Aplicar ANTES de los REEMPLAZOS_EXPLICITOS para no provocar dobles
  * sustituciones (que las palabras vuelvan a su forma esperada).
+ *
+ * AVISO PARA QUIEN EDITE LA TABLA: en las entradas de vocales acentuadas
+ * MAYUSCULAS y la "Ñ" mayuscula, el segundo caracter del patron es un
+ * control no imprimible (U+0081..U+009C: '\x81' para Á, '\x89' para É,
+ * '\x8D' para Í, '\x93' para Ó, '\x9A' para Ú, '\x9C' para Ü,
+ * '\x91' para Ñ). Visualmente parece que solo hay un caracter "Ã" pero
+ * el archivo se guarda como UTF-8 con dos caracteres reales por entrada.
+ * NO elimines los caracteres invisibles desde el editor: si lo haces, el
+ * patron coincidira con cualquier "Ã" suelto y rompera la cadena entera.
  */
 const REEMPLAZOS_LATIN1_DESDE_UTF8 = [
   // Vocales acentuadas minusculas (C3 + byte)

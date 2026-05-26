@@ -10,7 +10,8 @@
  *   --force         Forzar sobrescritura de datos existentes
  *   --only=x,y,z    Ejecutar solo importadores especificos
  *                    Valores: ubicaciones,aire,ruido,trafico,censo,contenedores,multas,
- *                             accidentes,patinetes,bicicletas,aforo-bicicletas
+ *                             accidentes,patinetes,bicicletas,aforo-bicicletas,
+ *                             aforo-peatones
  *   --help          Mostrar ayuda
  */
 
@@ -30,6 +31,7 @@ const {
   recrearIndicesSecundarios
 } = require('./importation/helpers/gestorIndices');
 const { IMPORT_SUMMARIES_DIR } = require('./importation/helpers/importHelpers');
+const { stopPoolMonitor } = require('../src/config/database');
 
 const Trafico = require('../src/models/Trafico');
 const Censo = require('../src/models/Censo');
@@ -123,6 +125,12 @@ const IMPORTERS = {
     nombre: 'Aforo Bicicletas',
     fase: 2,
     descripcion: 'Conteo horario de bicicletas por punto de medicion'
+  },
+  'aforo-peatones': {
+    script: 'importation/importarAforoPeatones.js',
+    nombre: 'Aforo Peatones',
+    fase: 2,
+    descripcion: 'Conteo horario de peatones por punto de medicion'
   }
 };
 
@@ -253,25 +261,25 @@ function runImporter(key, importerConfig, options) {
       }
     });
 
-    // Redirigir salida del proceso hijo al logger
+    // No re-emitimos el stdout del proceso hijo al logger del wrapper:
+    // cada importador ya escribe sus logs detallados en
+    // `logs/scripts/combined.log`. Reenvarlos aqui causa duplicacion
+    // brutal del log file y satura stdout cuando hay rechazos masivos
+    // (ej. trafico con 11M+ filas) — los archivos de log de scripts
+    // capturan la informacion sin saturar el stdout del wrapper.
+    // Solo loggeamos errores/warnings de stderr del hijo, que son raros
+    // y siempre relevantes (crashes, mensajes de Node).
     if (child.stdout) {
-      child.stdout.on('data', (data) => {
-        const lines = data.toString().trim().split('\n');
-        for (const line of lines) {
-          if (line.trim()) {
-            logger.debug({ importador: key }, line.trim());
-          }
-        }
-      });
+      // Drenar el stream para que el pipe no se sature, pero descartar
+      // el contenido (el importador lo persiste a archivo via Pino).
+      child.stdout.on('data', () => {});
     }
 
     if (child.stderr) {
       child.stderr.on('data', (data) => {
-        const lines = data.toString().trim().split('\n');
-        for (const line of lines) {
-          if (line.trim()) {
-            logger.warn({ importador: key }, line.trim());
-          }
+        const text = data.toString().trim();
+        if (text) {
+          logger.warn({ importador: key }, text);
         }
       });
     }
@@ -570,7 +578,13 @@ async function main() {
   // Resumen consolidado leyendo logs/import/<importer>-latest.json
   emitirResumenGlobal(results.map(r => r.key), new Date(globalStart).toISOString());
 
-  // Cerrar conexion del padre
+  // Cerrar conexion del padre y liberar handles para que el proceso
+  // pueda salir limpio. Sin estas llamadas, el `setInterval` del monitor
+  // de pool y los streams de Pino mantenian el event loop activo y
+  // dejaban el proceso zombi tras "completar" la importacion. Llamamos
+  // tambien `process.exit(0)` explicito en el camino feliz para no
+  // depender de que TODOS los handles esten correctamente unref'd.
+  stopPoolMonitor();
   if (mongoose.connection.readyState === 1) {
     await mongoose.connection.close();
   }
@@ -578,6 +592,7 @@ async function main() {
   if (fallidos > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 // Handler de SIGINT en el padre: si el usuario hace Ctrl+C entre drop y recreate,

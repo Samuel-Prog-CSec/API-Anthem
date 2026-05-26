@@ -170,13 +170,13 @@ const timeoutHandler = (timeout = 30000) => {
         method: req.method,
         timeout: timeout,
         ip: req.ip
-      }, 'Request timeout');
+      }, 'Timeout de peticion alcanzado');
 
       res.status(HTTP_STATUS.REQUEST_TIMEOUT).json({
         success: false,
         status: 'error',
-        message: 'Request timeout',
-        statusCode: 408
+        message: 'La peticion ha excedido el tiempo maximo permitido',
+        statusCode: HTTP_STATUS.REQUEST_TIMEOUT
       });
     });
     next();

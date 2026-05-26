@@ -232,11 +232,13 @@ const accidentSchema = new mongoose.Schema({
 
     // Geometria GeoJSON WGS84 derivada desde UTM en el importador.
     // Permite queries `$near`, `$geoWithin` y el endpoint /mapa.
+    // NO usar `default: 'Point'`: Mongoose crearia subdocumentos vacios
+    // que rompen el indice 2dsphere sparse. Se crea solo cuando el
+    // importador asigna geometry explicitamente con coordinates.
     geometry: {
       type: {
         type: String,
-        enum: [GEOMETRY_TYPES.POINT],
-        default: GEOMETRY_TYPES.POINT
+        enum: [GEOMETRY_TYPES.POINT]
       },
       coordinates: {
         type: [Number], // [lng, lat]
@@ -442,17 +444,12 @@ accidentSchema.index({ 'ubicacion.calle': 1, fecha: -1 });
 // Soporta: Estadísticas por distrito, comparativas geográficas
 accidentSchema.index({ 'ubicacion.nombreDistrito': 1, fecha: -1 });
 
-// Índice compuesto para coordenadas UTM
-// Usado en: Búsquedas geográficas exactas por coordenadas
-// Soporta: Mapas de accidentes, análisis de proximidad
-// SPARSE: Coordenadas opcionales, solo indexar documentos con coordenadas
-accidentSchema.index({ 'ubicacion.coordenadas.x': 1, 'ubicacion.coordenadas.y': 1 }, {
-  sparse: true
-});
-
-// Índice compuesto para consultas por rango de coordenadas UTM
-// Las coordenadas son UTM (metros), no GeoJSON, por lo que no se puede usar 2dsphere
-// Para consultas por area: $gte/$lte sobre coordenadas.x y coordenadas.y
+// Indice compuesto para consultas por rango de coordenadas UTM.
+// Las coordenadas son UTM (metros), no GeoJSON, por lo que aqui no se puede
+// usar 2dsphere; para queries por area se hacen $gte/$lte sobre x e y.
+// Sparse: coordenadas opcionales, solo se indexan documentos con coordenadas.
+// Este indice es el unico necesario para queries exactas + rango UTM
+// (sustituye al duplicado anonimo previo sobre los mismos campos).
 accidentSchema.index(
   { 'ubicacion.coordenadas.x': 1, 'ubicacion.coordenadas.y': 1 },
   { name: 'idx_accidents_coordenadas_utm', sparse: true }

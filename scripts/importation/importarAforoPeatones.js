@@ -1,19 +1,18 @@
 /**
- * Script de Importacion de Aforo de Bicicletas
+ * Script de Importacion de Aforo de Peatones
  *
- * Procesa y carga datos de conteo horario de trafico de bicicletas desde CSV a MongoDB.
- * Optimizado para rendimiento con manejo robusto de errores y cierre de conexiones.
+ * Procesa y carga datos de conteo horario de trafico peatonal desde CSV
+ * a MongoDB. Estructura paralela al importador de aforo de bicicletas.
  *
- * Uso: node scripts/importation/importarAforoBicicletas.js [--force] [--batch=N]
+ * Uso: node scripts/importation/importarAforoPeatones.js [--force] [--batch=N]
  *
  * Opciones:
  *   --force    Sobrescribir registros existentes (upsert)
  *   --batch=N  Tamano del lote para inserciones (default: 500)
  *
- * @module scripts/importation/importarAforoBicicletas
+ * @module scripts/importation/importarAforoPeatones
  */
 
-// Configurar modo script para evitar reconexiones infinitas
 process.env.SCRIPT_MODE = 'true';
 
 const fs = require('fs');
@@ -21,10 +20,9 @@ const path = require('path');
 const csv = require('csv-parser');
 const mongoose = require('mongoose');
 
-// Configuracion y utilidades
 const { connectDB } = require('../../src/config/database');
 const config = require('../../src/config/config');
-const { importarAforoBicicletasLogger: logger } = require('../../src/config/scriptLogger');
+const { importarAforoPeatonesLogger: logger } = require('../../src/config/scriptLogger');
 const { handleMongoError } = require('../../src/utils/errorUtils');
 const { DATASET_YEARS, VALIDATION_LIMITS, DAY_PERIODS } = require('../../src/constants');
 const {
@@ -36,23 +34,14 @@ const {
 const { normalizarTexto, crearLectorCSV } = require('./helpers/normalizarEncoding');
 const { construirGeometryDesdeWGS84 } = require('./helpers/conversorCoordenadas');
 
-// Modelo
-const BikeTrafficCount = require('../../src/models/AforoBicicletas');
+const PedestrianTrafficCount = require('../../src/models/AforoPeatones');
 
-/**
- * Configuracion del importador
- * @constant {Object}
- */
 const IMPORT_CONFIG = {
   batchSize: 500,
-  dataFile: path.join(__dirname, '../../datos_hpe/Anthem_CTC_BicicletasAforo.csv'),
+  dataFile: path.join(__dirname, '../../datos_hpe/Anthem_CTC_PeatonesAforo.csv'),
   logInterval: 5000,
   csvSeparator: ';'
 };
-
-// ============================================================================
-// CONTADORES GLOBALES
-// ============================================================================
 
 let totalProcessed = 0;
 let totalInserted = 0;
@@ -61,16 +50,10 @@ let totalRejected = 0;
 let totalErrors = 0;
 let startTime = null;
 
-// Tracker de rechazos por tipo
 const rejectionTracker = new RejectionTracker();
 
-/** Flag para controlar cierre graceful */
 let isShuttingDown = false;
 
-/**
- * Parsear argumentos de linea de comandos
- * @returns {Object} Opciones parseadas
- */
 function parsearArgumentos() {
   const args = process.argv.slice(2);
   const options = {
@@ -92,9 +75,6 @@ function parsearArgumentos() {
   return options;
 }
 
-/**
- * Registrar manejadores de senales para cierre graceful
- */
 function registrarManejadoresSenales() {
   const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
@@ -119,7 +99,6 @@ function registrarManejadoresSenales() {
   });
 
   process.on('uncaughtException', async (error) => {
-    console.error('UNCAUGHT EXCEPTION:', error);
     logger.fatal({ error: error.message, stack: error.stack }, 'Excepcion no capturada');
 
     try {
@@ -134,7 +113,6 @@ function registrarManejadoresSenales() {
   });
 
   process.on('unhandledRejection', async (reason) => {
-    console.error('UNHANDLED REJECTION:', reason);
     logger.fatal({ reason: String(reason) }, 'Promesa rechazada no manejada');
 
     try {
@@ -149,10 +127,6 @@ function registrarManejadoresSenales() {
   });
 }
 
-/**
- * Codigos de razon de rechazo para trazabilidad
- * @constant {Object}
- */
 const REJECTION_REASONS = {
   EMPTY_DATE: 'FECHA_VACIA',
   INVALID_DATE_FORMAT: 'FORMATO_FECHA_INVALIDO',
@@ -169,18 +143,11 @@ const REJECTION_REASONS = {
   MISSING_IDENTIFIER: 'IDENTIFICADOR_VACIO'
 };
 
-/**
- * Parsear fecha en formato DD/MM/YYYY (puede incluir hora despues de espacio)
- * @param {string} dateStr - Fecha en formato "DD/MM/YYYY H:MM" o "DD/MM/YYYY"
- * @returns {Date} Objeto Date (solo parte de fecha, sin hora)
- * @throws {Error} Si el formato es invalido o la fecha no esta en rango del dataset
- */
 function parsearFecha(dateStr) {
   if (!dateStr || typeof dateStr !== 'string') {
     throw new Error(`${REJECTION_REASONS.EMPTY_DATE}: valor='${dateStr}'`);
   }
 
-  // Separar fecha de hora (formato "DD/MM/YYYY H:MM")
   const datePart = dateStr.trim().split(' ')[0];
 
   const parts = datePart.split('/');
@@ -192,7 +159,6 @@ function parsearFecha(dateStr) {
   const month = parseInt(parts[1], 10) - 1;
   const year = parseInt(parts[2], 10);
 
-  // Validar componentes
   if (day < VALIDATION_LIMITS.DAY_MIN || day > VALIDATION_LIMITS.DAY_MAX) {
     throw new Error(`${REJECTION_REASONS.DAY_OUT_OF_RANGE}: dia=${day}, limites=[${VALIDATION_LIMITS.DAY_MIN}-${VALIDATION_LIMITS.DAY_MAX}]`);
   }
@@ -203,7 +169,7 @@ function parsearFecha(dateStr) {
     throw new Error(`${REJECTION_REASONS.YEAR_OUT_OF_RANGE}: año=${year}, rango=[${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR}]`);
   }
 
-  // Date.UTC para evitar desfases de TZ del runtime en fechas sin hora.
+  // Date.UTC para evitar desfases de TZ del runtime.
   const date = new Date(Date.UTC(year, month, day));
   if (isNaN(date.getTime())) {
     throw new Error(`${REJECTION_REASONS.INVALID_DATE}: valor='${dateStr}'`);
@@ -212,12 +178,6 @@ function parsearFecha(dateStr) {
   return date;
 }
 
-/**
- * Parsear hora del campo HORA (formato "H:MM" o "HH:MM")
- * @param {string} horaStr - Hora en formato "H:MM"
- * @returns {number} Hora como entero (0-23)
- * @throws {Error} Si la hora no es valida
- */
 function parseHour(horaStr) {
   if (!horaStr || typeof horaStr !== 'string') {
     throw new Error(`${REJECTION_REASONS.INVALID_HOUR}: valor='${horaStr}'`);
@@ -232,11 +192,6 @@ function parseHour(horaStr) {
   return hour;
 }
 
-/**
- * Parsear coordenada en formato espanol (coma como separador decimal)
- * @param {string} value - Coordenada en formato espanol (ej: "40,40547173")
- * @returns {number|null} Coordenada como float o null si invalido
- */
 function parseSpanishCoordinate(value) {
   if (value === null || value === undefined || value === '') {return null;}
 
@@ -245,11 +200,6 @@ function parseSpanishCoordinate(value) {
   return isNaN(parsed) ? null : parsed;
 }
 
-/**
- * Determinar franja horaria a partir de la hora
- * @param {number} hora - Hora (0-23)
- * @returns {string} Franja horaria
- */
 function getFranjaHoraria(hora) {
   if (hora >= 0 && hora <= 5) {
     return DAY_PERIODS.MADRUGADA;
@@ -263,61 +213,45 @@ function getFranjaHoraria(hora) {
   return DAY_PERIODS.NOCHE;
 }
 
-/**
- * Validar y transformar una fila de datos CSV
- * @param {Object} row - Fila del CSV
- * @param {number} rowIndex - Indice de la fila
- * @returns {Object} Datos transformados para el modelo
- * @throws {Error} Si la validacion falla
- */
 function validarYTransformarFila(row, rowIndex) {
-  // Manejar BOM en primera columna: la primera columna puede tener \uFEFF al inicio
+  // Manejar BOM en primera columna
   const fechaKey = Object.keys(row).find(k => k.includes('FECHA')) || 'FECHA';
   const fechaValue = row[fechaKey];
 
-  // Parsear fecha (formato "DD/MM/YYYY H:MM")
   const fecha = parsearFecha(fechaValue);
-
-  // Parsear hora
   const hora = parseHour(row.HORA);
 
-  // Validar identificador (normalizado para corregir mojibake)
   const identificador = normalizarTexto(row.IDENTIFICADOR);
   if (!identificador) {
     throw new Error(`${REJECTION_REASONS.MISSING_IDENTIFIER}: fila=${rowIndex}`);
   }
 
-  // Parsear bicicletas
-  const bicicletas = parseInt(row.BICICLETAS, 10);
-  if (isNaN(bicicletas) || bicicletas < 0) {
-    throw new Error(`${REJECTION_REASONS.NEGATIVE_VALUES}: bicicletas=${row.BICICLETAS}`);
+  const peatones = parseInt(row.PEATONES, 10);
+  if (isNaN(peatones) || peatones < 0) {
+    throw new Error(`${REJECTION_REASONS.NEGATIVE_VALUES}: peatones=${row.PEATONES}`);
   }
 
-  // Parsear coordenadas (formato espanol con coma decimal)
   const latitud = parseSpanishCoordinate(row.LATITUD);
   const longitud = parseSpanishCoordinate(row.LONGITUD);
 
-  // Campos calculados
   const franjaHoraria = getFranjaHoraria(hora);
-  const año = fecha.getFullYear();
-  const mes = fecha.getMonth() + 1;
-  const diaSemana = fecha.getDay();
+  const año = fecha.getUTCFullYear();
+  const mes = fecha.getUTCMonth() + 1;
+  const diaSemana = fecha.getUTCDay();
 
-  // Derivar geometry GeoJSON WGS84 desde lat/lon directamente.
-  // Habilita el endpoint /aforo-bicicletas/mapa y queries `$near`.
   const geometry = construirGeometryDesdeWGS84(longitud, latitud);
 
   return {
     fecha,
     hora,
     identificador,
-    bicicletas,
+    peatones,
     ubicacion: {
-      numeroDistrito: parseInt(row.NUMERO_DISTRITO || row['N\u00daMERO_DISTRITO'], 10) || null,
+      numeroDistrito: parseInt(row.NUMERO_DISTRITO || row['NÚMERO_DISTRITO'], 10) || null,
       distrito: normalizarTexto(row.DISTRITO) || null,
       nombreVial: normalizarTexto(row.NOMBRE_VIAL) || null,
-      numero: normalizarTexto(row.NUMERO || row['N\u00daMERO']) || null,
-      codigoPostal: normalizarTexto(row.CODIGO_POSTAL || row['C\u00d3DIGO_POSTAL']) || null,
+      numero: normalizarTexto(row.NUMERO || row['NÚMERO']) || null,
+      codigoPostal: normalizarTexto(row.CODIGO_POSTAL || row['CÓDIGO_POSTAL']) || null,
       observacionesDireccion: normalizarTexto(row.OBSERVACIONES_DIRECCION) || null,
       coordenadas: {
         latitud,
@@ -330,18 +264,12 @@ function validarYTransformarFila(row, rowIndex) {
     mes,
     diaSemana,
     procesamiento: {
-      archivoOrigen: 'Anthem_CTC_BicicletasAforo.csv',
+      archivoOrigen: 'Anthem_CTC_PeatonesAforo.csv',
       importadoEn: new Date()
     }
   };
 }
 
-/**
- * Procesar lote de registros con insertMany
- * @param {Array<Object>} batch - Lote de registros a insertar
- * @param {Object} options - Opciones de procesamiento
- * @returns {Promise<Object>} Resultado de la operacion
- */
 async function procesarLote(batch, options) {
   const result = { inserted: 0, skipped: 0, errors: 0 };
 
@@ -349,7 +277,7 @@ async function procesarLote(batch, options) {
 
   if (options.skipExisting) {
     try {
-      const insertResult = await BikeTrafficCount.insertMany(batch, {
+      const insertResult = await PedestrianTrafficCount.insertMany(batch, {
         ordered: false,
         lean: true,
         bypassDocumentValidation: true
@@ -357,12 +285,10 @@ async function procesarLote(batch, options) {
       result.inserted = insertResult.length;
     } catch (error) {
       if (error.code === 11000) {
-        // Error de duplicado parcial - contar insertados exitosos
         const insertedCount = error.insertedDocs?.length || 0;
         result.inserted = insertedCount;
         result.skipped = batch.length - insertedCount;
 
-        // Loguear duplicados a nivel debug (muchos esperados en archivo grande)
         if (error.writeErrors) {
           const duplicateCount = error.writeErrors.filter(e => e.code === 11000).length;
           if (duplicateCount > 0) {
@@ -380,7 +306,6 @@ async function procesarLote(batch, options) {
       }
     }
   } else {
-    // Modo upsert - actualizar si existe
     const operations = batch.map(record => ({
       updateOne: {
         filter: {
@@ -394,7 +319,7 @@ async function procesarLote(batch, options) {
     }));
 
     try {
-      const bulkResult = await BikeTrafficCount.bulkWrite(operations, {
+      const bulkResult = await PedestrianTrafficCount.bulkWrite(operations, {
         ordered: false,
         bypassDocumentValidation: true
       });
@@ -411,11 +336,6 @@ async function procesarLote(batch, options) {
   return result;
 }
 
-/**
- * Procesar archivo CSV y cargar datos
- * @param {Object} options - Opciones de procesamiento
- * @returns {Promise<void>}
- */
 async function procesarCSV(options) {
   logger.info(
     { file: IMPORT_CONFIG.dataFile },
@@ -464,7 +384,6 @@ async function procesarCSV(options) {
       try {
         const transformedData = validarYTransformarFila(row, totalProcessed);
 
-        // Clave unica para detectar duplicados en el archivo
         const recordKey = `${transformedData.identificador}_${transformedData.fecha.toISOString()}_${transformedData.hora}`;
 
         if (seenKeysInFile.has(recordKey)) {
@@ -497,7 +416,6 @@ async function procesarCSV(options) {
         totalRejected++;
         rejectionTracker.track(error.message.split(':')[0] || 'ERROR_DESCONOCIDO', { fila: totalProcessed, error: error.message });
 
-        // Solo loguear las primeras ocurrencias a nivel warn, despues debug
         if (totalRejected <= 20) {
           logger.warn(
             {
@@ -506,7 +424,7 @@ async function procesarCSV(options) {
               datosOriginales: {
                 FECHA: row[Object.keys(row).find(k => k.includes('FECHA'))] || row.FECHA,
                 IDENTIFICADOR: row.IDENTIFICADOR,
-                BICICLETAS: row.BICICLETAS
+                PEATONES: row.PEATONES
               }
             },
             'Fila rechazada - no insertada en BD'
@@ -536,19 +454,14 @@ async function procesarCSV(options) {
   });
 }
 
-/**
- * Mostrar estadisticas finales
- * @returns {Promise<void>}
- */
 async function mostrarEstadisticas() {
   const durationMs = Date.now() - startTime;
 
-  // Estadisticas de la base de datos
   const [totalInDB, minDateDoc, maxDateDoc, stationCount] = await Promise.all([
-    BikeTrafficCount.countDocuments().maxTimeMS(5000),
-    BikeTrafficCount.findOne().sort({ fecha: 1 }).select('fecha').lean().maxTimeMS(5000),
-    BikeTrafficCount.findOne().sort({ fecha: -1 }).select('fecha').lean().maxTimeMS(5000),
-    BikeTrafficCount.distinct('identificador').maxTimeMS(5000)
+    PedestrianTrafficCount.countDocuments().maxTimeMS(5000),
+    PedestrianTrafficCount.findOne().sort({ fecha: 1 }).select('fecha').lean().maxTimeMS(5000),
+    PedestrianTrafficCount.findOne().sort({ fecha: -1 }).select('fecha').lean().maxTimeMS(5000),
+    PedestrianTrafficCount.distinct('identificador').maxTimeMS(5000)
   ]);
 
   logger.info({
@@ -563,9 +476,8 @@ async function mostrarEstadisticas() {
     estacionesUnicas: stationCount.length,
     fechaMinima: minDateDoc?.fecha?.toISOString().split('T')[0] || 'N/A',
     fechaMaxima: maxDateDoc?.fecha?.toISOString().split('T')[0] || 'N/A'
-  }, 'Importacion de aforo de bicicletas completada');
+  }, 'Importacion de aforo de peatones completada');
 
-  // Resumen de rechazos por tipo
   const rejectionSummary = rejectionTracker.getSortedSummary();
   if (rejectionSummary.length > 0) {
     logger.info({
@@ -575,43 +487,33 @@ async function mostrarEstadisticas() {
   }
 }
 
-/**
- * Funcion principal
- */
 async function main() {
   startTime = Date.now();
 
-  // Registrar manejadores de senales
   registrarManejadoresSenales();
 
-  // Parsear argumentos
   const options = parsearArgumentos();
 
   logger.info({
     skipExisting: options.skipExisting,
     batchSize: options.batchSize,
     dataFile: IMPORT_CONFIG.dataFile
-  }, 'Iniciando importacion de aforo de bicicletas');
+  }, 'Iniciando importacion de aforo de peatones');
 
   try {
-    // Verificar que el archivo existe
     if (!fs.existsSync(IMPORT_CONFIG.dataFile)) {
       throw new Error(`Archivo no encontrado: ${IMPORT_CONFIG.dataFile}`);
     }
 
-    // Conectar a la base de datos
     logger.info('Conectando a MongoDB...');
     await connectDB(config.database.uri);
     logger.info('Conexion a MongoDB establecida');
 
-    // Verificar estado inicial
-    const initialCount = await BikeTrafficCount.countDocuments().maxTimeMS(5000);
+    const initialCount = await PedestrianTrafficCount.countDocuments().maxTimeMS(5000);
     logger.info({ registrosActuales: initialCount }, 'Estado inicial de la coleccion');
 
-    // Procesar CSV
     await procesarCSV(options);
 
-    // Mostrar estadisticas finales
     await mostrarEstadisticas();
 
   } catch (error) {
@@ -622,7 +524,7 @@ async function main() {
     }, 'Error fatal durante la importacion');
     process.exitCode = 1;
   } finally {
-    buildAndWriteSummary('aforo-bicicletas', {
+    buildAndWriteSummary('aforo-peatones', {
       startTime,
       counts: {
         totalProcessed,
@@ -634,7 +536,6 @@ async function main() {
       rejectionTracker
     });
 
-    // Cerrar conexion
     if (mongoose.connection.readyState === 1) {
       logger.info('Cerrando conexion a MongoDB...');
       try {
@@ -654,7 +555,6 @@ async function main() {
   }
 }
 
-// Ejecutar si es llamado directamente
 if (require.main === module) {
   main().catch(error => {
     logger.error({ error: error.message }, 'Error fatal en script de importacion');

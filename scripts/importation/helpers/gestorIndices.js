@@ -78,7 +78,18 @@ async function dropIndicesSecundarios(Modelo, logger) {
  */
 async function recrearIndicesSecundarios(Modelo, logger) {
   const inicio = Date.now();
-  logger.info({ coleccion: Modelo.collection.name }, 'Recreando indices secundarios');
+
+  // Snapshot de indices unicos pre-recreate. Sirve para sanity check
+  // post-recreate: si createIndexes() no recreara alguno, lo detectamos
+  // en vez de continuar a ciegas con la BD en estado inconsistente.
+  const indicesUnicosPre = (await Modelo.collection.indexes())
+    .filter(idx => idx.unique === true)
+    .map(idx => idx.name);
+
+  logger.info({
+    coleccion: Modelo.collection.name,
+    indicesUnicosConservados: indicesUnicosPre
+  }, 'Recreando indices secundarios');
 
   try {
     await Modelo.createIndexes();
@@ -91,10 +102,22 @@ async function recrearIndicesSecundarios(Modelo, logger) {
     throw error;
   }
 
+  // Sanity check: los indices unicos preservados deben seguir presentes.
+  const indicesPostRecreate = await Modelo.collection.indexes();
+  const nombresPost = new Set(indicesPostRecreate.map(idx => idx.name));
+  const unicosPerdidos = indicesUnicosPre.filter(nombre => !nombresPost.has(nombre));
+  if (unicosPerdidos.length > 0) {
+    logger.error({
+      coleccion: Modelo.collection.name,
+      perdidos: unicosPerdidos
+    }, 'INTEGRIDAD: indices unicos preservados desaparecieron tras createIndexes()');
+  }
+
   const duracion = Date.now() - inicio;
   logger.info({
     coleccion: Modelo.collection.name,
-    duracionMs: duracion
+    duracionMs: duracion,
+    totalIndices: indicesPostRecreate.length
   }, 'Indices secundarios recreados');
 }
 

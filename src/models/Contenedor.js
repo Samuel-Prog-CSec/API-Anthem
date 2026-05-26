@@ -213,7 +213,7 @@ contenedorSchema.index({
 // ÍNDICE GEOESPACIAL - Búsquedas por proximidad
 // ========================================
 // Índice 2dsphere para consultas geográficas avanzadas
-// Usado en: Contenedor.findNearby() - Contenedores cerca de coordenadas
+// Usado en: Contenedor.buscarCercanos() - Contenedores cerca de coordenadas
 // Usado en: Contenedor.findWithinArea() - Contenedores en área
 // Soporta: $near, $geoWithin, $geoIntersects
 // CRÍTICO: Necesario para mapas y búsquedas por proximidad
@@ -314,7 +314,7 @@ contenedorSchema.index({
  * @param {string} tipoContenedor - Tipo de contenedor (opcional)
  * @returns {Promise<Array>} Contenedores cercanos ordenados por distancia
  */
-contenedorSchema.statics.findNearby = function(longitude, latitude, maxDistance = 500, tipoContenedor = null) {
+contenedorSchema.statics.buscarCercanos = function(longitude, latitude, maxDistance = 500, tipoContenedor = null) {
   const query = {
     location: {
       $near: {
@@ -342,7 +342,7 @@ contenedorSchema.statics.findNearby = function(longitude, latitude, maxDistance 
  * @param {string} distrito - Nombre del distrito (opcional)
  * @returns {Promise<Array>} Estadísticas por tipo de contenedor
  */
-contenedorSchema.statics.getStatsByDistrict = function(distrito = null) {
+contenedorSchema.statics.obtenerEstadisticasPorDistrito = function(distrito = null) {
   const matchStage = distrito ? { $match: { distrito } } : { $match: {} };
 
   return this.aggregate([
@@ -384,7 +384,7 @@ contenedorSchema.statics.getStatsByDistrict = function(distrito = null) {
  * @param {string} barrio - Nombre del barrio (opcional)
  * @returns {Promise<Array>} Estadísticas por tipo de contenedor
  */
-contenedorSchema.statics.getStatsByNeighborhood = function(distrito, barrio = null) {
+contenedorSchema.statics.obtenerEstadisticasPorBarrio = function(distrito, barrio = null) {
   const matchStage = barrio
     ? { $match: { distrito, barrio } }
     : { $match: { distrito } };
@@ -431,7 +431,7 @@ contenedorSchema.statics.getStatsByNeighborhood = function(distrito, barrio = nu
  *
  * @returns {Promise<Object>} Resumen con totales por tipo
  */
-contenedorSchema.statics.getGeneralSummary = function() {
+contenedorSchema.statics.obtenerResumenGeneral = function() {
   return this.aggregate([
     // NO usar $limit antes de $group - necesitamos TODOS los documentos para estadísticas correctas
     {
@@ -465,7 +465,7 @@ contenedorSchema.statics.getGeneralSummary = function() {
  * @param {string} barrio - Nombre del barrio (opcional)
  * @returns {Promise<Object>} Conteo por tipo
  */
-contenedorSchema.statics.countByType = async function(distrito, barrio = null) {
+contenedorSchema.statics.contarPorTipo = async function(distrito, barrio = null) {
   const query = { distrito };
   if (barrio) {
     query.barrio = barrio;
@@ -509,7 +509,7 @@ contenedorSchema.statics.countByType = async function(distrito, barrio = null) {
  * @param {Number} limit - Límite de puntos (default: 5000)
  * @returns {Promise<Array>} Array de puntos con coordenadas
  */
-contenedorSchema.statics.getHeatmapData = function(tipoContenedor = null, limit = 5000) {
+contenedorSchema.statics.obtenerDatosMapaCalor = function(tipoContenedor = null, limit = 5000) {
   const filter = tipoContenedor ? { tipoContenedor: tipoContenedor.toUpperCase() } : {};
 
   return this.aggregate([
@@ -531,7 +531,7 @@ contenedorSchema.statics.getHeatmapData = function(tipoContenedor = null, limit 
  * @param {String} distrito - Distrito específico (opcional, null para todos)
  * @returns {Promise<Array>} Análisis de cobertura por distrito y tipo
  */
-contenedorSchema.statics.getCoverageAnalysis = function(distrito = null) {
+contenedorSchema.statics.obtenerAnalisisCobertura = function(distrito = null) {
   const matchStage = distrito ? { $match: { distrito } } : { $match: {} };
 
   return this.aggregate([
@@ -584,7 +584,7 @@ contenedorSchema.statics.getCoverageAnalysis = function(distrito = null) {
  * @returns {Promise<Array>} Array con análisis de densidad por distrito
  *
  * @example
- * const density = await Contenedor.getDensityAnalysisByDistrict({
+ * const density = await Contenedor.obtenerAnalisisDensidadPorDistrito({
  *   distrito: 'CENTRO',
  *   tipoContenedor: 'ORGANICA',
  *   includeBarrios: true
@@ -608,7 +608,7 @@ contenedorSchema.statics.getCoverageAnalysis = function(distrito = null) {
  * @param {number} [filtros.limit=10000] - Tope de seguridad (default 10k)
  * @returns {Promise<Array>} Documentos lean con location + propiedades
  */
-contenedorSchema.statics.getMapFeatures = function(filtros = {}) {
+contenedorSchema.statics.obtenerCaracteristicasMapa = function(filtros = {}) {
   const { tipoContenedor, distrito, barrio, lote, bbox, limit = 10000 } = filtros;
 
   const match = {};
@@ -646,7 +646,7 @@ contenedorSchema.statics.getMapFeatures = function(filtros = {}) {
     .lean();
 };
 
-contenedorSchema.statics.getDensityAnalysisByDistrict = function(options = {}) {
+contenedorSchema.statics.obtenerAnalisisDensidadPorDistrito = function(options = {}) {
   const { distrito, tipoContenedor, includeBarrios = true } = options;
 
   const matchStage = {};

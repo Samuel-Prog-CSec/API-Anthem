@@ -144,7 +144,7 @@ const obtenerDatosCenso = asyncHandler(async (req, res) => {
 
     const { cursor } = req.query;
 
-    const { data, total: totalDocuments, stats, cursor: cursorMeta } = await Censo.findWithOptions({
+    const { data, total: totalDocuments, stats, cursor: cursorMeta } = await Censo.buscarConOpciones({
       filters,
       sort: sortOptions,
       pagination: paginationOptions,
@@ -206,7 +206,7 @@ const obtenerPiramidePoblacional = asyncHandler(async (req, res) => {
     { año: DATASET_YEARS.DEFAULT_YEAR }
   );
 
-  const result = await Censo.getOptimizedPopulationPyramid({
+  const result = await Censo.obtenerPiramidePoblacionalOptimizada({
     año,
     distrito,
     incluirExtranjeros: incluirExtranjeros === 'true'
@@ -242,6 +242,7 @@ const obtenerResumenDistritos = asyncHandler(async (req, res) => {
     matchFilter.mes = parseInt(mes, 10);
   }
 
+  // Mongoose 9 elimino Aggregate.prototype.maxTimeMS(); se usa .option({maxTimeMS}).
   const resumen = await Censo.aggregate([
     { $match: matchFilter },
     {
@@ -260,7 +261,7 @@ const obtenerResumenDistritos = asyncHandler(async (req, res) => {
         totalPoblacion: 1
       }
     }
-  ]).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  ]).option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 
   return res.status(HTTP_STATUS.OK).json(
     createResponse({
