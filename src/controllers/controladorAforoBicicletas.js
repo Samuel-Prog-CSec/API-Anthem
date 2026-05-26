@@ -24,7 +24,10 @@ exports.obtenerConteos = asyncHandler(async (req, res) => {
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
     { field: 'identificador', type: 'exact', param: 'identificador' },
-    { field: 'ubicacion.distrito', type: 'exact', param: 'distrito', transform: TRANSFORMS.toUpperCase },
+    // Los nombres de distrito en BD estan en case mixto ("Arganzuela", "Latina").
+    // Usar regex case-insensitive en lugar de exact+toUpperCase, que nunca
+    // matcheaba y dejaba la pagina vacia al filtrar por distrito.
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
     { field: 'hora', type: 'numeric', param: 'hora' }
   ];
 
@@ -218,7 +221,10 @@ exports.obtenerDistribucionHoraria = asyncHandler(async (req, res, next) => {
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
     { field: 'identificador', type: 'exact', param: 'identificador' },
-    { field: 'ubicacion.distrito', type: 'exact', param: 'distrito', transform: TRANSFORMS.toUpperCase }
+    // Los nombres de distrito en BD estan en case mixto ("Arganzuela", "Latina").
+    // Usar regex case-insensitive en lugar de exact+toUpperCase, que nunca
+    // matcheaba y dejaba la pagina vacia al filtrar por distrito.
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -248,7 +254,10 @@ exports.obtenerComparativaEstaciones = asyncHandler(async (req, res, next) => {
 
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-    { field: 'ubicacion.distrito', type: 'exact', param: 'distrito', transform: TRANSFORMS.toUpperCase }
+    // Los nombres de distrito en BD estan en case mixto ("Arganzuela", "Latina").
+    // Usar regex case-insensitive en lugar de exact+toUpperCase, que nunca
+    // matcheaba y dejaba la pagina vacia al filtrar por distrito.
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -278,7 +287,10 @@ exports.obtenerTendenciasDiarias = asyncHandler(async (req, res, next) => {
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
     { field: 'identificador', type: 'exact', param: 'identificador' },
-    { field: 'ubicacion.distrito', type: 'exact', param: 'distrito', transform: TRANSFORMS.toUpperCase }
+    // Los nombres de distrito en BD estan en case mixto ("Arganzuela", "Latina").
+    // Usar regex case-insensitive en lugar de exact+toUpperCase, que nunca
+    // matcheaba y dejaba la pagina vacia al filtrar por distrito.
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -309,7 +321,10 @@ exports.obtenerTendenciasDiarias = asyncHandler(async (req, res, next) => {
 exports.obtenerMapaAforo = asyncHandler(async (req, res) => {
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-    { field: 'ubicacion.distrito', type: 'exact', param: 'distrito', transform: TRANSFORMS.toUpperCase }
+    // Los nombres de distrito en BD estan en case mixto ("Arganzuela", "Latina").
+    // Usar regex case-insensitive en lugar de exact+toUpperCase, que nunca
+    // matcheaba y dejaba la pagina vacia al filtrar por distrito.
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
   ];
   const filters = buildFilters(req.query, filterConfig);
 

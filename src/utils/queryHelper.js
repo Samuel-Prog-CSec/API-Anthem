@@ -159,7 +159,12 @@ const buildFilters = (queryParams, filterConfig) => {
       case 'in': {
         const value = queryParams[param];
         if (value) {
-          const values = Array.isArray(value) ? value : [value];
+          // Aplicar el `transform` declarado en la config si existe (ej.
+          // `toIntArray` para convertir strings de query string a numeros).
+          // Sin esto, `?magnitud=8` se queda como `{$in: ["8"]}` y no
+          // matchea documentos donde `magnitud` esta tipado como Number.
+          const transformed = transform ? transform(value) : value;
+          const values = Array.isArray(transformed) ? transformed : [transformed];
           filters[field] = { $in: values };
         }
         break;

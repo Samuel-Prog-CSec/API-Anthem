@@ -22,7 +22,9 @@ exports.obtenerConteos = asyncHandler(async (req, res) => {
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
     { field: 'identificador', type: 'exact', param: 'identificador' },
-    { field: 'ubicacion.distrito', type: 'exact', param: 'distrito', transform: TRANSFORMS.toUpperCase },
+    // Distrito en BD en case mixto: usar regex case-insensitive para
+    // que el filtro funcione (antes exact+toUpperCase nunca matcheaba).
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
     { field: 'hora', type: 'numeric', param: 'hora' }
   ];
 
@@ -217,7 +219,9 @@ exports.obtenerDistribucionHoraria = asyncHandler(async (req, res, next) => {
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
     { field: 'identificador', type: 'exact', param: 'identificador' },
-    { field: 'ubicacion.distrito', type: 'exact', param: 'distrito', transform: TRANSFORMS.toUpperCase }
+    // Distrito en BD en case mixto: usar regex case-insensitive para
+    // que el filtro funcione (antes exact+toUpperCase nunca matcheaba).
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -247,7 +251,9 @@ exports.obtenerComparativaEstaciones = asyncHandler(async (req, res, next) => {
 
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-    { field: 'ubicacion.distrito', type: 'exact', param: 'distrito', transform: TRANSFORMS.toUpperCase }
+    // Distrito en BD en case mixto: usar regex case-insensitive para
+    // que el filtro funcione (antes exact+toUpperCase nunca matcheaba).
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -277,7 +283,9 @@ exports.obtenerTendenciasDiarias = asyncHandler(async (req, res, next) => {
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
     { field: 'identificador', type: 'exact', param: 'identificador' },
-    { field: 'ubicacion.distrito', type: 'exact', param: 'distrito', transform: TRANSFORMS.toUpperCase }
+    // Distrito en BD en case mixto: usar regex case-insensitive para
+    // que el filtro funcione (antes exact+toUpperCase nunca matcheaba).
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -310,7 +318,9 @@ exports.obtenerTendenciasDiarias = asyncHandler(async (req, res, next) => {
 exports.obtenerMapaAforo = asyncHandler(async (req, res) => {
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-    { field: 'ubicacion.distrito', type: 'exact', param: 'distrito', transform: TRANSFORMS.toUpperCase }
+    // Distrito en BD en case mixto: usar regex case-insensitive para
+    // que el filtro funcione (antes exact+toUpperCase nunca matcheaba).
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
   ];
   const filters = buildFilters(req.query, filterConfig);
 

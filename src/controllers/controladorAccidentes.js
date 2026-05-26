@@ -259,17 +259,19 @@ const obtenerEstadisticasAccidentes = asyncHandler(async (req, res) => {
     filters.fecha?.$lte
   );
 
-  // Patrones temporales, distribucion por distrito y factores de riesgo
+  // Patrones temporales, distribucion por distrito, tipo y factores de riesgo
   // allSettled: una agregacion lenta o fallida no debe descartar el resto del informe
   const [
     hourlyPatternsResult,
     weeklyPatternsResult,
     districtDistributionResult,
+    typeDistributionResult,
     riskFactorsAnalysisResult
   ] = await Promise.allSettled([
     Accidente.obtenerPatronesTemporales('hora'),
     Accidente.obtenerPatronesTemporales('diaSemana'),
     Accidente.obtenerDistribucionDistritos(filters),
+    Accidente.obtenerDistribucionTipos(filters),
     Accidente.obtenerAnalisisFactoresRiesgo(filters)
   ]);
 
@@ -284,6 +286,7 @@ const obtenerEstadisticasAccidentes = asyncHandler(async (req, res) => {
   const hourlyPatterns = extraerValor(hourlyPatternsResult, []);
   const weeklyPatterns = extraerValor(weeklyPatternsResult, []);
   const districtDistribution = extraerValor(districtDistributionResult, []);
+  const typeDistribution = extraerValor(typeDistributionResult, []);
   const riskFactorsAnalysis = extraerValor(riskFactorsAnalysisResult, []);
 
   const responseData = {
@@ -296,6 +299,7 @@ const obtenerEstadisticasAccidentes = asyncHandler(async (req, res) => {
       diaNombre: DAYS_OF_WEEK[p._id]
     })),
     distribucionDistritos: districtDistribution,
+    distribucionTipos: typeDistribution,
     factoresRiesgo: riskFactorsAnalysis,
     periodo: {
       inicio: filters.fecha?.$gte,

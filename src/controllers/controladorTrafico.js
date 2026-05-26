@@ -291,7 +291,7 @@ const obtenerAnalisisCongestion = asyncHandler(async (req, res) => {
   ];
   const filters = buildFilters(req.query, filterConfig);
 
-  const analisis = await Traffic.obtenerAnalisisCongestionOptimized(filters, groupBy);
+  const analisis = await Traffic.obtenerAnalisisCongestionOptimizado(filters, groupBy);
 
   const responseData = {
     analisis,
@@ -322,7 +322,7 @@ const obtenerDatosHistoricos = asyncHandler(async (req, res) => {
   ];
   const filters = buildFilters(req.query, filterConfig);
 
-  const historicalData = await Traffic.obtenerDatosHistoricosOptimized(filters, aggregation);
+  const historicalData = await Traffic.obtenerDatosHistoricosOptimizado(filters, aggregation);
 
   const responseData = {
     serie: historicalData,

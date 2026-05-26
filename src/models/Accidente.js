@@ -622,6 +622,22 @@ accidentSchema.statics.obtenerDatosMapaCalor = function(filters, limite, precisi
   return accidenteService.obtenerDatosMapaCalor(this, filters, limite, precision);
 };
 
+/**
+ * Distribucion global de accidentes por tipo, respetando los filtros.
+ * No usa el service para no inflar la API con metodos micro: el agregado
+ * es directo y se cachea via middleware de cache del controlador.
+ *
+ * @param {Object} filters - Filtros MongoDB (fecha, distrito, etc.)
+ * @returns {Promise<Array<{_id: string, total: number}>>}
+ */
+accidentSchema.statics.obtenerDistribucionTipos = function(filters = {}) {
+  return this.aggregate([
+    { $match: filters },
+    { $group: { _id: '$circunstancias.tipoAccidente', total: { $sum: 1 } } },
+    { $sort: { total: -1 } }
+  ]).allowDiskUse(true);
+};
+
 
 
 // Crear y exportar el modelo
