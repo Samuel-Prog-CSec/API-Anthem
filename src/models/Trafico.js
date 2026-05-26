@@ -33,12 +33,17 @@ const {
 const traficoService = require('../services/traficoService');
 
 const trafficSchema = new mongoose.Schema({
-  puntoMedidaId: { type: String, required: true, index: true, trim: true },
+  // NOTA: `index: true` removido en single-fields cuyos compuestos posteriores
+  // ya cubren el patron de query (ver docs/optimizations_2026-05-26.md).
+  // Mongoose ya no recreara puntoMedidaId_1, fecha_1, año_1, mes_1, hora_1,
+  // tipoElemento_1, metricas.intensidad_1, analisis.nivelCongestion_1,
+  // analisis.clasificacionIntensidad_1, analisis.periodoDia_1,
+  // analisis.tipoJornada_1 al arrancar.
+  puntoMedidaId: { type: String, required: true, trim: true },
 
   fecha: {
     type: Date,
     required: true,
-    index: true,
     validate: {
       validator: validateDatasetDate,
       message: `La fecha de medición debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
@@ -48,7 +53,6 @@ const trafficSchema = new mongoose.Schema({
   año: {
     type: Number,
     required: true,
-    index: true,
     validate: {
       validator: validateYear,
       message: `Año debe estar entre ${VALIDATION_LIMITS.YEAR_MIN} y ${VALIDATION_LIMITS.YEAR_MAX}`
@@ -58,7 +62,6 @@ const trafficSchema = new mongoose.Schema({
   mes: {
     type: Number,
     required: true,
-    index: true,
     validate: { validator: validateMonth, message: 'Mes debe estar entre 1 y 12' }
   },
 
@@ -72,7 +75,6 @@ const trafficSchema = new mongoose.Schema({
   hora: {
     type: Number,
     required: true,
-    index: true,
     min: [VALIDATION_LIMITS.HOUR_MIN, `Hora debe estar entre ${VALIDATION_LIMITS.HOUR_MIN} y ${VALIDATION_LIMITS.HOUR_MAX}`],
     max: [VALIDATION_LIMITS.HOUR_MAX, `Hora debe estar entre ${VALIDATION_LIMITS.HOUR_MIN} y ${VALIDATION_LIMITS.HOUR_MAX}`]
   },
@@ -88,7 +90,6 @@ const trafficSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: Object.values(TRAFFIC_ELEMENT_TYPES),
-    index: true,
     uppercase: true
   },
 
@@ -96,7 +97,6 @@ const trafficSchema = new mongoose.Schema({
     intensidad: {
       type: Number,
       required: true,
-      index: true,
       validate: {
         validator: function(v) {
           return v >= VALIDATION_LIMITS.TRAFFIC_INTENSITY_MIN && v <= VALIDATION_LIMITS.TRAFFIC_INTENSITY_MAX;
@@ -161,26 +161,22 @@ const trafficSchema = new mongoose.Schema({
     nivelCongestion: {
       type: String,
       enum: Object.values(CONGESTION_LEVELS),
-      default: 'SIN_DATOS',
-      index: true
+      default: 'SIN_DATOS'
     },
     clasificacionIntensidad: {
       type: String,
       enum: TRAFFIC_INTENSITY_LEVELS,
-      default: 'SIN_DATOS',
-      index: true
+      default: 'SIN_DATOS'
     },
     periodoDia: {
       type: String,
       enum: Object.values(DAY_PERIODS),
-      default: DAY_PERIODS.MAÑANA,
-      index: true
+      default: DAY_PERIODS.MAÑANA
     },
     tipoJornada: {
       type: String,
       enum: Object.values(WORKDAY_TYPES),
-      default: 'LABORABLE',
-      index: true
+      default: 'LABORABLE'
     }
   },
 

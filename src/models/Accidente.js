@@ -122,11 +122,16 @@ const accidentSchema = new mongoose.Schema({
    * @type {String}
    * @example "EXP-2051-001" (3 documentos: conductor, pasajero, peaton)
    */
+  // NOTA: `index: true` removido en single-fields cuyos compuestos posteriores
+  // ya cubren el patron de query (ver docs/optimizations_2026-05-26.md).
+  // Mongoose ya no recreara los indices numeroExpediente_1, fecha_1, año_1,
+  // mes_1, hora_1, franjaHoraria_1, ubicacion.calle_1,
+  // ubicacion.nombreDistrito_1, circunstancias.tipoAccidente_1,
+  // circunstancias.gravedad_1, vehiculo.tipo_1 al arrancar.
   numeroExpediente: {
     type: String,
     required: true,
     unique: false, // Explicitamente NO unico - ver documentacion arriba
-    index: true,
     trim: true
   },
 
@@ -134,7 +139,6 @@ const accidentSchema = new mongoose.Schema({
   fecha: {
     type: Date,
     required: true,
-    index: true,
     validate: {
       validator: validateDatasetDate,
       message: `La fecha del accidente debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
@@ -144,7 +148,6 @@ const accidentSchema = new mongoose.Schema({
   año: {
     type: Number,
     required: true,
-    index: true,
     min: [DATASET_YEARS.VALIDATION_MIN, `Año debe ser ${DATASET_YEARS.VALIDATION_MIN} o posterior`],
     // IMPORTANTE: Validación dinámica para soportar datos históricos y futuros
     // Los datos del proyecto corresponden al año 2051 (dataset Anthem)
@@ -163,7 +166,6 @@ const accidentSchema = new mongoose.Schema({
   mes: {
     type: Number,
     required: true,
-    index: true,
     min: [VALIDATION_LIMITS.MONTH_MIN, `Mes debe estar entre ${VALIDATION_LIMITS.MONTH_MIN} y ${VALIDATION_LIMITS.MONTH_MAX}`],
     max: [VALIDATION_LIMITS.MONTH_MAX, `Mes debe estar entre ${VALIDATION_LIMITS.MONTH_MIN} y ${VALIDATION_LIMITS.MONTH_MAX}`]
   },
@@ -180,7 +182,6 @@ const accidentSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
-    index: true,
     validate: {
       validator: validateTimeFormat,
       message: 'Hora debe tener formato válido HH:MM o HH.MM (ej: "14:30" o "08:00")'
@@ -189,8 +190,7 @@ const accidentSchema = new mongoose.Schema({
 
   franjaHoraria: {
     type: Number,
-    default: null,
-    index: true
+    default: null
   },
 
   // Ubicación del accidente
@@ -198,8 +198,7 @@ const accidentSchema = new mongoose.Schema({
     calle: {
       type: String,
       required: true,
-      trim: true,
-      index: true
+      trim: true
     },
 
     numero: {
@@ -220,8 +219,7 @@ const accidentSchema = new mongoose.Schema({
       type: String,
       required: true,
       trim: true,
-      uppercase: true,
-      index: true
+      uppercase: true
     },
 
     // Coordenadas geograficas (UTM ETRS89 zona 30N, oficial Espana)
@@ -268,7 +266,6 @@ const accidentSchema = new mongoose.Schema({
       required: true,
       trim: true,
       enum: Object.values(TIPOS_ACCIDENTE),
-      index: true,
       default: TIPOS_ACCIDENTE.OTRO
     },
 
@@ -291,8 +288,7 @@ const accidentSchema = new mongoose.Schema({
     gravedad: {
       type: String,
       enum: Object.values(SEVERITY_LEVELS.ACCIDENT),
-      default: SEVERITY_LEVELS.ACCIDENT.LEVE,
-      index: true
+      default: SEVERITY_LEVELS.ACCIDENT.LEVE
     }
   },
 
@@ -304,7 +300,6 @@ const accidentSchema = new mongoose.Schema({
       trim: true,
       enum: Object.values(TIPOS_VEHICULO),
       uppercase: true,
-      index: true,
       default: TIPOS_VEHICULO.SIN_ESPECIFICAR
     },
 

@@ -31,10 +31,13 @@ const {
 const multaService = require('../services/multaService');
 
 const multaSchema = new mongoose.Schema({
+  // NOTA: `index: true` removido en single-fields cuyos compuestos posteriores
+  // ya cubren el patron de query (ver docs/optimizations_2026-05-26.md).
+  // Mongoose ya no recreara los indices fecha_1, mes_1, año_1, hora_1,
+  // calificacion_1, lugar_1 al arrancar el servidor.
   fecha: {
     type: Date,
     required: true,
-    index: true,
     validate: {
       validator: validateDatasetDate,
       message: `La fecha de la multa debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
@@ -44,14 +47,12 @@ const multaSchema = new mongoose.Schema({
   mes: {
     type: Number,
     required: true,
-    index: true,
     validate: { validator: validateMonth, message: 'Mes debe estar entre 1 y 12' }
   },
 
   año: {
     type: Number,
     required: true,
-    index: true,
     validate: {
       validator: validateYear,
       message: `Año debe estar entre ${VALIDATION_LIMITS.YEAR_MIN} y ${VALIDATION_LIMITS.YEAR_MAX}`
@@ -62,7 +63,6 @@ const multaSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
-    index: true,
     validate: { validator: validateTimeFormat, message: 'Hora debe tener formato válido HH:MM o HH.MM' }
   },
 
@@ -71,11 +71,10 @@ const multaSchema = new mongoose.Schema({
     required: true,
     trim: true,
     enum: Object.values(SEVERITY_LEVELS.FINE),
-    uppercase: true,
-    index: true
+    uppercase: true
   },
 
-  lugar: { type: String, required: true, trim: true, index: true },
+  lugar: { type: String, required: true, trim: true },
 
   coordenadas: { type: coordinatesUTMSchema, required: false },
 
@@ -114,7 +113,6 @@ const multaSchema = new mongoose.Schema({
   importeBoletín: {
     type: Number,
     required: true,
-    index: true,
     min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Importe del boletín no puede ser negativo'],
     validate: {
       validator: validateAmount,
@@ -122,7 +120,7 @@ const multaSchema = new mongoose.Schema({
     }
   },
 
-  tieneDescuento: { type: Boolean, required: true, default: false, index: true },
+  tieneDescuento: { type: Boolean, required: true, default: false },
 
   importeFinal: {
     type: Number,
@@ -146,14 +144,13 @@ const multaSchema = new mongoose.Schema({
   puntosDetraídos: {
     type: Number,
     required: true,
-    index: true,
     validate: {
       validator: validateLicensePoints,
       message: `Puntos detraídos deben estar entre ${VALIDATION_LIMITS.DRIVER_POINTS_MIN} y ${VALIDATION_LIMITS.DRIVER_POINTS_MAX}`
     }
   },
 
-  denunciante: { type: String, required: true, trim: true, index: true },
+  denunciante: { type: String, required: true, trim: true },
   descripcionInfraccion: { type: String, required: true, trim: true },
 
   datosVelocidad: {

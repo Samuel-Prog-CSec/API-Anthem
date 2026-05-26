@@ -66,11 +66,16 @@ const populationDataSchema = new mongoose.Schema({
  * - EspanolesHombres, EspanolesMujeres, ExtranjerosHombres, ExtranjerosMujeres
  */
 const censusSchema = new mongoose.Schema({
+  // NOTA: `index: true` removido en single-fields cuyos compuestos posteriores
+  // ya cubren el patron de query (ver docs/optimizations_2026-05-26.md).
+  // Mongoose ya no recreara los indices fechaCenso_1, mes_1, año_1,
+  // distrito.codigo_1, distrito.descripcion_1, barrio.codigoDistritoBarrio_1,
+  // barrio.codigo_1, barrio.descripcion_1, seccionCensal.codigoDistritoSeccion_1,
+  // seccionCensal.codigo_1, edad_1, estadisticas.totalPoblacion_1 al arrancar.
   // Información temporal
   fechaCenso: {
     type: Date,
     required: true,
-    index: true,
     validate: {
       validator: validateDatasetDate,
       message: `La fecha del censo debe estar dentro del rango del dataset (${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR})`
@@ -80,7 +85,6 @@ const censusSchema = new mongoose.Schema({
   mes: {
     type: Number,
     required: true,
-    index: true,
     validate: {
       validator: validateMonth,
       message: 'Mes debe estar entre 1 y 12'
@@ -90,7 +94,6 @@ const censusSchema = new mongoose.Schema({
   año: {
     type: Number,
     required: true,
-    index: true,
     validate: {
       validator: validateYear,
       message: `Año debe estar entre ${VALIDATION_LIMITS.YEAR_MIN} y ${VALIDATION_LIMITS.YEAR_MAX}`
@@ -102,14 +105,12 @@ const censusSchema = new mongoose.Schema({
     codigo: {
       type: Number,
       required: true,
-      index: true,
       min: [1, 'Código de distrito debe ser positivo']
     },
     descripcion: {
       type: String,
       required: true,
       trim: true,
-      index: true,
       uppercase: true
     }
   },
@@ -118,20 +119,17 @@ const censusSchema = new mongoose.Schema({
     codigoDistritoBarrio: {
       type: Number,
       required: true,
-      index: true,
       min: [1, 'Código distrito-barrio debe ser positivo']
     },
     codigo: {
       type: Number,
       required: true,
-      index: true,
       min: [1, 'Código de barrio debe ser positivo']
     },
     descripcion: {
       type: String,
       required: true,
       trim: true,
-      index: true,
       uppercase: true
     }
   },
@@ -140,14 +138,12 @@ const censusSchema = new mongoose.Schema({
     codigoDistritoSeccion: {
       type: Number,
       required: true,
-      index: true,
       min: [1, 'Código distrito-sección debe ser positivo']
     },
     codigo: {
       type: Number,
       required: true,
-      min: [1, 'Código de sección inválido'],
-      index: true
+      min: [1, 'Código de sección inválido']
     }
   },
 
@@ -155,7 +151,6 @@ const censusSchema = new mongoose.Schema({
   edad: {
     type: Number,
     required: [true, 'Edad obligatoria'],
-    index: true,
     validate: {
       validator: function(v) {
         // Validar rango 0-120 para datos censales reales
@@ -217,7 +212,6 @@ const censusSchema = new mongoose.Schema({
     },
     totalPoblacion: {
       type: Number,
-      index: true,
       min: [VALIDATION_LIMITS.QUANTITY_MIN, 'Total población no puede ser negativo'],
       validate: {
         validator: function(v) {
