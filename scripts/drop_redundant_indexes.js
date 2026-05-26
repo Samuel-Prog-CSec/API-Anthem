@@ -30,7 +30,8 @@
 
 require('dotenv').config();
 const mongoose = require('mongoose');
-const { scriptLogger } = require('../src/config/scriptLogger');
+// scriptLogger se exporta como default (module.exports = scriptLogger).
+const scriptLogger = require('../src/config/scriptLogger');
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
