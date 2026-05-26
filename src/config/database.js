@@ -68,10 +68,12 @@ const connectDB = async (uri) => {
 
       // Comportamiento de buffering
       // bufferCommands=true (default Mongoose): si la conexion se cae, las
-      // queries se encolan hasta que vuelve. En desarrollo es conveniente.
-      // En produccion seria preferible false para fallar rapido, pero
-      // mantenemos default por compatibilidad con el ciclo de import + dev.
-      bufferCommands: true,
+      // queries se encolan hasta que vuelve. En desarrollo es conveniente
+      // para no romper hot-reload de nodemon durante reinicios de MongoDB.
+      // En produccion preferimos fail-fast para evitar que la cola crezca
+      // sin limites mientras MongoDB esta caido y los clients ya tienen
+      // sus propios retries (peor experiencia: timeout en lugar de error).
+      bufferCommands: process.env.NODE_ENV !== 'production',
 
       // Identificador de la aplicacion en logs/metrics de MongoDB.
       // Util cuando varios servicios apuntan al mismo cluster.
