@@ -76,19 +76,24 @@ const personaAfectadaSchema = new mongoose.Schema({
     default: TIPOS_LESION.DESCONOCIDO
   },
 
-  // Análisis de sustancias
+  // Análisis de sustancias.
+  // Antes el default era BINARY_INDICATORS.NULL ('NULL' string), lo que
+  // hacia que las queries `{ positivaDroga: null }` no encontraran nada y
+  // los agregados que distinguen "no informado" vs "negativo" mezclaran
+  // 32 349 docs (99.7%) en el mismo cubo. Ahora si el CSV no informa, el
+  // campo queda ausente (undefined) y los reportes pueden distinguir.
   positivaAlcohol: {
     type: String,
-    enum: Object.values(BINARY_INDICATORS),
-    default: BINARY_INDICATORS.NULL,
-    uppercase: true
+    enum: [...Object.values(BINARY_INDICATORS), null],
+    uppercase: true,
+    required: false
   },
 
   positivaDroga: {
     type: String,
-    enum: Object.values(BINARY_INDICATORS),
-    default: BINARY_INDICATORS.NULL,
-    uppercase: true
+    enum: [...Object.values(BINARY_INDICATORS), null],
+    uppercase: true,
+    required: false
   }
 
 }, { _id: false });
@@ -275,13 +280,16 @@ const accidentSchema = new mongoose.Schema({
       required: false
     },
 
+    // El CSV trae esta columna VACIA en las 32 431 filas, asi que llenar
+    // por defecto con 'SE_DESCONOCE'/'DESCONOCIDO' generaba un campo que
+    // parecia informacion pero era ruido. Ahora si no hay dato el campo
+    // queda undefined y la UI puede mostrar "no disponible".
     estadoMeteorologico: {
       type: String,
       required: false,
       trim: true,
-      enum: Object.values(WEATHER_CONDITIONS),
-      uppercase: true,
-      default: WEATHER_CONDITIONS.DESCONOCIDO
+      enum: [...Object.values(WEATHER_CONDITIONS), null],
+      uppercase: true
     },
 
     // Gravedad del accidente (calculada automáticamente)

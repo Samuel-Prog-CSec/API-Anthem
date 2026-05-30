@@ -253,10 +253,25 @@ const censusSchema = new mongoose.Schema({
 
   // Metadatos y calidad de datos
   metadatos: {
+    // densidadPoblacional clasifica la cantidad de habitantes en este
+    // segmento (edad x seccion censal x mes). Antes el default era fijo
+    // (CULTURAL_DIVERSITY_LEVELS.MEDIA -- ademas con enum equivocado) y
+    // todos los 2.85 M docs acababan como "MEDIA", convirtiendo el campo
+    // en ruido. Ahora el default function clasifica por `totalPoblacion`:
+    //   >50 MUY_ALTA, >20 ALTA, >5 MEDIA, resto BAJA.
+    //
+    // Los umbrales son intencionalmente bajos porque cada doc representa
+    // UN tramo de edad concreto en UNA seccion censal, no el barrio entero.
     densidadPoblacional: {
       type: String,
       enum: Object.values(POPULATION_DENSITY_LEVELS),
-      default: CULTURAL_DIVERSITY_LEVELS.MEDIA
+      default: function() {
+        const total = this.estadisticas?.totalPoblacion || 0;
+        if (total > 50) {return POPULATION_DENSITY_LEVELS.MUY_ALTA;}
+        if (total > 20) {return POPULATION_DENSITY_LEVELS.ALTA;}
+        if (total > 5)  {return POPULATION_DENSITY_LEVELS.MEDIA;}
+        return POPULATION_DENSITY_LEVELS.BAJA;
+      }
     },
     diversidadCultural: {
       type: String,

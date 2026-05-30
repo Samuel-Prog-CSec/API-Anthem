@@ -86,6 +86,12 @@ const TIPOS_LESION = {
   DESCONOCIDO: 'SE_DESCONOCE'
 };
 
+/**
+ * Mapeo de TIPOS_LESION individuales a categoria de severidad.
+ * Aplica al campo `personaAfectada.tipoLesion` (codigo de lesividad del
+ * informe medico, por victima). NO confundir con `circunstancias.gravedad`
+ * (LEVE/GRAVE/MORTAL) que es el resumen del accidente completo.
+ */
 const MAPEO_SEVERIDAD_LESIONES = {
   GRAVES: [
     'FALLECIDO_24_HORAS',
@@ -101,6 +107,17 @@ const MAPEO_SEVERIDAD_LESIONES = {
   ],
   DESCONOCIDAS: ['SE_DESCONOCE']
 };
+
+/**
+ * Valores de `circunstancias.gravedad` considerados "no leves" (GRAVE o
+ * MORTAL). Util para queries que cuentan accidentes serios filtrando por
+ * el campo de gravedad resumen del accidente, no por el tipoLesion
+ * individual. La separacion entre este array y MAPEO_SEVERIDAD_LESIONES
+ * evita el bug clasico de comparar 'circunstancias.gravedad' (LEVE/GRAVE/
+ * MORTAL) contra strings de tipoLesion (FALLECIDO_24_HORAS, etc.) que
+ * nunca matchean.
+ */
+const GRAVEDADES_NO_LEVE = ['GRAVE', 'MORTAL'];
 
 const WEATHER_CONDITIONS = {
   DESPEJADO: 'DESPEJADO',
@@ -132,6 +149,7 @@ module.exports = {
   TIPOS_PERSONA,
   TIPOS_LESION,
   MAPEO_SEVERIDAD_LESIONES,
+  GRAVEDADES_NO_LEVE,
   WEATHER_CONDITIONS,
   FACTORES_RIESGO
 };

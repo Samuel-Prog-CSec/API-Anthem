@@ -264,7 +264,10 @@ function calcularCamposPatinetes(data) {
   } else if (AREAS_CLAVE_PATINETES.UNIVERSITY.some(loc => barrio.includes(loc))) {
     data.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_UNIVERSITARIA;
     data.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.ALTA;
-  } else if (AREAS_CLAVE_PATINETES.TRANSPORT.some(loc => barrio.includes(loc))) {
+  } else if (AREAS_CLAVE_PATINETES.TRANSPORT.some(loc => distrito.includes(loc) || barrio.includes(loc))) {
+    // Buscar TAMBIEN en distrito: estaciones importantes (Chamartin)
+    // estan declaradas como nombre de DISTRITO, no de barrio. Antes solo se
+    // buscaba en barrio y las 6 entradas de CHAMARTIN caian a ZONA_RESIDENCIAL.
     data.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_TRANSPORTE;
     data.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.ALTA;
   } else if (AREAS_CLAVE_PATINETES.COMMERCIAL.some(loc => distrito.includes(loc))) {

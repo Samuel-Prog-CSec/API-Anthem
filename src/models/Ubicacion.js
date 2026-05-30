@@ -34,6 +34,40 @@ const locationSchema = new mongoose.Schema({
     }
   },
 
+  // Dirección textual de la estación acústica (calle, número, referencia)
+  // Origen: columna "Dirección" del CSV de estaciones de medida acústica.
+  // Si no se declara aquí, Mongoose en modo strict descarta el campo
+  // silenciosamente al guardar (era el bug original: 124/124 estaciones
+  // sin dirección porque el importer la mapeaba pero el schema la perdía).
+  direccion: {
+    type: String,
+    trim: true,
+    sparse: true
+  },
+
+  // Fecha de alta de la estación (string DD/MM/YYYY del CSV original).
+  // Mismo motivo que `direccion`: el importer la mapea pero sin declararla
+  // aquí Mongoose la descarta.
+  fechaAlta: {
+    type: String,
+    trim: true,
+    sparse: true
+  },
+
+  // Nombre del distrito al que pertenece la estación acústica.
+  // El CSV de origen NO incluye esta información (solo direccion textual y
+  // coordenadas UTM). Se asigna offline por nearest-centroid contra los
+  // centroides de distritos calculados desde la colección de accidentes
+  // (que sí tiene coords + nombreDistrito).
+  // Necesario para la correlación Ruido vs Censo, que cruza estaciones con
+  // niveles dB altos vs población por distrito.
+  distritoNombre: {
+    type: String,
+    trim: true,
+    sparse: true,
+    index: true
+  },
+
   // Datos específicos para puntos de tráfico
   cod_cent: {
     type: String,

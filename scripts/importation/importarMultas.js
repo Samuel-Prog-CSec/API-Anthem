@@ -108,18 +108,38 @@ function calcularCamposDerivadosMulta(multa) {
     vel.exceso = Math.max(0, vel.velocidadCirculacion - vel.velocidadLimite);
   }
 
-  // Inicializar metadatos
-  const esVelocidad = vel && vel.velocidadLimite && vel.velocidadCirculacion;
+  // Inicializar metadatos.
+  //
+  // Bug previo: tipoInfraccion solo era VELOCIDAD si el CSV traia los
+  // campos numericos VEL_LIMITE y VEL_CIRCULA. Pero muchas multas que en
+  // la descripcion explicitan "SOBREPASAR LA VELOCIDAD MAXIMA..." vienen
+  // SIN esos numericos, asi que el 98 % de las multas acababan como
+  // 'OTRAS' aunque la descripcion las identifique como exceso de
+  // velocidad. Ahora se detecta tambien via descripcion.
+  //
+  // La regex cubre las dos formas habituales que aparecen en el dataset
+  // ("VELOCIDAD MAXIMA" y "EXCESO ... VELOCIDAD ...").
+  const tieneDatosVelocidad = Boolean(vel && vel.velocidadLimite && vel.velocidadCirculacion);
+  const descripcion = (multa.descripcionInfraccion || '').toUpperCase();
+  const descripcionEsVelocidad = REGEX_DESCRIPCION_VELOCIDAD.test(descripcion);
+  const esVelocidad = tieneDatosVelocidad || descripcionEsVelocidad;
+
   multa.metadatos = {
     tipoInfraccion: esVelocidad ? INFRACTION_TYPES.VELOCIDAD : INFRACTION_TYPES.OTRAS,
     esInfraccionGrave: multa.calificacion === SEVERITY_LEVELS.FINE.GRAVE ||
                        multa.calificacion === SEVERITY_LEVELS.FINE.MUY_GRAVE,
-    esInfraccionVelocidad: Boolean(esVelocidad),
+    esInfraccionVelocidad: esVelocidad,
     zonaUrbana: true
   };
 
   return multa;
 }
+
+// Detector de multas de velocidad por descripcion textual.
+// Cubre los patrones "SOBREPASAR LA VELOCIDAD M(AÁ)XIMA", "EXCEDER (LA)
+// VELOCIDAD M(AÁ)XIMA" y "EXCESO DE VELOCIDAD". Sensible a tildes con
+// y sin acento porque el dataset municipal mezcla ambas formas.
+const REGEX_DESCRIPCION_VELOCIDAD = /(SOBREPAS(AR|ANDO).+VELOCIDAD\s+M[AÁ]XIMA|EXCEDE(R|NDO).+VELOCIDAD\s+M[AÁ]XIMA|EXCESO\s+DE\s+VELOCIDAD)/;
 
 // ============================================================================
 // FUNCIONES DE PARSEO

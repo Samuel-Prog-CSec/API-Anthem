@@ -75,12 +75,15 @@ const contenedorSchema = new mongoose.Schema({
     trim: true
   },
 
-  // Información geográfica - Barrio
+  // Información geográfica - Barrio.
+  // Sin default. El CSV trae barrio vacio en 71 % de filas y antes el
+  // schema rellenaba con "SIN ESPECIFICAR" creando un valor que parecia
+  // dato. Ahora si el CSV no informa, el campo queda undefined y la UI
+  // muestra "—" / "No disponible".
   barrio: {
     type: String,
-    required: false, // Opcional - algunos registros no tienen barrio especificado
-    trim: true,
-    default: DEFAULT_VALUES.UNSPECIFIED
+    required: false,
+    trim: true
   },
 
   // Dirección del contenedor
@@ -196,17 +199,20 @@ contenedorSchema.pre('save', function(next) {
  */
 
 // ========================================
-// ÍNDICE ÚNICO - Prevención de duplicados
+// ÍNDICE COMPUESTO - Lookup por código + tipo
 // ========================================
-// Garantiza que no haya contenedores duplicados para mismo código + tipo
-// Combinación: codigoInternoSituado + tipoContenedor
-// Un código puede tener múltiples tipos (orgánica, envases, etc.)
+// NO se marca como unique porque el dataset Anthem reutiliza el
+// codigoInternoSituado para contenedores fisicamente distintos (mismo
+// codigo+tipo en coordenadas distintas, hasta 1.6 km de separacion).
+// Antes el `unique:true` rechazaba silenciosamente 2 585 contenedores
+// reales (verificado: 166 grupos con coords > 5 m).
+// El importador hace el dedup correcto usando la clave 4-tuple
+// (codigo + tipo + lon + lat) en memoria.
 contenedorSchema.index({
   codigoInternoSituado: 1,
   tipoContenedor: 1
 }, {
-  unique: true,
-  name: 'idx_containers_unique_code_type'
+  name: 'idx_containers_code_type'
 });
 
 // ========================================

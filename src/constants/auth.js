@@ -27,7 +27,12 @@ const USER_VALIDATION = {
   MAX_EMAIL_LENGTH: 155,
   MIN_IDENTIFIER_LENGTH: 3,
   MAX_IDENTIFIER_LENGTH: 30,
-  PASSWORD_PATTERN: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/,
+  // Permitimos cualquier caracter no alfanumerico como "especial" (coherente
+  // con `utils/passwordValidator.js`). Antes el patron exigia uno de
+  // `@$!%*?&` Y rechazaba el resto, lo que provocaba que contrasenyas
+  // perfectamente fuertes con `.` o caracteres internacionales (`n~`,
+  // acentos) fueran rechazadas aunque pasaran la fortaleza minima.
+  PASSWORD_PATTERN: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,128}$/,
   USERNAME_PATTERN: /^[a-zA-Z0-9_-]+$/,
   FORBIDDEN_USERNAMES: ['admin', 'root', 'api', 'system', 'null', 'undefined']
 };

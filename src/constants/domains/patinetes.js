@@ -86,8 +86,12 @@ const TIPOS_INFORME_PATINETES = {
  *
  * Unidades: patinetes totales (no per capita).
  */
+// Umbrales recalibrados tras observar la distribucion real del dataset
+// Anthem 2051: el barrio con mas patinetes (Valdefuentes) tiene 182, asi
+// que con el umbral antiguo MUY_ALTA=200 NINGUNA zona caia en MUY_ALTA.
+// Bajamos a 150 para reflejar el "top decile" real.
 const UMBRALES_DENSIDAD_PATINETES = {
-  MUY_ALTA: 200,
+  MUY_ALTA: 150,
   ALTA: 100,
   MEDIA: 50,
   BAJA: 0
@@ -133,10 +137,18 @@ const UMBRALES_CONCENTRACION_MERCADO = {
   COMPETITIVE: 0
 };
 
+// Areas clave para clasificar tipo de zona en distribucion de patinetes.
+// IMPORTANTE: incluir TANTO la forma sin tildes como la con tildes porque
+// `normalizarTexto` no elimina tildes (solo arregla mojibake). El dataset
+// real de Madrid trae 'CHAMARTÍN', 'TETUÁN', etc. con tildes.
 const AREAS_CLAVE_PATINETES = {
   CENTRAL: ['CENTRO', 'SOL'],
-  UNIVERSITY: ['UNIVERSIDAD', 'CAMPUS'],
-  TRANSPORT: ['ATOCHA', 'CHAMARTIN'],
+  // Incluimos 'UNIVERSITARIA' / 'UNIVERSITARIO' porque el barrio real es
+  // "CIUDAD UNIVERSITARIA" (Moncloa-Aravaca). Antes solo 'UNIVERSIDAD' y
+  // 'CAMPUS', y ningun barrio del dataset matcheaba => ZONA_UNIVERSITARIA
+  // nunca se asignaba.
+  UNIVERSITY: ['UNIVERSIDAD', 'UNIVERSITARIA', 'UNIVERSITARIO', 'CAMPUS'],
+  TRANSPORT: ['ATOCHA', 'CHAMARTIN', 'CHAMARTÍN'],
   COMMERCIAL: ['RETIRO', 'SALAMANCA']
 };
 

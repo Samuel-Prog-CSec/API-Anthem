@@ -256,7 +256,14 @@ async function importTrafficPoints() {
     }
 
     crearLectorCSV(filePath)
-      .pipe(csv({ separator: ';' }))
+      // mapHeaders strippea BOM UTF-8 (EF BB BF) que al leerse como latin1
+      // se convierte en "ï»¿" pegado al nombre de la primera columna.
+      // Sin esto row.tipo_elem === undefined para las 4373 filas (la clave
+      // real seria "ï»¿tipo_elem") y se pierde el campo enum URB/M30.
+      .pipe(csv({
+        separator: ';',
+        mapHeaders: ({ header }) => header.replace(/^[﻿ï»¿]+/, '')
+      }))
       .on('data', (row) => {
         if (isShuttingDown) {return;}
         rowIndex++;
