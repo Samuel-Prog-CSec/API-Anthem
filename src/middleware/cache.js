@@ -450,6 +450,7 @@ const getCacheStats = () => {
   return stats;
 };
 
+// touch: forzar reload de nodemon tras re-import de ubicaciones (cache invalidation)
 module.exports = {
   cacheMiddleware,
   statsCacheMiddleware,

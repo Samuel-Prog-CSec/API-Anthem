@@ -167,7 +167,40 @@ const obtenerRankingOptimizado = function(Model, filters, sortBy = 'laeq24', lim
       }
     },
     { $sort: { [sortField.substring(1)]: -1 } },
-    { $limit: limit }
+    { $limit: limit },
+    // Lookup contra locations para anadir el distrito asignado por
+    // nearest-centroid (script asignar_distrito_estaciones_acusticas.js).
+    // Necesario para la correlacion Ruido vs Censo, que cruza estaciones con
+    // niveles dB altos vs poblacion por distrito. nmt en noise_monitoring es
+    // number (parseInt al importar); en locations es string -> convertir
+    // antes de comparar.
+    {
+      $lookup: {
+        from: 'locations',
+        let: { stationNmt: { $toString: '$_id.nmt' } },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$tipo', 'estacion_acustica'] },
+                  { $eq: ['$nmt', '$$stationNmt'] }
+                ]
+              }
+            }
+          },
+          { $project: { distritoNombre: 1, direccion: 1, _id: 0 } }
+        ],
+        as: 'estacion'
+      }
+    },
+    {
+      $addFields: {
+        distrito: { $arrayElemAt: ['$estacion.distritoNombre', 0] },
+        direccion: { $arrayElemAt: ['$estacion.direccion', 0] }
+      }
+    },
+    { $project: { estacion: 0 } }
   ];
 
   return Model.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });

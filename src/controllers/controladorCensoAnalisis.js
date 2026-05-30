@@ -23,6 +23,24 @@ const {
 const asyncHandler = require('../utils/asyncHandler');
 
 /**
+ * Devuelve el ultimo mes que tiene documentos para el año indicado.
+ * Util para tomar la "foto" mas reciente de poblacion sin duplicar por
+ * los 12 snapshots mensuales que trae el dataset Anthem.
+ *
+ * @param {number} year
+ * @returns {Promise<number>} mes 1-12; cae a 12 si no hay datos.
+ */
+async function obtenerUltimoMesConDatos(year) {
+  const [doc] = await Censo.aggregate([
+    { $match: { año: year } },
+    { $group: { _id: '$mes' } },
+    { $sort: { _id: -1 } },
+    { $limit: 1 }
+  ]).option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+  return doc?._id || 12;
+}
+
+/**
  * Obtener estadisticas por distritos
  * GET /api/v1/censo/distritos/estadisticas
  */
@@ -224,13 +242,19 @@ const obtenerEvolucionDemografica = asyncHandler(async (req, res) => {
  * GET /api/v1/censo/dashboard
  */
 const obtenerDashboardDemografico = asyncHandler(async (req, res) => {
-  const { año, distrito } = parseNumericParams(
+  const { año, distrito, mes } = parseNumericParams(
     req.query,
-    ['año', 'distrito'],
+    ['año', 'distrito', 'mes'],
     { año: DATASET_YEARS.DEFAULT_YEAR }
   );
 
-  const matchFilters = { año };
+  // El censo Anthem tiene 12 snapshots mensuales por (edad x seccion). Sumar
+  // los 12 meses inflaba la `poblacionTotal` x12 (mostraba 25-39 M en lugar
+  // de ~3.3 M). Para una foto poblacional honesta usamos el ultimo mes
+  // disponible por defecto (snapshot mas reciente). Si el usuario pasa un
+  // `mes` explicito, se respeta para vistas temporales.
+  const mesElegido = mes || await obtenerUltimoMesConDatos(año);
+  const matchFilters = { año, mes: mesElegido };
   if (distrito) { matchFilters['distrito.codigo'] = distrito; }
 
   // Metricas principales agregadas

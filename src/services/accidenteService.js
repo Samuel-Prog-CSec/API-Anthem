@@ -10,10 +10,16 @@ const {
   TIPOS_ACCIDENTE,
   TIPOS_VEHICULO,
   MAPEO_SEVERIDAD_LESIONES,
+  GRAVEDADES_NO_LEVE,
   SEVERITY_LEVELS,
   BINARY_INDICATORS,
   MONGODB_TIMEOUTS
 } = require('../constants');
+
+// NOTA: usar MAPEO_SEVERIDAD_LESIONES.GRAVES solo cuando se filtra por
+// `personaAfectada.tipoLesion` (codigos individuales tipo FALLECIDO_24_HORAS).
+// Para `circunstancias.gravedad` (LEVE/GRAVE/MORTAL del accidente completo)
+// usar GRAVEDADES_NO_LEVE para evitar matchear cero documentos.
 
 const ESCALAR_AGG = { allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS };
 
@@ -24,7 +30,7 @@ const obtenerEstadisticasPorPeriodo = function(Model, startDate, endDate) {
       $group: {
         _id: null,
         totalAccidentes: { $sum: 1 },
-        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0] } },
+        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', GRAVEDADES_NO_LEVE] }, 1, 0] } },
         accidentesMortales: { $sum: { $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0] } },
         atropellos: { $sum: { $cond: [{ $eq: ['$circunstancias.tipoAccidente', TIPOS_ACCIDENTE.ATROPELLO_A_PERSONA] }, 1, 0] } },
         accidentesConAlcohol: { $sum: { $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0] } }
@@ -44,7 +50,7 @@ const obtenerPuntosNegros = function(Model, limit = 10, startDate = null, endDat
       $group: {
         _id: { calle: '$ubicacion.calle', distrito: '$ubicacion.nombreDistrito' },
         totalAccidentes: { $sum: 1 },
-        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0] } },
+        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', GRAVEDADES_NO_LEVE] }, 1, 0] } },
         tiposAccidente: { $addToSet: '$circunstancias.tipoAccidente' },
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
       }
@@ -66,7 +72,7 @@ const obtenerAnalisisPorVehiculo = function(Model, startDate = null, endDate = n
       $group: {
         _id: '$vehiculo.tipo',
         totalAccidentes: { $sum: 1 },
-        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0] } },
+        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', GRAVEDADES_NO_LEVE] }, 1, 0] } },
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
       }
     },
@@ -89,7 +95,7 @@ const obtenerPatronesTemporales = function(Model, groupBy = 'hora') {
       $group: {
         _id: groupField,
         totalAccidentes: { $sum: 1 },
-        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0] } }
+        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', GRAVEDADES_NO_LEVE] }, 1, 0] } }
       }
     },
     { $sort: { _id: 1 } }
@@ -103,7 +109,7 @@ const obtenerComparativaDistritos = function(Model, filters = {}) {
       $group: {
         _id: '$ubicacion.nombreDistrito',
         totalAccidentes: { $sum: 1 },
-        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0] } },
+        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', GRAVEDADES_NO_LEVE] }, 1, 0] } },
         accidentesMortales: { $sum: { $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0] } },
         atropellos: { $sum: { $cond: [{ $eq: ['$circunstancias.tipoAccidente', TIPOS_ACCIDENTE.ATROPELLO_A_PERSONA] }, 1, 0] } },
         accidentesAlcohol: { $sum: { $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0] } },
@@ -138,7 +144,7 @@ const obtenerAnalisisSeguridadCalles = function(Model, filters = {}, limit = 20)
       $group: {
         _id: { calle: '$ubicacion.calle', distrito: '$ubicacion.nombreDistrito' },
         totalAccidentes: { $sum: 1 },
-        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0] } },
+        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', GRAVEDADES_NO_LEVE] }, 1, 0] } },
         atropellos: { $sum: { $cond: [{ $eq: ['$circunstancias.tipoAccidente', TIPOS_ACCIDENTE.ATROPELLO_A_PERSONA] }, 1, 0] } },
         accidentesAlcohol: { $sum: { $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0] } },
         indiceSeveridad: { $avg: '$analisis.puntuacionGravedad' }
@@ -168,7 +174,7 @@ const obtenerAnalisisTendencias = function(Model, filters = {}) {
       $group: {
         _id: { año: '$año', mes: '$mes' },
         totalAccidentes: { $sum: 1 },
-        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0] } }
+        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', GRAVEDADES_NO_LEVE] }, 1, 0] } }
       }
     },
     { $sort: { '_id.año': 1, '_id.mes': 1 } }
@@ -182,7 +188,7 @@ const obtenerCorrelacionMeteorologica = function(Model, filters = {}) {
       $group: {
         _id: '$circunstancias.estadoMeteorologico',
         totalAccidentes: { $sum: 1 },
-        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0] } }
+        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', GRAVEDADES_NO_LEVE] }, 1, 0] } }
       }
     },
     {
@@ -201,7 +207,7 @@ const obtenerDistribucionDistritos = function(Model, filters = {}, limit = 15) {
       $group: {
         _id: '$ubicacion.nombreDistrito',
         totalAccidentes: { $sum: 1 },
-        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', MAPEO_SEVERIDAD_LESIONES.GRAVES] }, 1, 0] } },
+        accidentesGraves: { $sum: { $cond: [{ $in: ['$circunstancias.gravedad', GRAVEDADES_NO_LEVE] }, 1, 0] } },
         puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' }
       }
     },
@@ -264,7 +270,7 @@ const obtenerDatosMapaCalor = async function(Model, filters = {}, limite = 500, 
     groupedPoints[key].accidentes.push(accident);
     groupedPoints[key].totalAccidentes++;
 
-    if (MAPEO_SEVERIDAD_LESIONES.GRAVES.includes(accident.circunstancias.gravedad)) {
+    if (GRAVEDADES_NO_LEVE.includes(accident.circunstancias.gravedad)) {
       groupedPoints[key].accidentesGraves++;
     }
 

@@ -106,7 +106,18 @@ const generateStatsCacheKey = (url, query = {}) => {
  * @returns {string} Clave en formato `${prefix}:${hash16}`.
  */
 const generatePrefixedCacheKey = (prefix, query = {}) => {
-  const hash = generateSecureCacheKey('GET', prefix, query).split(':')[2];
+  // BUG fix: `generateSecureCacheKey` devuelve `METHOD:URL:HASH`. Con
+  // `.split(':')[2]` solo funcionaba si `prefix` no contenia `:`. Para
+  // prefijos como `pedestrian:list`, `fines:list`, `censo:list`,
+  // `accidentes:list` el split daba ['GET','pedestrian','list','HASH'] y
+  // tomabamos `'list'` como hash, lo que hacia que **todas las querys
+  // del mismo endpoint colisionaran en la misma clave de cache** y
+  // devolvieran siempre la respuesta cacheada inicial (que el frontend
+  // veia como `documentsPerPage:1` en paginacion porque la primera
+  // llamada fue con `limit:1` del warming/dashboard counts).
+  // El hash es el ultimo segmento, lo tomamos con `pop()`.
+  const parts = generateSecureCacheKey('GET', prefix, query).split(':');
+  const hash = parts[parts.length - 1];
   return `${prefix}:${hash}`;
 };
 

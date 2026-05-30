@@ -165,12 +165,20 @@ const createForbiddenError = (message = 'Acceso denegado', details = null) => {
 };
 
 /**
- * Formatear error para respuesta HTTP
+ * Formatear error para respuesta HTTP.
+ *
+ * No incluye el stack trace ni siquiera en desarrollo: Pino ya lo loguea
+ * con `globalErrorHandler` y duplicarlo en el body del response crea
+ * inconsistencia entre entornos y filtra detalles internos del runtime
+ * al cliente. El parametro `includeStack` se mantiene en la firma para
+ * compatibilidad con llamadas existentes pero queda intencionalmente
+ * ignorado.
+ *
  * @param {AppError} error - Error a formatear
- * @param {boolean} includeStack - Incluir stack trace (solo desarrollo)
+ * @param {boolean} [_includeStack=false] - Ignorado, ver doc.
  * @returns {Object} Error formateado para respuesta
  */
-const formatErrorResponse = (error, includeStack = false) => {
+const formatErrorResponse = (error, _includeStack = false) => {
   const response = {
     success: false,
     status: error.status || 'error',
@@ -182,8 +190,10 @@ const formatErrorResponse = (error, includeStack = false) => {
     response.details = error.details;
   }
 
-  if (includeStack && error.stack) {
-    response.stack = error.stack;
+  // Codigo de error programatico para que el frontend pueda discriminar
+  // sin parsear `message`. Solo se incluye si esta definido.
+  if (error.code) {
+    response.code = error.code;
   }
 
   return response;

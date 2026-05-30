@@ -236,11 +236,25 @@ const obtenerPiramidePoblacional = asyncHandler(async (req, res) => {
  */
 const obtenerResumenDistritos = asyncHandler(async (req, res) => {
   const { año = DATASET_YEARS.DEFAULT_YEAR, mes } = req.query;
+  const añoNum = parseInt(año, 10);
 
-  const matchFilter = { año: parseInt(año, 10) };
-  if (mes) {
-    matchFilter.mes = parseInt(mes, 10);
+  // BUG fix poblacion x12: el dataset Anthem tiene 12 snapshots mensuales
+  // del censo (un doc por edad/seccion/mes). Sin filtrar por mes la suma
+  // de `totalPoblacion` multiplicaba por 12 (CENTRO salia 1.69 M en lugar
+  // de ~141 K). Cuando el cliente no especifica mes tomamos el ULTIMO
+  // mes con datos como "foto" mas reciente, identico patron al de
+  // `obtenerDashboardDemografico` en controladorCensoAnalisis.
+  let mesElegido = mes ? parseInt(mes, 10) : null;
+  if (!mesElegido) {
+    const [doc] = await Censo.aggregate([
+      { $match: { año: añoNum } },
+      { $group: { _id: '$mes' } },
+      { $sort: { _id: -1 } },
+      { $limit: 1 }
+    ]).option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+    mesElegido = doc?._id || 12;
   }
+  const matchFilter = { año: añoNum, mes: mesElegido };
 
   // Mongoose 9 elimino Aggregate.prototype.maxTimeMS(); se usa .option({maxTimeMS}).
   const resumen = await Censo.aggregate([
@@ -267,7 +281,7 @@ const obtenerResumenDistritos = asyncHandler(async (req, res) => {
     createResponse({
       data: resumen,
       totalDistritos: resumen.length,
-      filtros: { año: parseInt(año, 10), mes: mes ? parseInt(mes, 10) : null }
+      filtros: { año: añoNum, mes: mesElegido }
     }, 'Resumen de distritos obtenido correctamente')
   );
 });

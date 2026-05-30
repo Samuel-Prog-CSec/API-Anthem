@@ -61,7 +61,14 @@ const obtenerAccidentes = asyncHandler(async (req, res) => {
   const sortOrder = sortOptions[primarySortField] === 1 ? 'asc' : 'desc';
   const cursorFilter = useCursor ? buildCursorQuery({ cursor, sortField: primarySortField, sortOrder }) : null;
   const combinedFilters = cursorFilter ? { $and: [filters, cursorFilter] } : filters;
-  const sortWithTiebreak = { ...sortOptions, _id: sortOrder === 'asc' ? 1 : -1 };
+  // Cuando ordenamos por fecha (campo solo-dia, sin hora), todos los
+  // accidentes del mismo dia colisionan y el tiebreak natural por _id
+  // los devuelve en orden de insercion (que no es cronologico). Si la
+  // hora ya esta en el documento ("HH:MM" zero-padded, sort lexicografico
+  // == sort cronologico), la usamos como tiebreak antes del _id.
+  const sortWithTiebreak = primarySortField === 'fecha'
+    ? { fecha: sortOptions.fecha, hora: sortOptions.fecha, _id: sortOrder === 'asc' ? 1 : -1 }
+    : { ...sortOptions, _id: sortOrder === 'asc' ? 1 : -1 };
 
   // Proyeccion optimizada: solo campos necesarios para listado
   const projection = {
@@ -131,7 +138,7 @@ const obtenerAccidentes = asyncHandler(async (req, res) => {
     const facetResult = await executeFacetPagination({
       model: Accidente,
       filters,
-      sort: sortOptions,
+      sort: sortWithTiebreak,
       projection,
       pagination: paginationOptions,
       statsPipeline,

@@ -48,9 +48,16 @@ exports.obtenerDisponibilidad = asyncHandler(async (req, res) => {
     maxLimit: PAGINATION.MAX_LIMIT
   });
 
-  // Proyeccion optimizada: solo campos necesarios para listado
+  // Proyeccion optimizada: solo campos necesarios para listado.
+  // Antes faltaban `horasTotalesUsosBicicletas` y
+  // `horasTotalesDisponibilidadBicicletasEnAnclajes` y la tabla del
+  // dashboard mostraba "-" en esas columnas aunque la BD si tenia el
+  // dato. Sin estos campos la metrica "Tasa ocupacion = horasUso /
+  // horasDispon" tampoco era reproducible en cliente.
   const projection = {
     dia: 1,
+    horasTotalesUsosBicicletas: 1,
+    horasTotalesDisponibilidadBicicletasEnAnclajes: 1,
     mediaBicicletasDisponibles: 1,
     totalUsos: 1,
     usosAbonadoAnual: 1,
