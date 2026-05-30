@@ -278,7 +278,24 @@ function parsearFechaHoraUTC(valor) {
   const fecha = new Date(ms);
   if (isNaN(fecha.getTime())) {return null;}
 
-  // Verificar que JS no haya rebobinado la fecha (29/02 en no bisiesto)
+  // El dataset Anthem 2051 trae fechas del tipo `2051-02-29` que en el
+  // calendario gregoriano real no existen (2051 no es bisiesto). Como
+  // este proyecto es ficcional, en lugar de rechazar la fila la
+  // coercemos al ultimo dia del mes original (`28/02`) -- igual criterio
+  // que importarAccidentes para no descartar 380 K mediciones de trafico
+  // y 147 accidentes con esa fecha. Mantener el mes preserva los
+  // agregados mensuales del dashboard.
+  if (fecha.getUTCFullYear() === año &&
+      fecha.getUTCMonth() === mes &&  // mes+1 en JS => rebobinado al siguiente
+      fecha.getUTCDate() <= 3) {
+    // Caso clasico 29/02 en no bisiesto: JS lo convierte en 01/03. Volvemos
+    // al ultimo dia valido del mes original.
+    const ultimoDia = new Date(Date.UTC(año, mes, 0)).getUTCDate();
+    return new Date(Date.UTC(año, mes - 1, ultimoDia, hora, min, seg));
+  }
+
+  // Cualquier otro tipo de rebobinado (mes 13, dia 31 en mes corto que
+  // no sea febrero, etc.) es un error real del CSV: devolvemos null.
   if (fecha.getUTCFullYear() !== año ||
       fecha.getUTCMonth() !== mes - 1 ||
       fecha.getUTCDate() !== dia) {
@@ -286,6 +303,73 @@ function parsearFechaHoraUTC(valor) {
   }
 
   return fecha;
+}
+
+/**
+ * Parsear una fecha solo-dia (sin hora) en UTC, con la misma politica de
+ * coercion que `parsearFechaHoraUTC` para el caso `29/02` en año no
+ * bisiesto.
+ *
+ * Existe porque varios importadores (aforo-bicicletas, aforo-peatones,
+ * bicicletas, calidad-aire) tienen su propia funcion `parsearFecha` que
+ * llama directamente a `Date.UTC(y, m, d)`. JS acepta `Date.UTC(2051, 1, 29)`
+ * silenciosamente y devuelve `2051-03-01`, por lo que esos importadores:
+ *   1. Insertan la fila del 29/02 etiquetada como 01/03 en BD.
+ *   2. Cuando llega la fila REAL del 01/03 con misma clave, la rechazan
+ *      como duplicada (o la pisan en modo upsert).
+ *
+ * Auditoria de impacto medido al detectar el bug:
+ *   - aforo-peatones: 452 grupos con valores distintos (hasta 4 965 peatones/h sobrescritos)
+ *   - aforo-bicicletas: 632 grupos con valores distintos (hasta 96 bicis/h)
+ *   - calidad-aire: 148 mediciones del 01/03 sobrescritas
+ *   - bicicletas (disponibilidad diaria): 1 doc sobrescrito
+ *
+ * Este helper:
+ *   - Devuelve `Date` en UTC con dia=28 cuando el input es 29/02 en año no bisiesto.
+ *   - Devuelve `Date` con el dia solicitado cuando es valido en el calendario.
+ *   - Devuelve `null` para cualquier otro rebobinado (mes 13, dia 31 en abril, etc).
+ *   - Devuelve `null` para componentes fuera de rango (mes 0, dia negativo, etc).
+ *
+ * Para que el caller pueda registrar coerciones en el RejectionTracker,
+ * devolvemos un objeto `{ fecha, coercida }` en lugar de solo el Date.
+ * `coercida` es `true` cuando hubo cambio de dia (es 29/02 -> 28/02).
+ *
+ * @param {number} año
+ * @param {number} mes - Mes en base 1 (enero=1)
+ * @param {number} dia
+ * @returns {{fecha: Date, coercida: boolean}|null} null si no se puede parsear
+ */
+function parsearFechaSoloDiaUTC(año, mes, dia) {
+  if (!Number.isInteger(año) || !Number.isInteger(mes) || !Number.isInteger(dia)) {
+    return null;
+  }
+  if (mes < 1 || mes > 12) {return null;}
+  if (dia < 1 || dia > 31) {return null;}
+
+  const fecha = new Date(Date.UTC(año, mes - 1, dia));
+  if (isNaN(fecha.getTime())) {return null;}
+
+  // Caso 29/02 en año no bisiesto: JS lo convierte en 01/03. Coercemos al
+  // ultimo dia valido del mes original para no perder la medicion ni
+  // pisar los datos reales del 01/03.
+  if (fecha.getUTCFullYear() === año &&
+      fecha.getUTCMonth() === mes &&  // mes+1 en JS => rebobinado
+      fecha.getUTCDate() <= 3) {
+    const ultimoDia = new Date(Date.UTC(año, mes, 0)).getUTCDate();
+    return {
+      fecha: new Date(Date.UTC(año, mes - 1, ultimoDia)),
+      coercida: true
+    };
+  }
+
+  // Cualquier otro rebobinado es un error real del CSV.
+  if (fecha.getUTCFullYear() !== año ||
+      fecha.getUTCMonth() !== mes - 1 ||
+      fecha.getUTCDate() !== dia) {
+    return null;
+  }
+
+  return { fecha, coercida: false };
 }
 
 /**
@@ -543,6 +627,7 @@ module.exports = {
   parsearNumeroFormatoEspanol,
   parseInteger,
   parsearFechaHoraUTC,
+  parsearFechaSoloDiaUTC,
   cleanString,
   isValidUTMCoordinate,
   formatDuration,

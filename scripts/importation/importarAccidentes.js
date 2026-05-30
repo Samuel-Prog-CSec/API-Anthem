@@ -262,13 +262,22 @@ function normalizarTipoPersona(tipo) {
 }
 
 /**
- * Normalizar estado meteorológico
+ * Normalizar estado meteorológico.
+ *
+ * El CSV del dataset Anthem trae la columna `estado_meteorológico` totalmente
+ * VACIA en las 32 431 filas (verificado). Antes el importador resolvia esto
+ * llenando 100% de los docs con "SE_DESCONOCE", creando un campo inutil que
+ * parece informacion pero no aporta. Ahora si el CSV no trae dato devolvemos
+ * `null` y la UI puede mostrar "no disponible" en lugar de "se desconoce"
+ * (que ademas no se ajusta a la realidad: no se desconoce, simplemente no
+ * se recolecto).
+ *
  * @param {string} estado - Estado meteorológico original del CSV
- * @returns {string} - Estado normalizado
+ * @returns {string|null} - Estado normalizado o null si ausente
  */
 function normalizarEstadoMeteorologico(estado) {
   if (!estado || estado.trim() === '') {
-    return WEATHER_CONDITIONS.SE_DESCONOCE;
+    return null;
   }
   const normalized = estado.toLowerCase().trim();
   return ESTADO_METEOROLOGICO_MAP[normalized] || WEATHER_CONDITIONS.SE_DESCONOCE;
@@ -298,8 +307,9 @@ function normalizarRangoEdad(rango) {
     return `0-${parseInt(matchMenor[1]) - 1}`;
   }
 
-  // Formato "Mayor de X años" -> "X+"
-  const matchMayor = normalized.match(/Mayor de (\d+) años/i);
+  // Formato "Mayor de X años" o "Más de X años" -> "X+"
+  // (el CSV usa la variante "Más de N años" pero aceptamos ambas)
+  const matchMayor = normalized.match(/(?:Mayor|M[áa]s) de (\d+) años/i);
   if (matchMayor) {
     return `${matchMayor[1]}+`;
   }
@@ -492,8 +502,15 @@ function calcularCamposAnalisis(data) {
   if (franjaHoraria >= 0 && franjaHoraria <= 5) {
     factoresRiesgo.push(FACTORES_RIESGO.HORA_MADRUGADA);
   }
+  // Solo registrar "condiciones meteorologicas" como factor de riesgo si
+  // tenemos un dato real Y distinto de despejado/desconocido. Con el fix
+  // de `normalizarEstadoMeteorologico` el valor vacio del CSV se traduce
+  // a `null` en lugar de "SE_DESCONOCE", asi que la comparacion `!== NULL`
+  // (string literal) dejaba pasar `null` (valor) y se anyadia el factor
+  // a TODOS los 32 429 accidentes (verificado en BD).
   const weather = circunstancias.estadoMeteorologico;
-  if (weather !== WEATHER_CONDITIONS.DESPEJADO &&
+  if (weather &&
+      weather !== WEATHER_CONDITIONS.DESPEJADO &&
       weather !== WEATHER_CONDITIONS.SE_DESCONOCE &&
       weather !== WEATHER_CONDITIONS.NULL) {
     factoresRiesgo.push(FACTORES_RIESGO.CONDICIONES_METEOROLOGICAS);
@@ -651,31 +668,54 @@ function validarYTransformarFila(row, rowIndex) {
   // Parsear coordenadas (no criticas, pueden ser null)
   const { utm: coordenadas, geometry } = parsearCoordenadas(row, rowIndex);
 
-  // Datos del accidente
-  const tipoAccidenteOriginal = row.tipo_accidente?.toString().trim();
+  // Datos del accidente.
+  // BUG fix: aplicar normalizarTexto al tipo. Sin esto los valores con
+  // tildes ("Colisi\u00f3n", "Ca\u00edda", "Despe\u00f1amiento", "Solo salida de la v\u00eda")
+  // llegan corruptos (mojibake o latin1 mal-leido) y no matchean con
+  // TIPO_ACCIDENTE_MAP, cayendo todos a OTRO y perdiendo 8 de los 13 tipos.
+  const tipoAccidenteOriginal = normalizarTexto(row.tipo_accidente) || '';
   const tipoAccidente = normalizarTipoAccidente(tipoAccidenteOriginal);
-  const estadoMeteorologico = normalizarEstadoMeteorologico(row['estado_meteorol\u00f3gico']?.toString().trim());
+  const estadoMeteorologico = normalizarEstadoMeteorologico(
+    normalizarTexto(row['estado_meteorol\u00f3gico'] || row.estado_meteorologico) || ''
+  );
 
   // Datos del vehiculo
-  const tipoVehiculoOriginal = row.tipo_vehiculo?.toString().trim();
+  // BUG fix: aplicar normalizarTexto. Sin esto valores como "AutobÃºs", "CamiÃ³n",
+  // "VehÃ­culo articulado", "Maquinaria agrÃ­cola" no matchean con
+  // TIPO_VEHICULO_MAP y caen a SIN_ESPECIFICAR.
+  const tipoVehiculoOriginal = normalizarTexto(row.tipo_vehiculo) || '';
   const tipoVehiculo = normalizarTipoVehiculo(tipoVehiculoOriginal);
 
   // Datos de la persona afectada
-  const tipoPersona = normalizarTipoPersona(row.tipo_persona?.toString().trim());
-  const rangoEdadRaw = row.rango_edad?.toString().trim();
+  // BUG fix: aplicar normalizarTexto. Sin esto "PeatÃ³n" no matchea y todos
+  // los peatones caen a CONDUCTOR por defecto.
+  const tipoPersona = normalizarTipoPersona(normalizarTexto(row.tipo_persona));
+  const rangoEdadRaw = normalizarTexto(row.rango_edad);
   const rangoEdad = normalizarRangoEdad(rangoEdadRaw);
   const sexoRaw = row.sexo?.toString().trim().toUpperCase();
   const sexo = (sexoRaw === 'MUJER') ? GENDERS.MUJER :
     (sexoRaw === 'HOMBRE') ? GENDERS.HOMBRE : GENDERS.DESCONOCIDO;
 
-  // Datos de lesividad
-  const codigoLesividad = row.cod_lesividad?.toString().trim();
-  const lesividad = row.lesividad?.toString().trim();
+  // Datos de lesividad.
+  // BUG fix: el CSV trae codigos sin padding ('4', '7' en vez de '04', '07').
+  // Antes el lookup buscaba siempre con padding cero y los codigos 1-9 caian
+  // a SE_DESCONOCE, perdiendo TODOS los GRAVE e incluso los 34 MORTAL
+  // (codigo 4 = FALLECIDO). Normalizamos a 2 digitos con padStart antes del
+  // lookup para cubrir ambos formatos.
+  // Antes guardabamos la cadena 'NULL' literal del CSV cuando no habia
+  // codigo de lesividad. Eso producia 14 133 docs (43%) con el string 'NULL'
+  // en BD, que confunde a cualquier query/agregado que espere null o ausencia.
+  const codigoLesividadRaw = row.cod_lesividad?.toString().trim();
+  const codigoLesividad = codigoLesividadRaw && codigoLesividadRaw !== 'NULL'
+    ? codigoLesividadRaw.padStart(2, '0')
+    : null;
+  const lesividad = normalizarTexto(row.lesividad) || '';
 
   // Mapear tipo de lesion basado en codigo o descripcion (usando constantes centralizadas)
   let tipoLesion = TIPOS_LESION.SE_DESCONOCE;
-  if (codigoLesividad && codigoLesividad !== 'NULL') {
-    // Mapeo segun dataset_information.md (seccion Lesividad, lineas 115-124)
+  if (codigoLesividad) {
+    // Mapeo segun dataset_information.md (seccion Lesividad, lineas 115-124).
+    // Claves SIEMPRE en formato '01'-'77' (2 digitos) tras el padStart.
     const codigoMap = {
       '01': TIPOS_LESION.ATENCIÓN_EN_URGENCIAS_SIN_POSTERIOR_INGRESO,
       '02': TIPOS_LESION.INGRESO_INFERIOR_O_IGUAL_A_24_HORAS,
@@ -688,7 +728,7 @@ function validarYTransformarFila(row, rowIndex) {
       '77': TIPOS_LESION.SE_DESCONOCE
     };
     tipoLesion = codigoMap[codigoLesividad] || TIPOS_LESION.SE_DESCONOCE;
-  } else if (lesividad && lesividad !== 'NULL') {
+  } else if (lesividad && lesividad !== 'NULL') { // 'NULL' string defensivo: el CSV puede traerlo en `lesividad`
     if (lesividad.toLowerCase().includes('fallec')) {
       tipoLesion = TIPOS_LESION.FALLECIDO_24_HORAS;
     } else if (lesividad.toLowerCase().includes('grave') || lesividad.toLowerCase().includes('ingreso')) {
@@ -698,14 +738,18 @@ function validarYTransformarFila(row, rowIndex) {
     }
   }
 
-  // Datos de sustancias
+  // Datos de sustancias.
+  // BINARY_INDICATORS.NULL es la cadena 'NULL' literal: guardabamos eso en
+  // BD cuando el CSV no especificaba S/N/1/0 (en droga, 32 349 docs / 99.7%
+  // se quedaban con 'NULL' string). Ahora usamos null real para que las
+  // queries pueden distinguir "no informado" de "negativo".
   const alcoholRaw = row.positiva_alcohol?.toString().trim().toUpperCase();
   const positivaAlcohol = (alcoholRaw === 'S') ? BINARY_INDICATORS.YES :
-    (alcoholRaw === 'N') ? BINARY_INDICATORS.NO : BINARY_INDICATORS.NULL;
+    (alcoholRaw === 'N') ? BINARY_INDICATORS.NO : null;
 
   const drogaRaw = row.positiva_droga?.toString().trim().toUpperCase();
   const positivaDroga = (drogaRaw === 'S' || drogaRaw === '1') ? BINARY_INDICATORS.YES :
-    (drogaRaw === 'N' || drogaRaw === '0') ? BINARY_INDICATORS.NO : BINARY_INDICATORS.NULL;
+    (drogaRaw === 'N' || drogaRaw === '0') ? BINARY_INDICATORS.NO : null;
 
   // Construir objeto de accidente
   const accidentData = {

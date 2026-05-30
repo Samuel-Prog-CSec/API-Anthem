@@ -69,7 +69,11 @@ const REJECTION_REASONS = {
   ERROR_TRANSFORMACION: 'Error durante la transformacion de datos',
   ERROR_VALIDACION_MONGOOSE: 'Error de validacion de esquema Mongoose',
   ERROR_INSERCION_BD: 'Error al insertar en base de datos',
-  ERROR_LOTE: 'Error procesando lote de registros'
+  ERROR_LOTE: 'Error procesando lote de registros',
+
+  // Errores de escritura en BD (writeErrors de insertMany ordered:false)
+  CLAVE_DUPLICADA_INDICE_UNICO: 'CLAVE_DUPLICADA_INDICE_UNICO',
+  VALIDACION_SCHEMA_FALLIDA: 'VALIDACION_SCHEMA_FALLIDA'
 };
 
 // ============================================================================
@@ -455,6 +459,39 @@ async function processBatch(batch) {
                        (error.result && error.result.nInserted) ||
                        (batch.length - error.writeErrors.length);
       totalInserted += exitosos;
+      // Clasificar cada writeError por su codigo MongoDB para no perder
+      // trazabilidad. El catch original sumaba el conteo a totalErrors pero
+      // no registraba el desglose por codigo (E11000 dup key, 121 validation,
+      // etc.), dejando 376k errores como cifra opaca en el JSON.
+      //
+      // Nota sobre doble conteo intencionado:
+      //  - `totalErrors += writeErrors.length` se mantiene; ese contador se
+      //    reporta como `errors:` en el summary final.
+      //  - `rejectionTracker.track()` ademas incrementa su propio contador
+      //    interno y aparece en `rejected:` y en el desglose `rejections[]`.
+      //  Por tanto, en el JSON estos writeErrors se cuentan dos veces (una
+      //  en `errors:` y otra en `rejected:`). Es deliberado: el desglose por
+      //  codigo en `rejections[]` es el valor de observabilidad que se gana.
+      const codigosVistos = new Set();
+      for (const we of error.writeErrors) {
+        const code = we.code;
+        let razon;
+        if (code === 11000) {
+          razon = REJECTION_REASONS.CLAVE_DUPLICADA_INDICE_UNICO;
+        } else if (code === 121) {
+          razon = REJECTION_REASONS.VALIDACION_SCHEMA_FALLIDA;
+        } else {
+          razon = `WRITE_ERROR_${code}`;
+        }
+        if (!codigosVistos.has(code)) {
+          codigosVistos.add(code);
+          logger.warn(
+            { code, sample: (we.errmsg || '').substring(0, 200) },
+            `WriteError ${razon}: primera ocurrencia`
+          );
+        }
+        rejectionTracker.track(razon, { code, errmsg: (we.errmsg || '').substring(0, 200) });
+      }
       totalErrors += error.writeErrors.length;
       return { nuevos: exitosos, actualizados: 0, errores: error.writeErrors.length };
     }
@@ -467,6 +504,15 @@ async function processBatch(batch) {
       modo: modoInsercion
     }, 'Error procesando lote de trafico');
 
+    // Trackear el fallo de lote completo para que aparezca en el desglose
+    // de rejections del summary (sin esto el contador errors:N quedaba opaco).
+    // Solo se registra una entrada por lote fallido (no por cada documento).
+    rejectionTracker.track(REJECTION_REASONS.ERROR_LOTE, {
+      tipo: mongoError.type,
+      mensaje: (mongoError.message || '').substring(0, 200),
+      loteSize: batch.length,
+      modo: modoInsercion
+    });
     totalErrors += batch.length;
     return { nuevos: 0, actualizados: 0, errores: batch.length };
   }

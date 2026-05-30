@@ -22,8 +22,19 @@
  * @returns {Promise<Array>} - Indices excluyendo _id_ y unique:true
  */
 async function listarIndicesSecundarios(Modelo) {
-  const indicesReales = await Modelo.collection.indexes();
-  return indicesReales.filter(idx => idx.name !== '_id_' && idx.unique !== true);
+  try {
+    const indicesReales = await Modelo.collection.indexes();
+    return indicesReales.filter(idx => idx.name !== '_id_' && idx.unique !== true);
+  } catch (error) {
+    // Mongo lanza "ns does not exist" cuando la coleccion fue dropeada
+    // antes del run (escenario habitual cuando re-ejecutamos importadores
+    // tras un fix). No es un error real: simplemente no hay indices que
+    // dropear todavia y el script puede continuar.
+    if (error.codeName === 'NamespaceNotFound' || /ns does not exist/i.test(error.message || '')) {
+      return [];
+    }
+    throw error;
+  }
 }
 
 /**

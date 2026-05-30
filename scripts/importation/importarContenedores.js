@@ -275,16 +275,33 @@ function validateAndTransformRow(row, _rowIndex) {
     throw new Error(`${REJECTION_REASONS.INVALID_LOTE}: valor='${row.Lote}', permitidos=[${CONTAINER_LOTES.join(', ')}]`);
   }
 
-  // Informacion geografica
-  const distrito = cleanString(row.Distrito);
+  // Informacion geografica.
+  // El CSV de contenedores trae 'CIUDAD-LINEAL' con guion (a diferencia
+  // del resto del proyecto que usa 'CIUDAD LINEAL' con espacio). Tambien
+  // mete NBSP (\xa0) entre palabras: 'FUENCARRAL-EL\xa0PARDO'. Normalizamos
+  // a la forma canonica usada en `centroidesDistritosMadrid.js` y en el
+  // censo para que los joins cross-coleccion (ej. correlaciones censo vs
+  // contenedores) no pierdan distritos por mismatch textual.
+  const distritoRaw = cleanString(row.Distrito);
+  // Normalizar: NBSP -> espacio, y "CIUDAD-LINEAL" -> "CIUDAD LINEAL".
+  const distrito = distritoRaw
+    ? distritoRaw.replace(/\u00a0/g, ' ').replace(/CIUDAD-LINEAL/i, 'CIUDAD LINEAL')
+    : '';
   const barrio = cleanString(row.Barrio);
 
   if (!distrito) {
     throw new Error(`${REJECTION_REASONS.MISSING_DISTRITO}: columna='Distrito' vacia`);
   }
 
-  // El barrio puede estar vacio, usar valor por defecto
-  const barrioFinal = barrio || DEFAULT_VALUES.UNSPECIFIED;
+  // El CSV de contenedores trae la columna Barrio vacia en 71 % de filas
+  // y un codigo numerico (164, 191) en el resto. Antes el importador caia
+  // a 'SIN ESPECIFICAR' como valor literal, generando un campo que parecia
+  // dato cuando en realidad indicaba ausencia. Ahora preservamos `null`
+  // cuando no hay info y la UI puede mostrar "—" / "No disponible". Si
+  // hay codigo numerico se conserva como string (sin convertir a nombre,
+  // porque no hay maestro de barrios cargado en este momento -- queda
+  // como mejora futura).
+  const barrioFinal = barrio || null;
 
   // Direccion (manejar encoding)
   const tipoVia = cleanString(row['Tipo Vía'] || row['Tipo V�a']);
@@ -360,7 +377,11 @@ async function processBatch(batch, options) {
         result.inserted = Math.max(0, insertedCount);
         result.skipped = batch.length - result.inserted;
 
-        // Loguear cada duplicado individual y trackearlo en el resumen
+        // Loguear cada duplicado y trackearlo en el resumen.
+        // Antes solo se llamaba a `logger[nivel]` pero NO a
+        // `rejectionTracker.track()`, asi que los duplicados de clave
+        // unica de Mongo se contaban como `skipped` sin razon visible en
+        // el summary final (verificado: 2 585 docs sin trazabilidad).
         if (error.writeErrors) {
           error.writeErrors.forEach(writeErr => {
             if (writeErr.code === 11000) {
@@ -370,6 +391,7 @@ async function processBatch(batch, options) {
                 tipo: duplicateDoc?.tipoContenedor,
                 coords: duplicateDoc?.coordenadas
               };
+              rejectionTracker.track(REJECTION_REASONS.DUPLICATE_KEY, sample);
               const nivel = rejectionTracker.shouldLogWarn(REJECTION_REASONS.DUPLICATE_KEY, sample) ? 'warn' : 'debug';
               logger[nivel]({
                 razon: REJECTION_REASONS.DUPLICATE_KEY,

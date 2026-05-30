@@ -40,7 +40,8 @@ const {
   RejectionTracker,
   formatDuration,
   calculateProcessingSpeed,
-  buildAndWriteSummary
+  buildAndWriteSummary,
+  parsearFechaSoloDiaUTC
 } = require('./helpers/importHelpers');
 const { normalizarTexto, crearLectorCSV } = require('./helpers/normalizarEncoding');
 
@@ -61,7 +62,10 @@ const REJECTION_REASONS = {
   INVALID_DATE: 'FECHA_INVALIDA',
   INCOMPLETE_HOURLY_DATA: 'MEDICIONES_HORARIAS_INCOMPLETAS',
   DUPLICATE_KEY: 'CLAVE_DUPLICADA',
-  VALIDATION_ERROR: 'ERROR_VALIDACION'
+  VALIDATION_ERROR: 'ERROR_VALIDACION',
+  // Errores de escritura en BD (writeErrors de bulkWrite ordered:false)
+  CLAVE_DUPLICADA_INDICE_UNICO: 'CLAVE_DUPLICADA_INDICE_UNICO',
+  VALIDACION_SCHEMA_FALLIDA: 'VALIDACION_SCHEMA_FALLIDA'
 };
 
 /**
@@ -176,11 +180,23 @@ function parsearFilaCalidadAire(row, _sourceFile, _rowIndex) {
     throw new Error(`${REJECTION_REASONS.DATE_OUT_OF_RANGE}: ano=${año}, mes=${mes}, dia=${dia}`);
   }
 
-  // Crear fecha en UTC (evita desfases de zona horaria del runtime)
-  const fecha = new Date(Date.UTC(año, mes - 1, dia));
-  if (isNaN(fecha.getTime())) {
+  // Antes este parser hacia `new Date(Date.UTC(año, mes - 1, dia))` directo,
+  // por lo que en CSVs de Febrero `dia=29` (153 filas) se rebobinaban a
+  // 01/03 y pisaban las 148 mediciones reales del 01/03 en Marzo.csv
+  // por la clave unica (puntoMuestreo, fecha). Ahora delegamos en
+  // `parsearFechaSoloDiaUTC` (coerciona 29/02 → 28/02) y trazamos cada
+  // coercion en el rejectionTracker.
+  const result = parsearFechaSoloDiaUTC(año, mes, dia);
+  if (!result) {
     throw new Error(`${REJECTION_REASONS.INVALID_DATE}: ano=${año}, mes=${mes}, dia=${dia}`);
   }
+  if (result.coercida) {
+    rejectionTracker.coerce('FECHA_COERCIDA_AL_ULTIMO_DIA_DEL_MES', {
+      original: `${año}-${String(mes).padStart(2,'0')}-${String(dia).padStart(2,'0')}`,
+      coercida: result.fecha.toISOString().slice(0, 10)
+    });
+  }
+  const fecha = result.fecha;
 
   // Procesar mediciones horarias (H01-H24 con V01-V24)
   const medicionesHorarias = new Map();
@@ -397,30 +413,48 @@ async function procesarArchivoCalidadAire(filePath, options = {}) {
  */
 function handleWriteError(writeError, failedDoc, result) {
   const errorCode = writeError.err?.code || writeError.code;
+  const errmsg = (writeError.errmsg || writeError.err?.errmsg || '').substring(0, 200);
 
+  // Clasificar por codigo MongoDB para que el desglose por razon en el
+  // summary final muestre la distribucion real de writeErrors. El catch
+  // original solo llamaba a logger.debug/warn sin pasar por
+  // rejectionTracker, lo que dejaba los duplicados y validation errors
+  // como cifras opacas en el JSON final.
+  let razon;
   if (errorCode === 11000) {
     result.skipped++;
     result.duplicates++;
-    logger.debug(
-      {
-        razon: REJECTION_REASONS.DUPLICATE_KEY,
-        estacion: failedDoc?.estacion,
-        magnitud: failedDoc?.magnitud,
-        fecha: failedDoc?.fecha?.toISOString().split('T')[0],
-        detalle: 'Combinacion estacion+magnitud+fecha ya existe'
-      },
-      'Registro omitido - duplicado'
-    );
+    razon = REJECTION_REASONS.CLAVE_DUPLICADA_INDICE_UNICO;
+  } else if (errorCode === 121) {
+    result.errors++;
+    razon = REJECTION_REASONS.VALIDACION_SCHEMA_FALLIDA;
   } else {
     result.errors++;
-    logger.warn(
-      {
-        razon: REJECTION_REASONS.VALIDATION_ERROR,
-        error: writeError.errmsg || writeError.err?.errmsg
-      },
-      'Registro rechazado - error de insercion'
-    );
+    razon = `WRITE_ERROR_${errorCode}`;
   }
+
+  const sample = {
+    code: errorCode,
+    estacion: failedDoc?.estacion,
+    magnitud: failedDoc?.magnitud,
+    fecha: failedDoc?.fecha?.toISOString().split('T')[0],
+    errmsg
+  };
+
+  // shouldLogWarn ya llama internamente a track() y devuelve true mientras
+  // no se haya superado el tope de warns por razon (resto a debug).
+  const nivel = rejectionTracker.shouldLogWarn(razon, sample) ? 'warn' : 'debug';
+  logger[nivel](
+    {
+      razon,
+      code: errorCode,
+      estacion: failedDoc?.estacion,
+      magnitud: failedDoc?.magnitud,
+      fecha: failedDoc?.fecha?.toISOString().split('T')[0],
+      errmsg
+    },
+    errorCode === 11000 ? 'Registro omitido - duplicado' : 'Registro rechazado - error de insercion'
+  );
 }
 
 /**

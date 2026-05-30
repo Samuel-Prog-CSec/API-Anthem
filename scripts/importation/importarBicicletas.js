@@ -32,7 +32,8 @@ const {
   formatDuration,
   calculateProcessingSpeed,
   buildAndWriteSummary,
-  parsearNumeroFormatoEspanol
+  parsearNumeroFormatoEspanol,
+  parsearFechaSoloDiaUTC
 } = require('./helpers/importHelpers');
 const { crearLectorCSV } = require('./helpers/normalizarEncoding');
 
@@ -173,12 +174,23 @@ const REJECTION_REASONS = {
 };
 
 /**
- * Parsear fecha en formato DD/MM/YYYY
+ * Parsear fecha en formato DD/MM/YYYY.
+ *
+ * Mismo bug que aforo-bicicletas/peatones: `Date.UTC(2051,1,29)`
+ * rebobinaba silenciosamente a 01/03 y pisaba la fila real del 01/03 en
+ * la dedupe `seenKeysInFile`. En este importador (registros diarios) era
+ * 1 doc perdido del 01/03/2051. Ahora delegamos en
+ * `parsearFechaSoloDiaUTC` que coerciona 29/02 → 28/02 y permite
+ * registrar la coercion en el rejectionTracker.
+ *
  * @param {string} dateStr - Fecha en formato DD/MM/YYYY
+ * @param {Object} [opts]
+ * @param {Object} [opts.rejectionTracker]
+ * @param {number} [opts.fila]
  * @returns {Date} Objeto Date
  * @throws {Error} Si el formato es invalido o la fecha no esta en rango del dataset
  */
-function parsearFecha(dateStr) {
+function parsearFecha(dateStr, opts = {}) {
   if (!dateStr || typeof dateStr !== 'string') {
     throw new Error(`${REJECTION_REASONS.EMPTY_DATE}: valor='${dateStr}'`);
   }
@@ -189,28 +201,34 @@ function parsearFecha(dateStr) {
   }
 
   const day = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10) - 1;
+  const monthBase1 = parseInt(parts[1], 10);
   const year = parseInt(parts[2], 10);
 
   // Validar componentes
   if (day < VALIDATION_LIMITS.DAY_MIN || day > VALIDATION_LIMITS.DAY_MAX) {
     throw new Error(`${REJECTION_REASONS.DAY_OUT_OF_RANGE}: dia=${day}, limites=[${VALIDATION_LIMITS.DAY_MIN}-${VALIDATION_LIMITS.DAY_MAX}]`);
   }
-  if (month < 0 || month > 11) {
-    throw new Error(`${REJECTION_REASONS.MONTH_OUT_OF_RANGE}: mes=${month + 1}`);
+  if (monthBase1 < 1 || monthBase1 > 12) {
+    throw new Error(`${REJECTION_REASONS.MONTH_OUT_OF_RANGE}: mes=${monthBase1}`);
   }
   if (year < DATASET_YEARS.MIN_YEAR || year > DATASET_YEARS.MAX_YEAR) {
     throw new Error(`${REJECTION_REASONS.YEAR_OUT_OF_RANGE}: ano=${year}, rango=[${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR}]`);
   }
 
-  // Date.UTC para evitar desfases de TZ del runtime en fechas sin hora
-  // (sino, en Madrid podia dejar getDate() en el dia anterior).
-  const date = new Date(Date.UTC(year, month, day));
-  if (isNaN(date.getTime())) {
+  const result = parsearFechaSoloDiaUTC(year, monthBase1, day);
+  if (!result) {
     throw new Error(`${REJECTION_REASONS.INVALID_DATE}: valor='${dateStr}'`);
   }
 
-  return date;
+  if (result.coercida && opts.rejectionTracker) {
+    opts.rejectionTracker.coerce('FECHA_COERCIDA_AL_ULTIMO_DIA_DEL_MES', {
+      fila: opts.fila,
+      original: dateStr,
+      coercida: result.fecha.toISOString().slice(0, 10)
+    });
+  }
+
+  return result.fecha;
 }
 
 /**
@@ -221,8 +239,8 @@ function parsearFecha(dateStr) {
  * @throws {Error} Si la validacion falla
  */
 function validarYTransformarFila(row, rowIndex) {
-  // Parsear fecha
-  const dia = parsearFecha(row.DIA);
+  // Parsear fecha (registra coercion 29/02 → 28/02 si aplica)
+  const dia = parsearFecha(row.DIA, { rejectionTracker, fila: rowIndex });
 
   // Parsear valores numericos. Headers ya vienen normalizados (trim) por csv-parser
   const horasTotalesUsosBicicletas = parsearNumeroEspanol(row.HORAS_TOTALES_USOS_BICICLETAS);
@@ -233,9 +251,14 @@ function validarYTransformarFila(row, rowIndex) {
 
   const totalHorasServicioBicicletas = parsearNumeroEspanol(row.TOTAL_HORAS_SERVICIO_BICICLETAS);
   const mediaBicicletasDisponibles = parsearNumeroEspanol(row.MEDIA_BICICLETAS_DISPONIBLES);
-  const usosAbonadoAnual = parseInt(row.USOS_ABONADO_ANUAL, 10) || 0;
-  const usosAbonadoOcasional = parseInt(row.USOS_ABONADO_OCASIONAL, 10) || 0;
-  const totalUsos = parseInt(row.TOTAL_USOS, 10) || 0;
+  // BUG fix: el CSV trae estos campos con separador de miles espanol
+  // ("3.215", "5.911"...). parseInt(..., 10) trunca en el punto:
+  // parseInt("3.215", 10) === 3. Usar parsearNumeroEspanol que ya maneja
+  // "." como millares y "," como decimal. Sin este fix 323/366 filas (88%)
+  // tenian usosAbonadoAnual y totalUsos colapsados a un solo digito.
+  const usosAbonadoAnual = parsearNumeroEspanol(row.USOS_ABONADO_ANUAL);
+  const usosAbonadoOcasional = parsearNumeroEspanol(row.USOS_ABONADO_OCASIONAL);
+  const totalUsos = parsearNumeroEspanol(row.TOTAL_USOS);
 
   // Validar valores no negativos
   if (horasTotalesUsosBicicletas < 0 ||
@@ -445,9 +468,14 @@ async function procesarCSV(options) {
     stream = crearLectorCSV(IMPORT_CONFIG.dataFile)
       .pipe(csv({
         separator: IMPORT_CONFIG.csvSeparator,
-        // Normalizar headers (trim + replace espacios internos por _) para evitar
-        // matches frágiles como 'HORAS_TOTALES_DISPONIBILIDAD_BICICLETAS_EN _ANCLAJES'
-        mapHeaders: ({ header }) => header.trim().replace(/\s+/g, '_')
+        // Normalizar headers:
+        //  - trim de bordes
+        //  - reemplazar espacios internos por _
+        //  - colapsar _+ a _ (sin esto, "EN _ANCLAJES" deviene "EN__ANCLAJES"
+        //    y el lookup row.HORAS_..._EN_ANCLAJES devuelve undefined para
+        //    las 366 filas, perdiendo el campo de disponibilidad anclajes
+        //    al 100%).
+        mapHeaders: ({ header }) => header.trim().replace(/\s+/g, '_').replace(/_+/g, '_')
       }));
 
     stream.on('data', async (row) => {

@@ -29,7 +29,8 @@ const {
   RejectionTracker,
   formatDuration,
   calculateProcessingSpeed,
-  buildAndWriteSummary
+  buildAndWriteSummary,
+  parsearFechaSoloDiaUTC
 } = require('./helpers/importHelpers');
 const { normalizarTexto, crearLectorCSV } = require('./helpers/normalizarEncoding');
 const { construirGeometryDesdeWGS84 } = require('./helpers/conversorCoordenadas');
@@ -140,10 +141,19 @@ const REJECTION_REASONS = {
   DUPLICATE_IN_FILE: 'DUPLICADO_EN_ARCHIVO',
   DUPLICATE_KEY: 'CLAVE_DUPLICADA',
   VALIDATION_ERROR: 'ERROR_VALIDACION_MODELO',
-  MISSING_IDENTIFIER: 'IDENTIFICADOR_VACIO'
+  MISSING_IDENTIFIER: 'IDENTIFICADOR_VACIO',
+  // Errores de escritura en BD (writeErrors de insertMany ordered:false)
+  CLAVE_DUPLICADA_INDICE_UNICO: 'CLAVE_DUPLICADA_INDICE_UNICO',
+  VALIDACION_SCHEMA_FALLIDA: 'VALIDACION_SCHEMA_FALLIDA'
 };
 
-function parsearFecha(dateStr) {
+// Mismo bug que aforo-bicicletas: `new Date(Date.UTC(2051,1,29))`
+// rebobinaba a 01/03/2051 sin avisar, y la fila real del 01/03 con
+// misma hora+identificador se rechazaba como duplicada. Auditoria midio
+// 452 grupos con valores distintos perdiendo hasta 4 965 peatones/h.
+// Ahora delegamos en `parsearFechaSoloDiaUTC` (coerciona 29/02 → 28/02)
+// y registramos cada coercion en el rejectionTracker para trazabilidad.
+function parsearFecha(dateStr, opts = {}) {
   if (!dateStr || typeof dateStr !== 'string') {
     throw new Error(`${REJECTION_REASONS.EMPTY_DATE}: valor='${dateStr}'`);
   }
@@ -156,26 +166,33 @@ function parsearFecha(dateStr) {
   }
 
   const day = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10) - 1;
+  const monthBase1 = parseInt(parts[1], 10);
   const year = parseInt(parts[2], 10);
 
   if (day < VALIDATION_LIMITS.DAY_MIN || day > VALIDATION_LIMITS.DAY_MAX) {
     throw new Error(`${REJECTION_REASONS.DAY_OUT_OF_RANGE}: dia=${day}, limites=[${VALIDATION_LIMITS.DAY_MIN}-${VALIDATION_LIMITS.DAY_MAX}]`);
   }
-  if (month < 0 || month > 11) {
-    throw new Error(`${REJECTION_REASONS.MONTH_OUT_OF_RANGE}: mes=${month + 1}`);
+  if (monthBase1 < 1 || monthBase1 > 12) {
+    throw new Error(`${REJECTION_REASONS.MONTH_OUT_OF_RANGE}: mes=${monthBase1}`);
   }
   if (year < DATASET_YEARS.MIN_YEAR || year > DATASET_YEARS.MAX_YEAR) {
     throw new Error(`${REJECTION_REASONS.YEAR_OUT_OF_RANGE}: año=${year}, rango=[${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR}]`);
   }
 
-  // Date.UTC para evitar desfases de TZ del runtime.
-  const date = new Date(Date.UTC(year, month, day));
-  if (isNaN(date.getTime())) {
+  const result = parsearFechaSoloDiaUTC(year, monthBase1, day);
+  if (!result) {
     throw new Error(`${REJECTION_REASONS.INVALID_DATE}: valor='${dateStr}'`);
   }
 
-  return date;
+  if (result.coercida && opts.rejectionTracker) {
+    opts.rejectionTracker.coerce('FECHA_COERCIDA_AL_ULTIMO_DIA_DEL_MES', {
+      fila: opts.fila,
+      original: dateStr,
+      coercida: result.fecha.toISOString().slice(0, 10)
+    });
+  }
+
+  return result.fecha;
 }
 
 function parseHour(horaStr) {
@@ -218,7 +235,7 @@ function validarYTransformarFila(row, rowIndex) {
   const fechaKey = Object.keys(row).find(k => k.includes('FECHA')) || 'FECHA';
   const fechaValue = row[fechaKey];
 
-  const fecha = parsearFecha(fechaValue);
+  const fecha = parsearFecha(fechaValue, { rejectionTracker, fila: rowIndex });
   const hora = parseHour(row.HORA);
 
   const identificador = normalizarTexto(row.IDENTIFICADOR);
@@ -289,13 +306,31 @@ async function procesarLote(batch, options) {
         result.inserted = insertedCount;
         result.skipped = batch.length - insertedCount;
 
+        // Clasificar cada writeError por su codigo MongoDB para no perder
+        // trazabilidad. El catch original solo loggeaba el conteo a debug sin
+        // pasar por rejectionTracker, dejando los duplicados como cifra opaca.
+        // Loggea UNA vez por codigo (primera ocurrencia) y trackea todos los
+        // writeErrors en el tracker (que aplica su propio tope de samples).
         if (error.writeErrors) {
-          const duplicateCount = error.writeErrors.filter(e => e.code === 11000).length;
-          if (duplicateCount > 0) {
-            logger.debug(
-              { duplicados: duplicateCount },
-              'Registros duplicados omitidos en lote'
-            );
+          const codigosVistos = new Set();
+          for (const we of error.writeErrors) {
+            const code = we.code;
+            let razon;
+            if (code === 11000) {
+              razon = REJECTION_REASONS.CLAVE_DUPLICADA_INDICE_UNICO;
+            } else if (code === 121) {
+              razon = REJECTION_REASONS.VALIDACION_SCHEMA_FALLIDA;
+            } else {
+              razon = `WRITE_ERROR_${code}`;
+            }
+            if (!codigosVistos.has(code)) {
+              codigosVistos.add(code);
+              logger.warn(
+                { code, sample: (we.errmsg || '').substring(0, 200) },
+                `WriteError ${razon}: primera ocurrencia`
+              );
+            }
+            rejectionTracker.track(razon, { code, errmsg: (we.errmsg || '').substring(0, 200) });
           }
         }
       } else {
@@ -374,7 +409,25 @@ async function procesarCSV(options) {
     };
 
     stream = crearLectorCSV(IMPORT_CONFIG.dataFile)
-      .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }));
+      .pipe(csv({
+        separator: IMPORT_CONFIG.csvSeparator,
+        // Normalizar cabeceras: el CSV es UTF-8 con BOM leido como latin1,
+        // por lo que NÚMERO_DISTRITO/NÚMERO/CÓDIGO_POSTAL llegan como
+        // mojibake (NÃ\x9AMERO_DISTRITO, etc.). Sin esto los lookups
+        // row.NUMERO_DISTRITO / row['NÚMERO_DISTRITO'] fallan al 100%
+        // y los 3 campos se importan como null.
+        //
+        // Pipeline (orden importa):
+        //  1) Strip BOM al inicio (ï»¿ de leer UTF-8 como latin1).
+        //  2) normalizarTexto: corrige mojibake (NÃ\x9A -> NÚ).
+        //  3) NFD + strip combining marks: quita acentos (Ú -> U, Ó -> O)
+        //     para que los lookups del importador funcionen con ASCII.
+        mapHeaders: ({ header }) => normalizarTexto(
+          header.replace(/^[﻿ï»¿]+/, '')
+        )
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+      }));
 
     stream.on('data', async (row) => {
       if (isShuttingDown || isProcessingBatch) {return;}

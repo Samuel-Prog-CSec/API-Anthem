@@ -31,7 +31,8 @@ const {
   RejectionTracker,
   formatDuration,
   calculateProcessingSpeed,
-  buildAndWriteSummary
+  buildAndWriteSummary,
+  parsearFechaSoloDiaUTC
 } = require('./helpers/importHelpers');
 const { normalizarTexto, crearLectorCSV } = require('./helpers/normalizarEncoding');
 const { construirGeometryDesdeWGS84 } = require('./helpers/conversorCoordenadas');
@@ -166,16 +167,35 @@ const REJECTION_REASONS = {
   DUPLICATE_IN_FILE: 'DUPLICADO_EN_ARCHIVO',
   DUPLICATE_KEY: 'CLAVE_DUPLICADA',
   VALIDATION_ERROR: 'ERROR_VALIDACION_MODELO',
-  MISSING_IDENTIFIER: 'IDENTIFICADOR_VACIO'
+  MISSING_IDENTIFIER: 'IDENTIFICADOR_VACIO',
+  // Errores de escritura en BD (writeErrors de insertMany ordered:false)
+  CLAVE_DUPLICADA_INDICE_UNICO: 'CLAVE_DUPLICADA_INDICE_UNICO',
+  VALIDACION_SCHEMA_FALLIDA: 'VALIDACION_SCHEMA_FALLIDA'
 };
 
 /**
- * Parsear fecha en formato DD/MM/YYYY (puede incluir hora despues de espacio)
+ * Parsear fecha en formato DD/MM/YYYY (puede incluir hora despues de espacio).
+ *
+ * Antes este parser hacia `new Date(Date.UTC(year, month, day))` directo,
+ * que en el caso `29/02/2051` (2051 no es bisiesto) lo rebobinaba
+ * silenciosamente a `01/03/2051`. Resultado: la fila del 29-feb se
+ * insertaba con fecha falsa 01-mar y, cuando llegaba la fila REAL del
+ * 01-mar con la misma hora e identificador, se rechazaba como
+ * duplicada en `seenKeysInFile`. Auditoria midio 632 grupos con valores
+ * distintos perdiendo hasta 96 bicis/h.
+ *
+ * Ahora delegamos en `parsearFechaSoloDiaUTC` que coerciona 29/02 → 28/02
+ * y devuelve `coercida: true` para que el caller pueda registrar la
+ * coercion en el `rejectionTracker`.
+ *
  * @param {string} dateStr - Fecha en formato "DD/MM/YYYY H:MM" o "DD/MM/YYYY"
+ * @param {Object} [opts] - Opciones
+ * @param {Object} [opts.rejectionTracker] - Para registrar coerciones
+ * @param {number} [opts.fila] - Indice de fila para la traza
  * @returns {Date} Objeto Date (solo parte de fecha, sin hora)
  * @throws {Error} Si el formato es invalido o la fecha no esta en rango del dataset
  */
-function parsearFecha(dateStr) {
+function parsearFecha(dateStr, opts = {}) {
   if (!dateStr || typeof dateStr !== 'string') {
     throw new Error(`${REJECTION_REASONS.EMPTY_DATE}: valor='${dateStr}'`);
   }
@@ -189,27 +209,34 @@ function parsearFecha(dateStr) {
   }
 
   const day = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10) - 1;
+  const monthBase1 = parseInt(parts[1], 10);
   const year = parseInt(parts[2], 10);
 
   // Validar componentes
   if (day < VALIDATION_LIMITS.DAY_MIN || day > VALIDATION_LIMITS.DAY_MAX) {
     throw new Error(`${REJECTION_REASONS.DAY_OUT_OF_RANGE}: dia=${day}, limites=[${VALIDATION_LIMITS.DAY_MIN}-${VALIDATION_LIMITS.DAY_MAX}]`);
   }
-  if (month < 0 || month > 11) {
-    throw new Error(`${REJECTION_REASONS.MONTH_OUT_OF_RANGE}: mes=${month + 1}`);
+  if (monthBase1 < 1 || monthBase1 > 12) {
+    throw new Error(`${REJECTION_REASONS.MONTH_OUT_OF_RANGE}: mes=${monthBase1}`);
   }
   if (year < DATASET_YEARS.MIN_YEAR || year > DATASET_YEARS.MAX_YEAR) {
     throw new Error(`${REJECTION_REASONS.YEAR_OUT_OF_RANGE}: año=${year}, rango=[${DATASET_YEARS.MIN_YEAR}-${DATASET_YEARS.MAX_YEAR}]`);
   }
 
-  // Date.UTC para evitar desfases de TZ del runtime en fechas sin hora.
-  const date = new Date(Date.UTC(year, month, day));
-  if (isNaN(date.getTime())) {
+  const result = parsearFechaSoloDiaUTC(year, monthBase1, day);
+  if (!result) {
     throw new Error(`${REJECTION_REASONS.INVALID_DATE}: valor='${dateStr}'`);
   }
 
-  return date;
+  if (result.coercida && opts.rejectionTracker) {
+    opts.rejectionTracker.coerce('FECHA_COERCIDA_AL_ULTIMO_DIA_DEL_MES', {
+      fila: opts.fila,
+      original: dateStr,
+      coercida: result.fecha.toISOString().slice(0, 10)
+    });
+  }
+
+  return result.fecha;
 }
 
 /**
@@ -275,8 +302,9 @@ function validarYTransformarFila(row, rowIndex) {
   const fechaKey = Object.keys(row).find(k => k.includes('FECHA')) || 'FECHA';
   const fechaValue = row[fechaKey];
 
-  // Parsear fecha (formato "DD/MM/YYYY H:MM")
-  const fecha = parsearFecha(fechaValue);
+  // Parsear fecha (formato "DD/MM/YYYY H:MM"). Pasamos el tracker para
+  // que registre las coerciones 29/02 → 28/02 en el resumen del run.
+  const fecha = parsearFecha(fechaValue, { rejectionTracker, fila: rowIndex });
 
   // Parsear hora
   const hora = parseHour(row.HORA);
@@ -362,14 +390,31 @@ async function procesarLote(batch, options) {
         result.inserted = insertedCount;
         result.skipped = batch.length - insertedCount;
 
-        // Loguear duplicados a nivel debug (muchos esperados en archivo grande)
+        // Clasificar cada writeError por su codigo MongoDB para no perder
+        // trazabilidad. El catch original solo loggeaba el conteo a debug sin
+        // pasar por rejectionTracker, dejando los duplicados como cifra opaca.
+        // Loggea UNA vez por codigo (primera ocurrencia) y trackea todos los
+        // writeErrors en el tracker (que aplica su propio tope de samples).
         if (error.writeErrors) {
-          const duplicateCount = error.writeErrors.filter(e => e.code === 11000).length;
-          if (duplicateCount > 0) {
-            logger.debug(
-              { duplicados: duplicateCount },
-              'Registros duplicados omitidos en lote'
-            );
+          const codigosVistos = new Set();
+          for (const we of error.writeErrors) {
+            const code = we.code;
+            let razon;
+            if (code === 11000) {
+              razon = REJECTION_REASONS.CLAVE_DUPLICADA_INDICE_UNICO;
+            } else if (code === 121) {
+              razon = REJECTION_REASONS.VALIDACION_SCHEMA_FALLIDA;
+            } else {
+              razon = `WRITE_ERROR_${code}`;
+            }
+            if (!codigosVistos.has(code)) {
+              codigosVistos.add(code);
+              logger.warn(
+                { code, sample: (we.errmsg || '').substring(0, 200) },
+                `WriteError ${razon}: primera ocurrencia`
+              );
+            }
+            rejectionTracker.track(razon, { code, errmsg: (we.errmsg || '').substring(0, 200) });
           }
         }
       } else {
@@ -454,7 +499,28 @@ async function procesarCSV(options) {
     };
 
     stream = crearLectorCSV(IMPORT_CONFIG.dataFile)
-      .pipe(csv({ separator: IMPORT_CONFIG.csvSeparator }));
+      .pipe(csv({
+        separator: IMPORT_CONFIG.csvSeparator,
+        // Normalizar cabeceras: el CSV es UTF-8 con BOM leido como latin1,
+        // por lo que NÚMERO_DISTRITO/NÚMERO/CÓDIGO_POSTAL llegan como
+        // mojibake (NÃ\x9AMERO_DISTRITO, etc.). Sin esto los lookups
+        // row.NUMERO_DISTRITO / row['NÚMERO_DISTRITO'] fallan en 100% de
+        // las 298k filas y los 3 campos se importan como null.
+        //
+        // Pipeline (orden importa):
+        //  1) Strip BOM al inicio (ï»¿ de leer UTF-8 como latin1, o U+FEFF).
+        //     Debe ir PRIMERO porque NFD descompone "ï" en "i + diaeresis"
+        //     y dejaria de matchear el patron.
+        //  2) normalizarTexto: corrige mojibake (Ã³ -> ó, NÃ\x9A -> NÚ).
+        //  3) NFD + strip combining marks: quita acentos (Ú -> U, Ó -> O)
+        //     para que los lookups del importador (row.NUMERO_DISTRITO)
+        //     funcionen siempre con claves ASCII.
+        mapHeaders: ({ header }) => normalizarTexto(
+          header.replace(/^[﻿ï»¿]+/, '')
+        )
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+      }));
 
     stream.on('data', async (row) => {
       if (isShuttingDown || isProcessingBatch) {return;}
