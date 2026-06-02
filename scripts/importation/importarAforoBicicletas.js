@@ -516,7 +516,7 @@ async function procesarCSV(options) {
         //     para que los lookups del importador (row.NUMERO_DISTRITO)
         //     funcionen siempre con claves ASCII.
         mapHeaders: ({ header }) => normalizarTexto(
-          header.replace(/^[﻿ï»¿]+/, '')
+          header.replace(/^[\uFEFFï»¿]+/, '')
         )
           .normalize('NFD')
           .replace(/[̀-ͯ]/g, '')

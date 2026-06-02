@@ -166,16 +166,23 @@ const obtenerAnalisisDemograficoOptimizado = async function(Model, options) {
               totalExtranjeros: 1,
               totalHombres: 1,
               totalMujeres: 1,
-              porcentajeExtranjeros: { $round: [{ $multiply: [{ $divide: ['$totalExtranjeros', '$totalPoblacion'] }, 100] }, 2] },
-              ratioGenero: { $round: [{ $divide: ['$totalHombres', '$totalMujeres'] }, 3] },
+              // Guardas de division por cero: MongoDB lanza error (no null) al
+              // dividir por 0; sin esto, filtrar una seccion sin poblacion
+              // productiva / sin mujeres provocaria un 500.
+              porcentajeExtranjeros: { $round: [{ $cond: [{ $gt: ['$totalPoblacion', 0] }, { $multiply: [{ $divide: ['$totalExtranjeros', '$totalPoblacion'] }, 100] }, 0] }, 2] },
+              ratioGenero: { $round: [{ $cond: [{ $gt: ['$totalMujeres', 0] }, { $divide: ['$totalHombres', '$totalMujeres'] }, 0] }, 3] },
               tasaDependencia: {
                 $round: [
-                  { $multiply: [{ $divide: [{ $add: ['$menores', '$terceraEdad'] }, '$poblacionProductiva'] }, 100] },
+                  { $cond: [
+                    { $gt: ['$poblacionProductiva', 0] },
+                    { $multiply: [{ $divide: [{ $add: ['$menores', '$terceraEdad'] }, '$poblacionProductiva'] }, 100] },
+                    0
+                  ] },
                   2
                 ]
               },
-              porcentajePoblacionProductiva: { $round: [{ $multiply: [{ $divide: ['$poblacionProductiva', '$totalPoblacion'] }, 100] }, 2] },
-              porcentajeTerceraEdad: { $round: [{ $multiply: [{ $divide: ['$terceraEdad', '$totalPoblacion'] }, 100] }, 2] }
+              porcentajePoblacionProductiva: { $round: [{ $cond: [{ $gt: ['$totalPoblacion', 0] }, { $multiply: [{ $divide: ['$poblacionProductiva', '$totalPoblacion'] }, 100] }, 0] }, 2] },
+              porcentajeTerceraEdad: { $round: [{ $cond: [{ $gt: ['$totalPoblacion', 0] }, { $multiply: [{ $divide: ['$terceraEdad', '$totalPoblacion'] }, 100] }, 0] }, 2] }
             }
           }
         ]

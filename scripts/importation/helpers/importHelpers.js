@@ -286,7 +286,7 @@ function parsearFechaHoraUTC(valor) {
   // y 147 accidentes con esa fecha. Mantener el mes preserva los
   // agregados mensuales del dashboard.
   if (fecha.getUTCFullYear() === año &&
-      fecha.getUTCMonth() === mes &&  // mes+1 en JS => rebobinado al siguiente
+      fecha.getUTCMonth() === mes && // mes+1 en JS => rebobinado al siguiente
       fecha.getUTCDate() <= 3) {
     // Caso clasico 29/02 en no bisiesto: JS lo convierte en 01/03. Volvemos
     // al ultimo dia valido del mes original.
@@ -353,7 +353,7 @@ function parsearFechaSoloDiaUTC(año, mes, dia) {
   // ultimo dia valido del mes original para no perder la medicion ni
   // pisar los datos reales del 01/03.
   if (fecha.getUTCFullYear() === año &&
-      fecha.getUTCMonth() === mes &&  // mes+1 en JS => rebobinado
+      fecha.getUTCMonth() === mes && // mes+1 en JS => rebobinado
       fecha.getUTCDate() <= 3) {
     const ultimoDia = new Date(Date.UTC(año, mes, 0)).getUTCDate();
     return {

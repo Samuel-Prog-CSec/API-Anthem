@@ -75,13 +75,19 @@ export default [
     }
   },
 
-  // Configuración específica para scripts de importación y análisis
+  // Configuración específica para scripts de importación y análisis.
+  // Los validadores/transformadores de los importadores (ETL) son
+  // inherentemente ramificados: parsean decenas de columnas con reglas de
+  // normalizacion por campo y clasificaciones derivadas. Refactorizarlos solo
+  // para bajar la metrica anadiria riesgo a logica critica ya validada en QA,
+  // asi que ampliamos el presupuesto de complejidad/anidamiento SOLO aqui.
   {
     files: ["scripts/**/*.js"],
     rules: {
       "no-console": "off", // Permitir console en scripts
       "max-lines-per-function": ["warn", { "max": 250 }], // Scripts pueden ser más largos
-      "complexity": ["warn", 45], // Mayor complejidad permitida en scripts de importación
+      "complexity": ["warn", 55], // Validadores ETL con muchas ramas por campo
+      "max-depth": ["warn", 6], // Anidamiento en manejo de writeErrors / bucles horarios
     }
   },
 

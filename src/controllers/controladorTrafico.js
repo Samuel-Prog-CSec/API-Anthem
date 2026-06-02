@@ -268,8 +268,12 @@ const obtenerEstadisticasTrafico = asyncHandler(async (req, res) => {
   // Llamar al metodo optimizado del modelo (3 agregaciones en paralelo)
   const statistics = await Traffic.obtenerEstadisticasTraficoOptimizadas(filters);
 
+  // Se aplana `statistics` (resumen, porTipoElemento, porPeriodoDia) al nivel
+  // de `data` en vez de anidarlo bajo `data.data`: asi el frontend lee
+  // `data.resumen`/`data.porPeriodoDia` (patron consistente con el resto de
+  // endpoints). Antes el doble anidado dejaba las tarjetas resumen en 0.
   const responseData = {
-    data: statistics,
+    ...statistics,
     periodo: {
       inicio: filters.fecha?.$gte,
       fin: filters.fecha?.$lte

@@ -13,7 +13,6 @@ const {
   CONTAINER_LOTES,
   GEOMETRY_TYPES,
   VALIDATION_LIMITS,
-  DEFAULT_VALUES,
   MONGODB_TIMEOUTS
 } = require('../constants');
 const logger = require('../config/logger');

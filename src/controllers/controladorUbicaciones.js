@@ -6,6 +6,7 @@ const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, MEASUREMENT_POINT_TYPES, TRANSPORT_ROUTE_TYPES, LOCATION_TYPES } = require('../constants');
 const asyncHandler = require('../utils/asyncHandler');
+const logger = require('../config/logger');
 
 /**
  * Obtener todas las ubicaciones con filtros
@@ -204,9 +205,19 @@ const obtenerMapaUbicaciones = asyncHandler(async (req, res, next) => {
     geometry: 1
   };
 
+  // Limite de defensa: sin filtro de tipo, locations tiene ~27k documentos
+  // (sobre todo rutas de transporte). Evitamos transferir payloads enormes;
+  // el cliente debe refinar por `type`/`bbox` o subir `limite` si lo necesita.
+  const limite = Math.min(parseInt(req.query.limite, 10) || 8000, 20000);
+
   const docs = await Location.find(filters, proyeccion)
+    .limit(limite)
     .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
     .lean();
+
+  if (docs.length === limite) {
+    logger.warn({ recurso: 'ubicaciones', limite }, 'Mapa de ubicaciones truncado al limite; refine por type o bbox');
+  }
 
   const featureCollection = documentosAFeatureCollection(
     docs,

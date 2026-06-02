@@ -423,7 +423,7 @@ async function procesarCSV(options) {
         //  3) NFD + strip combining marks: quita acentos (Ú -> U, Ó -> O)
         //     para que los lookups del importador funcionen con ASCII.
         mapHeaders: ({ header }) => normalizarTexto(
-          header.replace(/^[﻿ï»¿]+/, '')
+          header.replace(/^[\uFEFFï»¿]+/, '')
         )
           .normalize('NFD')
           .replace(/[̀-ͯ]/g, '')

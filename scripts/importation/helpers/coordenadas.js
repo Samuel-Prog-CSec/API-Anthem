@@ -77,16 +77,18 @@ const RAZONES_COORD = {
  * de extraccion.
  */
 const PERFILES_COORDENADAS = {
-  // Contenedores: dataset_information.md indica UTM en CENTIMETROS y CSV
-  // tambien provee LONGITUD/LATITUD ya calculadas. Preferimos WGS84
-  // directo y cross-validamos contra UTM convertido.
+  // Contenedores: el dataset_information.md indica UTM en CENTIMETROS, pero el
+  // CSV real trae las coordenadas UTM ya en METROS (p.ej. 441062,99, X_UTM de
+  // Madrid). Tratarlas como cm (dividir /100) las dejaba fuera de rango y
+  // descartaba el UTM, perdiendo `coordenadas`. El CSV ademas provee
+  // LONGITUD/LATITUD: preferimos WGS84 directo y cross-validamos contra UTM.
   contenedores: {
     utm: {
       campos: {
         x: ['COORDENADA X', 'CoordenadaX', 'COORDENADAX', 'coordenada_x'],
         y: ['COORDENADA Y', 'CoordenadaY', 'COORDENADAY', 'coordenada_y']
       },
-      unidades: 'cm'
+      unidades: 'm'
     },
     wgs84: {
       campos: {

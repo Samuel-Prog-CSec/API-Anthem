@@ -403,8 +403,14 @@ const obtenerAnalisisCumplimientoPorZona = async function(Model, options) {
             cumple: '$cumple',
             incumple: '$incumple',
             porcentaje: {
+              // Guarda div/0: una estacion sin mediciones validas (todos los
+              // niveles null) da cumple+incumple=0 y MongoDB lanzaria error.
               $round: [{
-                $multiply: [{ $divide: ['$cumple', { $add: ['$cumple', '$incumple'] }] }, 100]
+                $cond: [
+                  { $gt: [{ $add: ['$cumple', '$incumple'] }, 0] },
+                  { $multiply: [{ $divide: ['$cumple', { $add: ['$cumple', '$incumple'] }] }, 100] },
+                  0
+                ]
               }, 2]
             },
             limite: DIURNO,

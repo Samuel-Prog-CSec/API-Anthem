@@ -53,9 +53,14 @@ const obtenerEstadisticasDistritos = asyncHandler(async (req, res) => {
     { año: DATASET_YEARS.DEFAULT_YEAR }
   );
 
+  // Sin mes explicito tomamos el ultimo snapshot: el censo trae 12 fotos
+  // mensuales y sumarlas inflaria la poblacion x12 (mismo criterio que el
+  // dashboard demografico).
+  const mesElegido = mes || await obtenerUltimoMesConDatos(año);
+
   const { districtStatistics, neighborhoodStatistics } = await Censo.obtenerEstadisticasDistritoOptimizadas({
     año,
-    mes,
+    mes: mesElegido,
     incluirBarrios: incluirBarrios === 'true'
   });
 
@@ -82,7 +87,7 @@ const obtenerEstadisticasDistritos = asyncHandler(async (req, res) => {
     },
     configuracion: buildResponseMetadata({
       año,
-      mes,
+      mes: mesElegido,
       incluirBarrios: incluirBarrios === 'true'
     })
   };
@@ -101,7 +106,12 @@ const obtenerAnalisisDemografico = asyncHandler(async (req, res) => {
     { año: DATASET_YEARS.DEFAULT_YEAR }
   );
 
-  const result = await Censo.obtenerAnalisisDemograficoOptimizado({ año, mes, distrito });
+  // Sin mes explicito tomamos el ultimo snapshot mensual (evita sumar los 12
+  // meses, que inflaria la poblacion x12, y ademas acota el escaneo a ~1/12
+  // de la coleccion, eliminando el timeout del analisis anual completo).
+  const mesElegido = mes || await obtenerUltimoMesConDatos(año);
+
+  const result = await Censo.obtenerAnalisisDemograficoOptimizado({ año, mes: mesElegido, distrito });
 
   const responseData = {
     distribuciones: result.distribuciones,

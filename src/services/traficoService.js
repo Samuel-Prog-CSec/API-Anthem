@@ -9,88 +9,58 @@
 const {
   CONGESTION_LEVELS,
   DATA_QUALITY_LEVELS,
-  LOCATION_TYPES,
+  TRAFFIC_ELEMENT_TYPES,
   MONGODB_TIMEOUTS
 } = require('../constants');
+
+// La velocidad media (vmed) solo es valida para puntos M-30 (ver
+// dataset_information): en URB el CSV trae 0 como relleno. Esta expresion
+// promedia velocidad considerando unicamente M-30 con valor >= 0, para no
+// diluir la media con ceros de trafico urbano.
+const PROMEDIO_VELOCIDAD_M30 = {
+  $avg: {
+    $cond: [
+      { $and: [
+        { $eq: ['$tipoElemento', TRAFFIC_ELEMENT_TYPES.M30] },
+        { $gte: ['$metricas.velocidadMedia', 0] }
+      ] },
+      '$metricas.velocidadMedia',
+      null
+    ]
+  }
+};
 
 /**
  * Analisis de congestion (opcional con lookup a locations para agrupar por distrito).
  */
 const obtenerAnalisisCongestionOptimizado = async function(Model, filters = {}, groupBy = 'distrito') {
-  const pipeline = [{ $match: filters }];
+  const escalar = { allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS };
 
-  if (groupBy === 'distrito') {
-    pipeline.push(
-      {
-        $lookup: {
-          from: 'locations',
-          let: { puntoId: '$puntoMedidaId' },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $and: [
-                    { $eq: ['$tipo', LOCATION_TYPES.PUNTO_TRAFICO] },
-                    { $eq: ['$id_punto', '$$puntoId'] }
-                  ]
-                }
-              }
-            },
-            { $project: { distrito: 1, _id: 0 } }
-          ],
-          as: 'ubicacion'
-        }
-      },
-      {
-        $addFields: {
-          distrito: { $arrayElemAt: ['$ubicacion.distrito', 0] }
-        }
-      }
-    );
-  }
+  // Acumuladores comunes: sumas + conteos para poder calcular medias EXACTAS
+  // tras una posible re-agrupacion (promediar promedios seria incorrecto).
+  const acumuladores = {
+    totalMediciones: { $sum: 1 },
+    sumIntensidad: { $sum: { $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', 0] } },
+    cntIntensidad: { $sum: { $cond: [{ $gte: ['$metricas.intensidad', 0] }, 1, 0] } },
+    sumOcupacion: { $sum: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', 0] } },
+    cntOcupacion: { $sum: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, 1, 0] } },
+    medicionesFluidas: { $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.FLUIDO] }, 1, 0] } },
+    medicionesDensas: { $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.DENSO] }, 1, 0] } },
+    medicionesCongestionadas: { $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.CONGESTIONADO] }, 1, 0] } },
+    medicionesColapsadas: { $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.COLAPSADO] }, 1, 0] } }
+  };
 
-  pipeline.push(
-    {
-      $group: {
-        _id: groupBy === 'distrito' ? '$distrito' : '$tipoElemento',
-        totalMediciones: { $sum: 1 },
-        intensidadPromedio: {
-          $avg: { $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null] }
-        },
-        ocupacionPromedio: {
-          $avg: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null] }
-        },
-        medicionesFluidas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.FLUIDO] }, 1, 0] }
-        },
-        medicionesDensas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.DENSO] }, 1, 0] }
-        },
-        medicionesCongestionadas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.CONGESTIONADO] }, 1, 0] }
-        },
-        medicionesColapsadas: {
-          $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.COLAPSADO] }, 1, 0] }
-        }
-      }
-    },
+  // Etapas finales compartidas: calculan medias y porcentajes, proyectan y ordenan.
+  const etapasFinales = [
     {
       $addFields: {
         zona: '$_id',
+        intensidadPromedio: { $cond: [{ $gt: ['$cntIntensidad', 0] }, { $divide: ['$sumIntensidad', '$cntIntensidad'] }, null] },
+        ocupacionPromedio: { $cond: [{ $gt: ['$cntOcupacion', 0] }, { $divide: ['$sumOcupacion', '$cntOcupacion'] }, null] },
         porcentajeCongestion: {
           $cond: [
             { $gt: ['$totalMediciones', 0] },
-            {
-              $multiply: [
-                {
-                  $divide: [
-                    { $add: ['$medicionesCongestionadas', '$medicionesColapsadas'] },
-                    '$totalMediciones'
-                  ]
-                },
-                100
-              ]
-            },
+            { $multiply: [{ $divide: [{ $add: ['$medicionesCongestionadas', '$medicionesColapsadas'] }, '$totalMediciones'] }, 100] },
             0
           ]
         },
@@ -121,9 +91,44 @@ const obtenerAnalisisCongestionOptimizado = async function(Model, filters = {}, 
       }
     },
     { $sort: { porcentajeCongestion: -1 } }
+  ];
+
+  // Modo tipoElemento: agrupacion directa (solo 2 cubos, sin lookup).
+  if (groupBy !== 'distrito') {
+    return Model.aggregate([
+      { $match: filters },
+      { $group: { _id: '$tipoElemento', ...acumuladores } },
+      ...etapasFinales
+    ]).option(escalar);
+  }
+
+  // Modo distrito: PRIMERO se reduce a nivel de punto (~miles de docs) y SOLO
+  // entonces se hace el $lookup a locations, en vez de un join por cada una de
+  // las millones de mediciones (antipatron previo). Despues se re-agrupa por
+  // distrito sumando los acumuladores de cada punto.
+  const sumarAcumuladores = Object.fromEntries(
+    Object.keys(acumuladores).map(clave => [clave, { $sum: `$${clave}` }])
   );
 
-  return Model.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+  return Model.aggregate([
+    { $match: filters },
+    { $group: { _id: '$puntoMedidaId', ...acumuladores } },
+    {
+      // $lookup indexado por `id_punto` (campo sparse: solo lo tienen los
+      // puntos de trafico), mucho mas rapido que un $expr correlacionado que
+      // ignora el indice y hace collscan de locations por cada punto.
+      $lookup: {
+        from: 'locations',
+        localField: '_id',
+        foreignField: 'id_punto',
+        as: 'ubicacion',
+        pipeline: [{ $project: { distrito: 1, _id: 0 } }]
+      }
+    },
+    { $addFields: { distrito: { $arrayElemAt: ['$ubicacion.distrito', 0] } } },
+    { $group: { _id: '$distrito', ...sumarAcumuladores } },
+    ...etapasFinales
+  ]).option(escalar);
 };
 
 /**
@@ -167,7 +172,7 @@ const obtenerDatosHistoricosOptimizado = async function(Model, filters = {}, agg
         ocupacionPromedio: { $avg: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null] } },
         ocupacionMaxima: { $max: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null] } },
         cargaPromedio: { $avg: { $cond: [{ $gte: ['$metricas.carga', 0] }, '$metricas.carga', null] } },
-        velocidadPromedio: { $avg: { $cond: [{ $gte: ['$metricas.velocidadMedia', 0] }, '$metricas.velocidadMedia', null] } },
+        velocidadPromedio: PROMEDIO_VELOCIDAD_M30,
         medicionesCongestionadas: {
           $sum: { $cond: [{ $in: ['$analisis.nivelCongestion', [CONGESTION_LEVELS.CONGESTIONADO, CONGESTION_LEVELS.COLAPSADO]] }, 1, 0] }
         },
@@ -241,7 +246,7 @@ const obtenerEstadisticasTraficoOptimizadas = async function(Model, filters = {}
           intensidadMaxima: { $max: { $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null] } },
           ocupacionPromedio: { $avg: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null] } },
           cargaPromedio: { $avg: { $cond: [{ $gte: ['$metricas.carga', 0] }, '$metricas.carga', null] } },
-          velocidadPromedio: { $avg: { $cond: [{ $gte: ['$metricas.velocidad', 0] }, '$metricas.velocidad', null] } },
+          velocidadPromedio: PROMEDIO_VELOCIDAD_M30,
           medicionesConfiables: {
             $sum: { $cond: [{ $in: ['$calidadDatos.calidadGeneral', [DATA_QUALITY_LEVELS.ALTA, DATA_QUALITY_LEVELS.MEDIA]] }, 1, 0] }
           },
@@ -347,7 +352,7 @@ const obtenerAgregadoParaMapa = async function(Model, filtros = {}) {
         intensidadMedia: { $avg: { $cond: [{ $gte: ['$metricas.intensidad', 0] }, '$metricas.intensidad', null] } },
         ocupacionMedia: { $avg: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null] } },
         cargaMedia: { $avg: { $cond: [{ $gte: ['$metricas.carga', 0] }, '$metricas.carga', null] } },
-        velocidadMedia: { $avg: { $cond: [{ $gte: ['$metricas.velocidadMedia', 0] }, '$metricas.velocidadMedia', null] } },
+        velocidadMedia: PROMEDIO_VELOCIDAD_M30,
         medicionesCongestionadas: {
           $sum: { $cond: [{ $in: ['$analisis.nivelCongestion', [CONGESTION_LEVELS.CONGESTIONADO, CONGESTION_LEVELS.COLAPSADO]] }, 1, 0] }
         },
@@ -355,23 +360,14 @@ const obtenerAgregadoParaMapa = async function(Model, filtros = {}) {
       }
     },
     {
+      // $lookup indexado por `id_punto` (sparse), evita el collscan del
+      // $expr correlacionado. Ver nota en obtenerAnalisisCongestionOptimizado.
       $lookup: {
         from: 'locations',
-        let: { puntoId: '$_id' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ['$tipo', LOCATION_TYPES.PUNTO_TRAFICO] },
-                  { $eq: ['$id_punto', '$$puntoId'] }
-                ]
-              }
-            }
-          },
-          { $project: { geometry: 1, distrito: 1, nombre: 1, _id: 0 } }
-        ],
-        as: 'ubicacion'
+        localField: '_id',
+        foreignField: 'id_punto',
+        as: 'ubicacion',
+        pipeline: [{ $project: { geometry: 1, distrito: 1, nombre: 1, _id: 0 } }]
       }
     },
     {

@@ -46,56 +46,56 @@ const onlyCollection = onlyArg ? onlyArg.split('=')[1] : null;
  */
 const INDICES_REDUNDANTES = {
   accidents: [
-    'ubicacion.nombreDistrito_1',       // cubierto por ubicacion.nombreDistrito_1_fecha_-1
-    'circunstancias.gravedad_1',         // cubierto por circunstancias.gravedad_1_fecha_-1
-    'circunstancias.tipoAccidente_1',    // cubierto por circunstancias.tipoAccidente_1_fecha_-1
-    'vehiculo.tipo_1',                   // cubierto por vehiculo.tipo_1_fecha_-1
-    'numeroExpediente_1',                // cubierto por numeroExpediente_1_fecha_-1
-    'ubicacion.calle_1',                 // cubierto por ubicacion.calle_1_fecha_-1
-    'franjaHoraria_1',                   // cubierto por franjaHoraria_1_fecha_-1
-    'mes_1',                             // cubierto por año_1_mes_1_dia_1
-    'hora_1',                            // poco selectivo en si mismo
-    'año_1',                             // cubierto por año_1_mes_1_dia_1 e idx_accidents_fecha_distrito_smartcity
-    'fecha_1'                            // cubierto por todos los compuestos con fecha
+    'ubicacion.nombreDistrito_1', // cubierto por ubicacion.nombreDistrito_1_fecha_-1
+    'circunstancias.gravedad_1', // cubierto por circunstancias.gravedad_1_fecha_-1
+    'circunstancias.tipoAccidente_1', // cubierto por circunstancias.tipoAccidente_1_fecha_-1
+    'vehiculo.tipo_1', // cubierto por vehiculo.tipo_1_fecha_-1
+    'numeroExpediente_1', // cubierto por numeroExpediente_1_fecha_-1
+    'ubicacion.calle_1', // cubierto por ubicacion.calle_1_fecha_-1
+    'franjaHoraria_1', // cubierto por franjaHoraria_1_fecha_-1
+    'mes_1', // cubierto por año_1_mes_1_dia_1
+    'hora_1', // poco selectivo en si mismo
+    'año_1', // cubierto por año_1_mes_1_dia_1 e idx_accidents_fecha_distrito_smartcity
+    'fecha_1' // cubierto por todos los compuestos con fecha
   ],
   fines: [
-    'mes_1',                             // cubierto por año_1_mes_1_calificacion_1
-    'año_1',                             // cubierto por año_1_mes_1_calificacion_1
-    'fecha_1',                           // cubierto por fecha_-1_calificacion_1 e idx_multas_listado_cobertura
-    'lugar_1',                           // cubierto por lugar_1_fecha_-1
-    'denunciante_1',                     // cubierto por denunciante_1_fecha_-1
-    'tieneDescuento_1',                  // cubierto por tieneDescuento_1_fecha_-1
-    'importeBoletín_1',                  // cubierto por importeBoletín_-1_fecha_-1
-    'calificacion_1',                    // cubierto por fecha_-1_calificacion_1 e idx_fines_statistics
-    'puntosDetraídos_1',                 // cubierto por puntosDetraídos_-1_fecha_-1
-    'hora_1'                             // poco selectivo
+    'mes_1', // cubierto por año_1_mes_1_calificacion_1
+    'año_1', // cubierto por año_1_mes_1_calificacion_1
+    'fecha_1', // cubierto por fecha_-1_calificacion_1 e idx_multas_listado_cobertura
+    'lugar_1', // cubierto por lugar_1_fecha_-1
+    'denunciante_1', // cubierto por denunciante_1_fecha_-1
+    'tieneDescuento_1', // cubierto por tieneDescuento_1_fecha_-1
+    'importeBoletín_1', // cubierto por importeBoletín_-1_fecha_-1
+    'calificacion_1', // cubierto por fecha_-1_calificacion_1 e idx_fines_statistics
+    'puntosDetraídos_1', // cubierto por puntosDetraídos_-1_fecha_-1
+    'hora_1' // poco selectivo
   ],
   censuses: [
-    'año_1',                             // cubierto por idx_census_temporal_district
-    'mes_1',                             // cubierto por idx_census_temporal_district
-    'edad_1',                            // cubierto por idx_census_district_age
-    'distrito.codigo_1',                 // cubierto por idx_census_district_date
-    'barrio.codigo_1',                   // cubierto por idx_census_neighborhood_demographics
-    'seccionCensal.codigo_1',            // cubierto por unique_census_record
-    'fechaCenso_1',                      // cubierto por idx_census_population_pyramid
-    'barrio.descripcion_1',              // cubierto por idx_census_geographic_names
-    'distrito.descripcion_1',            // cubierto por idx_census_geographic_names
-    'estadisticas.totalPoblacion_1',     // cubierto por idx_census_population_ranking
+    'año_1', // cubierto por idx_census_temporal_district
+    'mes_1', // cubierto por idx_census_temporal_district
+    'edad_1', // cubierto por idx_census_district_age
+    'distrito.codigo_1', // cubierto por idx_census_district_date
+    'barrio.codigo_1', // cubierto por idx_census_neighborhood_demographics
+    'seccionCensal.codigo_1', // cubierto por unique_census_record
+    'fechaCenso_1', // cubierto por idx_census_population_pyramid
+    'barrio.descripcion_1', // cubierto por idx_census_geographic_names
+    'distrito.descripcion_1', // cubierto por idx_census_geographic_names
+    'estadisticas.totalPoblacion_1', // cubierto por idx_census_population_ranking
     'seccionCensal.codigoDistritoSeccion_1', // cubierto por unique_census_record
-    'barrio.codigoDistritoBarrio_1'      // cubierto por unique_census_record
+    'barrio.codigoDistritoBarrio_1' // cubierto por unique_census_record
   ],
   traffic_measurements: [
-    'año_1',                             // cubierto por idx_traffic_temporal_components
-    'hora_1',                            // cubierto por idx_traffic_temporal_components
-    'mes_1',                             // cubierto por idx_traffic_temporal_components
-    'tipoElemento_1',                    // cubierto por idx_traffic_type_timeline
-    'metricas.intensidad_1',             // cubierto por idx_traffic_date_point_intensity
-    'analisis.nivelCongestion_1',        // cubierto por idx_traffic_congestion_timeline
-    'puntoMedidaId_1',                   // cubierto por traffic_unique_measurement
-    'fecha_1',                           // cubierto por multiples compuestos
-    'analisis.periodoDia_1',             // cubierto por idx_traffic_period_type
+    'año_1', // cubierto por idx_traffic_temporal_components
+    'hora_1', // cubierto por idx_traffic_temporal_components
+    'mes_1', // cubierto por idx_traffic_temporal_components
+    'tipoElemento_1', // cubierto por idx_traffic_type_timeline
+    'metricas.intensidad_1', // cubierto por idx_traffic_date_point_intensity
+    'analisis.nivelCongestion_1', // cubierto por idx_traffic_congestion_timeline
+    'puntoMedidaId_1', // cubierto por traffic_unique_measurement
+    'fecha_1', // cubierto por multiples compuestos
+    'analisis.periodoDia_1', // cubierto por idx_traffic_period_type
     'analisis.clasificacionIntensidad_1', // cubierto por compuestos especificos
-    'analisis.tipoJornada_1'             // cubierto por idx_traffic_pattern_analysis
+    'analisis.tipoJornada_1' // cubierto por idx_traffic_pattern_analysis
   ]
 };
 

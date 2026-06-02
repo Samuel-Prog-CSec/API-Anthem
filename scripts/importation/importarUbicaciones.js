@@ -262,7 +262,7 @@ async function importTrafficPoints() {
       // real seria "ï»¿tipo_elem") y se pierde el campo enum URB/M30.
       .pipe(csv({
         separator: ';',
-        mapHeaders: ({ header }) => header.replace(/^[﻿ï»¿]+/, '')
+        mapHeaders: ({ header }) => header.replace(/^[\uFEFFï»¿]+/, '')
       }))
       .on('data', (row) => {
         if (isShuttingDown) {return;}

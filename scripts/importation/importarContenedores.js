@@ -409,12 +409,17 @@ async function processBatch(batch, options) {
       }
     }
   } else {
-    // Modo upsert
+    // Modo upsert. El filtro debe incluir las coordenadas: un mismo
+    // (codigoInternoSituado, tipoContenedor) aparece en varias ubicaciones
+    // distintas (1.794 pares en el dataset), asi que filtrar solo por
+    // codigo+tipo colapsaria esos contenedores en --force (perdida de datos).
+    // Se usa la misma clave que generateUniqueKey: codigo + tipo + coordenadas.
     const operations = batch.map(record => ({
       updateOne: {
         filter: {
           codigoInternoSituado: record.codigoInternoSituado,
-          tipoContenedor: record.tipoContenedor
+          tipoContenedor: record.tipoContenedor,
+          'location.coordinates': record.location?.coordinates
         },
         update: { $set: record },
         upsert: true

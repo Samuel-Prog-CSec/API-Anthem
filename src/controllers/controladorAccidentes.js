@@ -7,12 +7,13 @@
  */
 
 const Accidente = require('../models/Accidente');
+const { ETAPA_GROUP_EXPEDIENTE } = require('../services/accidenteService');
 const { createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, executeFacetPagination } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
-const { SORT_FIELDS, PAGINATION, HTTP_STATUS, TIPOS_ACCIDENTE, TIPOS_VEHICULO, TIPOS_LESION, MAPEO_SEVERIDAD_LESIONES, BINARY_INDICATORS, SEVERITY_LEVELS, TIPOS_PERSONA, MONGODB_TIMEOUTS, TIME_CONSTANTS, DAYS_OF_WEEK } = require('../constants');
+const { SORT_FIELDS, PAGINATION, HTTP_STATUS, TIPOS_ACCIDENTE, TIPOS_VEHICULO, TIPOS_LESION, MAPEO_SEVERIDAD_LESIONES, BINARY_INDICATORS, SEVERITY_LEVELS, TIPOS_PERSONA, MONGODB_TIMEOUTS, DAYS_OF_WEEK } = require('../constants');
 const logger = require('../config/logger');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -97,22 +98,25 @@ const obtenerAccidentes = asyncHandler(async (req, res) => {
   // En modo cursor se calcula por separado (sin doble pasada porque no hace
   // facet pagination).
   // NO usar $limit antes de $group: corrompe las estadisticas globales.
+  //
+  // Cada fila de `accidents` es una persona afectada; para que las cifras
+  // representen ACCIDENTES (no afectados) primero se colapsa por expediente
+  // (ETAPA_GROUP_EXPEDIENTE) y luego se agrega. Se expone tambien
+  // `totalAfectados` (numero de personas) como metrica separada.
   const statsPipeline = [
+    ETAPA_GROUP_EXPEDIENTE,
     {
       $group: {
         _id: null,
-        accidentesGraves: {
-          $sum: { $cond: [{ $in: ['$circunstancias.gravedad', [SEVERITY_LEVELS.ACCIDENT.GRAVE, SEVERITY_LEVELS.ACCIDENT.MORTAL]] }, 1, 0] }
-        },
-        accidentesMortales: {
-          $sum: { $cond: [{ $eq: ['$circunstancias.gravedad', SEVERITY_LEVELS.ACCIDENT.MORTAL] }, 1, 0] }
-        },
-        puntuacionGravedadPromedio: { $avg: '$analisis.puntuacionGravedad' },
-        accidentesConAlcohol: {
-          $sum: { $cond: [{ $eq: ['$personaAfectada.positivaAlcohol', BINARY_INDICATORS.YES] }, 1, 0] }
-        }
+        totalAccidentes: { $sum: 1 },
+        totalAfectados: { $sum: '$afectados' },
+        accidentesGraves: { $sum: '$esGrave' },
+        accidentesMortales: { $sum: '$esMortal' },
+        puntuacionGravedadPromedio: { $avg: '$puntuacionGravedad' },
+        accidentesConAlcohol: { $sum: '$conAlcohol' }
       }
-    }
+    },
+    { $project: { _id: 0 } }
   ];
 
   let accidentes = [];
@@ -167,6 +171,8 @@ const obtenerAccidentes = asyncHandler(async (req, res) => {
       }
     },
     stats: statsObj || {
+      totalAccidentes: 0,
+      totalAfectados: 0,
       accidentesGraves: 0,
       accidentesMortales: 0,
       puntuacionGravedadPromedio: 0,
@@ -247,10 +253,11 @@ const obtenerEstadisticasAccidentes = asyncHandler(async (req, res) => {
   ];
   const filters = buildFilters(req.query, filterConfig);
 
-  // Estadisticas generales
+  // Estadisticas generales. Si no llega rango de fechas, no se restringe por
+  // fecha (el dataset es de 2051; un default "hoy - 30 dias" devolveria cero).
   const generalStats = await Accidente.obtenerEstadisticasPorPeriodo(
-    filters.fecha?.$gte || new Date(Date.now() - 30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY),
-    filters.fecha?.$lte || new Date()
+    filters.fecha?.$gte || null,
+    filters.fecha?.$lte || null
   );
 
   // Puntos negros (zonas con mas accidentes)
@@ -360,7 +367,8 @@ const obtenerComparativaDistritos = asyncHandler(async (req, res) => {
  * GET /api/v1/accidentes/mapa-calor
  */
 const obtenerMapaCalorAccidentes = asyncHandler(async (req, res) => {
-  const { limite = 500, precision = 100 } = req.query;
+  // precision en grados WGS84 para la rejilla del heatmap (~0.001 ≈ 110 m)
+  const { limite = 500, precision = 0.001 } = req.query;
 
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },

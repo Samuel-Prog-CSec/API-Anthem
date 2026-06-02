@@ -86,6 +86,12 @@ const rejectionTracker = new RejectionTracker();
 // FUNCIONES DE CALCULO DE CAMPOS DERIVADOS
 // ============================================================================
 
+// Detector de multas de velocidad por descripcion textual.
+// Cubre los patrones "SOBREPASAR LA VELOCIDAD M(AÁ)XIMA", "EXCEDER (LA)
+// VELOCIDAD M(AÁ)XIMA" y "EXCESO DE VELOCIDAD". Sensible a tildes con
+// y sin acento porque el dataset municipal mezcla ambas formas.
+const REGEX_DESCRIPCION_VELOCIDAD = /(SOBREPAS(AR|ANDO).+VELOCIDAD\s+M[AÁ]XIMA|EXCEDE(R|NDO).+VELOCIDAD\s+M[AÁ]XIMA|EXCESO\s+DE\s+VELOCIDAD)/;
+
 /**
  * Calcular campos derivados de una multa.
  * Replica la logica del hook pre('save') del modelo Fine, ya que
@@ -134,12 +140,6 @@ function calcularCamposDerivadosMulta(multa) {
 
   return multa;
 }
-
-// Detector de multas de velocidad por descripcion textual.
-// Cubre los patrones "SOBREPASAR LA VELOCIDAD M(AÁ)XIMA", "EXCEDER (LA)
-// VELOCIDAD M(AÁ)XIMA" y "EXCESO DE VELOCIDAD". Sensible a tildes con
-// y sin acento porque el dataset municipal mezcla ambas formas.
-const REGEX_DESCRIPCION_VELOCIDAD = /(SOBREPAS(AR|ANDO).+VELOCIDAD\s+M[AÁ]XIMA|EXCEDE(R|NDO).+VELOCIDAD\s+M[AÁ]XIMA|EXCESO\s+DE\s+VELOCIDAD)/;
 
 // ============================================================================
 // FUNCIONES DE PARSEO

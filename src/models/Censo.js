@@ -269,7 +269,7 @@ const censusSchema = new mongoose.Schema({
         const total = this.estadisticas?.totalPoblacion || 0;
         if (total > 50) {return POPULATION_DENSITY_LEVELS.MUY_ALTA;}
         if (total > 20) {return POPULATION_DENSITY_LEVELS.ALTA;}
-        if (total > 5)  {return POPULATION_DENSITY_LEVELS.MEDIA;}
+        if (total > 5) {return POPULATION_DENSITY_LEVELS.MEDIA;}
         return POPULATION_DENSITY_LEVELS.BAJA;
       }
     },

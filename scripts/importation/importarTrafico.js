@@ -39,7 +39,6 @@ const { crearLectorCSV } = require('./helpers/normalizarEncoding');
 
 const BATCH_SIZE = 10000;
 const DATA_DIR = path.join(__dirname, '../../datos_hpe/Trafico');
-const LOCATIONS_FILE = path.join(__dirname, '../../datos_hpe/Ubicaciones/Anthem_CTC_PuntoMedidaTrafico.csv');
 const MAX_PARALLEL = 3;
 const LOG_INTERVAL = 500000;
 
@@ -63,7 +62,7 @@ const REJECTION_REASONS = {
   FECHA_FUERA_RANGO: 'Fecha fuera de rango valido',
 
   // Tipo de elemento
-  TIPO_ELEMENTO_INVALIDO: 'Tipo de elemento invalido (esperado: URB o M-30)',
+  TIPO_ELEMENTO_INVALIDO: 'Tipo de elemento invalido (esperado: URB o M30)',
 
   // Errores de procesamiento
   ERROR_TRANSFORMACION: 'Error durante la transformacion de datos',
@@ -92,70 +91,12 @@ let currentFile = '';
 const rejectionTracker = new RejectionTracker();
 
 // ============================================================================
-// CONEXIÓN Y CARGA DE DATOS AUXILIARES
-// ============================================================================
-
-// Cache de puntos de medida cargados desde CSV
-// El archivo de puntos no cambia durante la ejecucion del importador, asi que
-// reusamos el resultado para evitar re-leer el CSV en cada llamada
-let cachePuntosTrafico = null;
-
-/**
- * Cargar puntos de medida desde el archivo de ubicaciones
- * @returns {Promise<Map>} - Mapa de puntos de medida
- */
-async function loadTrafficPoints() {
-  if (cachePuntosTrafico) {
-    return cachePuntosTrafico;
-  }
-
-  logger.info({ archivo: LOCATIONS_FILE }, 'Cargando puntos de medida de trafico');
-
-  return new Promise((resolve, reject) => {
-    const points = new Map();
-    let count = 0;
-
-    crearLectorCSV(LOCATIONS_FILE)
-      .pipe(csv({ separator: ';' }))
-      .on('data', (row) => {
-        try {
-          const puntoId = row.id?.toString().trim();
-
-          if (puntoId && /^\d+$/.test(puntoId)) {
-            points.set(puntoId, {
-              id: puntoId,
-              nombre: row.nombre?.trim(),
-              distrito: row.distrito?.trim(),
-              tipo_elem: row.tipo_elem?.trim(),
-              utm_x: parseFloat(row.utm_x),
-              utm_y: parseFloat(row.utm_y),
-              longitud: parseFloat(row.longitud),
-              latitud: parseFloat(row.latitud)
-            });
-            count++;
-          }
-        } catch (error) {
-          logger.warn({
-            error: error.message,
-            punto: row.id
-          }, 'Error procesando punto de medida');
-        }
-      })
-      .on('end', () => {
-        logger.info({ puntosCardos: count }, 'Puntos de medida de trafico cargados');
-        cachePuntosTrafico = points;
-        resolve(points);
-      })
-      .on('error', (error) => {
-        logger.error({ error: error.message }, 'Error leyendo archivo de puntos');
-        reject(error);
-      });
-  });
-}
-
-// ============================================================================
 // VALIDACIÓN Y TRANSFORMACIÓN
 // ============================================================================
+// Nota: el distrito y la geometria de cada punto de medida se resuelven en
+// tiempo de consulta via $lookup a la coleccion `locations` (ver
+// traficoService), por lo que el importador no necesita cargar el CSV de
+// puntos: cada medicion solo guarda `puntoMedidaId`.
 
 /**
  * Validar y transformar una fila de datos de tráfico
@@ -661,9 +602,6 @@ async function main() {
     logger.info('Conectando a MongoDB...');
     await connectDB(config.database.uri);
     logger.info('Conexion a MongoDB establecida');
-
-    // Cargar puntos de medida (para referencia/validación futura)
-    await loadTrafficPoints();
 
     // Obtener archivos a procesar
     const filesToProcess = await getFilesToProcess();

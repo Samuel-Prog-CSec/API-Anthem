@@ -124,10 +124,10 @@ const REEMPLAZOS_LATIN1_DESDE_UTF8 = [
   ['Âº', 'º'],
   ['Âª', 'ª'],
   ['Â·', '·'],
-  ['Â´', '´'],    // U+00B4 acute accent (apostrofo): "OÂ´Donnell" -> "O´Donnell"
-  ['Â¨', '¨'],    // U+00A8 diaeresis
-  ['Â²', '²'],    // U+00B2 superscript 2
-  ['Â³', '³'],    // U+00B3 superscript 3
+  ['Â´', '´'], // U+00B4 acute accent (apostrofo): "OÂ´Donnell" -> "O´Donnell"
+  ['Â¨', '¨'], // U+00A8 diaeresis
+  ['Â²', '²'], // U+00B2 superscript 2
+  ['Â³', '³'], // U+00B3 superscript 3
   // Otros caracteres latin1 menos comunes pero presentes en dataset
   // Madrid (PuntoMedidaTrafico tiene "SEPULVEDA Ã˜118" con simbolo
   // diametro/Ø). El segundo char (0x98) es un control no imprimible
