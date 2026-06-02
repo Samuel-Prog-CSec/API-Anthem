@@ -241,11 +241,27 @@ const obtenerRankingUbicaciones = asyncHandler(async (req, res) => {
     { limit: AGGREGATION_LIMITS.TOP_RESULTS }
   );
 
+  // Filtros de dominio (calificacion, denunciante, descuento) para que el
+  // ranking responda a los mismos filtros que los KPIs. La fecha y el tipo de
+  // infraccion se pasan aparte (ya soportados), por eso se excluyen aqui.
+  const filtrosAdicionales = buildFilters(req.query, [
+    { field: 'calificacion', type: 'in', param: 'calificacion', transform: TRANSFORMS.toUpperCaseArray },
+    { field: 'denunciante', type: 'regex', param: 'denunciante' }
+  ]);
+  const descuento = req.query.tieneDescuento ?? req.query.conDescuento;
+  if (descuento !== undefined) {
+    filtrosAdicionales.tieneDescuento = descuento === true || descuento === 'true';
+  }
+  if (req.query.esGrave !== undefined) {
+    filtrosAdicionales['metadatos.esInfraccionGrave'] = req.query.esGrave === true || req.query.esGrave === 'true';
+  }
+
   const ranking = await Multa.obtenerRankingUbicacionesOptimizado({
     startDate: startDate ? new Date(startDate) : null,
     endDate: endDate ? new Date(endDate) : null,
     tipoInfraccion,
-    limit
+    limit,
+    filtrosAdicionales
   });
 
   const responseData = {
@@ -297,29 +313,58 @@ const obtenerAnalisisTemporal = asyncHandler(async (req, res) => {
  * GET /api/v1/multas/dashboard
  */
 const obtenerMetricasDashboard = asyncHandler(async (req, res) => {
-  const { periodo = '30days' } = req.query;
+  const { periodo = '30days', startDate, endDate } = req.query;
 
   // El dataset cubre el anho 2051. Los rangos del panel se calculan con
   // respecto al ULTIMO dia del dataset (31/12/2051), no a `new Date()`.
   // Si usasemos la fecha actual (>=2026) todas las queries devolverian 0
   // documentos porque las multas estan etiquetadas con fechas de 2051.
-  const fechaFin = new Date(`${DATASET_YEARS.DEFAULT_END_DATE}T23:59:59.999Z`);
+  // Un rango explicito (startDate/endDate, p.ej. el filtro de mes del
+  // frontend) tiene prioridad sobre `periodo`.
   let fechaInicio;
+  let fechaFin;
 
-  switch (periodo) {
-    case '7days':
-      fechaInicio = new Date(fechaFin.getTime() - DASHBOARD_PERIODS.DAYS_7 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
-      break;
-    case '90days':
-      fechaInicio = new Date(fechaFin.getTime() - DASHBOARD_PERIODS.DAYS_90 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
-      break;
-    case 'year':
-      fechaInicio = new Date(`${DATASET_YEARS.DEFAULT_START_DATE}T00:00:00.000Z`);
-      break;
-    case '30days':
-    default:
-      fechaInicio = new Date(fechaFin.getTime() - DASHBOARD_PERIODS.DAYS_30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
-      break;
+  if (startDate || endDate) {
+    fechaInicio = startDate
+      ? new Date(startDate)
+      : new Date(`${DATASET_YEARS.DEFAULT_START_DATE}T00:00:00.000Z`);
+    fechaFin = endDate
+      ? new Date(endDate)
+      : new Date(`${DATASET_YEARS.DEFAULT_END_DATE}T23:59:59.999Z`);
+  } else {
+    fechaFin = new Date(`${DATASET_YEARS.DEFAULT_END_DATE}T23:59:59.999Z`);
+    switch (periodo) {
+      case '7days':
+        fechaInicio = new Date(fechaFin.getTime() - DASHBOARD_PERIODS.DAYS_7 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
+        break;
+      case '90days':
+        fechaInicio = new Date(fechaFin.getTime() - DASHBOARD_PERIODS.DAYS_90 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
+        break;
+      case 'year':
+        fechaInicio = new Date(`${DATASET_YEARS.DEFAULT_START_DATE}T00:00:00.000Z`);
+        break;
+      case '30days':
+      default:
+        fechaInicio = new Date(fechaFin.getTime() - DASHBOARD_PERIODS.DAYS_30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY);
+        break;
+    }
+  }
+
+  // Filtros de dominio para que los KPIs reaccionen a TODOS los filtros del
+  // panel (calificacion, denunciante, tipo, descuento), no solo al rango de
+  // fechas. La fecha se gestiona aparte, por eso se excluye de este config.
+  // Se reutiliza el mismo `buildFilters` que el endpoint de listado.
+  const filtrosAdicionales = buildFilters(req.query, [
+    { field: 'calificacion', type: 'in', param: 'calificacion', transform: TRANSFORMS.toUpperCaseArray },
+    { field: 'denunciante', type: 'regex', param: 'denunciante' },
+    { field: 'metadatos.tipoInfraccion', type: 'in', param: 'tipoInfraccion' }
+  ]);
+  const descuento = req.query.tieneDescuento ?? req.query.conDescuento;
+  if (descuento !== undefined) {
+    filtrosAdicionales.tieneDescuento = descuento === true || descuento === 'true';
+  }
+  if (req.query.esGrave !== undefined) {
+    filtrosAdicionales['metadatos.esInfraccionGrave'] = req.query.esGrave === true || req.query.esGrave === 'true';
   }
 
   // Las agregaciones (metricas generales, top infracciones, evolucion diaria)
@@ -328,13 +373,13 @@ const obtenerMetricasDashboard = asyncHandler(async (req, res) => {
     metricasGenerales,
     topInfracciones,
     evolucionDiaria
-  } = await Multa.obtenerMetricasPanel(fechaInicio, fechaFin);
+  } = await Multa.obtenerMetricasPanel(fechaInicio, fechaFin, { filtrosAdicionales });
 
   const metricsGeneral = metricasGenerales;
 
   const responseData = {
     periodo: {
-      descripcion: periodo,
+      descripcion: (startDate || endDate) ? 'rango' : periodo,
       fechaInicio,
       fechaFin
     },

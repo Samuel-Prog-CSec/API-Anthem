@@ -163,7 +163,25 @@ const validarRankingUbicaciones = [
   query('tipoInfraccion')
     .optional()
     .isIn(Object.keys(INFRACTION_TYPES))
-    .withMessage('Tipo de infracción no válido')
+    .withMessage('Tipo de infracción no válido'),
+  query('calificacion')
+    .optional()
+    .custom((value) => {
+      const validValues = Object.values(SEVERITY_LEVELS.FINE);
+      const values = Array.isArray(value) ? value : [value];
+      return values.every(v => validValues.includes(v.toUpperCase()));
+    })
+    .withMessage(`Calificación debe ser ${Object.values(SEVERITY_LEVELS.FINE).join(', ')}`),
+  query('denunciante')
+    .optional()
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage('Denunciante debe tener al menos 2 caracteres')
+    .escape(),
+  query('tieneDescuento')
+    .optional()
+    .isBoolean()
+    .withMessage('tieneDescuento debe ser true o false')
 ];
 
 /**
@@ -181,10 +199,37 @@ const validarAnalisisTemporal = [
  * GET /api/v1/multas/dashboard
  */
 const validarMetricasDashboard = [
+  ...dateValidation,
   query('periodo')
     .optional()
     .isIn(['7days', '30days', '90days', 'year'])
-    .withMessage('Periodo debe ser 7days, 30days, 90days o year')
+    .withMessage('Periodo debe ser 7days, 30days, 90days o year'),
+  query('calificacion')
+    .optional()
+    .custom((value) => {
+      const validValues = Object.values(SEVERITY_LEVELS.FINE);
+      const values = Array.isArray(value) ? value : [value];
+      return values.every(v => validValues.includes(v.toUpperCase()));
+    })
+    .withMessage(`Calificación debe ser ${Object.values(SEVERITY_LEVELS.FINE).join(', ')}`),
+  query('denunciante')
+    .optional()
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage('Denunciante debe tener al menos 2 caracteres')
+    .escape(),
+  query('tipoInfraccion')
+    .optional()
+    .custom((value) => {
+      const validValues = Object.values(INFRACTION_TYPES);
+      const values = Array.isArray(value) ? value : [value];
+      return values.every(v => validValues.includes(v));
+    })
+    .withMessage(`Tipo de infracción debe ser uno de: ${Object.values(INFRACTION_TYPES).join(', ')}`),
+  query('tieneDescuento')
+    .optional()
+    .isBoolean()
+    .withMessage('tieneDescuento debe ser true o false')
 ];
 
 /**

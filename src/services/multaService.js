@@ -122,9 +122,12 @@ const obtenerEstadisticasOptimizadas = async function(Model, options) {
  * Ranking de ubicaciones con mas multas.
  */
 const obtenerRankingUbicacionesOptimizado = async function(Model, options) {
-  const { startDate = null, endDate = null, tipoInfraccion = null, limit = 20 } = options;
+  const { startDate = null, endDate = null, tipoInfraccion = null, limit = 20, filtrosAdicionales = {} } = options;
 
-  const matchFilters = {};
+  // Filtros de dominio (calificacion, denunciante, descuento) para que el
+  // ranking reaccione a los mismos filtros que el resto del panel. La fecha y
+  // el tipo de infraccion se gestionan aparte (abajo) y prevalecen.
+  const matchFilters = { ...filtrosAdicionales };
   if (startDate || endDate) {
     matchFilters.fecha = {};
     if (startDate) {matchFilters.fecha.$gte = new Date(startDate);}
@@ -257,7 +260,12 @@ const obtenerAnalisisTemporalOptimizado = async function(Model, options) {
 const obtenerMetricasPanel = async function(Model, fechaInicio, fechaFin, options = {}) {
   const topLimit = options.topInfraccionesLimit ?? AGGREGATION_LIMITS.PREVIEW;
   const maxTimeMS = options.maxTimeMS ?? MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS;
-  const matchPeriodo = { fecha: { $gte: fechaInicio, $lte: fechaFin } };
+  // Filtros de dominio adicionales (calificacion, denunciante, tipo, descuento)
+  // para que los KPIs reaccionen a todos los filtros del panel, no solo al
+  // rango de fechas. Se fusionan ANTES de la fecha; `fecha` siempre prevalece
+  // (los filtros adicionales nunca incluyen `fecha`, la gestiona el caller).
+  const filtrosAdicionales = options.filtrosAdicionales || {};
+  const matchPeriodo = { ...filtrosAdicionales, fecha: { $gte: fechaInicio, $lte: fechaFin } };
 
   const pipelineGenerales = [
     { $match: matchPeriodo },

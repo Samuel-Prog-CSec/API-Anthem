@@ -73,9 +73,7 @@ router.get('/ubicaciones/ranking',
   authenticate,
   ...validarRankingUbicaciones,
   validateRequest,
-  cacheMiddleware('statistics', (req) =>
-    `fines-locations-ranking-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.limit || 10}-${req.query.tipoInfraccion || 'all'}`
-  ),
+  cacheMiddleware('statistics', (req) => generatePrefixedCacheKey('fines:ranking', req.query)),
   obtenerRankingUbicaciones
 );
 
@@ -103,9 +101,7 @@ router.get('/dashboard',
   heavyQueryLimiter,
   ...validarMetricasDashboard,
   validateRequest,
-  cacheMiddleware('statistics', (req) =>
-    `fines-dashboard-${req.query.periodo || '30days'}`
-  ),
+  cacheMiddleware('statistics', (req) => generatePrefixedCacheKey('fines:dashboard', req.query)),
   obtenerMetricasDashboard
 );
 
