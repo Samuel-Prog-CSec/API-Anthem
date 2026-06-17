@@ -83,37 +83,38 @@ const obtenerAsignaciones = asyncHandler(async (req, res) => {
     'proveedores': 1
   };
 
-  // Obtener datos con metodo optimizado del modelo
-  const result = await AsignacionPatinetes.obtenerAsignacionesConFiltros(
-    filters,
-    sortOptions,
-    { skip: pagination.skip, limit: pagination.limit },
-    projection
-  );
-
-  // Calcular estadisticas de la consulta
-  const queryStatistics = await AsignacionPatinetes.aggregate([
-    { $match: filters },
-    {
-      $group: {
-        _id: null,
-        totalPatinetes: { $sum: '$estadisticas.totalPatinetes' },
-        promedioPatinetes: { $avg: '$estadisticas.totalPatinetes' },
-        maxPatinetes: { $max: '$estadisticas.totalPatinetes' },
-        minPatinetes: { $min: '$estadisticas.totalPatinetes' },
-        totalProveedores: { $sum: '$estadisticas.totalProveedores' },
-        areasAltaDensidad: {
-          $sum: {
-            $cond: [
-              { $in: ['$estadisticas.densidadPatinetes', [NIVELES_DENSIDAD_PATINETES.ALTA, NIVELES_DENSIDAD_PATINETES.MUY_ALTA]] },
-              1,
-              0
-            ]
+  // El listado (count+find) y la agregacion de estadisticas son independientes
+  // (comparten solo el filtro): se lanzan en paralelo en vez de en serie.
+  const [result, queryStatistics] = await Promise.all([
+    AsignacionPatinetes.obtenerAsignacionesConFiltros(
+      filters,
+      sortOptions,
+      { skip: pagination.skip, limit: pagination.limit },
+      projection
+    ),
+    AsignacionPatinetes.aggregate([
+      { $match: filters },
+      {
+        $group: {
+          _id: null,
+          totalPatinetes: { $sum: '$estadisticas.totalPatinetes' },
+          promedioPatinetes: { $avg: '$estadisticas.totalPatinetes' },
+          maxPatinetes: { $max: '$estadisticas.totalPatinetes' },
+          minPatinetes: { $min: '$estadisticas.totalPatinetes' },
+          totalProveedores: { $sum: '$estadisticas.totalProveedores' },
+          areasAltaDensidad: {
+            $sum: {
+              $cond: [
+                { $in: ['$estadisticas.densidadPatinetes', [NIVELES_DENSIDAD_PATINETES.ALTA, NIVELES_DENSIDAD_PATINETES.MUY_ALTA]] },
+                1,
+                0
+              ]
+            }
           }
         }
       }
-    }
-  ]).option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+    ]).option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
+  ]);
 
   const responseData = {
     asignaciones: result.asignaciones,
@@ -135,14 +136,23 @@ const obtenerAsignaciones = asyncHandler(async (req, res) => {
   res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Datos de asignacion de patinetes obtenidos correctamente'));
 });
 
+// Config de filtros compartida por los endpoints agregados de patinetes, para
+// que KPIs/graficos/zonas/mapa reaccionen a los mismos filtros que el listado.
+const FILTROS_AGREGADOS_PATINETES = [
+  { field: 'distrito.nombre', type: 'regex', param: 'distrito' },
+  { field: 'estadisticas.densidadPatinetes', type: 'exact', param: 'densidad', transform: TRANSFORMS.toUpperCase },
+  { field: 'clasificacionArea.tipoZona', type: 'exact', param: 'tipoZona', transform: TRANSFORMS.toUpperCase }
+];
+
 /**
  * Obtener estadisticas por distrito
  * GET /api/v1/patinetes/estadisticas/distritos
  */
 const obtenerEstadisticasDistritos = asyncHandler(async (req, res) => {
   const { fecha } = req.query;
+  const filtros = buildFilters(req.query, FILTROS_AGREGADOS_PATINETES);
 
-  const statistics = await AsignacionPatinetes.obtenerEstadisticasDistrito(fecha);
+  const statistics = await AsignacionPatinetes.obtenerEstadisticasDistrito(fecha, filtros);
 
   const responseData = {
     estadisticas: statistics,
@@ -159,8 +169,9 @@ const obtenerEstadisticasDistritos = asyncHandler(async (req, res) => {
  */
 const obtenerAnalisisMercadoProveedores = asyncHandler(async (req, res) => {
   const { fecha } = req.query;
+  const filtros = buildFilters(req.query, FILTROS_AGREGADOS_PATINETES);
 
-  const marketAnalysis = await AsignacionPatinetes.obtenerAnalisisMercadoProveedores(fecha);
+  const marketAnalysis = await AsignacionPatinetes.obtenerAnalisisMercadoProveedores(fecha, filtros);
 
   // Calcular participacion de mercado
   const totalPatinetes = marketAnalysis.reduce((sum, proveedor) => sum + proveedor.totalPatinetes, 0);
@@ -189,8 +200,9 @@ const obtenerAnalisisMercadoProveedores = asyncHandler(async (req, res) => {
  */
 const obtenerZonasConcentracion = asyncHandler(async (req, res) => {
   const { limite = AGGREGATION_LIMITS.TOP_RESULTS, fecha } = req.query;
+  const filtros = buildFilters(req.query, FILTROS_AGREGADOS_PATINETES);
 
-  const zonas = await AsignacionPatinetes.obtenerZonasMayorConcentracion(parseInt(limite), fecha);
+  const zonas = await AsignacionPatinetes.obtenerZonasMayorConcentracion(parseInt(limite), fecha, filtros);
 
   const responseData = {
     zonas,
@@ -247,7 +259,9 @@ const obtenerDetallesArea = asyncHandler(async (req, res, next) => {
 const obtenerMapaPatinetes = asyncHandler(async (req, res) => {
   const filterConfig = [
     { field: 'fechaAsignacion', type: 'dateRange', params: ['fecha'] },
-    { field: 'distrito.nombre', type: 'regex', param: 'distrito' }
+    { field: 'distrito.nombre', type: 'regex', param: 'distrito' },
+    { field: 'estadisticas.densidadPatinetes', type: 'exact', param: 'densidad', transform: TRANSFORMS.toUpperCase },
+    { field: 'clasificacionArea.tipoZona', type: 'exact', param: 'tipoZona', transform: TRANSFORMS.toUpperCase }
   ];
   const filters = buildFilters(req.query, filterConfig);
 

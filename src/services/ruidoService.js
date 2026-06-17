@@ -51,7 +51,7 @@ const obtenerEstadisticasOptimizadas = async function(Model, filters, groupBy = 
 
   const { DIURNO, VESPERTINO, NOCTURNO } = LIMITES_NORMATIVOS;
 
-  const [estadisticas, resumenGeneral] = await Promise.all([
+  const [estadisticas, resumenGeneral, excedenciaResult] = await Promise.all([
     Model.aggregate([
       { $match: matchStage },
       {
@@ -109,6 +109,12 @@ const obtenerEstadisticasOptimizadas = async function(Model, filters, groupBy = 
           totalRegistros: { $sum: 1 },
           estacionesUnicas: { $addToSet: '$nmt' },
           promedioGeneralLaeq24: { $avg: '$laeq24' },
+          // Promedios globales por periodo (antes solo existian a nivel de grupo
+          // por estacion/mes; el resumen global no los exponia y el frontend
+          // tenia que calcularlos sobre la pagina actual de 50 filas).
+          promedioDiurno: { $avg: '$nivelDiurno' },
+          promedioVespertino: { $avg: '$nivelVespertino' },
+          promedioNocturno: { $avg: '$nivelNocturno' },
           fechaInicio: { $min: '$fecha' },
           fechaFin: { $max: '$fecha' },
           totalIncumplimientos: {
@@ -122,13 +128,43 @@ const obtenerEstadisticasOptimizadas = async function(Model, filters, groupBy = 
           }
         }
       }
+    ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS }),
+
+    // Estaciones (nmt) distintas con AL MENOS una excedencia de algun limite
+    // normativo en el periodo filtrado. Se cuenta a nivel de estacion (no de
+    // medicion) para alimentar el KPI "Estaciones con excedencia" de forma
+    // global, no sobre la pagina actual.
+    Model.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: '$nmt',
+          excede: {
+            $max: {
+              $cond: [
+                { $or: [
+                  { $gt: ['$nivelDiurno', DIURNO] },
+                  { $gt: ['$nivelVespertino', VESPERTINO] },
+                  { $gt: ['$nivelNocturno', NOCTURNO] }
+                ] },
+                1, 0
+              ]
+            }
+          }
+        }
+      },
+      { $match: { excede: 1 } },
+      { $count: 'total' }
     ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
   ]);
+
+  const estacionesConExcedencia = excedenciaResult?.[0]?.total || 0;
 
   const resumen = resumenGeneral[0]
     ? {
       ...resumenGeneral[0],
       totalEstaciones: resumenGeneral[0].estacionesUnicas.length,
+      estacionesConExcedencia,
       porcentajeCumplimientoGeneral: resumenGeneral[0].totalRegistros > 0
         ? ((resumenGeneral[0].totalRegistros * 3 - resumenGeneral[0].totalIncumplimientos) / (resumenGeneral[0].totalRegistros * 3)) * 100
         : 0

@@ -22,7 +22,8 @@ const {
   BINARY_INDICATORS,
   DATASET_YEARS,
   VALIDATION_LIMITS,
-  GEOMETRY_TYPES
+  GEOMETRY_TYPES,
+  MONGODB_TIMEOUTS
 } = require('../constants');
 const accidenteService = require('../services/accidenteService');
 
@@ -586,20 +587,20 @@ accidentSchema.pre('save', function(next) {
  * el heatmap; el modelo expone wrappers thin para mantener la API
  * publica clasica `Accidente.metodoX(...)`.
  */
-accidentSchema.statics.obtenerEstadisticasPorPeriodo = function(startDate, endDate) {
-  return accidenteService.obtenerEstadisticasPorPeriodo(this, startDate, endDate);
+accidentSchema.statics.obtenerEstadisticasPorPeriodo = function(startDate, endDate, filtrosExtra) {
+  return accidenteService.obtenerEstadisticasPorPeriodo(this, startDate, endDate, filtrosExtra);
 };
 
-accidentSchema.statics.obtenerPuntosNegros = function(limit, startDate, endDate) {
-  return accidenteService.obtenerPuntosNegros(this, limit, startDate, endDate);
+accidentSchema.statics.obtenerPuntosNegros = function(limit, startDate, endDate, filtrosExtra) {
+  return accidenteService.obtenerPuntosNegros(this, limit, startDate, endDate, filtrosExtra);
 };
 
-accidentSchema.statics.obtenerAnalisisPorVehiculo = function(startDate, endDate) {
-  return accidenteService.obtenerAnalisisPorVehiculo(this, startDate, endDate);
+accidentSchema.statics.obtenerAnalisisPorVehiculo = function(startDate, endDate, filtrosExtra) {
+  return accidenteService.obtenerAnalisisPorVehiculo(this, startDate, endDate, filtrosExtra);
 };
 
-accidentSchema.statics.obtenerPatronesTemporales = function(groupBy) {
-  return accidenteService.obtenerPatronesTemporales(this, groupBy);
+accidentSchema.statics.obtenerPatronesTemporales = function(groupBy, filters = {}) {
+  return accidenteService.obtenerPatronesTemporales(this, groupBy, filters);
 };
 
 accidentSchema.statics.obtenerComparativaDistritos = function(filters) {
@@ -643,7 +644,7 @@ accidentSchema.statics.obtenerDistribucionTipos = function(filters = {}) {
     { $match: filters },
     { $group: { _id: '$circunstancias.tipoAccidente', total: { $sum: 1 } } },
     { $sort: { total: -1 } }
-  ]).allowDiskUse(true);
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 

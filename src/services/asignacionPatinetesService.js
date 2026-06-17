@@ -63,9 +63,9 @@ const obtenerResumenAsignacion = function(doc) {
   };
 };
 
-const obtenerEstadisticasDistrito = function(Model, fecha = null) {
+const obtenerEstadisticasDistrito = function(Model, fecha = null, filtros = {}) {
   return Model.aggregate([
-    { $match: matchPorFecha(fecha) },
+    { $match: { ...matchPorFecha(fecha), ...filtros } },
     {
       $group: {
         _id: '$distrito.nombre',
@@ -73,6 +73,9 @@ const obtenerEstadisticasDistrito = function(Model, fecha = null) {
         totalBarrios: { $sum: 1 },
         promedioPatinetesPorBarrio: { $avg: '$estadisticas.totalPatinetes' },
         densidadPromedio: { $avg: '$estadisticas.promedioPatinetesPorProveedor' },
+        // Suma de proveedores activos por area: permite calcular en cliente el
+        // promedio de proveedores por area sobre TODO el conjunto (no la pagina).
+        sumaProveedoresActivos: { $sum: '$estadisticas.proveedoresActivos' },
         zonasMayorDemanda: {
           $sum: { $cond: [{ $eq: ['$clasificacionArea.demandaEstimada', NIVELES_DEMANDA_PATINETES.MUY_ALTA] }, 1, 0] }
         }
@@ -82,9 +85,9 @@ const obtenerEstadisticasDistrito = function(Model, fecha = null) {
   ]).option(ESCALAR_AGG);
 };
 
-const obtenerAnalisisMercadoProveedores = function(Model, fecha = null) {
+const obtenerAnalisisMercadoProveedores = function(Model, fecha = null, filtros = {}) {
   return Model.aggregate([
-    { $match: matchPorFecha(fecha) },
+    { $match: { ...matchPorFecha(fecha), ...filtros } },
     { $unwind: { path: '$proveedores', preserveNullAndEmptyArrays: true } },
     { $match: { 'proveedores.activo': true, 'proveedores.cantidad': { $gt: 0 } } },
     {
@@ -104,9 +107,9 @@ const obtenerAnalisisMercadoProveedores = function(Model, fecha = null) {
   ]).option(ESCALAR_AGG);
 };
 
-const obtenerZonasMayorConcentracion = function(Model, limite = 20, fecha = null) {
+const obtenerZonasMayorConcentracion = function(Model, limite = 20, fecha = null, filtros = {}) {
   return Model.aggregate([
-    { $match: matchPorFecha(fecha) },
+    { $match: { ...matchPorFecha(fecha), ...filtros } },
     {
       $project: {
         distrito: '$distrito.nombre',
@@ -293,8 +296,12 @@ const obtenerAsignacionesConFiltros = async function(Model, filters, sortOptions
     .limit(limit)
     .lean();
 
-  const total = await Model.countDocuments(filters);
-  const asignaciones = await query;
+  // count y find son independientes: ejecutarlos en paralelo (antes en serie
+  // sumaban sus latencias). El count lleva techo de tiempo como el resto.
+  const [total, asignaciones] = await Promise.all([
+    Model.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS),
+    query.exec()
+  ]);
 
   return {
     asignaciones,
@@ -324,8 +331,15 @@ const obtenerDetallesAreaOptimizado = async function(Model, distrito, barrio, fe
     areaFilter.fechaAsignacion = { $gte: fechaInicio, $lt: fechaFin };
   }
 
-  const [area, historial, areasSimilares] = await Promise.all([
-    Model.findOne(areaFilter).lean(),
+  // `area` se resuelve primero y se REUTILIZA para derivar `areasSimilares`,
+  // eliminando el segundo findOne(areaFilter) identico que se hacia antes
+  // (dos lecturas a Mongo del mismo documento por peticion).
+  const area = await Model.findOne(areaFilter).lean();
+  if (!area) {
+    return null;
+  }
+
+  const [historial, areasSimilares] = await Promise.all([
     fecha
       ? Promise.resolve([])
       : Model.find(baseFilter)
@@ -333,26 +347,16 @@ const obtenerDetallesAreaOptimizado = async function(Model, distrito, barrio, fe
         .sort({ fechaAsignacion: -1 })
         .limit(10)
         .lean(),
-    (async () => {
-      const areaTemp = await Model.findOne(areaFilter).lean();
-      if (!areaTemp) {
-        return [];
-      }
-      return Model.find({
-        'clasificacionArea.tipoZona': areaTemp.clasificacionArea.tipoZona,
-        'distrito.nombre': { $ne: areaTemp.distrito.nombre },
-        fechaAsignacion: areaTemp.fechaAsignacion
-      })
-        .select('distrito.nombre barrio.nombre estadisticas.totalPatinetes')
-        .sort({ 'estadisticas.totalPatinetes': -1 })
-        .limit(5)
-        .lean();
-    })()
+    Model.find({
+      'clasificacionArea.tipoZona': area.clasificacionArea.tipoZona,
+      'distrito.nombre': { $ne: area.distrito.nombre },
+      fechaAsignacion: area.fechaAsignacion
+    })
+      .select('distrito.nombre barrio.nombre estadisticas.totalPatinetes')
+      .sort({ 'estadisticas.totalPatinetes': -1 })
+      .limit(5)
+      .lean()
   ]);
-
-  if (!area) {
-    return null;
-  }
 
   return { area, historial, areasSimilares };
 };

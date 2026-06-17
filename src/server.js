@@ -263,6 +263,21 @@ app.use(express.urlencoded({
 app.use(cookieParser());
 
 /**
+ * Sanitizacion NoSQL del BODY (defensa en profundidad)
+ *
+ * `sanitizeInput`/`xssProtection` de arriba se aplican ANTES de `express.json()`,
+ * por lo que cuando corren `req.body` aun no existe y el body queda sin
+ * sanitizar. Hoy el unico consumidor de `req.body` (auth) se protege con
+ * `.isString()` en sus validadores, pero esa defensa depende de la disciplina
+ * por-ruta. Re-aplicamos aqui el stripper de operadores Mongo (`$`/claves con
+ * punto) sobre el body YA parseado: elimina claves peligrosas sin alterar los
+ * VALORES (las contrasenas con caracteres especiales no se ven afectadas, solo
+ * se neutralizan claves tipo `{ "$ne": null }`). Asi ningun endpoint futuro que
+ * lea `req.body` puede recibir operadores Mongo aunque olvide validar el tipo.
+ */
+app.use(sanitizeInput);
+
+/**
  * Rutas de la API
  * Montar todas las rutas de API bajo /api/v1
  *

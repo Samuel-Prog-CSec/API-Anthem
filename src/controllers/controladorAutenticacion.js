@@ -32,7 +32,8 @@ const { authLogger } = require('../config/logger');
 const {
   generateTokens,
   verifyRefreshToken,
-  getTokenExpiration
+  getTokenExpiration,
+  decodeToken
 } = require('../utils/tokenHelper');
 const {
   logLoginAttempt,
@@ -286,6 +287,27 @@ const logout = asyncHandler(async (req, res) => {
     }
   }
 
+  // Revocar tambien el access token actual (por jti) para que el logout
+  // invalide la sesion de inmediato y no solo el refresh token. El middleware
+  // `authenticate` consulta esta blacklist por jti en cada peticion. En TEST_MODE
+  // `req.token` es la clave bypass (no un JWT) y decodeToken devuelve null -> se
+  // omite sin error.
+  if (req.token) {
+    try {
+      const decodedAccess = decodeToken(req.token);
+      if (decodedAccess?.jti && decodedAccess?.exp) {
+        await TokenBlacklist.addJti(
+          decodedAccess.jti,
+          req.user._id,
+          TOKEN_REVOCATION_REASONS.LOGOUT,
+          new Date(decodedAccess.exp * 1000)
+        );
+      }
+    } catch (error) {
+      authLogger.warn({ error: error.message }, 'No se pudo revocar el access token durante el logout');
+    }
+  }
+
   // Limpiar cookies de autenticacion (usar mismas flags que al setear)
   res.clearCookie('accessToken', baseCookieOptions);
   res.clearCookie('refreshToken', baseCookieOptions);
@@ -310,13 +332,19 @@ const logout = asyncHandler(async (req, res) => {
  * @access Private
  */
 const getProfile = asyncHandler(async (req, res, next) => {
-  const user = await User.findById(req.user.id)
-    .select('-password')
+  // IMPORTANTE: req.user proviene de un objeto .lean() (auth middleware), por lo
+  // que tiene `_id` pero NO el virtual `id`. Usar `req.user.id` aqui hacia
+  // findById(undefined) -> null -> 404 para TODOS los usuarios reales.
+  // Ademas, al usar .lean() no se aplica el transform toJSON del schema, por lo
+  // que hay que excluir explicitamente los campos internos de seguridad
+  // (loginAttempts, lockUntil) para no filtrarlos en la respuesta.
+  const user = await User.findById(req.user._id)
+    .select('-password -loginAttempts -lockUntil -createdAt -updatedAt')
     .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
     .lean();
 
   if (!user) {
-    return next(createNotFoundError('Usuario', req.user.id));
+    return next(createNotFoundError('Usuario', req.user._id));
   }
 
   res.status(HTTP_STATUS.OK).json(

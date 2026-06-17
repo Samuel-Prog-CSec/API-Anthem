@@ -22,12 +22,12 @@ const TRAFICO_MAPA_MAX_DIAS = 7;
  * Obtener todas las mediciones de trafico con filtros avanzados
  * GET /api/v1/trafico
  */
-const obtenerDatosTrafico = asyncHandler(async (req, res) => {
+const obtenerDatosTrafico = asyncHandler(async (req, res, next) => {
   const {
     page = PAGINATION.DEFAULT_PAGE,
     limit = PAGINATION.DEFAULT_LIMIT,
-    sortBy = SORT_FIELDS.TRAFFIC.DEFAULT_SORT_BY,
-    sortOrder = SORT_FIELDS.DEFAULT_SORT_ORDER
+    sortBy = 'fecha',
+    sortOrder = 'desc'
   } = req.query;
 
   const paginationOptions = buildPaginationOptions(
@@ -48,16 +48,32 @@ const obtenerDatosTrafico = asyncHandler(async (req, res) => {
 
   const filters = buildFilters(req.query, filterConfig);
 
+  // Defensa de rendimiento: `traffic_measurements` es la coleccion mas masiva
+  // (~132M docs). Un listado sin filtro selectivo forzaria un $count exacto
+  // sobre toda la coleccion en cada request (varios segundos, presion de
+  // WiredTiger). Se exige un rango de fechas o un puntoMedidaId, alineado con
+  // el contrato del frontend (que siempre envia un rango) y con la intencion ya
+  // documentada de la ruta (paginar por trimestres / filtrar por punto).
+  if (!filters.fecha && !filters.puntoMedidaId) {
+    return next(createBadRequestError(
+      'Para listar mediciones de trafico se requiere un rango de fechas (startDate y endDate) o un puntoMedidaId'
+    ));
+  }
+
   const sortMapping = {
     fecha: 'fecha',
     intensidad: 'metricas.intensidad',
     ocupacion: 'metricas.ocupacion',
+    carga: 'metricas.carga',
     puntoMedidaId: 'puntoMedidaId'
   };
+  // SORT_FIELDS.TRAFFIC es un ARRAY de nombres de campo validos; pasarlo
+  // directamente (NO Object.keys, que devolveria indices y hacia que el sort
+  // colapsara siempre a _id ignorando el campo pedido por el usuario).
   const sortOptions = buildSortOptions(
     { sortBy, sortOrder },
     sortMapping,
-    Object.keys(SORT_FIELDS.TRAFFIC),
+    SORT_FIELDS.TRAFFIC,
     'fecha',
     'desc'
   );
@@ -258,14 +274,23 @@ const obtenerTraficoPorPunto = asyncHandler(async (req, res, next) => {
  * Obtener estadisticas generales de trafico
  * GET /api/v1/trafico/estadisticas
  */
-const obtenerEstadisticasTrafico = asyncHandler(async (req, res) => {
+const obtenerEstadisticasTrafico = asyncHandler(async (req, res, next) => {
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
     { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase }
   ];
   const filters = buildFilters(req.query, filterConfig);
 
-  // Llamar al metodo optimizado del modelo (3 agregaciones en paralelo)
+  // Defensa: aunque ahora se lee del rollup diario (~1.5M docs, no 132M), se
+  // exige rango de fechas para no escanear el rollup entero por error y para
+  // mantener el contrato del frontend (que siempre envia startDate/endDate).
+  if (!filters.fecha) {
+    return next(createBadRequestError(
+      'Las estadisticas de trafico requieren un rango de fechas (startDate y endDate)'
+    ));
+  }
+
+  // Estadisticas agregadas leidas del rollup diario via $facet (1 pasada)
   const statistics = await Traffic.obtenerEstadisticasTraficoOptimizadas(filters);
 
   // Se aplana `statistics` (resumen, porTipoElemento, porPeriodoDia) al nivel
@@ -287,13 +312,24 @@ const obtenerEstadisticasTrafico = asyncHandler(async (req, res) => {
  * Obtener analisis de congestion por zonas
  * GET /api/v1/trafico/congestion
  */
-const obtenerAnalisisCongestion = asyncHandler(async (req, res) => {
+const obtenerAnalisisCongestion = asyncHandler(async (req, res, next) => {
   const { groupBy = 'distrito' } = req.query;
 
+  // El rollup traffic_daily conserva `tipoElemento` (URB/M30) por documento e
+  // indice idx_daily_tipo_fecha, asi que el filtro se aplica de forma exacta y
+  // deja de ser un placebo en la grafica "Top zonas".
   const filterConfig = [
-    { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
+    { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+    { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase }
   ];
   const filters = buildFilters(req.query, filterConfig);
+
+  // Defensa de rendimiento: exigir rango de fechas (lee del rollup diario).
+  if (!filters.fecha) {
+    return next(createBadRequestError(
+      'El analisis de congestion requiere un rango de fechas (startDate y endDate)'
+    ));
+  }
 
   const analisis = await Traffic.obtenerAnalisisCongestionOptimizado(filters, groupBy);
 
@@ -314,7 +350,7 @@ const obtenerAnalisisCongestion = asyncHandler(async (req, res) => {
  * Obtener datos historicos para graficos (agregados por periodo)
  * GET /api/v1/trafico/historico
  */
-const obtenerDatosHistoricos = asyncHandler(async (req, res) => {
+const obtenerDatosHistoricos = asyncHandler(async (req, res, next) => {
   const {
     aggregation = 'hour' // hour, day, week, month
   } = req.query;
@@ -325,6 +361,28 @@ const obtenerDatosHistoricos = asyncHandler(async (req, res) => {
     { field: 'tipoElemento', type: 'exact', param: 'tipoElemento', transform: TRANSFORMS.toUpperCase }
   ];
   const filters = buildFilters(req.query, filterConfig);
+
+  // El historico HORARIO ('hour') lee de la coleccion CRUDA (~132M docs);
+  // day/week/month leen del rollup diario. En ambos casos se exige un rango de
+  // fechas (o punto) para no escanear toda la coleccion.
+  if (!filters.fecha && !filters.puntoMedidaId) {
+    return next(createBadRequestError(
+      'El historico de trafico requiere un rango de fechas (startDate y endDate) o un puntoMedidaId'
+    ));
+  }
+
+  // Para 'hour' sobre datos crudos, acotar el rango a un maximo defensivo de
+  // dias (la sparkline horaria solo necesita 1-2 dias; rangos mayores deben
+  // usar aggregation=day, que lee del rollup).
+  const HISTORICO_HORA_MAX_DIAS = 2;
+  if (aggregation === 'hour' && filters.fecha?.$gte && filters.fecha?.$lte) {
+    const dias = (filters.fecha.$lte - filters.fecha.$gte) / (1000 * 60 * 60 * 24);
+    if (dias > HISTORICO_HORA_MAX_DIAS) {
+      return next(createBadRequestError(
+        `El historico por hora se limita a ${HISTORICO_HORA_MAX_DIAS} dias; usa aggregation=day para rangos mayores`
+      ));
+    }
+  }
 
   const historicalData = await Traffic.obtenerDatosHistoricosOptimizado(filters, aggregation);
 

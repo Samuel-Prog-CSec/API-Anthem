@@ -60,7 +60,8 @@ router.get('/estadisticas',
   validateRequest,
   etagMiddleware,
   cacheMiddleware('statistics', (req) =>
-    `fines-stats-${req.query.groupBy || 'month'}-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.limit || 12}`
+    `fines-stats-${req.query.groupBy || 'month'}-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.limit || 12}` +
+    `-${req.query.denunciante || 'all'}-${req.query.tieneDescuento ?? req.query.conDescuento ?? 'all'}-${req.query.esGrave ?? 'all'}`
   ),
   obtenerEstadisticasMultas
 );

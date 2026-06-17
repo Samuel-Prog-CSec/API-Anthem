@@ -200,14 +200,15 @@ const obtenerDatosCenso = asyncHandler(async (req, res) => {
 const obtenerPiramidePoblacional = asyncHandler(async (req, res) => {
   const { incluirExtranjeros = true } = req.query;
 
-  const { año, distrito } = parseNumericParams(
+  const { año, mes, distrito } = parseNumericParams(
     req.query,
-    ['año', 'distrito'],
+    ['año', 'mes', 'distrito'],
     { año: DATASET_YEARS.DEFAULT_YEAR }
   );
 
   const result = await Censo.obtenerPiramidePoblacionalOptimizada({
     año,
+    mes,
     distrito,
     incluirExtranjeros: incluirExtranjeros === 'true'
   });
@@ -219,6 +220,9 @@ const obtenerPiramidePoblacional = asyncHandler(async (req, res) => {
     configuracion: buildResponseMetadata({
       distrito,
       año,
+      // mes real usado por el service (el ultimo con datos si no se indico uno),
+      // para que la UI no muestre "TODOS" cuando en realidad es una foto mensual.
+      mes: result.mesUtilizado != null ? result.mesUtilizado : mes,
       incluirExtranjeros: incluirExtranjeros === 'true'
     }, { nullLabel: CENSUS_DEFAULTS.DISTRICT_LABEL })
   };

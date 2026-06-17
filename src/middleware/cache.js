@@ -45,7 +45,13 @@ const CACHE_CONFIG = {
   bikes: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 5000 }, // Bicicletas, 24h
   containers: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 3600, maxKeys: 50000 }, // Contenedores, 24h
   noise: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 10000 }, // Ruido, 24h
-  fines: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 15000 } // Multas, 24h
+  fines: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 15000 }, // Multas, 24h
+  // Instancias dedicadas para aforo de bicicletas y mapas de accidentes. Antes
+  // estas rutas llamaban cacheMiddleware('bikeTraffic')/('accidents') -- tipos
+  // inexistentes -- y caian al fallback silencioso de caches.traffic,
+  // compartiendo su techo de 20000 claves con trafico/patinetes/peatones.
+  bikeTraffic: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 5000 }, // Aforo bicicletas, 24h
+  accidents: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 15000 } // Mapas de accidentes, 24h
 };
 
 // Mapa de promesas en vuelo para evitar thundering herd en el mismo cacheKey
@@ -261,8 +267,14 @@ const resolvePending = (cacheKey, payload, error = null) => {
  */
 const cacheMiddleware = (cacheType = 'traffic', keyGenerator = null) => {
   return (req, res, next) => {
-    // Validar tipo de caché
-    const cacheInstance = caches[cacheType] || caches.traffic;
+    // Validar tipo de caché. El fallback a `traffic` se mantiene como red de
+    // seguridad, pero ahora avisa para detectar typos de tipo de cache en vez
+    // de degradar en silencio (que ocultaba 'bikeTraffic'/'accidents').
+    let cacheInstance = caches[cacheType];
+    if (!cacheInstance) {
+      cacheLogger.warn({ cacheType }, 'Tipo de cache desconocido en cacheMiddleware; usando instancia traffic por defecto');
+      cacheInstance = caches.traffic;
+    }
 
     // Permitir que llamadas de refresco eviten el corto circuito (pero sí escriban en caché)
     const isRefreshRequest = req.headers['x-cache-refresh'] === '1';
@@ -407,6 +419,9 @@ const clearCache = (cacheType = null, pattern = null) => {
       const keys = caches[cacheType].keys();
       const matchingKeys = keys.filter(key => key.includes(pattern));
       caches[cacheType].del(matchingKeys);
+      // Replicar el borrado en el cache L2 de fallback (mismas claves) para que
+      // un purgado por patron no deje el dato servible ante un fallo de DB.
+      fallbackCache.del(fallbackCache.keys().filter(key => key.includes(pattern)));
       cacheLogger.info({ cacheType, deletedKeys: matchingKeys.length, pattern }, 'Caché limpiado con patrón');
       return { deletedKeys: matchingKeys.length, pattern, type: cacheType };
     }
@@ -420,6 +435,10 @@ const clearCache = (cacheType = null, pattern = null) => {
     Object.keys(caches).forEach(type => {
       caches[type].flushAll();
     });
+    // El cache L2 de fallback no esta particionado por tipo: en un flush GLOBAL
+    // se vacia tambien para no servir payloads supuestamente purgados si la DB
+    // falla en la siguiente peticion (antes quedaba intacto hasta 24h).
+    fallbackCache.flushAll();
     cacheLogger.info('Todos los cachés limpiados');
     return { message: 'Todos los cachés limpiados' };
   }

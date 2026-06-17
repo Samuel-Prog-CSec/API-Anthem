@@ -61,7 +61,7 @@ const obtenerEstadisticasDistritos = asyncHandler(async (req, res) => {
   const { districtStatistics, neighborhoodStatistics } = await Censo.obtenerEstadisticasDistritoOptimizadas({
     año,
     mes: mesElegido,
-    incluirBarrios: incluirBarrios === 'true'
+    incluirBarrios: incluirBarrios === true || incluirBarrios === 'true'
   });
 
   const rankings = {
@@ -88,7 +88,7 @@ const obtenerEstadisticasDistritos = asyncHandler(async (req, res) => {
     configuracion: buildResponseMetadata({
       año,
       mes: mesElegido,
-      incluirBarrios: incluirBarrios === 'true'
+      incluirBarrios: incluirBarrios === true || incluirBarrios === 'true'
     })
   };
 
@@ -266,6 +266,18 @@ const obtenerDashboardDemografico = asyncHandler(async (req, res) => {
   const mesElegido = mes || await obtenerUltimoMesConDatos(año);
   const matchFilters = { año, mes: mesElegido };
   if (distrito) { matchFilters['distrito.codigo'] = distrito; }
+
+  // Coherencia con la tabla: barrio y grupoEdad tambien acotan los KPIs (no solo
+  // distrito/mes). barrio se filtra por codigo (entero) y grupoEdad por la
+  // clasificacion de edad, con el mismo mapeo que el endpoint de listado.
+  const { barrio, grupoEdad } = req.query;
+  if (barrio !== undefined && barrio !== '') {
+    const barrioCod = parseInt(barrio, 10);
+    if (!Number.isNaN(barrioCod)) { matchFilters['barrio.codigo'] = barrioCod; }
+  }
+  if (grupoEdad !== undefined && grupoEdad !== '') {
+    matchFilters['clasificacionEdad.grupoEdad'] = Array.isArray(grupoEdad) ? { $in: grupoEdad } : grupoEdad;
+  }
 
   // Metricas principales agregadas
   const [metricas] = await Censo.aggregate([

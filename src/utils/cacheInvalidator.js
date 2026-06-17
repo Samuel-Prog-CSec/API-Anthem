@@ -1,13 +1,22 @@
 /**
  * Utilidad de Invalidación de Caché
  *
- * Proporciona funciones para invalidar selectivamente el caché
- * cuando se realizan operaciones de escritura (POST, PUT, DELETE).
+ * Proporciona funciones para invalidar selectivamente el caché cuando se
+ * realizan operaciones de escritura (POST, PUT, DELETE) sobre un recurso.
+ *
+ * NOTA: actualmente este modulo NO esta cableado a ningun controlador (la API
+ * no expone escrituras de datos; el dataset es estatico entre reimportaciones).
+ * Se mantiene listo para el dia que se anadan endpoints de escritura.
  *
  * Estrategia de invalidación:
- * - Invalidación selectiva por tipo de recurso
- * - Invalidación en cascada para recursos relacionados
- * - Logging de invalidaciones para auditoría
+ * - Cada recurso se mapea a la(s) instancia(s) de cache que utiliza y se vacian
+ *   por completo (`flushAll`). Se prefiere esto al filtrado por substring de la
+ *   URL porque las claves de cache mezclan dos formatos (URL espanola en el
+ *   keygen por defecto y prefijos namespaced como `fines:list`, `traffic-...`,
+ *   `census:`, `scooters:` en los keygen personalizados); un substring fijo no
+ *   casaba con ambos y la invalidacion borraba CERO claves. Vaciar la instancia
+ *   garantiza coherencia (a costa de re-popular en el siguiente MISS, aceptable
+ *   en una invalidacion disparada por escritura).
  */
 
 const { caches } = require('../middleware/cache');
@@ -15,319 +24,53 @@ const logger = require('../config/logger');
 const { cacheLogger } = logger;
 
 /**
- * Invalidar caché de multas
- * Se llama después de CREATE, UPDATE o DELETE de multas
+ * Vacia una o varias instancias de cache por nombre y devuelve el total de
+ * claves invalidadas. Ignora nombres de instancia inexistentes.
  *
- * @param {string} fineId - ID de la multa (opcional)
- * @param {string} action - Acción realizada: 'create', 'update', 'delete'
+ * @param {string[]} nombresInstancia - Tipos de cache a vaciar (claves de `caches`)
+ * @returns {number} Numero total de claves invalidadas
  */
-const invalidarCacheMultas = (multaId = null, action = 'update') => {
-  try {
-    const cacheInstance = caches.statistics;
-
-    // Invalidar caché general de multas
-    const generalKeys = cacheInstance.keys().filter(key =>
-      key.includes('/api/') && key.includes('multas')
-    );
-
-    generalKeys.forEach(key => cacheInstance.del(key));
-
-    cacheLogger.info({
-      resource: 'multas',
-      multaId,
-      action,
-      keysInvalidated: generalKeys.length
-    }, 'Caché de multas invalidado');
-
-    return { success: true, keysInvalidated: generalKeys.length };
-
-  } catch (error) {
-    cacheLogger.error({
-      error: error.message,
-      resource: 'multas',
-      multaId,
-      action
-    }, 'Error invalidando caché de multas');
-
-    return { success: false, error: error.message };
-  }
-};
-
-/**
- * Invalidar caché de tráfico
- * Se llama después de CREATE, UPDATE o DELETE de datos de tráfico
- *
- * @param {string} puntoId - ID del punto de medición (opcional)
- * @param {string} action - Acción realizada
- */
-const invalidarCacheTrafico = (puntoId = null, action = 'update') => {
-  try {
-    const cacheInstance = caches.traffic;
-
-    // Invalidar caché de tráfico
-    const trafficKeys = cacheInstance.keys().filter(key =>
-      key.includes('/api/') && key.includes('traffic')
-    );
-
-    trafficKeys.forEach(key => cacheInstance.del(key));
-
-    // Si hay un puntoId específico, invalidar también Location cache relacionado
-    if (puntoId) {
-      const locationCache = caches.static;
-      const locationKeys = locationCache.keys().filter(key =>
-        key.includes('locations') || key.includes(puntoId)
-      );
-      locationKeys.forEach(key => locationCache.del(key));
+const vaciarInstancias = (nombresInstancia) => {
+  let total = 0;
+  nombresInstancia.forEach((nombre) => {
+    const instancia = caches[nombre];
+    if (!instancia) {
+      return;
     }
-
-    cacheLogger.info({
-      resource: 'trafico',
-      puntoId,
-      action,
-      keysInvalidated: trafficKeys.length
-    }, 'Caché de tráfico invalidado');
-
-    return { success: true, keysInvalidated: trafficKeys.length };
-
-  } catch (error) {
-    cacheLogger.error({
-      error: error.message,
-      resource: 'trafico',
-      puntoId,
-      action
-    }, 'Error invalidando caché de tráfico');
-
-    return { success: false, error: error.message };
-  }
+    total += instancia.keys().length;
+    instancia.flushAll();
+  });
+  return total;
 };
 
 /**
- * Invalidar caché de calidad del aire
- * Se llama después de CREATE, UPDATE o DELETE de datos de calidad del aire
+ * Construye un invalidador de recurso que vacia las instancias indicadas y
+ * registra el resultado de forma homogenea.
  *
- * @param {string} estacionId - ID de la estación (opcional)
- * @param {string} action - Acción realizada
+ * @param {string} resource - Nombre del recurso (para logging)
+ * @param {string[]} instancias - Instancias de cache asociadas al recurso
+ * @returns {function(string=, string=): {success: boolean, keysInvalidated?: number, error?: string}}
  */
-const invalidarCacheCalidadAire = (estacionId = null, action = 'update') => {
+const construirInvalidador = (resource, instancias) => (referenciaId = null, action = 'update') => {
   try {
-    const cacheInstance = caches.airQuality;
-
-    const airQualityKeys = cacheInstance.keys().filter(key =>
-      key.includes('/api/') && key.includes('air-quality')
-    );
-
-    airQualityKeys.forEach(key => cacheInstance.del(key));
-
-    cacheLogger.info({
-      resource: 'calidad-aire',
-      estacionId,
-      action,
-      keysInvalidated: airQualityKeys.length
-    }, 'Caché de calidad del aire invalidado');
-
-    return { success: true, keysInvalidated: airQualityKeys.length };
-
+    const keysInvalidated = vaciarInstancias(instancias);
+    cacheLogger.info({ resource, referenciaId, action, instancias, keysInvalidated }, `Caché de ${resource} invalidado`);
+    return { success: true, keysInvalidated };
   } catch (error) {
-    cacheLogger.error({
-      error: error.message,
-      resource: 'calidad-aire',
-      estacionId,
-      action
-    }, 'Error invalidando caché de calidad del aire');
-
+    cacheLogger.error({ error: error.message, resource, referenciaId, action }, `Error invalidando caché de ${resource}`);
     return { success: false, error: error.message };
   }
 };
 
-/**
- * Invalidar caché de ruido
- * Se llama después de CREATE, UPDATE o DELETE de datos de contaminación acústica
- *
- * @param {string} estacionId - ID de la estación (opcional)
- * @param {string} action - Acción realizada
- */
-const invalidarCacheRuido = (estacionId = null, action = 'update') => {
-  try {
-    const cacheInstance = caches.noise;
-
-    const noiseKeys = cacheInstance.keys().filter(key =>
-      key.includes('/api/') && key.includes('noise')
-    );
-
-    noiseKeys.forEach(key => cacheInstance.del(key));
-
-    cacheLogger.info({
-      resource: 'ruido',
-      estacionId,
-      action,
-      keysInvalidated: noiseKeys.length
-    }, 'Caché de ruido invalidado');
-
-    return { success: true, keysInvalidated: noiseKeys.length };
-
-  } catch (error) {
-    cacheLogger.error({
-      error: error.message,
-      resource: 'ruido',
-      estacionId,
-      action
-    }, 'Error invalidando caché de ruido');
-
-    return { success: false, error: error.message };
-  }
-};
-
-/**
- * Invalidar caché de bicicletas
- * Se llama después de CREATE, UPDATE o DELETE de datos de disponibilidad de bicicletas
- *
- * @param {Date} fecha - Fecha del registro (opcional)
- * @param {string} action - Acción realizada
- */
-const invalidarCacheBicicletas = (fecha = null, action = 'update') => {
-  try {
-    const cacheInstance = caches.bikes;
-
-    const bikeKeys = cacheInstance.keys().filter(key =>
-      key.includes('/api/') && key.includes('bike')
-    );
-
-    bikeKeys.forEach(key => cacheInstance.del(key));
-
-    cacheLogger.info({
-      resource: 'bicicletas',
-      fecha,
-      action,
-      keysInvalidated: bikeKeys.length
-    }, 'Caché de bicicletas invalidado');
-
-    return { success: true, keysInvalidated: bikeKeys.length };
-
-  } catch (error) {
-    cacheLogger.error({
-      error: error.message,
-      resource: 'bicicletas',
-      fecha,
-      action
-    }, 'Error invalidando caché de bicicletas');
-
-    return { success: false, error: error.message };
-  }
-};
-
-/**
- * Invalidar caché de contenedores
- * Se llama después de CREATE, UPDATE o DELETE de contenedores
- *
- * @param {string} containerId - ID del contenedor (opcional)
- * @param {string} action - Acción realizada
- */
-const invalidarCacheContenedores = (contenedorId = null, action = 'update') => {
-  try {
-    const cacheInstance = caches.containers;
-
-    const contenedorKeys = cacheInstance.keys().filter(key =>
-      key.includes('/api/') && key.includes('contenedores')
-    );
-
-    contenedorKeys.forEach(key => cacheInstance.del(key));
-
-    cacheLogger.info({
-      resource: 'contenedores',
-      contenedorId,
-      action,
-      keysInvalidated: contenedorKeys.length
-    }, 'Caché de contenedores invalidado');
-
-    return { success: true, keysInvalidated: contenedorKeys.length };
-
-  } catch (error) {
-    cacheLogger.error({
-      error: error.message,
-      resource: 'contenedores',
-      contenedorId,
-      action
-    }, 'Error invalidando caché de contenedores');
-
-    return { success: false, error: error.message };
-  }
-};
-
-/**
- * Invalidar caché de ubicaciones
- * Se llama después de CREATE, UPDATE o DELETE de ubicaciones
- *
- * @param {string} ubicacionId - ID de la ubicación (opcional)
- * @param {string} action - Acción realizada
- */
-const invalidarCacheUbicaciones = (ubicacionId = null, action = 'update') => {
-  try {
-    const cacheInstance = caches.static;
-
-    const locationKeys = cacheInstance.keys().filter(key =>
-      key.includes('/api/') && key.includes('location')
-    );
-
-    locationKeys.forEach(key => cacheInstance.del(key));
-
-    cacheLogger.info({
-      resource: 'ubicaciones',
-      ubicacionId,
-      action,
-      keysInvalidated: locationKeys.length
-    }, 'Caché de ubicaciones invalidado');
-
-    return { success: true, keysInvalidated: locationKeys.length };
-
-  } catch (error) {
-    cacheLogger.error({
-      error: error.message,
-      resource: 'ubicaciones',
-      ubicacionId,
-      action
-    }, 'Error invalidando caché de ubicaciones');
-
-    return { success: false, error: error.message };
-  }
-};
-
-/**
- * Invalidar caché demográfico (censo)
- * Se llama después de CREATE, UPDATE o DELETE de datos del censo
- *
- * @param {string} district - Nombre del distrito (opcional)
- * @param {string} action - Acción realizada
- */
-const invalidarCacheCenso = (district = null, action = 'update') => {
-  try {
-    const cacheInstance = caches.demographic;
-
-    const censoKeys = cacheInstance.keys().filter(key =>
-      key.includes('/api/') && key.includes('censo')
-    );
-
-    censoKeys.forEach(key => cacheInstance.del(key));
-
-    cacheLogger.info({
-      resource: 'censo',
-      district,
-      action,
-      keysInvalidated: censoKeys.length
-    }, 'Caché demográfico invalidado');
-
-    return { success: true, keysInvalidated: censoKeys.length };
-
-  } catch (error) {
-    cacheLogger.error({
-      error: error.message,
-      resource: 'censo',
-      district,
-      action
-    }, 'Error invalidando caché demográfico');
-
-    return { success: false, error: error.message };
-  }
-};
+// Mapa recurso -> instancia(s) de cache que utiliza (ver routes/*.js).
+const invalidarCacheMultas = construirInvalidador('multas', ['fines', 'statistics']);
+const invalidarCacheTrafico = construirInvalidador('trafico', ['traffic']);
+const invalidarCacheCalidadAire = construirInvalidador('calidad-aire', ['airQuality']);
+const invalidarCacheRuido = construirInvalidador('ruido', ['noise']);
+const invalidarCacheBicicletas = construirInvalidador('bicicletas', ['bikes']);
+const invalidarCacheContenedores = construirInvalidador('contenedores', ['containers']);
+const invalidarCacheUbicaciones = construirInvalidador('ubicaciones', ['static']);
+const invalidarCacheCenso = construirInvalidador('censo', ['demographic']);
 
 /**
  * Invalidar todo el caché (usar con precaución)

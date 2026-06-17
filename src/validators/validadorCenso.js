@@ -245,6 +245,16 @@ const validarDashboardDemografico = [
     })
     .withMessage(`Año debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX}`)
     .toInt(),
+  // `mes` lo usa el controlador (obtenerDashboardDemografico) en el $match y en
+  // la clave de cache; debe validarse para no aceptar valores arbitrarios.
+  query('mes')
+    .optional()
+    .isInt({
+      min: ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MIN,
+      max: ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MAX
+    })
+    .withMessage(`Mes debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MAX}`)
+    .toInt(),
   query('distrito')
     .optional()
     .isInt({ min: 1 })

@@ -43,10 +43,14 @@ const obtenerAccidentes = asyncHandler(async (req, res) => {
   if (conDrogas === 'false') { filters['personaAfectada.positivaDroga'] = BINARY_INDICATORS.NUMERIC_FALSE; }
 
   // Configurar ordenamiento y paginacion usando queryHelper
+  // SORT_FIELDS.ACCIDENT es un ARRAY de nombres de campo validos; pasarlo
+  // directamente como validFields (NO Object.keys, que devolveria indices
+  // '0','1'... y hacia que el sort colapsara siempre a _id). Se anade
+  // 'puntuacionGravedad' para cubrir el set permitido por el validador.
   const sortOptions = buildSortOptions(
     req.query,
     { fecha: 'fecha', gravedad: 'analisis.puntuacionGravedad', distrito: 'ubicacion.nombreDistrito', tipoAccidente: 'circunstancias.tipoAccidente', puntuacionGravedad: 'analisis.puntuacionGravedad' },
-    Object.keys(SORT_FIELDS.ACCIDENT),
+    [...SORT_FIELDS.ACCIDENT, 'puntuacionGravedad'],
     'fecha',
     'desc'
   );
@@ -249,41 +253,39 @@ const obtenerEstadisticasAccidentes = asyncHandler(async (req, res) => {
   // Construir filtros usando queryHelper
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
-    { field: 'ubicacion.nombreDistrito', type: 'regex', param: 'distrito' }
+    { field: 'ubicacion.nombreDistrito', type: 'regex', param: 'distrito' },
+    { field: 'circunstancias.tipoAccidente', type: 'exact', param: 'tipoAccidente', transform: TRANSFORMS.toUpperCase },
+    { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: TRANSFORMS.toUpperCase }
   ];
   const filters = buildFilters(req.query, filterConfig);
 
+  // Separar el rango de fechas (args explicitos) del resto de filtros
+  // (distrito/gravedad/tipoAccidente). Estos ultimos se aplican como $match
+  // pre-rollup para que los KPI, puntos negros y analisis por vehiculo
+  // respeten los filtros activos de la pagina, igual que el listado.
+  const { fecha, ...filtrosExtra } = filters;
+
   // Estadisticas generales. Si no llega rango de fechas, no se restringe por
   // fecha (el dataset es de 2051; un default "hoy - 30 dias" devolveria cero).
-  const generalStats = await Accidente.obtenerEstadisticasPorPeriodo(
-    filters.fecha?.$gte || null,
-    filters.fecha?.$lte || null
-  );
-
-  // Puntos negros (zonas con mas accidentes)
-  const blackSpots = await Accidente.obtenerPuntosNegros(
-    10,
-    filters.fecha?.$gte,
-    filters.fecha?.$lte
-  );
-
-  // Analisis por tipo de vehiculo
-  const vehicleAnalysis = await Accidente.obtenerAnalisisPorVehiculo(
-    filters.fecha?.$gte,
-    filters.fecha?.$lte
-  );
-
-  // Patrones temporales, distribucion por distrito, tipo y factores de riesgo
-  // allSettled: una agregacion lenta o fallida no debe descartar el resto del informe
+  // Las 8 agregaciones del informe son independientes (comparten filtros) y se
+  // lanzan en PARALELO con allSettled: una lenta o fallida no descarta el resto.
+  // Antes generalStats/blackSpots/vehicleAnalysis (los 3 rollups por expediente
+  // mas caros) se ejecutaban en SERIE antes de este bloque, sumando latencias.
   const [
+    generalStatsResult,
+    blackSpotsResult,
+    vehicleAnalysisResult,
     hourlyPatternsResult,
     weeklyPatternsResult,
     districtDistributionResult,
     typeDistributionResult,
     riskFactorsAnalysisResult
   ] = await Promise.allSettled([
-    Accidente.obtenerPatronesTemporales('hora'),
-    Accidente.obtenerPatronesTemporales('diaSemana'),
+    Accidente.obtenerEstadisticasPorPeriodo(fecha?.$gte || null, fecha?.$lte || null, filtrosExtra),
+    Accidente.obtenerPuntosNegros(10, fecha?.$gte, fecha?.$lte, filtrosExtra),
+    Accidente.obtenerAnalisisPorVehiculo(fecha?.$gte, fecha?.$lte, filtrosExtra),
+    Accidente.obtenerPatronesTemporales('hora', filters),
+    Accidente.obtenerPatronesTemporales('diaSemana', filters),
     Accidente.obtenerDistribucionDistritos(filters),
     Accidente.obtenerDistribucionTipos(filters),
     Accidente.obtenerAnalisisFactoresRiesgo(filters)
@@ -297,6 +299,9 @@ const obtenerEstadisticasAccidentes = asyncHandler(async (req, res) => {
     return fallback;
   };
 
+  const generalStats = extraerValor(generalStatsResult, []);
+  const blackSpots = extraerValor(blackSpotsResult, []);
+  const vehicleAnalysis = extraerValor(vehicleAnalysisResult, []);
   const hourlyPatterns = extraerValor(hourlyPatternsResult, []);
   const weeklyPatterns = extraerValor(weeklyPatternsResult, []);
   const districtDistribution = extraerValor(districtDistributionResult, []);
@@ -330,9 +335,13 @@ const obtenerEstadisticasAccidentes = asyncHandler(async (req, res) => {
  * GET /api/v1/accidentes/comparativa-distritos
  */
 const obtenerComparativaDistritos = asyncHandler(async (req, res) => {
-  // Construir filtros usando queryHelper
+  // Construir filtros usando queryHelper. Ademas del rango de fechas se aceptan
+  // gravedad y tipoAccidente para que el bar chart "Top 10 distritos" reaccione
+  // a esos filtros (NO se filtra por distrito: el endpoint agrupa por distrito).
   const filterConfig = [
-    { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
+    { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+    { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: TRANSFORMS.toUpperCase },
+    { field: 'circunstancias.tipoAccidente', type: 'exact', param: 'tipoAccidente', transform: TRANSFORMS.toUpperCase }
   ];
   const filters = buildFilters(req.query, filterConfig);
 
@@ -373,7 +382,11 @@ const obtenerMapaCalorAccidentes = asyncHandler(async (req, res) => {
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
     { field: 'ubicacion.nombreDistrito', type: 'regex', param: 'distrito' },
-    { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad' }
+    { field: 'circunstancias.gravedad', type: 'exact', param: 'gravedad', transform: TRANSFORMS.toUpperCase },
+    // Paridad con /accidentes/mapa: el heatmap debe reaccionar al tipo de
+    // accidente y de vehiculo, no solo a fecha/distrito/gravedad.
+    { field: 'circunstancias.tipoAccidente', type: 'exact', param: 'tipoAccidente', transform: TRANSFORMS.toUpperCase },
+    { field: 'vehiculo.tipo', type: 'exact', param: 'tipoVehiculo', transform: TRANSFORMS.toUpperCase }
   ];
   const filters = buildFilters(req.query, filterConfig);
 

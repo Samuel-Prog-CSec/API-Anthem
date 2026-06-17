@@ -45,7 +45,7 @@ router.get('/estadisticas/distritos',
   validarEstadisticasDistritosPatinetes,
   validateRequest,
   etagMiddleware,
-  cacheMiddleware('traffic', (req) => `scooters:stats:districts:${req.query.fecha || 'all'}`),
+  cacheMiddleware('traffic', (req) => `scooters:stats:districts:${req.query.fecha || 'all'}:${req.query.distrito || 'all'}:${req.query.densidad || 'all'}:${req.query.tipoZona || 'all'}`),
   obtenerEstadisticasDistritos
 );
 
@@ -55,7 +55,7 @@ router.get('/analisis-mercado/proveedores',
   validarAnalisisMercadoProveedores,
   validateRequest,
   etagMiddleware,
-  cacheMiddleware('traffic', (req) => `scooters:market:providers:${req.query.fecha || 'all'}`),
+  cacheMiddleware('traffic', (req) => `scooters:market:providers:${req.query.fecha || 'all'}:${req.query.distrito || 'all'}:${req.query.densidad || 'all'}:${req.query.tipoZona || 'all'}`),
   obtenerAnalisisMercadoProveedores
 );
 
@@ -64,7 +64,7 @@ router.get('/zonas-concentracion',
   validarZonasConcentracion,
   validateRequest,
   etagMiddleware,
-  cacheMiddleware('traffic', (req) => `scooters:concentration:${req.query.fecha || 'all'}:${req.query.limite || 10}`),
+  cacheMiddleware('traffic', (req) => `scooters:concentration:${req.query.fecha || 'all'}:${req.query.limite || 10}:${req.query.distrito || 'all'}:${req.query.densidad || 'all'}:${req.query.tipoZona || 'all'}`),
   obtenerZonasConcentracion
 );
 
@@ -81,7 +81,7 @@ router.get('/mapa',
   validarMapaPatinetes,
   validateRequest,
   etagMiddleware,
-  cacheMiddleware('traffic', (req) => `scooters:mapa:${req.query.fecha || 'all'}:${req.query.distrito || 'all'}`),
+  cacheMiddleware('traffic', (req) => `scooters:mapa:${req.query.fecha || 'all'}:${req.query.distrito || 'all'}:${req.query.densidad || 'all'}:${req.query.tipoZona || 'all'}`),
   obtenerMapaPatinetes
 );
 

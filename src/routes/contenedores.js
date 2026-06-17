@@ -46,8 +46,8 @@ const generalLimit = rateLimit({
 });
 
 router.get('/',
-  generalLimit,
   authenticate,
+  generalLimit,
   validatePagination,
   validateContainerType,
   validateContainerFilters,
@@ -57,8 +57,8 @@ router.get('/',
 );
 
 router.get('/cercanos',
-  generalLimit,
   authenticate,
+  generalLimit,
   validateCoordinates,
   validateContainerType,
   cacheMiddleware('containers'),
@@ -66,16 +66,16 @@ router.get('/cercanos',
 );
 
 router.get('/estadisticas',
-  generalLimit,
   authenticate,
+  generalLimit,
   etagMiddleware,
   cacheMiddleware('containers'),
   controladorContenedores.obtenerEstadisticasContenedores
 );
 
 router.get('/estadisticas/distrito',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarEstadisticasPorDistrito,
   validateRequest,
   etagMiddleware,
@@ -84,8 +84,8 @@ router.get('/estadisticas/distrito',
 );
 
 router.get('/estadisticas/barrio',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarEstadisticasPorBarrio,
   validateRequest,
   etagMiddleware,
@@ -94,8 +94,8 @@ router.get('/estadisticas/barrio',
 );
 
 router.get('/conteo-por-tipo',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarConteoPorTipo,
   validateRequest,
   cacheMiddleware('containers'),
@@ -103,15 +103,15 @@ router.get('/conteo-por-tipo',
 );
 
 router.get('/distritos',
-  generalLimit,
   authenticate,
+  generalLimit,
   cacheMiddleware('containers'),
   controladorContenedores.obtenerDistritos
 );
 
 router.get('/barrios/:distrito',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarBarriosPorDistrito,
   validateRequest,
   cacheMiddleware('containers'),
@@ -119,8 +119,8 @@ router.get('/barrios/:distrito',
 );
 
 router.get('/buscar',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarBusquedaContenedores,
   validateRequest,
   validateContainerType,
@@ -129,16 +129,16 @@ router.get('/buscar',
 );
 
 router.get('/mapa-calor',
-  generalLimit,
   authenticate,
+  generalLimit,
   validateContainerType,
   cacheMiddleware('containers'),
   controladorContenedores.obtenerMapaCalor
 );
 
 router.get('/cobertura',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarCoberturaContenedores,
   validateRequest,
   cacheMiddleware('containers'),
@@ -146,8 +146,8 @@ router.get('/cobertura',
 );
 
 router.get('/mapa',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarMapaContenedores,
   validateRequest,
   validateContainerType,
@@ -157,8 +157,8 @@ router.get('/mapa',
 );
 
 router.get('/analisis/densidad',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarAnalisisDensidad,
   validateRequest,
   cacheMiddleware('containers'),
@@ -190,8 +190,11 @@ router.use((error, req, res, _next) => {
     userId: req.user?.id
   }, 'Error en rutas de contenedores');
 
-  if (error.status || error.statusCode) {
-    return res.status(error.status || error.statusCode).json({
+  // error.status es la cadena 'fail'/'error' (convencion AppError), NO un codigo
+  // HTTP. Usar error.statusCode (numerico); si no es un entero valido, caer al 500.
+  const codigoEstado = Number.isInteger(error.statusCode) ? error.statusCode : null;
+  if (codigoEstado) {
+    return res.status(codigoEstado).json({
       success: false,
       message: error.message
     });

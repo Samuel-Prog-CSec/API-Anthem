@@ -52,8 +52,8 @@ const generalLimit = rateLimit({
  * GET /api/v1/accidentes
  */
 router.get('/',
-  generalLimit,
   authenticate,
+  generalLimit,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   validatePagination,
   validateAccidentFilters,
@@ -65,8 +65,8 @@ router.get('/',
  * GET /api/v1/accidentes/expediente/:numero
  */
 router.get('/expediente/:numero',
-  generalLimit,
   authenticate,
+  generalLimit,
   validateFileNumber,
   accidentController.obtenerAccidentePorExpediente
 );
@@ -75,8 +75,8 @@ router.get('/expediente/:numero',
  * GET /api/v1/accidentes/estadisticas
  */
 router.get('/estadisticas',
-  generalLimit,
   authenticate,
+  generalLimit,
   validateDistrictQuery,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   etagMiddleware,
@@ -88,8 +88,8 @@ router.get('/estadisticas',
  * GET /api/v1/accidentes/comparativa-distritos
  */
 router.get('/comparativa-distritos',
-  generalLimit,
   authenticate,
+  generalLimit,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   cacheMiddleware('statistics', (req) => generatePrefixedCacheKey('accidents:district-comp', req.query)),
   accidentController.obtenerComparativaDistritos
@@ -118,8 +118,8 @@ router.use((req, res, next) => {
  * GET /api/v1/accidentes/mapa-calor
  */
 router.get('/mapa-calor',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarMapaCalorAccidentes,
   validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
@@ -131,8 +131,8 @@ router.get('/mapa-calor',
  * GET /api/v1/accidentes/mapa
  */
 router.get('/mapa',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarMapaAccidentes,
   validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),

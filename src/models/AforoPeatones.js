@@ -180,9 +180,11 @@ const AGG_OPTIONS = { allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_
 /**
  * Estadisticas agregadas por rango de fechas.
  */
-pedestrianTrafficCountSchema.statics.obtenerEstadisticasPorRangoFechas = function(startDate, endDate) {
+pedestrianTrafficCountSchema.statics.obtenerEstadisticasPorRangoFechas = function(startDate, endDate, extraMatch = {}) {
   return this.aggregate([
-    { $match: { fecha: { $gte: startDate, $lte: endDate } } },
+    // `extraMatch` permite acotar por distrito ademas del rango de fechas, para
+    // que los KPIs reflejen el filtro activo de la pagina (no la ciudad entera).
+    { $match: { fecha: { $gte: startDate, $lte: endDate }, ...extraMatch } },
     {
       $group: {
         _id: null,

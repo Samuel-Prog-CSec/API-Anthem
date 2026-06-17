@@ -8,7 +8,7 @@
 const PedestrianTrafficCount = require('../models/AforoPeatones');
 const { createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, escapeRegex, primerValorEscalar } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS } = require('../constants');
@@ -25,7 +25,10 @@ exports.obtenerConteos = asyncHandler(async (req, res) => {
     // Distrito en BD en case mixto: usar regex case-insensitive para
     // que el filtro funcione (antes exact+toUpperCase nunca matcheaba).
     { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
-    { field: 'hora', type: 'numeric', param: 'hora' }
+    { field: 'hora', type: 'numeric', param: 'hora' },
+    // Franja horaria: la UI envia horaMin/horaMax (derivados de MADRUGADA/MANANA/
+    // MEDIODIA/TARDE/NOCHE). Rango inclusivo sobre el campo numerico `hora`.
+    { field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -96,6 +99,9 @@ exports.obtenerDatosEstacion = asyncHandler(async (req, res, next) => {
     if (startDate) { filters.fecha.$gte = new Date(startDate); }
     if (endDate) { filters.fecha.$lte = new Date(endDate); }
   }
+  // Franja horaria (horaMin/horaMax de la UI) sobre el campo numerico `hora`.
+  const { hora: rangoHora } = buildFilters(req.query, [{ field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }]);
+  if (rangoHora) { filters.hora = rangoHora; }
 
   const [recentData, summary] = await Promise.all([
     PedestrianTrafficCount.find(filters)
@@ -162,10 +168,20 @@ exports.obtenerEstadisticas = asyncHandler(async (req, res, next) => {
   const start = startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE);
   const end = endDate ? new Date(endDate) : new Date(DATASET_YEARS.DEFAULT_END_DATE);
 
+  // Coherencia con tabla/mapa: si llega `distrito`, acotar tambien KPIs y
+  // estacion top (antes ignoraban el distrito y mostraban la ciudad entera).
+  const extraMatch = {};
+  if (req.query.distrito) {
+    extraMatch['ubicacion.distrito'] = new RegExp(escapeRegex(primerValorEscalar(req.query.distrito)), 'i');
+  }
+  // Franja horaria: acotar KPIs y estacion top al rango de horas seleccionado.
+  const { hora: rangoHora } = buildFilters(req.query, [{ field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }]);
+  if (rangoHora) { extraMatch.hora = rangoHora; }
+
   const [stats, stationTop] = await Promise.all([
-    PedestrianTrafficCount.obtenerEstadisticasPorRangoFechas(start, end),
+    PedestrianTrafficCount.obtenerEstadisticasPorRangoFechas(start, end, extraMatch),
     PedestrianTrafficCount.aggregate([
-      { $match: { fecha: { $gte: start, $lte: end } } },
+      { $match: { fecha: { $gte: start, $lte: end }, ...extraMatch } },
       {
         $group: {
           _id: '$identificador',
@@ -221,7 +237,8 @@ exports.obtenerDistribucionHoraria = asyncHandler(async (req, res, next) => {
     { field: 'identificador', type: 'exact', param: 'identificador' },
     // Distrito en BD en case mixto: usar regex case-insensitive para
     // que el filtro funcione (antes exact+toUpperCase nunca matcheaba).
-    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
+    { field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -253,12 +270,19 @@ exports.obtenerComparativaEstaciones = asyncHandler(async (req, res, next) => {
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
     // Distrito en BD en case mixto: usar regex case-insensitive para
     // que el filtro funcione (antes exact+toUpperCase nunca matcheaba).
-    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
+    { field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
 
-  const stations = await PedestrianTrafficCount.obtenerRankingEstaciones(limit, filters);
+  // `totalEstaciones` debe ser el conteo REAL de estaciones distintas con el
+  // filtro activo, NO `stations.length` (acotado por `limit`, que dejaba el KPI
+  // "Estaciones activas" topado en 10). Se calcula con un distinct en paralelo.
+  const [stations, identificadoresUnicos] = await Promise.all([
+    PedestrianTrafficCount.obtenerRankingEstaciones(limit, filters),
+    PedestrianTrafficCount.distinct('identificador', filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+  ]);
 
   if (!stations || stations.length === 0) {
     return next(createNotFoundError('Datos de ranking de estaciones peatonales'));
@@ -266,7 +290,7 @@ exports.obtenerComparativaEstaciones = asyncHandler(async (req, res, next) => {
 
   const responseData = {
     estaciones: stations,
-    totalEstaciones: stations.length,
+    totalEstaciones: identificadoresUnicos.length,
     limite: limit
   };
 
@@ -285,7 +309,8 @@ exports.obtenerTendenciasDiarias = asyncHandler(async (req, res, next) => {
     { field: 'identificador', type: 'exact', param: 'identificador' },
     // Distrito en BD en case mixto: usar regex case-insensitive para
     // que el filtro funcione (antes exact+toUpperCase nunca matcheaba).
-    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
+    { field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -320,7 +345,8 @@ exports.obtenerMapaAforo = asyncHandler(async (req, res) => {
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
     // Distrito en BD en case mixto: usar regex case-insensitive para
     // que el filtro funcione (antes exact+toUpperCase nunca matcheaba).
-    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
+    { field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }
   ];
   const filters = buildFilters(req.query, filterConfig);
 

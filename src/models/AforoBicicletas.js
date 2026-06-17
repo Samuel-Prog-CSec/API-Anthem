@@ -244,11 +244,14 @@ bikeTrafficCountSchema.index(
  * @param {Date} endDate - Fecha de fin
  * @returns {Promise<Array>} Estadisticas agregadas
  */
-bikeTrafficCountSchema.statics.obtenerEstadisticasPorRangoFechas = function(startDate, endDate) {
+bikeTrafficCountSchema.statics.obtenerEstadisticasPorRangoFechas = function(startDate, endDate, extraMatch = {}) {
   return this.aggregate([
     {
+      // `extraMatch` permite acotar por distrito (u otros) ademas del rango de
+      // fechas, para que los KPIs reflejen el filtro activo de la pagina.
       $match: {
-        fecha: { $gte: startDate, $lte: endDate }
+        fecha: { $gte: startDate, $lte: endDate },
+        ...extraMatch
       }
     },
     {

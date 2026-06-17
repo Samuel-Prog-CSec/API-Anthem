@@ -7,6 +7,7 @@
  */
 
 const User = require('../models/User');
+const TokenBlacklist = require('../models/TokenBlacklist');
 const config = require('../config/config');
 const { verifyToken, extractToken } = require('../utils/tokenHelper');
 const { createUnauthorizedResponse } = require('../utils/responseHelper');
@@ -98,6 +99,16 @@ const authenticate = async (req, res, next) => {
 
       return res.status(HTTP_STATUS.UNAUTHORIZED).json(
         createUnauthorizedResponse(`Validación de token fallida: ${error.message}`)
+      );
+    }
+
+    // Verificar que el access token no haya sido revocado (logout). La
+    // comprobacion es por jti (campo indexado con TTL), de coste marginal sobre
+    // el findById que ya se hace. Cierra la ventana en la que un access token
+    // robado seguia siendo valido hasta ~15min despues de cerrar sesion.
+    if (decoded.jti && await TokenBlacklist.isJtiBlacklisted(decoded.jti)) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(
+        createUnauthorizedResponse('Sesion finalizada. Por favor inicie sesion nuevamente.')
       );
     }
 

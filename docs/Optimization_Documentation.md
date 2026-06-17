@@ -1007,10 +1007,14 @@ const warmupCache = async () => {
 6. **warmCensusDashboardCache()**: Estadísticas demográficas por distrito (población, edad media)
 7. **warmScooterAssignmentCache()**: Análisis de mercado de proveedores de patinetes
 
-**Beneficios:**
-- Primera request ya encuentra datos en caché (cache hit inmediato)
+**Beneficios (alcance real):**
+- Calienta el **working set de MongoDB** (cache de WiredTiger + plan cache). NO
+  puebla el cache HTTP de respuestas: la primera request a cada endpoint sigue
+  siendo un MISS de cache HTTP, pero su query subyacente a Mongo ya encuentra
+  los datos en RAM y responde mucho mas rapido.
 - Ejecución en background con `Promise.allSettled()` (no bloquea startup)
-- Reduce latencia inicial de ~800ms a ~100ms
+- Reduce la latencia de la **primera query a Mongo** (datos calientes en
+  memoria), no la del cache de aplicacion
 - Logging detallado del proceso de warming
 - Manejo de errores no crítico (warming falla silenciosamente)
 

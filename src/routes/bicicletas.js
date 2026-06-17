@@ -40,8 +40,8 @@ const generalLimit = rateLimit({
 });
 
 router.get('/',
-  generalLimit,
   authenticate,
+  generalLimit,
   ...validateDateRange(),
   validatePagination,
   validateBikeFilters,
@@ -50,8 +50,8 @@ router.get('/',
 );
 
 router.get('/estadisticas',
-  generalLimit,
   authenticate,
+  generalLimit,
   ...validateDateRange(),
   etagMiddleware,
   cacheMiddleware('bikes'),
@@ -59,8 +59,8 @@ router.get('/estadisticas',
 );
 
 router.get('/tendencias/mensual',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarTendenciasMensuales,
   validateRequest,
   etagMiddleware,
@@ -69,8 +69,8 @@ router.get('/tendencias/mensual',
 );
 
 router.get('/mayor-uso',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarDiasMayorUso,
   validateRequest,
   cacheMiddleware('bikes'),
@@ -78,8 +78,8 @@ router.get('/mayor-uso',
 );
 
 router.get('/comparativa-suscripciones',
-  generalLimit,
   authenticate,
+  generalLimit,
   ...validateDateRange(),
   etagMiddleware,
   cacheMiddleware('bikes'),
@@ -111,8 +111,11 @@ router.use((error, req, res, _next) => {
     userId: req.user?.id
   }, 'Error en rutas de bicicletas');
 
-  if (error.status || error.statusCode) {
-    return res.status(error.status || error.statusCode).json({
+  // error.status es la cadena 'fail'/'error' (convencion AppError), NO un codigo
+  // HTTP. Usar error.statusCode (numerico); si no es un entero valido, caer al 500.
+  const codigoEstado = Number.isInteger(error.statusCode) ? error.statusCode : null;
+  if (codigoEstado) {
+    return res.status(codigoEstado).json({
       success: false,
       message: error.message
     });

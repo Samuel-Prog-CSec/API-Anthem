@@ -8,7 +8,6 @@
 
 const {
   DATASET_YEARS,
-  AGGREGATION_LIMITS,
   MONGODB_TIMEOUTS
 } = require('../constants');
 const { createCursorMeta, buildCursorQuery } = require('../utils/paginationHelper');
@@ -19,9 +18,24 @@ const ESCALAR_AGG = { allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_
  * Piramide poblacional detallada y simplificada (2 agregaciones en paralelo).
  */
 const obtenerPiramidePoblacionalOptimizada = async function(Model, options) {
-  const { año = DATASET_YEARS.DEFAULT_YEAR, distrito = null, incluirExtranjeros = true } = options;
+  const { año = DATASET_YEARS.DEFAULT_YEAR, mes = null, distrito = null, incluirExtranjeros = true } = options;
 
   const matchFilters = { año: parseInt(año, 10) };
+
+  // El censo tiene 12 snapshots MENSUALES de la misma poblacion: sumar los 12
+  // meses infla la poblacion ~x12 (la piramide llegaba a ~7M por lado en vez de
+  // ~3,33M). Para una foto poblacional honesta se acota a UN mes: el indicado o,
+  // si no llega, el ultimo con datos (mismo patron que dashboard/distritos).
+  // Ademas reduce el escaneo de agregacion ~12x.
+  let mesEfectivo = (mes !== null && mes !== undefined && mes !== '') ? parseInt(mes, 10) : null;
+  if (!mesEfectivo) {
+    const mesesDisponibles = await Model.distinct('mes', { año: matchFilters.año });
+    mesEfectivo = mesesDisponibles.length ? Math.max(...mesesDisponibles) : null;
+  }
+  if (mesEfectivo) {
+    matchFilters.mes = mesEfectivo;
+  }
+
   if (distrito) {
     matchFilters['distrito.codigo'] = parseInt(distrito, 10);
   }
@@ -105,7 +119,8 @@ const obtenerPiramidePoblacionalOptimizada = async function(Model, options) {
   return {
     piramideDetallada,
     piramideSimplificada: datosGenerales,
-    totales
+    totales,
+    mesUtilizado: mesEfectivo
   };
 };
 
@@ -236,7 +251,10 @@ const buscarConOpciones = async function(Model, options) {
 
   const promises = [
     query.exec(),
-    cursor ? Promise.resolve(null) : Model.countDocuments(filters)
+    // El count debe llevar techo de tiempo como el resto de queries del proyecto
+    // (invariante .maxTimeMS): si no, ante un filtro poco selectivo podia seguir
+    // corriendo en el servidor mas alla del presupuesto del endpoint.
+    cursor ? Promise.resolve(null) : Model.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
   ];
 
   if (includeStats) {
@@ -361,8 +379,10 @@ const obtenerEstadisticasDistritoOptimizadas = async function(Model, options) {
             porcentajeExtranjeros: { $round: ['$porcentajeExtranjeros', 2] }
           }
         },
-        { $sort: { poblacionTotal: -1 } },
-        { $limit: AGGREGATION_LIMITS.TOP_RESULTS }
+        // Sin $limit: los barrios estan acotados por la cardinalidad del dataset
+        // (~131 grupos distrito+barrio) y el panel de detalle necesita TODOS los
+        // del distrito, no solo el top-N por poblacion a nivel ciudad.
+        { $sort: { poblacionTotal: -1 } }
       ]).option(ESCALAR_AGG)
       : Promise.resolve(null)
   ]);

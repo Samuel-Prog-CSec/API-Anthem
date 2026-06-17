@@ -51,8 +51,8 @@ router.get('/',
 );
 
 router.get('/estadisticas',
-  heavyQueryLimiter,
   authenticate,
+  heavyQueryLimiter,
   validarEstadisticasCalidadAire,
   validateRequest,
   cacheMiddleware('airQuality'),
@@ -60,8 +60,8 @@ router.get('/estadisticas',
 );
 
 router.get('/tendencias',
-  heavyQueryLimiter,
   authenticate,
+  heavyQueryLimiter,
   validarTendenciasCalidadAire,
   validateRequest,
   cacheMiddleware('airQuality'),

@@ -74,11 +74,14 @@ const construirRollupAccidente = (matchStage = {}) => [
  * Estadisticas globales de un periodo: numero de accidentes (expedientes),
  * personas afectadas, accidentes graves/mortales, atropellos y con alcohol.
  */
-const obtenerEstadisticasPorPeriodo = function(Model, startDate, endDate) {
+const obtenerEstadisticasPorPeriodo = function(Model, startDate, endDate, filtrosExtra = {}) {
   // Si no se aporta un rango completo, no se restringe por fecha (evita el
   // bug de "ultimos 30 dias desde hoy", que sobre un dataset de 2051 devolveria
-  // cero). El caller decide el rango via filtros de fecha.
-  const matchStage = (startDate && endDate) ? { fecha: { $gte: startDate, $lte: endDate } } : {};
+  // cero). El caller decide el rango via filtros de fecha. `filtrosExtra`
+  // aporta distrito/gravedad/tipoAccidente para que los KPI respeten los filtros
+  // de la pagina (mismo $match pre-rollup que el listado).
+  const matchStage = { ...filtrosExtra };
+  if (startDate && endDate) { matchStage.fecha = { $gte: startDate, $lte: endDate }; }
   return Model.aggregate([
     ...construirRollupAccidente(matchStage),
     {
@@ -99,8 +102,8 @@ const obtenerEstadisticasPorPeriodo = function(Model, startDate, endDate) {
 /**
  * Puntos negros: calles/distritos con mas accidentes, ponderados por gravedad.
  */
-const obtenerPuntosNegros = function(Model, limit = 10, startDate = null, endDate = null) {
-  const matchConditions = {};
+const obtenerPuntosNegros = function(Model, limit = 10, startDate = null, endDate = null, filtrosExtra = {}) {
+  const matchConditions = { ...filtrosExtra };
   if (startDate && endDate) {
     matchConditions.fecha = { $gte: startDate, $lte: endDate };
   }
@@ -128,8 +131,8 @@ const obtenerPuntosNegros = function(Model, limit = 10, startDate = null, endDat
  * pueden solaparse, lo cual es correcto para "accidentes en los que participa
  * un X").
  */
-const obtenerAnalisisPorVehiculo = function(Model, startDate = null, endDate = null) {
-  const matchConditions = {};
+const obtenerAnalisisPorVehiculo = function(Model, startDate = null, endDate = null, filtrosExtra = {}) {
+  const matchConditions = { ...filtrosExtra };
   if (startDate && endDate) {
     matchConditions.fecha = { $gte: startDate, $lte: endDate };
   }
@@ -159,13 +162,17 @@ const obtenerAnalisisPorVehiculo = function(Model, startDate = null, endDate = n
  * Patrones temporales por hora, dia de la semana o periodo del dia (todos
  * constantes por accidente, asi que se cuentan expedientes).
  */
-const obtenerPatronesTemporales = function(Model, groupBy = 'hora') {
+const obtenerPatronesTemporales = function(Model, groupBy = 'hora', filters = {}) {
   const groupField = groupBy === 'hora' ? '$franjaHoraria'
     : groupBy === 'diaSemana' ? '$diaSemana'
       : '$periodoDia';
 
   return Model.aggregate([
-    ...construirRollupAccidente({}),
+    // Aplicar los filtros activos (distrito, gravedad, tipo, rango de fechas)
+    // ANTES del rollup por expediente. Antes se pasaba {} y los patrones
+    // horarios/semanales mostraban SIEMPRE el agregado global de la coleccion,
+    // incoherente con el resto del informe (KPIs, distribuciones) que si filtra.
+    ...construirRollupAccidente(filters),
     {
       $group: {
         _id: groupField,
@@ -345,54 +352,52 @@ const obtenerDatosMapaCalor = async function(Model, filters = {}, limite = 500, 
   if (!Number.isFinite(precisionGrados) || precisionGrados <= 0) { precisionGrados = 0.001; }
   if (precisionGrados >= 1) { precisionGrados = precisionGrados / 111000; }
 
+  const maxCeldas = parseInt(limite, 10) || 500;
+
   const queryFilters = {
     ...filters,
     'ubicacion.geometry.coordinates': { $exists: true, $ne: [] }
   };
 
-  const heatmapData = await Model.find(queryFilters)
-    .select({
-      'ubicacion.geometry': 1,
-      'circunstancias.gravedad': 1,
-      'analisis.puntuacionGravedad': 1,
-      'personaAfectada.tipoLesion': 1,
-      fecha: 1
-    })
-    .limit(parseInt(limite, 10))
-    .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
-    .lean();
-
-  // Agrupar afectados en celdas de la rejilla geografica
-  const groupedPoints = {};
-  heatmapData.forEach(accident => {
-    const coords = accident.ubicacion?.geometry?.coordinates;
-    if (!Array.isArray(coords) || coords.length !== 2) { return; }
-    const [lng, lat] = coords;
-    const cellLng = Math.round(lng / precisionGrados) * precisionGrados;
-    const cellLat = Math.round(lat / precisionGrados) * precisionGrados;
-    const key = `${cellLng},${cellLat}`;
-
-    if (!groupedPoints[key]) {
-      groupedPoints[key] = {
-        lat: cellLat,
-        lng: cellLng,
-        totalAfectados: 0,
-        afectadosGraves: 0,
-        sumaPuntuacionGravedad: 0
-      };
+  // Se agregan TODOS los accidentes que cumplen el filtro en celdas de rejilla
+  // (no una muestra de `limite` documentos, que sesgaba el heatmap): la rejilla
+  // es representativa de toda la serie. `limite` capa ahora el numero de CELDAS
+  // devueltas (las mas densas), no los documentos de entrada.
+  const lng = { $arrayElemAt: ['$ubicacion.geometry.coordinates', 0] };
+  const lat = { $arrayElemAt: ['$ubicacion.geometry.coordinates', 1] };
+  const [resultado] = await Model.aggregate([
+    { $match: queryFilters },
+    {
+      $project: {
+        cellLng: { $multiply: [{ $round: [{ $divide: [lng, precisionGrados] }, 0] }, precisionGrados] },
+        cellLat: { $multiply: [{ $round: [{ $divide: [lat, precisionGrados] }, 0] }, precisionGrados] },
+        esNoLeve: { $cond: [{ $in: ['$circunstancias.gravedad', GRAVEDADES_NO_LEVE] }, 1, 0] },
+        puntuacion: { $ifNull: ['$analisis.puntuacionGravedad', 0] }
+      }
+    },
+    {
+      $group: {
+        _id: { lat: '$cellLat', lng: '$cellLng' },
+        totalAfectados: { $sum: 1 },
+        afectadosGraves: { $sum: '$esNoLeve' },
+        sumaPuntuacionGravedad: { $sum: '$puntuacion' }
+      }
+    },
+    { $sort: { totalAfectados: -1 } },
+    {
+      $facet: {
+        celdas: [{ $limit: maxCeldas }],
+        resumen: [{ $group: { _id: null, totalCeldas: { $sum: 1 }, totalAfectados: { $sum: '$totalAfectados' } } }]
+      }
     }
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 
-    const grupo = groupedPoints[key];
-    grupo.totalAfectados++;
-    if (GRAVEDADES_NO_LEVE.includes(accident.circunstancias?.gravedad)) {
-      grupo.afectadosGraves++;
-    }
-    grupo.sumaPuntuacionGravedad += accident.analisis?.puntuacionGravedad || 0;
-  });
+  const celdas = resultado?.celdas || [];
+  const resumen = resultado?.resumen?.[0] || { totalCeldas: 0, totalAfectados: 0 };
 
-  const heatmapPoints = Object.values(groupedPoints).map(group => ({
-    lat: group.lat,
-    lng: group.lng,
+  const heatmapPoints = celdas.map(group => ({
+    lat: group._id.lat,
+    lng: group._id.lng,
     weight: group.totalAfectados,
     intensity: group.totalAfectados > 0 ? group.sumaPuntuacionGravedad / group.totalAfectados : 0,
     details: {
@@ -405,8 +410,9 @@ const obtenerDatosMapaCalor = async function(Model, filters = {}, limite = 500, 
   return {
     puntos: heatmapPoints,
     estadisticas: {
-      totalPuntos: heatmapPoints.length,
-      totalAfectados: heatmapData.length
+      totalPuntos: heatmapPoints.length, // celdas mostradas (top por densidad)
+      totalCeldas: resumen.totalCeldas, // celdas totales de toda la serie filtrada
+      totalAfectados: resumen.totalAfectados // afectados totales (toda la serie, no la muestra)
     }
   };
 };

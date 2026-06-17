@@ -381,7 +381,13 @@ async function processMultasFile(filePath, options = {}) {
     let isProcessingBatch = false;
 
     const stream = crearLectorCSV(filePath)
-      .pipe(csv({ separator: ';' }))
+      // mapHeaders: recorta espacios en los nombres de columna. Los CSV de
+      // febrero a diciembre traen cabeceras con espacios espurios (` PUNTOS`,
+      // `VEL_CIRCULA `, y trailing spaces), por lo que `row.PUNTOS` /
+      // `row.VEL_CIRCULA` salian `undefined` y se perdian los puntos detraidos
+      // (~1,76M multas a 0) y la velocidad de circulacion. El trim normaliza
+      // las claves para los 12 meses sin afectar a enero (cabecera ya limpia).
+      .pipe(csv({ separator: ';', mapHeaders: ({ header }) => header.trim() }))
       .on('data', async (row) => {
         if (isShuttingDown || isProcessingBatch) {
           return;

@@ -178,6 +178,22 @@ const extractToken = (req) => {
 };
 
 /**
+ * Decodifica un token JWT SIN verificar la firma (solo lectura del payload).
+ * Util cuando el token ya fue verificado aguas arriba y solo se necesita leer
+ * un claim (p.ej. el `jti` para revocacion). Devuelve null si no es un JWT.
+ *
+ * @param {string} token - Token JWT
+ * @returns {object|null} Payload decodificado o null
+ */
+const decodeToken = (token) => {
+  try {
+    return jwt.decode(token);
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Obtener fecha de expiración de un token JWT
  *
  * @param {string} token - Token JWT
@@ -206,6 +222,7 @@ module.exports = {
   verifyToken,
   verifyRefreshToken,
   extractToken,
+  decodeToken,
   getTokenExpiration,
   CLOCK_TOLERANCE_SECONDS
 };

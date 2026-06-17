@@ -40,8 +40,8 @@ const generalLimit = rateLimit({
 });
 
 router.get('/',
-  generalLimit,
   authenticate,
+  generalLimit,
   ...validateDateRange(),
   validatePagination,
   validarObtenerConteos,
@@ -51,8 +51,8 @@ router.get('/',
 );
 
 router.get('/estadisticas',
-  generalLimit,
   authenticate,
+  generalLimit,
   ...validateDateRange(),
   etagMiddleware,
   cacheMiddleware('bikeTraffic'),
@@ -60,8 +60,8 @@ router.get('/estadisticas',
 );
 
 router.get('/distribucion-horaria',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarDistribucionHoraria,
   validateRequest,
   ...validateDateRange(),
@@ -71,8 +71,8 @@ router.get('/distribucion-horaria',
 );
 
 router.get('/estaciones',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarComparativaEstaciones,
   validateRequest,
   ...validateDateRange(),
@@ -82,8 +82,8 @@ router.get('/estaciones',
 );
 
 router.get('/tendencias/diario',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarTendenciasDiarias,
   validateRequest,
   ...validateDateRange(),
@@ -92,8 +92,8 @@ router.get('/tendencias/diario',
 );
 
 router.get('/estacion/:identificador',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarDatosEstacion,
   validateRequest,
   ...validateDateRange(),
@@ -102,8 +102,8 @@ router.get('/estacion/:identificador',
 );
 
 router.get('/mapa',
-  generalLimit,
   authenticate,
+  generalLimit,
   // `validateDateRange` es factory: hay que llamarla con parentesis para expandir el array
   ...validateDateRange(),
   cacheMiddleware('bikeTraffic'),
@@ -135,8 +135,11 @@ router.use((error, req, res, _next) => {
     userId: req.user?.id
   }, 'Error en rutas de aforo de bicicletas');
 
-  if (error.status || error.statusCode) {
-    return res.status(error.status || error.statusCode).json({
+  // error.status es la cadena 'fail'/'error' (convencion AppError), NO un codigo
+  // HTTP. Usar error.statusCode (numerico); si no es un entero valido, caer al 500.
+  const codigoEstado = Number.isInteger(error.statusCode) ? error.statusCode : null;
+  if (codigoEstado) {
+    return res.status(codigoEstado).json({
       success: false,
       message: error.message
     });

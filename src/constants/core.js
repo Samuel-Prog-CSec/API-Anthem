@@ -35,7 +35,11 @@ const PAGINATION = {
 
 const MONGODB_TIMEOUTS = {
   QUERY_TIMEOUT_MS: 5000,
-  AGGREGATE_TIMEOUT_MS: 10000
+  AGGREGATE_TIMEOUT_MS: 10000,
+  // Agregaciones pesadas (p.ej. estadisticas de trafico con $facet sobre el
+  // rango de 7 dias en ~132M docs): margen mayor para completar dentro del
+  // timeout de axios (30s) en vez de devolver 500 por exceder el limite.
+  AGGREGATE_TIMEOUT_HEAVY_MS: 25000
 };
 
 const AGGREGATION_LIMITS = {

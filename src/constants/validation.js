@@ -69,9 +69,11 @@ const DATE_RANGE_LIMITS = {
   // Multas: el dataset cubre meses, 1 ano de rango es suficiente para
   // analitica habitual y evita scans masivos sobre filtros poco selectivos
   FINES_MAX_DAYS: 365,
-  // Trafico: coleccion mas masiva (~24M docs); rango por defecto duro de 90 dias
-  // salvo filtros por puntoMedidaId u otros que reduzcan el scope
-  TRAFFIC_MAX_DAYS: 90,
+  // Trafico: las agregaciones (estadisticas/congestion/historico day-week-month/
+  // mapa) leen del rollup diario `traffic_daily` (~1.5M docs), por lo que un ano
+  // completo se resuelve en pocos segundos. El historico por HORA lee datos
+  // crudos y se acota aparte a 2 dias en el controlador.
+  TRAFFIC_MAX_DAYS: 365,
   MAX_MILLISECONDS_CALCULATION: 24 * 60 * 60 * 1000
 };
 

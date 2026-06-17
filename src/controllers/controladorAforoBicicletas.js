@@ -8,7 +8,7 @@
 const BikeTrafficCount = require('../models/AforoBicicletas');
 const { createNotFoundError } = require('../utils/errorUtils');
 const { createPaginationMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, escapeRegex, primerValorEscalar } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS } = require('../constants');
@@ -28,7 +28,10 @@ exports.obtenerConteos = asyncHandler(async (req, res) => {
     // Usar regex case-insensitive en lugar de exact+toUpperCase, que nunca
     // matcheaba y dejaba la pagina vacia al filtrar por distrito.
     { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
-    { field: 'hora', type: 'numeric', param: 'hora' }
+    { field: 'hora', type: 'numeric', param: 'hora' },
+    // Franja horaria: la UI envia horaMin/horaMax (derivados de MADRUGADA/MANANA/
+    // MEDIODIA/TARDE/NOCHE). Rango inclusivo sobre el campo numerico `hora`.
+    { field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -100,6 +103,9 @@ exports.obtenerDatosEstacion = asyncHandler(async (req, res, next) => {
     if (startDate) { filters.fecha.$gte = new Date(startDate); }
     if (endDate) { filters.fecha.$lte = new Date(endDate); }
   }
+  // Franja horaria (horaMin/horaMax de la UI) sobre el campo numerico `hora`.
+  const { hora: rangoHora } = buildFilters(req.query, [{ field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }]);
+  if (rangoHora) { filters.hora = rangoHora; }
 
   // Consultas paralelas: datos recientes + resumen
   const [recentData, summary] = await Promise.all([
@@ -167,10 +173,21 @@ exports.obtenerEstadisticas = asyncHandler(async (req, res, next) => {
   const start = startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE);
   const end = endDate ? new Date(endDate) : new Date(DATASET_YEARS.DEFAULT_END_DATE);
 
+  // Coherencia con tabla/mapa: si llega `distrito`, acotar tambien los KPIs y la
+  // estacion top. Antes los KPIs ignoraban el distrito y mostraban la ciudad
+  // entera (293k mediciones con o sin distrito activo).
+  const extraMatch = {};
+  if (req.query.distrito) {
+    extraMatch['ubicacion.distrito'] = new RegExp(escapeRegex(primerValorEscalar(req.query.distrito)), 'i');
+  }
+  // Franja horaria: acotar KPIs y estacion top al rango de horas seleccionado.
+  const { hora: rangoHora } = buildFilters(req.query, [{ field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }]);
+  if (rangoHora) { extraMatch.hora = rangoHora; }
+
   const [stats, stationTop] = await Promise.all([
-    BikeTrafficCount.obtenerEstadisticasPorRangoFechas(start, end),
+    BikeTrafficCount.obtenerEstadisticasPorRangoFechas(start, end, extraMatch),
     BikeTrafficCount.aggregate([
-      { $match: { fecha: { $gte: start, $lte: end } } },
+      { $match: { fecha: { $gte: start, $lte: end }, ...extraMatch } },
       {
         $group: {
           _id: '$identificador',
@@ -224,7 +241,8 @@ exports.obtenerDistribucionHoraria = asyncHandler(async (req, res, next) => {
     // Los nombres de distrito en BD estan en case mixto ("Arganzuela", "Latina").
     // Usar regex case-insensitive en lugar de exact+toUpperCase, que nunca
     // matcheaba y dejaba la pagina vacia al filtrar por distrito.
-    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
+    { field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -257,12 +275,20 @@ exports.obtenerComparativaEstaciones = asyncHandler(async (req, res, next) => {
     // Los nombres de distrito en BD estan en case mixto ("Arganzuela", "Latina").
     // Usar regex case-insensitive en lugar de exact+toUpperCase, que nunca
     // matcheaba y dejaba la pagina vacia al filtrar por distrito.
-    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
+    { field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
 
-  const stations = await BikeTrafficCount.obtenerRankingEstaciones(limit, filters);
+  // `totalEstaciones` debe ser el conteo REAL de estaciones distintas con el
+  // filtro activo, NO `stations.length` (que esta acotado por `limit` y dejaba
+  // el KPI "Estaciones activas" topado en el valor de limit, p.ej. 10). Se
+  // calcula con un distinct en paralelo al ranking.
+  const [stations, identificadoresUnicos] = await Promise.all([
+    BikeTrafficCount.obtenerRankingEstaciones(limit, filters),
+    BikeTrafficCount.distinct('identificador', filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+  ]);
 
   if (!stations || stations.length === 0) {
     return next(createNotFoundError('Datos de ranking de estaciones'));
@@ -270,7 +296,7 @@ exports.obtenerComparativaEstaciones = asyncHandler(async (req, res, next) => {
 
   const responseData = {
     estaciones: stations,
-    totalEstaciones: stations.length,
+    totalEstaciones: identificadoresUnicos.length,
     limite: limit
   };
 
@@ -290,7 +316,8 @@ exports.obtenerTendenciasDiarias = asyncHandler(async (req, res, next) => {
     // Los nombres de distrito en BD estan en case mixto ("Arganzuela", "Latina").
     // Usar regex case-insensitive en lugar de exact+toUpperCase, que nunca
     // matcheaba y dejaba la pagina vacia al filtrar por distrito.
-    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
+    { field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }
   ];
 
   const filters = buildFilters(req.query, filterConfig);
@@ -324,7 +351,8 @@ exports.obtenerMapaAforo = asyncHandler(async (req, res) => {
     // Los nombres de distrito en BD estan en case mixto ("Arganzuela", "Latina").
     // Usar regex case-insensitive en lugar de exact+toUpperCase, que nunca
     // matcheaba y dejaba la pagina vacia al filtrar por distrito.
-    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' }
+    { field: 'ubicacion.distrito', type: 'regex', param: 'distrito' },
+    { field: 'hora', type: 'numericRange', params: ['horaMin', 'horaMax'] }
   ];
   const filters = buildFilters(req.query, filterConfig);
 

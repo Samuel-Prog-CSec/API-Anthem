@@ -146,7 +146,7 @@ const trafficSchema = new mongoose.Schema({
     error: {
       type: String,
       required: true,
-      enum: TRAFFIC_ERROR_CODES,
+      enum: Object.values(TRAFFIC_ERROR_CODES),
       default: BINARY_INDICATORS.NO
     },
     periodoIntegracion: { type: Number, required: true },
@@ -165,7 +165,7 @@ const trafficSchema = new mongoose.Schema({
     },
     clasificacionIntensidad: {
       type: String,
-      enum: TRAFFIC_INTENSITY_LEVELS,
+      enum: Object.values(TRAFFIC_INTENSITY_LEVELS),
       default: 'SIN_DATOS'
     },
     periodoDia: {

@@ -220,12 +220,14 @@ function parsearFecha(dateStr, opts = {}) {
     throw new Error(`${REJECTION_REASONS.INVALID_DATE}: valor='${dateStr}'`);
   }
 
-  if (result.coercida && opts.rejectionTracker) {
-    opts.rejectionTracker.coerce('FECHA_COERCIDA_AL_ULTIMO_DIA_DEL_MES', {
-      fila: opts.fila,
-      original: dateStr,
-      coercida: result.fecha.toISOString().slice(0, 10)
-    });
+  // El dataset trae fechas 29/02/2051 (dia ficticio: 2051 NO es bisiesto). En
+  // datos diarios/horarios el 28/02 ya existe con datos propios, asi que
+  // coercionar 29->28 pisaria/duplicaria el 28 real. Por decision del proyecto se
+  // DESCARTA el 29/02 explicitamente (en vez del drop silencioso por colision del
+  // indice unico, que ademas corrompia el 28 en modo --force); se cuenta como
+  // rechazo para que el resumen de importacion sea transparente.
+  if (result.coercida) {
+    throw new Error(`${REJECTION_REASONS.INVALID_DATE}: 29/02 inexistente en ${year} (dia ficticio descartado, fila ${opts.fila}): valor='${dateStr}'`);
   }
 
   return result.fecha;

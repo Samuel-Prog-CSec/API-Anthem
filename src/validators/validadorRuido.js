@@ -90,6 +90,9 @@ const validarRankingRuido = [
 const validarCumplimientoZona = [
   query('startDate').optional().isISO8601().withMessage('startDate debe ser una fecha válida'),
   query('endDate').optional().isISO8601().withMessage('endDate debe ser una fecha válida'),
+  query('año').optional().isInt({ min: 2000, max: 2100 }).withMessage('año debe ser un entero válido'),
+  query('mes').optional().isInt({ min: 1, max: 12 }).withMessage('mes debe ser un entero entre 1 y 12'),
+  query('nmt').optional().isInt({ min: 1 }).withMessage('nmt debe ser un entero positivo'),
   query('threshold')
     .optional()
     .isInt({

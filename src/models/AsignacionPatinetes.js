@@ -552,16 +552,16 @@ scooterAssignmentSchema.statics.obtenerResumenAsignacion = function(doc) {
   return asignacionPatinetesService.obtenerResumenAsignacion(doc);
 };
 
-scooterAssignmentSchema.statics.obtenerEstadisticasDistrito = function(fecha) {
-  return asignacionPatinetesService.obtenerEstadisticasDistrito(this, fecha);
+scooterAssignmentSchema.statics.obtenerEstadisticasDistrito = function(fecha, filtros = {}) {
+  return asignacionPatinetesService.obtenerEstadisticasDistrito(this, fecha, filtros);
 };
 
-scooterAssignmentSchema.statics.obtenerAnalisisMercadoProveedores = function(fecha) {
-  return asignacionPatinetesService.obtenerAnalisisMercadoProveedores(this, fecha);
+scooterAssignmentSchema.statics.obtenerAnalisisMercadoProveedores = function(fecha, filtros = {}) {
+  return asignacionPatinetesService.obtenerAnalisisMercadoProveedores(this, fecha, filtros);
 };
 
-scooterAssignmentSchema.statics.obtenerZonasMayorConcentracion = function(limite, fecha) {
-  return asignacionPatinetesService.obtenerZonasMayorConcentracion(this, limite, fecha);
+scooterAssignmentSchema.statics.obtenerZonasMayorConcentracion = function(limite, fecha, filtros = {}) {
+  return asignacionPatinetesService.obtenerZonasMayorConcentracion(this, limite, fecha, filtros);
 };
 
 scooterAssignmentSchema.statics.obtenerPanelDistribucion = function(fecha) {

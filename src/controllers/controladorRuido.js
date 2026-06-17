@@ -12,7 +12,7 @@ const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('..
 const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, buildResponseMetadata } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
-const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS, NOISE_THRESHOLDS, ZONE_TYPES, LOCATION_TYPES } = require('../constants');
+const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS, NOISE_THRESHOLDS, NOISE_LIMITS, ZONE_TYPES, LOCATION_TYPES } = require('../constants');
 const asyncHandler = require('../utils/asyncHandler');
 
 /**
@@ -157,7 +157,10 @@ const obtenerRankingRuido = asyncHandler(async (req, res) => {
   );
 
   const filterConfig = [
-    { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] }
+    { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+    { field: 'año', type: 'numeric', param: 'año' },
+    { field: 'mes', type: 'numeric', param: 'mes' },
+    { field: 'nmt', type: 'in', param: 'nmt', transform: TRANSFORMS.toIntArray }
   ];
 
   const matchStage = buildFilters(req.query, filterConfig);
@@ -190,13 +193,39 @@ const obtenerRankingRuido = asyncHandler(async (req, res) => {
  * GET /api/v1/ruido/cumplimiento/zona
  */
 const obtenerCumplimientoPorZona = asyncHandler(async (req, res, next) => {
-  const { startDate, endDate, threshold = NOISE_THRESHOLDS.DEFAULT, zoneType = ZONE_TYPES.MIXED } = req.query;
+  const { startDate, endDate, threshold = NOISE_THRESHOLDS.DEFAULT, zoneType = ZONE_TYPES.MIXED, nmt } = req.query;
+  const { año, mes } = parseNumericParams(
+    req.query,
+    ['año', 'mes'],
+    { año: new Date(DATASET_YEARS.DEFAULT_START_DATE).getUTCFullYear() }
+  );
+
+  // El panel de Ruido filtra por año/mes/nmt (no por startDate/endDate). Se
+  // deriva el rango de fechas del año/mes para que el cumplimiento reaccione al
+  // filtro de mes; si llegan startDate/endDate explicitos, prevalecen. `nmt`
+  // acota el analisis a una estacion concreta (via `stations`, ya soportado
+  // por el servicio).
+  let inicio;
+  let fin;
+  if (startDate || endDate) {
+    inicio = startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE);
+    fin = endDate ? new Date(endDate) : new Date(DATASET_YEARS.DEFAULT_END_DATE);
+  } else if (mes) {
+    inicio = new Date(Date.UTC(año, mes - 1, 1));
+    fin = new Date(Date.UTC(año, mes, 0, 23, 59, 59, 999));
+  } else {
+    inicio = new Date(Date.UTC(año, 0, 1));
+    fin = new Date(Date.UTC(año, 11, 31, 23, 59, 59, 999));
+  }
+
+  const stations = nmt ? [parseInt(nmt, 10)] : undefined;
 
   const compliance = await NoiseMonitoring.obtenerAnalisisCumplimientoPorZona({
-    startDate: startDate ? new Date(startDate) : new Date(DATASET_YEARS.DEFAULT_START_DATE),
-    endDate: endDate ? new Date(endDate) : new Date(DATASET_YEARS.DEFAULT_END_DATE),
+    startDate: inicio,
+    endDate: fin,
     threshold: Number(threshold),
-    zoneType
+    zoneType,
+    stations
   });
 
   if (!compliance || compliance.length === 0) {
@@ -207,8 +236,8 @@ const obtenerCumplimientoPorZona = asyncHandler(async (req, res, next) => {
     umbralNormativo: Number(threshold),
     tipoZona: zoneType,
     periodo: {
-      inicio: startDate || DATASET_YEARS.DEFAULT_START_DATE,
-      fin: endDate || DATASET_YEARS.DEFAULT_END_DATE
+      inicio: inicio.toISOString().split('T')[0],
+      fin: fin.toISOString().split('T')[0]
     },
     analisisPorZona: compliance,
     totalZonasAnalizadas: compliance.length
@@ -266,6 +295,7 @@ const obtenerMapaRuido = asyncHandler(async (req, res) => {
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
     { field: 'año', type: 'numeric', param: 'año' },
+    { field: 'mes', type: 'numeric', param: 'mes' },
     { field: 'nmt', type: 'in', param: 'nmt', transform: TRANSFORMS.toIntArray }
   ];
   const filters = buildFilters(req.query, filterConfig);
@@ -321,9 +351,9 @@ const obtenerMapaRuido = asyncHandler(async (req, res) => {
         promedioLaeq24: doc.promedioLaeq24 ? Number(doc.promedioLaeq24.toFixed(2)) : null,
         maxLaeq24: doc.maxLaeq24,
         mediciones: doc.mediciones,
-        excedeDiurno: doc.promedioDiurno > NOISE_THRESHOLDS.DIURNO,
-        excedeVespertino: doc.promedioVespertino > NOISE_THRESHOLDS.VESPERTINO,
-        excedeNocturno: doc.promedioNocturno > NOISE_THRESHOLDS.NOCTURNO
+        excedeDiurno: doc.promedioDiurno > NOISE_LIMITS.DIURNO,
+        excedeVespertino: doc.promedioVespertino > NOISE_LIMITS.VESPERTINO,
+        excedeNocturno: doc.promedioNocturno > NOISE_LIMITS.NOCTURNO
       }
     }),
     { recurso: 'ruido', estacionesSinUbicacion: agregacion.length - Object.keys(geometriaPorNmt).length }

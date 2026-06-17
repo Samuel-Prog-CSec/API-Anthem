@@ -206,9 +206,10 @@ const obtenerMapaUbicaciones = asyncHandler(async (req, res, next) => {
   };
 
   // Limite de defensa: sin filtro de tipo, locations tiene ~27k documentos
-  // (sobre todo rutas de transporte). Evitamos transferir payloads enormes;
-  // el cliente debe refinar por `type`/`bbox` o subir `limite` si lo necesita.
-  const limite = Math.min(parseInt(req.query.limite, 10) || 8000, 20000);
+  // (sobre todo waypoints de rutas de transporte). El mapa del frontend ahora
+  // clusteriza todos los puntos, por lo que el tope cubre el dataset completo
+  // (~27.454); el cliente puede refinar por `type`/`bbox` para payloads menores.
+  const limite = Math.min(parseInt(req.query.limite, 10) || 8000, 30000);
 
   const docs = await Location.find(filters, proyeccion)
     .limit(limite)

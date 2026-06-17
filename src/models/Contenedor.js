@@ -347,8 +347,11 @@ contenedorSchema.statics.buscarCercanos = function(longitude, latitude, maxDista
  * @param {string} distrito - Nombre del distrito (opcional)
  * @returns {Promise<Array>} Estadísticas por tipo de contenedor
  */
-contenedorSchema.statics.obtenerEstadisticasPorDistrito = function(distrito = null) {
-  const matchStage = distrito ? { $match: { distrito } } : { $match: {} };
+contenedorSchema.statics.obtenerEstadisticasPorDistrito = function(distrito = null, lote = null) {
+  const match = {};
+  if (distrito) { match.distrito = distrito; }
+  if (lote !== undefined && lote !== null && lote !== '') { match.lote = Number(lote); }
+  const matchStage = { $match: match };
 
   return this.aggregate([
     matchStage,
@@ -436,8 +439,13 @@ contenedorSchema.statics.obtenerEstadisticasPorBarrio = function(distrito, barri
  *
  * @returns {Promise<Object>} Resumen con totales por tipo
  */
-contenedorSchema.statics.obtenerResumenGeneral = function() {
-  return this.aggregate([
+contenedorSchema.statics.obtenerResumenGeneral = function(lote = null) {
+  const pipeline = [];
+  // Filtro opcional por lote (para que los KPIs reflejen el lote activo).
+  if (lote !== undefined && lote !== null && lote !== '') {
+    pipeline.push({ $match: { lote: Number(lote) } });
+  }
+  pipeline.push(
     // NO usar $limit antes de $group - necesitamos TODOS los documentos para estadísticas correctas
     {
       $group: {
@@ -460,7 +468,8 @@ contenedorSchema.statics.obtenerResumenGeneral = function() {
         totalUbicaciones: { $sum: '$totalUbicaciones' }
       }
     }
-  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+  );
+  return this.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -652,7 +661,7 @@ contenedorSchema.statics.obtenerCaracteristicasMapa = function(filtros = {}) {
 };
 
 contenedorSchema.statics.obtenerAnalisisDensidadPorDistrito = function(options = {}) {
-  const { distrito, tipoContenedor, includeBarrios = true } = options;
+  const { distrito, tipoContenedor, lote, includeBarrios = true } = options;
 
   const matchStage = {};
   if (distrito) {
@@ -660,6 +669,9 @@ contenedorSchema.statics.obtenerAnalisisDensidadPorDistrito = function(options =
   }
   if (tipoContenedor) {
     matchStage.tipoContenedor = tipoContenedor;
+  }
+  if (lote !== undefined && lote !== null && lote !== '') {
+    matchStage.lote = Number(lote);
   }
 
   // Pipeline optimizado usando $group múltiples en lugar de $reduce

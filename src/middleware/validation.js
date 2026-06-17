@@ -19,7 +19,6 @@ const {
   TRAFFIC_ELEMENT_TYPES,
   SORT_FIELDS,
   USER_VALIDATION,
-  USER_ROLES,
   PAGINATION,
   SEARCH_LIMITS,
   GEO_LIMITS,
@@ -67,12 +66,11 @@ const validateRegistration = [
     .isLength({ min: USER_VALIDATION.MIN_PASSWORD_LENGTH, max: USER_VALIDATION.MAX_PASSWORD_LENGTH })
     .withMessage(`La contrasena debe tener entre ${USER_VALIDATION.MIN_PASSWORD_LENGTH} y ${USER_VALIDATION.MAX_PASSWORD_LENGTH} caracteres`)
     .matches(USER_VALIDATION.PASSWORD_PATTERN)
-    .withMessage('La contrasena debe contener al menos una letra mayuscula, una minuscula, un numero y un caracter especial'),
+    .withMessage('La contrasena debe contener al menos una letra mayuscula, una minuscula, un numero y un caracter especial')
 
-  body('role')
-    .optional()
-    .isIn(Object.values(USER_ROLES))
-    .withMessage('Rol invalido')
+  // Nota: NO se valida ni acepta `role` en el registro. El rol siempre es el
+  // default del schema (USER). Aceptar `role` aqui seria un footgun latente de
+  // mass-assignment de privilegios si algun cambio futuro volcase req.body.
 ];
 
 /**
@@ -82,7 +80,13 @@ const validateRegistration = [
  */
 // Nota: el identifier NO se escapa (ver comentario en validateRegistration)
 const validateLogin = [
+  // `.isString().bail()` PRIMERO: si llega un objeto (p.ej. {"$ne":null}, que
+  // express-mongo-sanitize deja como {"_ne":null}), se rechaza con 400 en vez de
+  // propagarlo a bcrypt.compare/Mongo y producir un 500.
   body('identifier')
+    .isString()
+    .withMessage('El identificador debe ser una cadena de texto')
+    .bail()
     .trim()
     .notEmpty()
     .withMessage('Se requiere email o nombre de usuario')
@@ -90,6 +94,9 @@ const validateLogin = [
     .withMessage(`El identificador debe tener entre ${USER_VALIDATION.MIN_IDENTIFIER_LENGTH} y ${USER_VALIDATION.MAX_IDENTIFIER_LENGTH} caracteres`),
 
   body('password')
+    .isString()
+    .withMessage('La contrasena debe ser una cadena de texto')
+    .bail()
     .notEmpty()
     .withMessage('Se requiere contrasena')
     .isLength({ min: 1, max: USER_VALIDATION.MAX_PASSWORD_LENGTH })
@@ -103,10 +110,16 @@ const validateLogin = [
  */
 const validatePasswordChange = [
   body('currentPassword')
+    .isString()
+    .withMessage('La contraseña actual debe ser una cadena de texto')
+    .bail()
     .notEmpty()
     .withMessage('Se requiere la contraseña actual'),
 
   body('newPassword')
+    .isString()
+    .withMessage('La nueva contraseña debe ser una cadena de texto')
+    .bail()
     .isLength({ min: USER_VALIDATION.MIN_PASSWORD_LENGTH, max: USER_VALIDATION.MAX_PASSWORD_LENGTH })
     .withMessage(`La nueva contraseña debe tener entre ${USER_VALIDATION.MIN_PASSWORD_LENGTH} y ${USER_VALIDATION.MAX_PASSWORD_LENGTH} caracteres`)
     .matches(USER_VALIDATION.PASSWORD_PATTERN)

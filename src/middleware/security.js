@@ -135,9 +135,14 @@ const xssProtection = (req, res, next) => {
     }
 
     if (typeof obj === 'string') {
-      const sanitized = xss(obj);
+      // Eliminar null bytes (\u0000) antes de cualquier otro procesamiento: no
+      // tienen uso legitimo en esta API y rompen las regex/BSON de MongoDB (el
+      // driver rechaza patrones con null byte -> 500). Defensa global para todos
+      // los endpoints (afecta a filtros tipo regex como distrito, lugar, etc.).
+      const cleaned = obj.indexOf('\u0000') === -1 ? obj : obj.split('\u0000').join('');
+      const sanitized = xss(cleaned);
       if (sanitized !== obj) {
-        pinoSecurityLogger.warn({ ip: req.ip, depth, originalLength: obj.length, sanitizedLength: sanitized.length }, 'Intento de XSS detectado y sanitizado');
+        pinoSecurityLogger.warn({ ip: req.ip, depth, originalLength: obj.length, sanitizedLength: sanitized.length }, 'Entrada sanitizada (XSS o caracteres de control)');
       }
       return sanitized;
     }

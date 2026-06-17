@@ -1,14 +1,20 @@
 /**
- * Módulo de Precalentamiento de Caché (Cache Warming)
+ * Módulo de Precalentamiento (Warm-up) al iniciar el servidor
  *
- * Precalienta el caché al iniciar el servidor con datos frecuentemente
- * accedidos para mejorar el rendimiento de las primeras peticiones.
+ * IMPORTANTE — alcance real: este modulo ejecuta las queries/agregaciones mas
+ * habituales para calentar el WORKING SET de MongoDB (cache de WiredTiger en RAM
+ * y plan cache del optimizador). NO puebla el cache HTTP de respuestas que vive
+ * en `middleware/cache.js` (ese se indexa por hash de la request y solo se
+ * escribe desde el propio `cacheMiddleware`). Por tanto la PRIMERA peticion a
+ * cada endpoint sigue siendo un MISS de cache HTTP, pero la consulta subyacente
+ * a Mongo ya encuentra las paginas calientes en memoria y responde mucho mas
+ * rapido. El beneficio es de I/O de base de datos, no de cache de aplicacion.
  *
  * Estrategia:
- * - Cachear datos estáticos (ubicaciones, distritos)
- * - Cachear estadísticas recientes más consultadas
- * - Ejecutar en paralelo para minimizar tiempo de inicio
- * - Logging detallado del proceso
+ * - Tocar datos estáticos (ubicaciones, distritos) y las estadisticas mas
+ *   consultadas para que sus indices/documentos queden en RAM.
+ * - Ejecutar en background (no bloquea el arranque) y en paralelo.
+ * - Logging detallado del proceso.
  */
 
 const Location = require('../models/Ubicacion');

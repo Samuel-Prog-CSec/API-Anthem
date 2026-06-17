@@ -8,7 +8,7 @@
 const Contenedor = require('../models/Contenedor');
 const { createNotFoundError, createBadRequestError } = require('../utils/errorUtils');
 const { createPaginationMeta, buildCursorQuery, createCursorMeta } = require('../utils/paginationHelper');
-const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams } = require('../utils/queryHelper');
+const { buildFilters, buildSortOptions, buildPaginationOptions, TRANSFORMS, parseNumericParams, primerValorEscalar } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { PAGINATION, HTTP_STATUS, SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, GEO_LIMITS } = require('../constants');
@@ -99,7 +99,8 @@ exports.obtenerContenedores = asyncHandler(async (req, res) => {
  * @access Private
  */
 exports.obtenerContenedoresCercanos = asyncHandler(async (req, res, next) => {
-  const { longitude, latitude, tipoContenedor } = req.query;
+  const { longitude, latitude } = req.query;
+  const tipoContenedor = primerValorEscalar(req.query.tipoContenedor);
 
   if (!longitude || !latitude) {
     return next(createBadRequestError('Se requieren los parametros longitude y latitude'));
@@ -144,7 +145,8 @@ exports.obtenerContenedoresCercanos = asyncHandler(async (req, res, next) => {
  * @access Private
  */
 exports.obtenerEstadisticasContenedores = asyncHandler(async (req, res, next) => {
-  const summary = await Contenedor.obtenerResumenGeneral();
+  const { lote } = req.query;
+  const summary = await Contenedor.obtenerResumenGeneral(lote);
 
   if (!summary || summary.length === 0) {
     return next(createNotFoundError('Datos de contenedores'));
@@ -160,9 +162,9 @@ exports.obtenerEstadisticasContenedores = asyncHandler(async (req, res, next) =>
  * @access Private
  */
 exports.obtenerEstadisticasPorDistrito = asyncHandler(async (req, res, next) => {
-  const { distrito } = req.query;
+  const { distrito, lote } = req.query;
 
-  const stats = await Contenedor.obtenerEstadisticasPorDistrito(distrito ? distrito : null);
+  const stats = await Contenedor.obtenerEstadisticasPorDistrito(distrito ? distrito : null, lote ?? null);
 
   if (!stats || stats.length === 0) {
     return next(createNotFoundError('Contenedores', distrito ? `distrito ${distrito}` : null));
@@ -276,7 +278,8 @@ exports.obtenerBarriosPorDistrito = asyncHandler(async (req, res, next) => {
  * - Con indice ($text): ~15ms con 50k documentos (TEXT index scan)
  */
 exports.buscarPorDireccion = asyncHandler(async (req, res, next) => {
-  const { q, tipoContenedor } = req.query;
+  const { q } = req.query;
+  const tipoContenedor = primerValorEscalar(req.query.tipoContenedor);
 
   if (!q) {
     return next(createBadRequestError('Se requiere el parametro de busqueda q'));
@@ -321,7 +324,7 @@ exports.buscarPorDireccion = asyncHandler(async (req, res, next) => {
  * @access Private
  */
 exports.obtenerMapaCalor = asyncHandler(async (req, res) => {
-  const { tipoContenedor } = req.query;
+  const tipoContenedor = primerValorEscalar(req.query.tipoContenedor);
 
   const heatmapData = await Contenedor.obtenerDatosMapaCalor(tipoContenedor);
 
@@ -360,7 +363,8 @@ exports.obtenerAnalisisCobertura = asyncHandler(async (req, res) => {
  * @access Private
  */
 exports.obtenerMapaContenedores = asyncHandler(async (req, res, next) => {
-  const { tipoContenedor, distrito, barrio, lote, bbox } = req.query;
+  const { distrito, barrio, lote, bbox } = req.query;
+  const tipoContenedor = primerValorEscalar(req.query.tipoContenedor);
 
   // Parsear bbox: acepta CSV "minLng,minLat,maxLng,maxLat" o array
   let bboxArray;
@@ -419,11 +423,13 @@ exports.obtenerMapaContenedores = asyncHandler(async (req, res, next) => {
  * @access Private
  */
 exports.obtenerAnalisisDensidad = asyncHandler(async (req, res, next) => {
-  const { distrito, tipoContenedor, includeBarrios = 'true' } = req.query;
+  const { distrito, lote, includeBarrios = 'true' } = req.query;
+  const tipoContenedor = primerValorEscalar(req.query.tipoContenedor);
 
   const options = {
     distrito,
     tipoContenedor: tipoContenedor ? tipoContenedor.toUpperCase() : undefined,
+    lote: (lote !== undefined && lote !== '') ? Number(lote) : undefined,
     includeBarrios: includeBarrios === 'true'
   };
 

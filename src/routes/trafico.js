@@ -48,8 +48,8 @@ const generalLimit = rateLimit({
  * GET /api/v1/trafico
  */
 router.get('/',
-  generalLimit,
   authenticate,
+  generalLimit,
   // Trafico es la coleccion mas masiva (~24M docs); usamos TRAFFIC_MAX_DAYS=90
   // en lugar del DEFAULT_MAX=365 para forzar al cliente a paginar por trimestres
   // o aplicar filtros de puntoMedidaId que reduzcan el scope antes del scan.
@@ -63,8 +63,8 @@ router.get('/',
  * GET /api/v1/trafico/punto/:id
  */
 router.get('/punto/:id',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarTraficoPorPunto,
   validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
@@ -75,9 +75,9 @@ router.get('/punto/:id',
  * GET /api/v1/trafico/estadisticas
  */
 router.get('/estadisticas',
+  authenticate,
   generalLimit,
   heavyQueryLimiter,
-  authenticate,
   validarEstadisticasTrafico,
   validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
@@ -92,13 +92,13 @@ router.get('/estadisticas',
  * GET /api/v1/trafico/analisis-congestion
  */
 router.get('/analisis-congestion',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarAnalisisCongestion,
   validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
   cacheMiddleware('traffic', (req) =>
-    `traffic-congestion-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.groupBy || 'distrito'}`
+    `traffic-congestion-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.groupBy || 'distrito'}-${req.query.tipoElemento || 'all'}`
   ),
   controladorTrafico.obtenerAnalisisCongestion
 );
@@ -107,8 +107,8 @@ router.get('/analisis-congestion',
  * GET /api/v1/trafico/historico
  */
 router.get('/historico',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarHistoricoTrafico,
   validateRequest,
   validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
@@ -123,8 +123,8 @@ router.get('/historico',
  * GET /api/v1/trafico/mapa
  */
 router.get('/mapa',
-  generalLimit,
   authenticate,
+  generalLimit,
   validarMapaTrafico,
   validateRequest,
   cacheMiddleware('traffic', (req) =>
@@ -160,8 +160,11 @@ router.use((error, req, res, _next) => {
     userId: req.user?.id
   }, 'Error en rutas de tráfico');
 
-  if (error.status || error.statusCode) {
-    return res.status(error.status || error.statusCode).json({
+  // error.status es la cadena 'fail'/'error' (convencion AppError), NO un codigo
+  // HTTP. Usar error.statusCode (numerico); si no es un entero valido, caer al 500.
+  const codigoEstado = Number.isInteger(error.statusCode) ? error.statusCode : null;
+  if (codigoEstado) {
+    return res.status(codigoEstado).json({
       success: false,
       message: error.message
     });

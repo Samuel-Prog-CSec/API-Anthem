@@ -13,11 +13,15 @@ const { MONGODB_TIMEOUTS } = require('../constants');
  * Elimina código repetitivo en configuración de filtros
  */
 const TRANSFORMS = {
-  /** Convierte valor a mayúsculas */
-  toUpperCase: v => v.toUpperCase(),
+  /** Convierte valor (o array de valores) a mayúsculas, tolerante a no-strings */
+  toUpperCase: v => Array.isArray(v)
+    ? v.map(x => String(x).toUpperCase())
+    : String(v).toUpperCase(),
 
-  /** Convierte valor a minúsculas */
-  toLowerCase: v => v.toLowerCase(),
+  /** Convierte valor (o array de valores) a minúsculas, tolerante a no-strings */
+  toLowerCase: v => Array.isArray(v)
+    ? v.map(x => String(x).toLowerCase())
+    : String(v).toLowerCase(),
 
   /** Convierte valor o array de valores a array de enteros */
   toIntArray: v => Array.isArray(v) ? v.map(m => parseInt(m, 10)) : [parseInt(v, 10)],
@@ -96,6 +100,20 @@ const buildResponseMetadata = (params, options = {}) => {
 };
 
 /**
+ * Normaliza un parametro que un endpoint espera como ESCALAR.
+ *
+ * Un parametro duplicado en query string (`?x=a&x=b`) -- legitimo para los
+ * filtros multi-valor de los listados, por eso esta en la whitelist HPP --
+ * llega como array. En endpoints de un solo valor eso provocaba
+ * `array.toUpperCase()` -> TypeError -> 500. Tomamos el primer valor para
+ * degradar de forma segura en vez de romper.
+ *
+ * @param {*} value - Valor crudo de req.query
+ * @returns {*} El primer elemento si es array; el valor tal cual en otro caso
+ */
+const primerValorEscalar = (value) => (Array.isArray(value) ? value[0] : value);
+
+/**
  * Escapa caracteres especiales de regex para prevenir ataques ReDoS
  *
  * @param {string} str - String a escapar
@@ -136,14 +154,20 @@ const buildFilters = (queryParams, filterConfig) => {
       case 'regex': {
         const value = queryParams[param];
         if (value) {
-          // Limitar longitud de entrada para prevenir abuso de regex
+          // Construye una RegExp anti-ReDoS (longitud acotada + metacaracteres
+          // escapados) a partir de un unico valor.
           const maxRegexLength = 200;
-          const truncatedValue = typeof value === 'string' && value.length > maxRegexLength
-            ? value.substring(0, maxRegexLength)
-            : value;
-          // Sanitizar entrada de usuario para prevenir ataques ReDoS
-          const sanitizedValue = escapeRegex(truncatedValue);
-          filters[field] = new RegExp(sanitizedValue, 'i');
+          const toRegex = (val) => {
+            const truncatedValue = typeof val === 'string' && val.length > maxRegexLength
+              ? val.substring(0, maxRegexLength)
+              : val;
+            return new RegExp(escapeRegex(truncatedValue), 'i');
+          };
+          // Un parametro duplicado (?x=a&x=b) llega como array: generar `$in`
+          // de regex en lugar de reventar (un array no tiene metodos de string).
+          filters[field] = Array.isArray(value)
+            ? { $in: value.map(toRegex) }
+            : toRegex(value);
         }
         break;
       }
@@ -151,7 +175,12 @@ const buildFilters = (queryParams, filterConfig) => {
       case 'exact': {
         const value = queryParams[param];
         if (value !== undefined && value !== null && value !== '') {
-          filters[field] = transform ? transform(value) : value;
+          const transformed = transform ? transform(value) : value;
+          // Un parametro duplicado llega como array: traducir a `$in` (no a
+          // igualdad contra el array entero, que no matchearia nada).
+          filters[field] = Array.isArray(transformed)
+            ? { $in: transformed }
+            : transformed;
         }
         break;
       }
@@ -222,7 +251,10 @@ const buildFilters = (queryParams, filterConfig) => {
       }
 
       case 'boolean': {
-        const value = queryParams[param];
+        // Un parametro duplicado llega como array; tomar el primer valor
+        // definido para no descartar el filtro en silencio.
+        const raw = queryParams[param];
+        const value = Array.isArray(raw) ? raw[0] : raw;
         if (value !== undefined) {
           filters[field] = value === 'true' || value === true;
         }
@@ -513,6 +545,7 @@ module.exports = {
   TRANSFORMS,
   parseNumericParams,
   buildResponseMetadata,
+  primerValorEscalar,
   escapeRegex,
   buildFilters,
   buildSortOptions,

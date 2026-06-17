@@ -56,7 +56,9 @@ router.get('/piramide',
   validateRequest,
   etagMiddleware,
   cacheMiddleware('demographic', (req) =>
-    `census:pyramid:${req.query.año || CENSUS_DEFAULTS.START_YEAR}:${req.query.distrito || 'all'}:${req.query.incluirExtranjeros || true}`
+    // El `mes` DEBE estar en la clave: la piramide es una foto de un mes y el
+    // servicio lo usa en el $match; omitirlo servia el mes equivocado al filtrar.
+    `census:pyramid:${req.query.año || CENSUS_DEFAULTS.START_YEAR}:${req.query.distrito || 'all'}:${req.query.mes || 'all'}:${req.query.incluirExtranjeros || true}`
   ),
   obtenerPiramidePoblacional
 );
@@ -111,7 +113,11 @@ router.get('/dashboard',
   validarDashboardDemografico,
   validateRequest,
   cacheMiddleware('demographic', (req) =>
-    `census:dashboard:${req.query.año || CENSUS_DEFAULTS.START_YEAR}:${req.query.distrito || 'all'}`
+    // El `mes` DEBE formar parte de la clave: el controlador lo usa en el
+    // $match. Omitirlo hacia que peticiones de meses distintos (mismo año y
+    // distrito) colisionaran en la misma clave y se sirvieran datos del mes
+    // equivocado durante el TTL.
+    `census:dashboard:${req.query.año || CENSUS_DEFAULTS.START_YEAR}:${req.query.distrito || 'all'}:${req.query.mes || 'all'}:${req.query.barrio || 'all'}:${req.query.grupoEdad || 'all'}`
   ),
   obtenerDashboardDemografico
 );

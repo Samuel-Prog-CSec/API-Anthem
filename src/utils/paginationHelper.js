@@ -39,6 +39,19 @@ const buildCursorQuery = ({ cursor, sortField = '_id', sortOrder = 'desc' }) => 
     return null;
   }
 
+  // Defensa en profundidad: el contenido del cursor (base64 + JSON) NO pasa por
+  // express-mongo-sanitize ni por los validadores express-validator (se
+  // deserializa DESPUES del middleware). Rechazar `value` no primitivo
+  // (objeto/array, que podria intentar colar un operador) y exigir que `id` sea
+  // un ObjectId valido (24 hex). Un cursor manipulado degrada a "sin cursor"
+  // (primera pagina) en vez de propagar tipos arbitrarios a la query Mongo.
+  if (parsed.value !== null && typeof parsed.value === 'object') {
+    return null;
+  }
+  if (typeof parsed.id !== 'string' || !/^[a-f0-9]{24}$/i.test(parsed.id)) {
+    return null;
+  }
+
   const operator = sortOrder === 'asc' ? '$gt' : '$lt';
 
   // Garantizar avance estable incluso con valores duplicados en sortField

@@ -14,9 +14,13 @@ const { MONGODB_TIMEOUTS, AGGREGATION_LIMITS } = require('../constants');
  * Estadisticas optimizadas con paralelizacion via Promise.all.
  */
 const obtenerEstadisticasOptimizadas = async function(Model, options) {
-  const { startDate = null, endDate = null, groupBy = 'month', limit = 12 } = options;
+  const { startDate = null, endDate = null, groupBy = 'month', limit = 12, filtrosAdicionales = {} } = options;
 
-  const matchStage = {};
+  // Filtros de dominio (denunciante, descuento, gravedad) para que la
+  // distribucion por calificacion reaccione a todos los filtros del panel y
+  // no solo al rango de fechas. Se fusionan ANTES de la fecha; `fecha` siempre
+  // prevalece (los filtros adicionales nunca la incluyen).
+  const matchStage = { ...filtrosAdicionales };
   if (startDate || endDate) {
     matchStage.fecha = {};
     if (startDate) {matchStage.fecha.$gte = new Date(startDate);}

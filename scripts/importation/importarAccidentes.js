@@ -548,6 +548,14 @@ function calcularCamposAnalisis(data) {
     tipoLesion === 'ATENCI\u00d3N_EN_URGENCIAS_SIN_POSTERIOR_INGRESO'
   ) {
     gravedad = SEVERITY_LEVELS.ACCIDENT.GRAVE;
+  } else if (tipoLesion === 'SIN_ASISTENCIA_SANITARIA' || tipoLesion === 'SE_DESCONOCE') {
+    // "Sin asistencia sanitaria" (cod_lesividad 14) y lesividad en blanco/null
+    // (que el dataset documenta como "sin asistencia sanitaria") = persona
+    // ilesa, NO un herido leve. Antes ambos caian al else -> LEVE, inflando
+    // LEVE al ~74,5% de los afectados y vaciando SIN_LESIONES (que el enum
+    // admite pero el importador nunca emitia). El resto de lesividades con
+    // asistencia ambulatoria/in-situ (codigos 2,3) si son LEVE legitimas.
+    gravedad = SEVERITY_LEVELS.ACCIDENT.SIN_LESIONES;
   } else {
     gravedad = SEVERITY_LEVELS.ACCIDENT.LEVE;
   }

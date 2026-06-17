@@ -169,7 +169,11 @@ const obtenerMultas = asyncHandler(async (req, res) => {
 const obtenerMultaPorId = asyncHandler(async (req, res, next) => {
   const { id } = req.params;
 
+  // Excluir metadatos internos de procesamiento (archivoOrigen, validaciones,
+  // fecha de importacion) y timestamps: no aportan al detalle publico de la
+  // multa y .lean() no aplica el transform toJSON que los quitaria.
   const multa = await Multa.findById(id)
+    .select('-procesamiento -createdAt -updatedAt')
     .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
     .lean();
 
@@ -208,11 +212,27 @@ const obtenerEstadisticasMultas = asyncHandler(async (req, res) => {
     { limit: AGGREGATION_LIMITS.MONTHLY_STATS }
   );
 
+  // Filtros de dominio para que la distribucion (p.ej. groupBy=severity)
+  // reaccione a denunciante/descuento/gravedad igual que los KPIs. No se
+  // incluye `calificacion`: la distribucion agrupa por ese mismo campo y
+  // filtrarla por el la colapsaria a una sola barra.
+  const filtrosAdicionales = buildFilters(req.query, [
+    { field: 'denunciante', type: 'regex', param: 'denunciante' }
+  ]);
+  const descuento = req.query.tieneDescuento ?? req.query.conDescuento;
+  if (descuento !== undefined) {
+    filtrosAdicionales.tieneDescuento = descuento === true || descuento === 'true';
+  }
+  if (req.query.esGrave !== undefined) {
+    filtrosAdicionales['metadatos.esInfraccionGrave'] = req.query.esGrave === true || req.query.esGrave === 'true';
+  }
+
   const result = await Multa.obtenerEstadisticasOptimizadas({
     startDate: startDate ? new Date(startDate) : null,
     endDate: endDate ? new Date(endDate) : null,
     groupBy,
-    limit
+    limit,
+    filtrosAdicionales
   });
 
   const responseData = {
