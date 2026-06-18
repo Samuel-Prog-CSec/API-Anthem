@@ -75,6 +75,13 @@ const connectDB = async (uri) => {
       // sus propios retries (peor experiencia: timeout en lugar de error).
       bufferCommands: process.env.NODE_ENV !== 'production',
 
+      // autoIndex: ON en desarrollo (comodidad: Mongoose crea al vuelo los
+      // indices declarados en los schemas) y OFF en produccion. En prod los
+      // indices se crean una sola vez via los scripts de importacion (que ya
+      // gestionan drop/recreate); recrearlos/validarlos en cada arranque solo
+      // anade latencia de boot y carga innecesaria sobre MongoDB.
+      autoIndex: process.env.NODE_ENV !== 'production',
+
       // Identificador de la aplicacion en logs/metrics de MongoDB.
       // Util cuando varios servicios apuntan al mismo cluster.
       appName: esScriptMode ? 'API-Anthem-scripts' : 'API-Anthem-server',

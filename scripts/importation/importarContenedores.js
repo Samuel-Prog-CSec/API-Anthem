@@ -303,8 +303,11 @@ function validateAndTransformRow(row, _rowIndex) {
   // como mejora futura).
   const barrioFinal = barrio || null;
 
-  // Direccion (manejar encoding)
-  const tipoVia = cleanString(row['Tipo Vía'] || row['Tipo V�a']);
+  // Direccion (manejar encoding).
+  // toUpperCase para no fragmentar filtros/estadisticas por tipo de via: el CSV
+  // mezcla "CALLE"/"Calle", "AVENIDA"/"Avenida"... (mismo criterio que
+  // tipoContenedor y distrito, que ya se normalizan a mayusculas).
+  const tipoVia = (cleanString(row['Tipo Vía'] || row['Tipo V�a']) || '').toUpperCase();
   const nombreVia = cleanString(row.Nombre);
   const numero = cleanString(row['Número'] || row['N�mero']);
 

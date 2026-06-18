@@ -154,7 +154,10 @@ router.get('/health', authenticate, adminOnly, (req, res) => {
  * que es informacion de configuracion util para un atacante.
  */
 router.get('/cors-test', (req, res, next) => {
-  if (config.server.env === 'production') {
+  // Fail-secure: exponer SOLO cuando el entorno es EXPLICITAMENTE 'development'.
+  // Con un gate "!= production" un deploy que olvide fijar NODE_ENV (default
+  // 'development') filtraria la allowlist de CORS. Coherente con testMode.enabled.
+  if (config.server.env !== 'development') {
     return next();
   }
 

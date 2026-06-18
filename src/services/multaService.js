@@ -105,20 +105,34 @@ const obtenerEstadisticasOptimizadas = async function(Model, options) {
           tiposInfraccionUnicos: { $addToSet: '$metadatos.tipoInfraccion' },
           denunciantesUnicos: { $addToSet: '$denunciante' }
         }
+      },
+      // Devolvemos solo los CONTEOS de distintos, no los arrays completos: el
+      // cliente solo usa los totales, asi que serializar miles de lugares o
+      // denunciantes desperdicia ancho de banda, expone datos innecesarios y
+      // arriesga el limite de 16MB del documento de salida en datasets grandes.
+      // El $size se calcula sobre el mismo $addToSet, asi que los conteos son
+      // identicos a los previos (resumenGeneral[0].<array>.length).
+      {
+        $project: {
+          _id: 0,
+          totalMultas: 1,
+          importeTotal: 1,
+          puntosTotal: 1,
+          fechaInicio: 1,
+          fechaFin: 1,
+          totalLugaresUnicos: { $size: '$lugaresUnicos' },
+          totalTiposInfraccion: { $size: '$tiposInfraccionUnicos' },
+          totalDenunciantesUnicos: { $size: '$denunciantesUnicos' }
+        }
       }
     ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
   ]);
 
   return {
     estadisticas,
-    resumen: resumenGeneral[0]
-      ? {
-        ...resumenGeneral[0],
-        totalLugaresUnicos: resumenGeneral[0].lugaresUnicos.length,
-        totalTiposInfraccion: resumenGeneral[0].tiposInfraccionUnicos.length,
-        totalDenunciantesUnicos: resumenGeneral[0].denunciantesUnicos.length
-      }
-      : null
+    // resumenGeneral[0] ya viene proyectado con los totales y los 3 conteos de
+    // distintos; no quedan arrays crudos que limpiar.
+    resumen: resumenGeneral[0] || null
   };
 };
 

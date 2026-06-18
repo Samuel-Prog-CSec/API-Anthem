@@ -405,15 +405,33 @@ const obtenerAnalisisCumplimientoPorZona = async function(Model, options) {
     matchStage.nmt = { $in: stations };
   }
 
-  const buildComplianceCondition = (field, limit) => ({
-    cumple: {
+  // Cuenta cumple/incumple por periodo con claves PREFIJADAS por periodo. Antes
+  // las tres llamadas reutilizaban las mismas claves (cumple/incumple/promedio/
+  // maximo) y al hacer spread en el $group la ultima (nocturno) pisaba a las
+  // demas, dejando el "diurno" del $project mostrando en realidad datos
+  // nocturnos mal rotulados y, sobre todo, ignorando las excedencias de noche
+  // (cuyo limite, 55 dB, es mas estricto que el diurno de 65 dB).
+  const buildComplianceCondition = (field, limit, prefix) => ({
+    [`${prefix}Cumple`]: {
       $sum: { $cond: [{ $and: [{ $ne: [`$${field}`, null] }, { $lte: [`$${field}`, limit] }] }, 1, 0] }
     },
-    incumple: {
+    [`${prefix}Incumple`]: {
       $sum: { $cond: [{ $and: [{ $ne: [`$${field}`, null] }, { $gt: [`$${field}`, limit] }] }, 1, 0] }
     },
-    promedio: { $avg: `$${field}` },
-    maximo: { $max: `$${field}` }
+    [`${prefix}Promedio`]: { $avg: `$${field}` },
+    [`${prefix}Maximo`]: { $max: `$${field}` }
+  });
+
+  // Porcentaje de cumplimiento de un periodo con guarda div/0: una estacion sin
+  // mediciones validas (cumple+incumple=0) devuelve 0 en vez de lanzar error.
+  const porcentajeCumplimiento = (cumpleExpr, incumpleExpr) => ({
+    $round: [{
+      $cond: [
+        { $gt: [{ $add: [cumpleExpr, incumpleExpr] }, 0] },
+        { $multiply: [{ $divide: [cumpleExpr, { $add: [cumpleExpr, incumpleExpr] }] }, 100] },
+        0
+      ]
+    }, 2]
   });
 
   const estaciones = await Model.aggregate([
@@ -422,10 +440,17 @@ const obtenerAnalisisCumplimientoPorZona = async function(Model, options) {
       $group: {
         _id: { nmt: '$nmt', nombre: '$nombre' },
         totalMediciones: { $sum: 1 },
-        ...buildComplianceCondition('nivelDiurno', DIURNO),
-        ...buildComplianceCondition('nivelVespertino', VESPERTINO),
-        ...buildComplianceCondition('nivelNocturno', NOCTURNO),
+        ...buildComplianceCondition('nivelDiurno', DIURNO, 'diurno'),
+        ...buildComplianceCondition('nivelVespertino', VESPERTINO, 'vespertino'),
+        ...buildComplianceCondition('nivelNocturno', NOCTURNO, 'nocturno'),
         promedioLaeq24: { $avg: '$laeq24' }
+      }
+    },
+    // Totales agregados de los 3 periodos: base del cumplimiento global por estacion.
+    {
+      $addFields: {
+        cumpleTotal: { $add: ['$diurnoCumple', '$vespertinoCumple', '$nocturnoCumple'] },
+        incumpleTotal: { $add: ['$diurnoIncumple', '$vespertinoIncumple', '$nocturnoIncumple'] }
       }
     },
     {
@@ -436,22 +461,35 @@ const obtenerAnalisisCumplimientoPorZona = async function(Model, options) {
         totalMediciones: 1,
         cumplimiento: {
           diurno: {
-            cumple: '$cumple',
-            incumple: '$incumple',
-            porcentaje: {
-              // Guarda div/0: una estacion sin mediciones validas (todos los
-              // niveles null) da cumple+incumple=0 y MongoDB lanzaria error.
-              $round: [{
-                $cond: [
-                  { $gt: [{ $add: ['$cumple', '$incumple'] }, 0] },
-                  { $multiply: [{ $divide: ['$cumple', { $add: ['$cumple', '$incumple'] }] }, 100] },
-                  0
-                ]
-              }, 2]
-            },
+            cumple: '$diurnoCumple',
+            incumple: '$diurnoIncumple',
+            porcentaje: porcentajeCumplimiento('$diurnoCumple', '$diurnoIncumple'),
             limite: DIURNO,
-            promedio: { $round: ['$promedio', 2] },
-            maximo: { $round: ['$maximo', 2] }
+            promedio: { $round: ['$diurnoPromedio', 2] },
+            maximo: { $round: ['$diurnoMaximo', 2] }
+          },
+          vespertino: {
+            cumple: '$vespertinoCumple',
+            incumple: '$vespertinoIncumple',
+            porcentaje: porcentajeCumplimiento('$vespertinoCumple', '$vespertinoIncumple'),
+            limite: VESPERTINO,
+            promedio: { $round: ['$vespertinoPromedio', 2] },
+            maximo: { $round: ['$vespertinoMaximo', 2] }
+          },
+          nocturno: {
+            cumple: '$nocturnoCumple',
+            incumple: '$nocturnoIncumple',
+            porcentaje: porcentajeCumplimiento('$nocturnoCumple', '$nocturnoIncumple'),
+            limite: NOCTURNO,
+            promedio: { $round: ['$nocturnoPromedio', 2] },
+            maximo: { $round: ['$nocturnoMaximo', 2] }
+          },
+          // Cumplimiento GLOBAL de la estacion: % de mediciones-periodo dentro de
+          // limite sobre el total de mediciones-periodo evaluadas (los 3 periodos).
+          global: {
+            cumple: '$cumpleTotal',
+            incumple: '$incumpleTotal',
+            porcentaje: porcentajeCumplimiento('$cumpleTotal', '$incumpleTotal')
           }
         },
         promedioGeneralLaeq24: { $round: ['$promedioLaeq24', 2] }
@@ -462,7 +500,7 @@ const obtenerAnalisisCumplimientoPorZona = async function(Model, options) {
   const resumenGlobal = {
     totalEstaciones: estaciones.length,
     cumplimientoPromedioGlobal: estaciones.length > 0
-      ? Math.round(estaciones.reduce((sum, e) => sum + (e.cumplimiento?.diurno?.porcentaje || 0), 0) / estaciones.length * 100) / 100
+      ? Math.round(estaciones.reduce((sum, e) => sum + (e.cumplimiento?.global?.porcentaje || 0), 0) / estaciones.length * 100) / 100
       : 0,
     periodo: { inicio: startDate, fin: endDate },
     limites: { diurno: DIURNO, vespertino: VESPERTINO, nocturno: NOCTURNO }

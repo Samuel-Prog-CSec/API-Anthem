@@ -683,8 +683,14 @@ function validarYTransformarFila(row, rowIndex) {
   // TIPO_ACCIDENTE_MAP, cayendo todos a OTRO y perdiendo 8 de los 13 tipos.
   const tipoAccidenteOriginal = normalizarTexto(row.tipo_accidente) || '';
   const tipoAccidente = normalizarTipoAccidente(tipoAccidenteOriginal);
+  // El CSV es UTF-8 pero se lee con encoding latin1, asi que la cabecera con
+  // tilde "estado_meteorologico" llega mojibakeada (p.ej. estado_meteorol\u00c3\u00b3gico)
+  // y el acceso por clave exacta devolvia undefined -> null en el 100% de los
+  // docs, perdiendo ~28k filas con meteorologia real. Resolvemos la columna por
+  // patron robusto al mojibake (mismo enfoque que num_expediente arriba).
+  const meteoKey = Object.keys(row).find(k => /estado_meteorol.+gico/i.test(k));
   const estadoMeteorologico = normalizarEstadoMeteorologico(
-    normalizarTexto(row['estado_meteorol\u00f3gico'] || row.estado_meteorologico) || ''
+    normalizarTexto(meteoKey ? row[meteoKey] : '') || ''
   );
 
   // Datos del vehiculo
@@ -744,6 +750,13 @@ function validarYTransformarFila(row, rowIndex) {
     } else if (lesividad.toLowerCase().includes('leve') || lesividad.toLowerCase().includes('ambulat')) {
       tipoLesion = TIPOS_LESION.ASISTENCIA_SANITARIA_AMBULATORIA_CON_POSTERIORIDAD;
     }
+  } else {
+    // Sin codigo de lesividad ni descripcion: segun la doc del dataset, la
+    // lesividad en blanco significa "Sin asistencia sanitaria" (ileso, cod 14),
+    // NO "se desconoce". Antes ~14.800 filas (45,6%) caian a SE_DESCONOCE,
+    // confundiendo "ileso" con "desconocido" (solo ~3 filas son SE_DESCONOCE
+    // reales, via codigo 77).
+    tipoLesion = TIPOS_LESION.SIN_ASISTENCIA_SANITARIA;
   }
 
   // Datos de sustancias.

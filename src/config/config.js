@@ -40,6 +40,22 @@ const validateEnvironment = () => {
     console.warn(`[WARNING] ${errorMessage}`);
   }
 
+  // SEGURIDAD: rechazar los secretos placeholder de la plantilla (.env.example).
+  // Pasan la validacion de longitud pero son publicos, asi que permitirian
+  // forjar JWT arbitrarios. En produccion es fatal; en desarrollo solo se
+  // advierte para no bloquear el arranque local.
+  const PLACEHOLDER_SECRET_MARKERS = ['change-this', 'change-in-production', 'your-super-secret', 'change_me'];
+  const usaSecretoPlaceholder = [process.env.JWT_SECRET, process.env.JWT_REFRESH_SECRET]
+    .some(secret => secret && PLACEHOLDER_SECRET_MARKERS.some(marker => secret.toLowerCase().includes(marker)));
+  if (usaSecretoPlaceholder) {
+    const placeholderMessage = '[CRITICAL SECURITY] JWT_SECRET/JWT_REFRESH_SECRET usan valores placeholder de la plantilla. Genera secretos aleatorios (por ejemplo con "openssl rand -hex 64") antes de desplegar';
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(placeholderMessage);
+    }
+    // eslint-disable-next-line no-console
+    console.warn(`[WARNING] ${placeholderMessage}`);
+  }
+
   // SEGURIDAD CRITICA: el modo test concede rol admin a cualquier peticion
   // que envie la clave bypass. NUNCA debe estar activo en produccion: si
   // se filtra, es un backdoor de severidad maxima.
@@ -107,7 +123,10 @@ const config = {
   // evitamos un default hardcoded que un atacante podria adivinar si el
   // operador olvida poner TEST_MODE=false en produccion.
   testMode: {
-    enabled: process.env.TEST_MODE === 'true',
+    // Fail-secure: TEST_MODE solo se honra si NODE_ENV es EXPLICITAMENTE
+    // 'development'. Asi un despliegue que olvide fijar NODE_ENV (cuyo default
+    // en config.server.env es 'development') NO activa el backdoor admin.
+    enabled: process.env.TEST_MODE === 'true' && process.env.NODE_ENV === 'development',
     bypassKey: process.env.TEST_BYPASS_KEY
       || (process.env.TEST_MODE === 'true'
         ? require('crypto').randomBytes(32).toString('hex')

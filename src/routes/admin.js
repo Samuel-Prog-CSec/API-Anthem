@@ -357,18 +357,6 @@ router.get('/etag/stats',
 );
 
 /**
- * Función auxiliar para calcular hit rate del caché
- */
-function _calculateHitRate(stats) {
-  if (!stats || !stats.hits || !stats.misses) {
-    return 0;
-  }
-
-  const total = stats.hits + stats.misses;
-  return total > 0 ? Math.round((stats.hits / total) * 100) : 0;
-}
-
-/**
  * Función auxiliar para formatear tiempo de actividad
  */
 function formatUptime(seconds) {

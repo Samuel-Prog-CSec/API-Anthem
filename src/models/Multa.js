@@ -281,8 +281,10 @@ multaSchema.index({ 'metadatos.tipoInfraccion': 1, fecha: -1 });
 // Filtros por gravedad
 multaSchema.index({ 'metadatos.esInfraccionGrave': 1, fecha: -1 });
 
-// Filtros por descuento
-multaSchema.index({ tieneDescuento: 1, fecha: -1 });
+// (Sin indice sobre tieneDescuento: el campo es 100% constante -true- en el
+// dataset actual, por lo que un indice liderado por el tiene selectividad cero
+// y solo anade overhead de escritura sobre ~2M docs. Si en el futuro el dato
+// llegara a discriminar, reintroducir { tieneDescuento: 1, fecha: -1 }.)
 
 // Estadisticas por ubicacion
 multaSchema.index({ fecha: -1, lugar: 1, calificacion: 1 }, { name: 'idx_fines_statistics' });

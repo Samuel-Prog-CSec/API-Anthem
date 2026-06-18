@@ -215,7 +215,12 @@ function parsearFilaCalidadAire(row, _sourceFile, _rowIndex) {
       validationCode: VALIDATION_CODES.INVALID
     };
 
-    if (hourValue !== undefined && hourValue !== null && hourValue !== '') {
+    // Solo se conserva el valor numerico si la medicion esta marcada como
+    // VALIDA (V). Antes una lectura con flag 'N' (invalida) se guardaba con su
+    // valor crudo (~14k lecturas con valor, ~9,8k > 0), exponiendo dato
+    // invalido al API/frontend aunque los agregados luego filtren por V.
+    if (hourValue !== undefined && hourValue !== null && hourValue !== ''
+        && validationCode === VALIDATION_CODES.VALID) {
       const numericValue = parseFloat(hourValue);
       if (!isNaN(numericValue) && numericValue >= 0) {
         measurement.value = numericValue;

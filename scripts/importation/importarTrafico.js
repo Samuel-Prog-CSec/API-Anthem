@@ -193,7 +193,16 @@ function validateAndTransformRow(row, rowIndex) {
   const ocupacion = isNaN(rawOcupacion) ? -1 : rawOcupacion;
   const rawCarga = parseInt(row.carga);
   const carga = isNaN(rawCarga) ? -1 : rawCarga;
-  const velocidadMedia = row.vmed ? parseInt(row.vmed) : (tipoElemento === TRAFFIC_ELEMENT_TYPES.M30 ? -1 : null);
+  // velocidadMedia: solo los puntos M30 miden velocidad. El CSV trae el string
+  // "NaN" en M30 sin dato (parseInt("NaN")=NaN se persistia y envenenaba los
+  // $avg/$min/$max) y "0" en TODAS las URB (que no miden velocidad y el "0"
+  // truthy se guardaba en vez de null). Saneamos: M30 sin valor finito -> -1
+  // (centinela "sin dato", coherente con las demas metricas negativas);
+  // URB -> null (no mide velocidad).
+  const vmedRaw = parseInt(row.vmed, 10);
+  const velocidadMedia = tipoElemento === TRAFFIC_ELEMENT_TYPES.M30
+    ? (Number.isFinite(vmedRaw) ? vmedRaw : -1)
+    : null;
 
   // Datos de calidad
   const errorCode = (row.error || 'N').trim().toUpperCase();

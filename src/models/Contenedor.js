@@ -619,11 +619,14 @@ contenedorSchema.statics.obtenerAnalisisCobertura = function(distrito = null) {
  * @param {string} [filtros.barrio] - Nombre del barrio
  * @param {number} [filtros.lote] - Lote 1, 2 o 3
  * @param {Array<number>} [filtros.bbox] - [minLng, minLat, maxLng, maxLat]
- * @param {number} [filtros.limit=10000] - Tope de seguridad (default 10k)
+ * @param {number} [filtros.limit=50000] - Tope de seguridad. 50k cubre el
+ *   dataset completo (~38k contenedores) para que el mapa (clusterizado) no
+ *   recorte puntos y la leyenda "N contenedores" sea el total real y no un
+ *   subconjunto silencioso. Usa MarkerClusterGroup (como las ~30k ubicaciones).
  * @returns {Promise<Array>} Documentos lean con location + propiedades
  */
 contenedorSchema.statics.obtenerCaracteristicasMapa = function(filtros = {}) {
-  const { tipoContenedor, distrito, barrio, lote, bbox, limit = 10000 } = filtros;
+  const { tipoContenedor, distrito, barrio, lote, bbox, limit = 50000 } = filtros;
 
   const match = {};
   if (tipoContenedor) {match.tipoContenedor = tipoContenedor.toUpperCase();}
@@ -655,7 +658,7 @@ contenedorSchema.statics.obtenerCaracteristicasMapa = function(filtros = {}) {
   };
 
   return this.find(match, projection)
-    .limit(Number.isFinite(limit) ? limit : 10000)
+    .limit(Number.isFinite(limit) ? limit : 50000)
     .maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS)
     .lean();
 };

@@ -93,6 +93,41 @@ const rejectionTracker = new RejectionTracker();
 const REGEX_DESCRIPCION_VELOCIDAD = /(SOBREPAS(AR|ANDO).+VELOCIDAD\s+M[AÁ]XIMA|EXCEDE(R|NDO).+VELOCIDAD\s+M[AÁ]XIMA|EXCESO\s+DE\s+VELOCIDAD)/;
 
 /**
+ * Clasificar el tipo de infraccion por palabras clave en la descripcion.
+ *
+ * Bug previo: el clasificador solo distinguia VELOCIDAD vs OTRAS, dejando 5 de
+ * las 7 categorias del enum INFRACTION_TYPES a 0 docs y ~78% de las multas en
+ * OTRAS, pese a que la descripcion (columna HECHO-BOL) identifica claramente
+ * estacionamiento, semaforo, alcohol/drogas, telefono y documentacion.
+ * Los patrones se eligen tolerantes al mojibake del CSV (acentos perdidos):
+ * se apoyan en raices sin tilde (ESTACIONAR, TELEFON, SEMAFORO/FASE ROJA...).
+ *
+ * @param {string} descripcion - Descripcion de la infraccion EN MAYUSCULAS.
+ * @param {boolean} esVelocidad - Si ya se detecto exceso de velocidad.
+ * @returns {string} Valor de INFRACTION_TYPES.
+ */
+function clasificarTipoInfraccion(descripcion, esVelocidad) {
+  if (esVelocidad) { return INFRACTION_TYPES.VELOCIDAD; }
+  const d = descripcion || '';
+  if (/ESTACIONAR|ESTACIONAMIENTO|DOBLE\s+FILA|EN\s+VADO|ZONA\s+(SER|ORA)|APARCAR/.test(d)) {
+    return INFRACTION_TYPES.ESTACIONAMIENTO;
+  }
+  if (/SEM[A-Z]?FORO|FASE\s+ROJA|LUZ\s+ROJA/.test(d)) {
+    return INFRACTION_TYPES.SEMAFORO;
+  }
+  if (/ALCOHOL|ALCOHOLEMIA|DROGA|ESTUPEFACIENTE/.test(d)) {
+    return INFRACTION_TYPES.ALCOHOL_DROGAS;
+  }
+  if (/TELEFON|TEL.{0,2}FON|NAVEGADOR|DISPOSITIVO|PANTALLA/.test(d)) {
+    return INFRACTION_TYPES.TELEFONO_MOVIL;
+  }
+  if (/DOCUMENTACI|PERMISO\s+DE\s+CONDUC|CARN[E-Z]|SEGURO\s+OBLIGAT|\bITV\b|LICENCIA/.test(d)) {
+    return INFRACTION_TYPES.DOCUMENTACION;
+  }
+  return INFRACTION_TYPES.OTRAS;
+}
+
+/**
  * Calcular campos derivados de una multa.
  * Replica la logica del hook pre('save') del modelo Fine, ya que
  * bulkWrite NO ejecuta middleware de Mongoose.
@@ -131,7 +166,7 @@ function calcularCamposDerivadosMulta(multa) {
   const esVelocidad = tieneDatosVelocidad || descripcionEsVelocidad;
 
   multa.metadatos = {
-    tipoInfraccion: esVelocidad ? INFRACTION_TYPES.VELOCIDAD : INFRACTION_TYPES.OTRAS,
+    tipoInfraccion: clasificarTipoInfraccion(descripcion, esVelocidad),
     esInfraccionGrave: multa.calificacion === SEVERITY_LEVELS.FINE.GRAVE ||
                        multa.calificacion === SEVERITY_LEVELS.FINE.MUY_GRAVE,
     esInfraccionVelocidad: esVelocidad,

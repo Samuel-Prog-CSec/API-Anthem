@@ -115,7 +115,14 @@ const register = asyncHandler(async (req, res, next) => {
   try {
     await user.save();
   } catch (error) {
-    if (error.code === 11000 || error.name === 'ValidationError' || error.name === 'CastError') {
+    // Duplicado por carrera (dos registros simultaneos con el mismo
+    // email/username): devolver el MISMO mensaje generico que la verificacion
+    // previa. `handleMongoError` revelaria el campo (email vs username) y el
+    // valor concretos, habilitando enumeracion de usuarios.
+    if (error.code === 11000) {
+      return next(createConflictError('Ya existe un usuario con este email o nombre de usuario'));
+    }
+    if (error.name === 'ValidationError' || error.name === 'CastError') {
       return next(handleMongoError(error));
     }
     throw error;
@@ -524,11 +531,35 @@ const changePassword = asyncHandler(async (req, res, next) => {
     return next(createBadRequestError('La nueva contrasena debe ser diferente de la actual'));
   }
 
-  // Actualizar contrasena y timestamp de cambio
+  // Actualizar contrasena y timestamp de cambio.
+  // NOTA: sin offset de -1000ms. change-password NO emite tokens nuevos (la
+  // respuesta pide volver a iniciar sesion), asi que no hay token recien creado
+  // que proteger; el offset solo abria una ventana de ~1s en la que un token
+  // anterior al cambio seguia siendo aceptado por el check iat < passwordChangedAt.
   user.password = newPassword;
-  // Restamos 1 segundo para asegurar que el token creado inmediatamente despues sea valido
-  user.passwordChangedAt = Date.now() - 1000;
+  user.passwordChangedAt = Date.now();
   await user.save();
+
+  // Defensa en profundidad: revocar de inmediato por jti el access token con el
+  // que se realizo el cambio, para invalidarlo sin depender solo de la
+  // comparacion iat < passwordChangedAt. Mismo patron que logout. En TEST_MODE
+  // `req.token` es la clave bypass (no un JWT) y decodeToken devuelve null -> se
+  // omite sin error.
+  if (req.token) {
+    try {
+      const decodedAccess = decodeToken(req.token);
+      if (decodedAccess?.jti && decodedAccess?.exp) {
+        await TokenBlacklist.addJti(
+          decodedAccess.jti,
+          userId,
+          TOKEN_REVOCATION_REASONS.PASSWORD_CHANGE,
+          new Date(decodedAccess.exp * 1000)
+        );
+      }
+    } catch (error) {
+      authLogger.warn({ error: error.message }, 'No se pudo revocar el access token tras cambio de contrasena');
+    }
+  }
 
   // Registrar evento de seguridad
   logPasswordChange(userId.toString(), req.ip, true);

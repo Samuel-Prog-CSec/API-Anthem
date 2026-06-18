@@ -99,7 +99,7 @@ const warmFineStatsCache = async () => {
     cacheLogger.info('Precalentando caché de estadísticas de multas...');
 
     // Calcular fecha de hace 30 días
-    const thirtyDaysAgo = new Date();
+    const thirtyDaysAgo = new Date(DATASET_YEARS.DEFAULT_END_DATE);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     // Precalentar estadísticas básicas
@@ -142,8 +142,9 @@ const warmTrafficCache = async () => {
   try {
     cacheLogger.info('Precalentando caché de tráfico...');
 
-    // Últimas mediciones (últimas 24 horas simuladas)
-    const yesterday = new Date();
+    // Últimas mediciones del dataset (últimas 24h simuladas del año 2051).
+    // Usar `new Date()` (hoy) daria 0 documentos: el dataset esta en 2051.
+    const yesterday = new Date(DATASET_YEARS.DEFAULT_END_DATE);
     yesterday.setDate(yesterday.getDate() - 1);
 
     await Traffic.find({
@@ -176,7 +177,8 @@ const warmAirQualityCache = async () => {
     cacheLogger.info('Precalentando caché de calidad del aire...');
 
     // Últimas mediciones de magnitudes principales
-    const recentDate = new Date();
+    // Ventana dentro del dataset (año 2051), no `new Date()` (hoy -> 0 docs).
+    const recentDate = new Date(DATASET_YEARS.DEFAULT_END_DATE);
     recentDate.setDate(recentDate.getDate() - 7);
 
     // SO2 (Dióxido de azufre) - magnitud 1
@@ -265,29 +267,32 @@ const warmAsignacionPatinetesCache = async () => {
   try {
     cacheLogger.info('Precalentando caché de asignación de patinetes...');
 
-    // Precalentar estadísticas generales de patinetes
+    // Precalentar estadísticas generales de patinetes.
+    // Los paths deben coincidir con el schema real (AsignacionPatinetes): el
+    // total vive en `estadisticas.totalPatinetes` y el distrito en
+    // `distrito.nombre`. Antes usaba `$totalPatinetes`/`$proveedor`/`$distrito`
+    // (campos inexistentes) -> COLLSCAN inutil que devolvia null y no calentaba
+    // el working set correcto.
     await AsignacionPatinetes.aggregate([
       {
         $group: {
           _id: null,
-          totalPatinetes: { $sum: '$totalPatinetes' },
-          proveedoresUnicos: { $addToSet: '$proveedor' },
-          distritosUnicos: { $addToSet: '$distrito' }
+          totalPatinetes: { $sum: '$estadisticas.totalPatinetes' },
+          distritosUnicos: { $addToSet: '$distrito.nombre' }
         }
       }
     ])
       .option({ allowDiskUse: true, maxTimeMS: 30000 });
 
-    // Precalentar top 5 distritos por densidad de patinetes
+    // Precalentar top 5 distritos por total de patinetes
     await AsignacionPatinetes.aggregate([
       {
         $group: {
-          _id: '$distrito',
-          densidadPromedio: { $avg: '$densidad' },
-          totalPatinetes: { $sum: '$totalPatinetes' }
+          _id: '$distrito.nombre',
+          totalPatinetes: { $sum: '$estadisticas.totalPatinetes' }
         }
       },
-      { $sort: { densidadPromedio: -1 } },
+      { $sort: { totalPatinetes: -1 } },
       { $limit: 5 }
     ])
       .option({ allowDiskUse: true, maxTimeMS: 30000 });
@@ -313,7 +318,7 @@ const warmAccidentRecentCache = async () => {
   try {
     cacheLogger.info('Precalentando caché de accidentes recientes...');
 
-    const thirtyDaysAgo = new Date();
+    const thirtyDaysAgo = new Date(DATASET_YEARS.DEFAULT_END_DATE);
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     await Accidente.find({ fecha: { $gte: thirtyDaysAgo } })

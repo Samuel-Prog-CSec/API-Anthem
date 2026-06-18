@@ -511,15 +511,18 @@ airQualitySchema.statics.obtenerTendenciasOptimizadas = async function(provincia
     .map(item => item.valorPromedio)
     .filter(val => val !== null);
 
+  // La media se calcula UNA sola vez (antes se recomputaba dentro del reduce de
+  // la desviacion -> O(n^2) sobre el hilo principal).
+  const promedioValores = valores.length > 0
+    ? valores.reduce((sum, val) => sum + val, 0) / valores.length
+    : 0;
+
   const trendStatistics = valores.length > 0 ? {
-    promedio: valores.reduce((sum, val) => sum + val, 0) / valores.length,
+    promedio: promedioValores,
     maximo: Math.max(...valores),
     minimo: Math.min(...valores),
     desviacionEstandar: Math.sqrt(
-      valores.reduce((sum, val) => {
-        const mean = valores.reduce((s, v) => s + v, 0) / valores.length;
-        return sum + Math.pow(val - mean, 2);
-      }, 0) / valores.length
+      valores.reduce((sum, val) => sum + Math.pow(val - promedioValores, 2), 0) / valores.length
     ),
     tendencia: valores.length > 1 ? (valores[valores.length - 1] - valores[0]) / valores.length : 0
   } : null;

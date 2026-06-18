@@ -6,7 +6,8 @@ const {
   UTM_ZONES,
   TRAFFIC_ELEMENT_TYPES,
   DEFAULT_UTM_ZONE,
-  VALIDATION_LIMITS
+  VALIDATION_LIMITS,
+  MONGODB_TIMEOUTS
 } = require('../constants');
 /**
  * Esquema para las ubicaciones de infraestructura y puntos de medición
@@ -351,17 +352,21 @@ locationSchema.statics.buscarConOpciones = async function(options) {
   let query = this.find(finalFilters, projection)
     .sort(sort)
     .skip(pagination.skip)
-    .limit(pagination.limit);
+    .limit(pagination.limit)
+    .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
 
   // Aplicar .lean() para performance
   if (lean) {
     query = query.lean();
   }
 
-  // Array de promises para ejecución paralela
+  // Array de promises para ejecución paralela.
+  // Todas las operaciones llevan maxTimeMS para no dejar conexiones colgadas
+  // (invariante del proyecto): una query $near sin limite temporal podria
+  // degenerar.
   const promises = [
     query.exec(),
-    this.countDocuments(finalFilters)
+    this.countDocuments(finalFilters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
   ];
 
   // Agregar stats solo si se solicitan explícitamente
@@ -379,7 +384,7 @@ locationSchema.statics.buscarConOpciones = async function(options) {
             }
           }
         }
-      ])
+      ]).option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS })
     );
   }
 
