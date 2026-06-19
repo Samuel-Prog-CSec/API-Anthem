@@ -36,6 +36,8 @@ const {
 } = require('./helpers/importHelpers');
 const { normalizarTexto, crearLectorCSV } = require('./helpers/normalizarEncoding');
 const { construirGeometryDesdeWGS84 } = require('./helpers/conversorCoordenadas');
+const atlasPlan = require('./helpers/atlasPlan');
+const { crearLimitador } = require('./helpers/limitadorAtlas');
 
 // Modelo
 const BikeTrafficCount = require('../../src/models/AforoBicicletas');
@@ -76,12 +78,15 @@ function parsearArgumentos() {
   const args = process.argv.slice(2);
   const options = {
     skipExisting: true,
-    batchSize: IMPORT_CONFIG.batchSize
+    batchSize: IMPORT_CONFIG.batchSize,
+    atlas: false
   };
 
   for (const arg of args) {
     if (arg === '--force') {
       options.skipExisting = false;
+    } else if (arg === '--atlas') {
+      options.atlas = true;
     } else if (arg.startsWith('--batch=')) {
       const batchValue = parseInt(arg.split('=')[1], 10);
       if (!isNaN(batchValue) && batchValue > 0) {
@@ -327,11 +332,15 @@ function validarYTransformarFila(row, rowIndex) {
   const latitud = parseSpanishCoordinate(row.LATITUD);
   const longitud = parseSpanishCoordinate(row.LONGITUD);
 
-  // Campos calculados
+  // Campos calculados.
+  // La fecha viene de parsearFechaSoloDiaUTC (Date.UTC), asi que derivamos
+  // anio/mes/diaSemana con getters UTC (igual que el importador gemelo de
+  // peatones). Con getFullYear/getMonth/getDay locales habia desfase de un
+  // dia en hosts con offset negativo.
   const franjaHoraria = getFranjaHoraria(hora);
-  const año = fecha.getFullYear();
-  const mes = fecha.getMonth() + 1;
-  const diaSemana = fecha.getDay();
+  const año = fecha.getUTCFullYear();
+  const mes = fecha.getUTCMonth() + 1;
+  const diaSemana = fecha.getUTCDay();
 
   // Derivar geometry GeoJSON WGS84 desde lat/lon directamente.
   // Habilita el endpoint /aforo-bicicletas/mapa y queries `$near`.
@@ -542,6 +551,13 @@ async function procesarCSV(options) {
         }
 
         seenKeysInFile.add(recordKey);
+
+        // Modo atlas: muestreo estratificado (identificador|mes|hora). Si el estrato lleno
+        // su cupo se descarta la fila (se sigue leyendo; el flush final va en 'end').
+        if (options.limitador && !options.limitador.aceptar(transformedData)) {
+          return;
+        }
+
         batch.push(transformedData);
 
         if (batch.length >= options.batchSize) {
@@ -655,9 +671,18 @@ async function main() {
   // Parsear argumentos
   const options = parsearArgumentos();
 
+  // Modo atlas: limitador estratificado por identificador|mes|hora (cubre estaciones,
+  // los 12 meses y el patron horario 0-23h). En modo normal es null (sin efecto).
+  options.limitador = crearLimitador(
+    options.atlas,
+    atlasPlan['aforo-bicicletas'],
+    (doc) => `${doc.identificador}|${doc.mes}|${doc.hora}`
+  );
+
   logger.info({
     skipExisting: options.skipExisting,
     batchSize: options.batchSize,
+    atlas: options.atlas,
     dataFile: IMPORT_CONFIG.dataFile
   }, 'Iniciando importacion de aforo de bicicletas');
 

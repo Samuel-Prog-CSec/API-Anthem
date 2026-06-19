@@ -38,6 +38,8 @@ const {
   buildAndWriteSummary
 } = require('./helpers/importHelpers');
 const { crearLectorCSV } = require('./helpers/normalizarEncoding');
+const atlasPlan = require('./helpers/atlasPlan');
+const { crearLimitador } = require('./helpers/limitadorAtlas');
 
 // ============================================================================
 // CONFIGURACIÓN
@@ -390,6 +392,13 @@ async function processCensusFile(filePath, options = {}) {
           const censusData = parseCensusRow(row, fileName, rowIndex);
 
           if (censusData) {
+            // Modo atlas: muestreo estratificado (mes|distrito|edad). Si el estrato lleno
+            // su cupo se descarta la fila; se sigue leyendo el archivo para muestrear de
+            // todos los estratos (el flush final lo hace el evento 'end').
+            if (options.limitador && !options.limitador.aceptar(censusData)) {
+              return;
+            }
+
             batch.push(censusData);
             stats.processedRows++;
 
@@ -641,13 +650,28 @@ async function importCensusData(options = {}) {
 
     // Obtener lista de archivos CSV
     const files = await fs.readdir(importConfig.dataDirectory);
-    const csvFiles = files
+    let csvFiles = files
       .filter(file => file.endsWith('.csv') && file.includes('Censo'))
       .sort();
 
     if (csvFiles.length === 0) {
       throw new Error('No se encontraron archivos CSV de censo');
     }
+
+    // Modo atlas: procesar solo los meses del plan (subset variado, no los 12).
+    if (importConfig.atlas && atlasPlan.censo?.archivos) {
+      const permitidos = new Set(atlasPlan.censo.archivos);
+      csvFiles = csvFiles.filter(file => permitidos.has(file));
+      logger.info({ archivos: csvFiles }, 'Modo Atlas: subset de archivos de censo');
+    }
+
+    // Limitador compartido entre archivos: muestreo estratificado por mes|distrito|edad
+    // para cubrir los meses elegidos, los 21 distritos y un barrido de edades (piramide).
+    importConfig.limitador = crearLimitador(
+      importConfig.atlas,
+      atlasPlan.censo,
+      (doc) => `${doc.mes}|${doc.distrito.codigo}|${doc.edad}`
+    );
 
     logger.info({
       archivosEncontrados: csvFiles.length,
@@ -774,8 +798,9 @@ async function main() {
       registrosExistentes: censusCount.toLocaleString()
     }, 'Modelo de censo verificado');
 
-    // Ejecutar importación
-    result = await importCensusData();
+    // Ejecutar importación (en modo atlas se importa un subset variado para M0)
+    const atlasMode = process.argv.includes('--atlas');
+    result = await importCensusData({ atlas: atlasMode });
 
     // Mostrar resultados finales
     logger.info({

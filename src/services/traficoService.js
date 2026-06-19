@@ -126,6 +126,11 @@ const obtenerAnalisisCongestionOptimizado = async function (Model, filters = {},
       }
     },
     { $addFields: { distrito: { $arrayElemAt: ['$ubicacion.distrito', 0] } } },
+    // Descartar los puntos de medida sin ubicacion en locations (id_punto sin
+    // match en el $lookup): sin este filtro caian en un grupo _id:null que el
+    // endpoint emitia (y que ademas salia con la intensidad media mas alta),
+    // obligando al cliente a filtrarlo. Asi el contrato es correcto por si solo.
+    { $match: { distrito: { $ne: null } } },
     { $group: { _id: '$distrito', ...sumarAcumuladores } },
     ...etapasFinales
   ], ESCALAR).toArray();
@@ -148,7 +153,11 @@ const historicoHorarioRaw = function (Model, filters) {
         ocupacionPromedio: { $avg: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null] } },
         ocupacionMaxima: { $max: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, '$metricas.ocupacion', null] } },
         cargaPromedio: { $avg: { $cond: [{ $gte: ['$metricas.carga', 0] }, '$metricas.carga', null] } },
-        velocidadPromedio: { $avg: { $cond: [{ $gte: ['$metricas.velocidadMedia', 0] }, '$metricas.velocidadMedia', null] } },
+        // Solo los puntos M30 miden velocidad; los URB no la miden y el dataset
+        // (y parte de la data viva) la trae como 0. Incluir esos 0 deprimia el
+        // promedio. Se restringe el $avg a M30 (igual que buildTrafficDaily),
+        // robusto aunque algun URB traiga 0 en vez de null.
+        velocidadPromedio: { $avg: { $cond: [{ $and: [{ $eq: ['$tipoElemento', 'M30'] }, { $gte: ['$metricas.velocidadMedia', 0] }] }, '$metricas.velocidadMedia', null] } },
         medicionesCongestionadas: { $sum: { $cond: [{ $in: ['$analisis.nivelCongestion', [CONGESTION_LEVELS.CONGESTIONADO, CONGESTION_LEVELS.COLAPSADO]] }, 1, 0] } },
         medicionesConfiables: { $sum: { $cond: [{ $in: ['$calidadDatos.calidadGeneral', [DATA_QUALITY_LEVELS.ALTA, DATA_QUALITY_LEVELS.MEDIA]] }, 1, 0] } }
       }

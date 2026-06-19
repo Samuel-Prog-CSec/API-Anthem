@@ -91,9 +91,12 @@ const helmetConfig = helmet({
   // Referrer Policy
   referrerPolicy: { policy: 'no-referrer' },
 
-  // HSTS deshabilitado - proyecto universitario sin HTTPS.
-  // En produccion habilitar: { maxAge: 63072000, includeSubDomains: true, preload: true }
-  hsts: false
+  // HSTS: activado SOLO en produccion (requiere servir por HTTPS / terminacion
+  // TLS en el proxy). En desarrollo se deja off porque la API corre sobre HTTP.
+  // maxAge 2 anios + includeSubDomains + preload (lista HSTS de navegadores).
+  hsts: config.server.env === 'production'
+    ? { maxAge: 63072000, includeSubDomains: true, preload: true }
+    : false
 });
 
 /**

@@ -278,24 +278,20 @@ function parsearFechaHoraUTC(valor) {
   const fecha = new Date(ms);
   if (isNaN(fecha.getTime())) {return null;}
 
-  // El dataset Anthem 2051 trae fechas del tipo `2051-02-29` que en el
-  // calendario gregoriano real no existen (2051 no es bisiesto). Como
-  // este proyecto es ficcional, en lugar de rechazar la fila la
-  // coercemos al ultimo dia del mes original (`28/02`) -- igual criterio
-  // que importarAccidentes para no descartar 380 K mediciones de trafico
-  // y 147 accidentes con esa fecha. Mantener el mes preserva los
-  // agregados mensuales del dashboard.
-  if (fecha.getUTCFullYear() === año &&
-      fecha.getUTCMonth() === mes && // mes+1 en JS => rebobinado al siguiente
-      fecha.getUTCDate() <= 3) {
-    // Caso clasico 29/02 en no bisiesto: JS lo convierte en 01/03. Volvemos
-    // al ultimo dia valido del mes original.
-    const ultimoDia = new Date(Date.UTC(año, mes, 0)).getUTCDate();
-    return new Date(Date.UTC(año, mes - 1, ultimoDia, hora, min, seg));
-  }
-
-  // Cualquier otro tipo de rebobinado (mes 13, dia 31 en mes corto que
-  // no sea febrero, etc.) es un error real del CSV: devolvemos null.
+  // El dataset Anthem 2051 trae fechas que en el calendario gregoriano real
+  // NO existen, sobre todo `2051-02-29` (2051 no es bisiesto): ~380 K filas de
+  // trafico y ~147 de accidentes. JS las rebobina silenciosamente (Date.UTC
+  // de 29/02 -> 01/03). Estas fechas se RECHAZAN explicitamente (return null):
+  //
+  // La version anterior intentaba "salvar" la fila coercionandola al ultimo
+  // dia del mes (28/02), pero eso era enganoso y fragil: como el 28/02 REAL ya
+  // existe con las mismas claves (puntoMedidaId+fecha en trafico), la fila
+  // coercionada colisionaba en el indice unico y se descartaba IGUAL -- y, peor,
+  // segun el orden de insercion podia PISAR los valores reales del 28/02 con los
+  // del 29. Rechazar la fecha inexistente es la opcion correcta y deterministica:
+  // 2051-02-29 no existe, asi que no debe almacenarse ni corromper el 28/02.
+  // Cualquier otro rebobinado (mes 13, 31 en mes corto, etc.) es igualmente un
+  // error real del CSV y se rechaza.
   if (fecha.getUTCFullYear() !== año ||
       fecha.getUTCMonth() !== mes - 1 ||
       fecha.getUTCDate() !== dia) {
@@ -325,14 +321,14 @@ function parsearFechaHoraUTC(valor) {
  *   - bicicletas (disponibilidad diaria): 1 doc sobrescrito
  *
  * Este helper:
- *   - Devuelve `Date` en UTC con dia=28 cuando el input es 29/02 en año no bisiesto.
  *   - Devuelve `Date` con el dia solicitado cuando es valido en el calendario.
- *   - Devuelve `null` para cualquier otro rebobinado (mes 13, dia 31 en abril, etc).
+ *   - Devuelve `null` para fechas inexistentes (29/02 en año no bisiesto, 31/04,
+ *     mes 13, etc.): se RECHAZAN en vez de coercerlas, para no corromper los
+ *     datos reales del dia vecino (28/02, 01/03) segun el orden de insercion.
  *   - Devuelve `null` para componentes fuera de rango (mes 0, dia negativo, etc).
  *
- * Para que el caller pueda registrar coerciones en el RejectionTracker,
- * devolvemos un objeto `{ fecha, coercida }` en lugar de solo el Date.
- * `coercida` es `true` cuando hubo cambio de dia (es 29/02 -> 28/02).
+ * Se mantiene el objeto `{ fecha, coercida }` por compatibilidad con los callers
+ * (RejectionTracker). Tras eliminar la coercion, `coercida` es siempre `false`.
  *
  * @param {number} año
  * @param {number} mes - Mes en base 1 (enero=1)
@@ -349,20 +345,12 @@ function parsearFechaSoloDiaUTC(año, mes, dia) {
   const fecha = new Date(Date.UTC(año, mes - 1, dia));
   if (isNaN(fecha.getTime())) {return null;}
 
-  // Caso 29/02 en año no bisiesto: JS lo convierte en 01/03. Coercemos al
-  // ultimo dia valido del mes original para no perder la medicion ni
-  // pisar los datos reales del 01/03.
-  if (fecha.getUTCFullYear() === año &&
-      fecha.getUTCMonth() === mes && // mes+1 en JS => rebobinado
-      fecha.getUTCDate() <= 3) {
-    const ultimoDia = new Date(Date.UTC(año, mes, 0)).getUTCDate();
-    return {
-      fecha: new Date(Date.UTC(año, mes - 1, ultimoDia)),
-      coercida: true
-    };
-  }
-
-  // Cualquier otro rebobinado es un error real del CSV.
+  // Fechas inexistentes (29/02 en año no bisiesto, 31/04, etc.): JS las
+  // rebobina al mes siguiente. Se RECHAZAN (return null) en vez de coercerlas
+  // al ultimo dia del mes original: coercer arriesgaba PISAR los datos reales
+  // del 28/02 (o del 01/03) segun el orden de insercion -- justo el tipo de
+  // corrupcion documentada arriba. Rechazar la fecha inexistente es
+  // deterministico y no corrompe fechas vecinas.
   if (fecha.getUTCFullYear() !== año ||
       fecha.getUTCMonth() !== mes - 1 ||
       fecha.getUTCDate() !== dia) {

@@ -385,8 +385,17 @@ exports.obtenerMapaContenedores = asyncHandler(async (req, res, next) => {
     distrito,
     barrio,
     lote,
-    bbox: bboxArray
+    bbox: bboxArray,
+    // Cap del payload: sin filtros ni bbox, contenedores tiene ~38k puntos
+    // (~10MB y ~38k marcadores que el FE reconcilia). Se acota a MAP_MAX_FEATURES;
+    // el cliente reduce el ambito por viewport (bbox) o por filtros para ver el
+    // detalle completo de una zona (que siempre cabe bajo el cap).
+    limit: GEO_LIMITS.MAP_MAX_FEATURES
   });
+
+  // Si se alcanzo el cap, el resultado es un subconjunto: lo senalamos en la
+  // metadata para que el frontend pueda avisar al usuario.
+  const truncado = docs.length >= GEO_LIMITS.MAP_MAX_FEATURES;
 
   const featureCollection = documentosAFeatureCollection(
     docs,
@@ -405,6 +414,8 @@ exports.obtenerMapaContenedores = asyncHandler(async (req, res, next) => {
     }),
     {
       recurso: 'contenedores',
+      truncado,
+      limite: GEO_LIMITS.MAP_MAX_FEATURES,
       ...(tipoContenedor && { tipoContenedor: tipoContenedor.toUpperCase() }),
       ...(distrito && { distrito }),
       ...(barrio && { barrio })

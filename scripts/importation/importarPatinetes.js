@@ -826,14 +826,12 @@ process.on('SIGINT', () => manejarCierre('SIGINT'));
 process.on('SIGTERM', () => manejarCierre('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
-  console.error('UNCAUGHT EXCEPTION:', error);
-  logger.fatal({ error: error.message, stack: error.stack }, 'Error no capturado');
+  logger.fatal({ error: error.message, stack: error.stack }, 'UNCAUGHT EXCEPTION: error no capturado');
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('UNHANDLED REJECTION:', reason);
-  logger.fatal({ reason, promise }, 'Promesa rechazada no manejada');
+  logger.fatal({ reason, promise }, 'UNHANDLED REJECTION: promesa rechazada no manejada');
   process.exit(1);
 });
 

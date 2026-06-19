@@ -16,7 +16,7 @@ const http = require('http');
 // Force restart for env update
 const { HTTP_STATUS } = require('./constants');
 const config = require('./config/config');
-const { connectDB, stopPoolMonitor } = require('./config/database');
+const { connectDB } = require('./config/database');
 const { validateCorsOrigin } = require('./config/corsValidator');
 const { warmupCacheAsync } = require('./config/cacheWarming');
 
@@ -278,6 +278,19 @@ app.use(cookieParser());
 app.use(sanitizeInput);
 
 /**
+ * Proteccion XSS del BODY (segunda pasada, despues de express.json()).
+ *
+ * La primera invocacion de `xssProtection` (arriba) corre ANTES de
+ * `express.json()`, por lo que `req.body` aun no existe y el escape XSS no se
+ * aplica al body. Re-ejecutamos aqui `xssProtection` sobre el body ya parseado
+ * para que el escape de la libreria `xss` cubra tambien los valores de texto
+ * del body, sin depender de que cada ruta recuerde validar el tipo. La
+ * re-sanitizacion de `req.query`/`req.params` es idempotente y de coste
+ * marginal (body acotado a 100kb).
+ */
+app.use(xssProtection);
+
+/**
  * Rutas de la API
  * Montar todas las rutas de API bajo /api/v1
  *
@@ -367,11 +380,6 @@ const startServer = async () => {
     // Manejo de apagado graceful
     const gracefulShutdown = (signal) => {
       logger.info({ signal }, 'Senal de apagado recibida, iniciando apagado graceful');
-
-      // Detener el monitor del pool antes de cerrar la conexion a Mongo para
-      // evitar que el setInterval intente consultar una conexion ya cerrada
-      // y para que el event loop pueda drenarse correctamente
-      stopPoolMonitor();
 
       server.close((err) => {
         if (err) {

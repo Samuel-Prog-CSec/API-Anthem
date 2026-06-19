@@ -73,12 +73,17 @@ const pinoConfig = {
   },
 
   // Configuración para producción
+  //
+  // IMPORTANTE: `formatters.level` (emitir el nivel como string en vez de
+  // numero) NO es compatible con `transport.targets`. Pino lo prohibe porque
+  // los formatters son funciones que no pueden serializarse al worker thread
+  // del transporte, y lanza "option.transport.targets do not allow custom
+  // level formatters" en el arranque -> el servidor NO levantaba en produccion
+  // (donde getLogTransport() usa targets). Se elimina el formatter; el nivel
+  // viaja como numero (estandar Pino, que los agregadores de logs entienden) y
+  // el render de etiqueta se delega al target del transporte (pino-pretty).
+  // `timestamp` ISO SI es compatible con transportes y se mantiene.
   ...(!isDevelopment && {
-    formatters: {
-      level: (label) => {
-        return { level: label };
-      }
-    },
     timestamp: pino.stdTimeFunctions.isoTime
   }),
 

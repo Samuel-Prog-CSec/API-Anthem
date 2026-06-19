@@ -167,32 +167,59 @@ const createForbiddenError = (message = 'Acceso denegado', details = null) => {
 /**
  * Formatear error para respuesta HTTP.
  *
- * No incluye el stack trace ni siquiera en desarrollo: Pino ya lo loguea
- * con `globalErrorHandler` y duplicarlo en el body del response crea
- * inconsistencia entre entornos y filtra detalles internos del runtime
- * al cliente. El parametro `includeStack` se mantiene en la firma para
- * compatibilidad con llamadas existentes pero queda intencionalmente
- * ignorado.
+ * No incluye el stack trace: Pino ya lo loguea con `globalErrorHandler` y
+ * duplicarlo en el body filtra detalles internos al cliente.
  *
- * @param {AppError} error - Error a formatear
- * @param {boolean} [_includeStack=false] - Ignorado, ver doc.
+ * SEGURIDAD: en produccion los errores NO operacionales (bugs de runtime,
+ * TypeError, fallos de driver no normalizados, etc.) no deben filtrar su
+ * `message` crudo ni `details` al cliente -- revelarian estructura interna
+ * util para fingerprinting/explotacion. Se enmascaran con un mensaje generico;
+ * el mensaje real queda unicamente en el log de Pino. Solo los errores
+ * operacionales (instancias de AppError creadas a proposito) exponen su
+ * mensaje. Ademas `details.originalError` (mensaje crudo de la BD que
+ * `createInternalError` guarda para el log) nunca se expone en produccion.
+ *
+ * @param {AppError|Error} error - Error a formatear
+ * @param {boolean} [exposeInternals=false] - true en desarrollo: expone el
+ *        mensaje y detalles reales de cualquier error. false en produccion.
  * @returns {Object} Error formateado para respuesta
  */
-const formatErrorResponse = (error, _includeStack = false) => {
-  const response = {
-    success: false,
-    status: error.status || 'error',
-    message: error.message,
-    statusCode: error.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR
-  };
+const formatErrorResponse = (error, exposeInternals = false) => {
+  const isOperational = error instanceof AppError && error.isOperational === true;
+  const statusCode = error.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
 
-  if (error.details) {
-    response.details = error.details;
+  let message = error.message;
+  let details = error.details;
+
+  // Enmascarar errores no operacionales en produccion
+  if (!exposeInternals && !isOperational) {
+    message = 'Error interno del servidor';
+    details = null;
   }
 
-  // Codigo de error programatico para que el frontend pueda discriminar
-  // sin parsear `message`. Solo se incluye si esta definido.
-  if (error.code) {
+  // Nunca exponer el mensaje del error de BD original en produccion, aunque
+  // el error sea operacional (createInternalError lo guarda solo para el log)
+  if (!exposeInternals && details && Object.prototype.hasOwnProperty.call(details, 'originalError')) {
+    const { originalError: _omit, ...rest } = details;
+    details = rest;
+  }
+
+  const response = {
+    success: false,
+    status: error.status || (statusCode >= 500 ? 'error' : 'fail'),
+    message,
+    statusCode
+  };
+
+  if (details) {
+    response.details = details;
+  }
+
+  // Codigo de error programatico para que el frontend pueda discriminar sin
+  // parsear `message`. Solo se incluye si esta definido y es seguro exponerlo
+  // (operacional o entorno de desarrollo) para no filtrar codigos internos de
+  // driver (p.ej. codigos numericos de MongoServerError no normalizados).
+  if (error.code && (isOperational || exposeInternals)) {
     response.code = error.code;
   }
 

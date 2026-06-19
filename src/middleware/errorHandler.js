@@ -34,7 +34,7 @@ const isDatabaseFailure = (err) => {
 /**
  * Middleware para manejo centralizado de errores
  */
-const globalErrorHandler = (err, req, res, _next) => {
+const globalErrorHandler = (err, req, res, next) => {
   // Log del error con logger
   logger.error({
     error: err.message,
@@ -45,6 +45,15 @@ const globalErrorHandler = (err, req, res, _next) => {
     userAgent: req.get('User-Agent'),
     userId: req.user?.id
   }, 'Error capturado por globalErrorHandler');
+
+  // Si las cabeceras ya se enviaron (p.ej. error durante el streaming de la
+  // respuesta o doble next(err)), no podemos escribir otra respuesta.
+  // Delegamos al handler de errores por defecto de Express, que cierra la
+  // conexion de forma controlada en lugar de lanzar 'Cannot set headers after
+  // they are sent', que escalaria a uncaughtException -> process.exit(1).
+  if (res.headersSent) {
+    return next(err);
+  }
 
   // Stale cache fallback: ante fallos de la DB o 5xx, intentar servir el ultimo
   // payload conocido desde el cache L2 (`fallbackCache` en middleware/cache.js).
@@ -165,19 +174,32 @@ const handleUncaughtException = () => {
 const timeoutHandler = (timeout = 30000) => {
   return (req, res, next) => {
     res.setTimeout(timeout, () => {
-      logger.error({
-        url: req.originalUrl,
-        method: req.method,
-        timeout: timeout,
-        ip: req.ip
-      }, 'Timeout de peticion alcanzado');
+      // El callback del socket corre FUERA del ciclo de middleware de Express:
+      // si la respuesta ya se envio o el stream se cerro, responder lanzaria
+      // 'Cannot set headers after they are sent'. Y como Express no envuelve
+      // este callback, una excepcion aqui escalaria a uncaughtException ->
+      // process.exit(1). Por eso guardamos headersSent/writableEnded y
+      // capturamos cualquier error.
+      if (res.headersSent || res.writableEnded) {
+        return;
+      }
+      try {
+        logger.error({
+          url: req.originalUrl,
+          method: req.method,
+          timeout: timeout,
+          ip: req.ip
+        }, 'Timeout de peticion alcanzado');
 
-      res.status(HTTP_STATUS.REQUEST_TIMEOUT).json({
-        success: false,
-        status: 'error',
-        message: 'La peticion ha excedido el tiempo maximo permitido',
-        statusCode: HTTP_STATUS.REQUEST_TIMEOUT
-      });
+        res.status(HTTP_STATUS.REQUEST_TIMEOUT).json({
+          success: false,
+          status: 'error',
+          message: 'La peticion ha excedido el tiempo maximo permitido',
+          statusCode: HTTP_STATUS.REQUEST_TIMEOUT
+        });
+      } catch (timeoutErr) {
+        logger.error({ error: timeoutErr.message }, 'Error al responder timeout de peticion');
+      }
     });
     next();
   };

@@ -120,8 +120,7 @@ function registrarManejadoresSenales() {
   });
 
   process.on('uncaughtException', async (error) => {
-    console.error('UNCAUGHT EXCEPTION:', error);
-    logger.fatal({ error: error.message, stack: error.stack }, 'Excepcion no capturada');
+    logger.fatal({ error: error.message, stack: error.stack }, 'UNCAUGHT EXCEPTION: excepcion no capturada');
 
     try {
       if (mongoose.connection.readyState === 1) {
@@ -135,8 +134,7 @@ function registrarManejadoresSenales() {
   });
 
   process.on('unhandledRejection', async (reason) => {
-    console.error('UNHANDLED REJECTION:', reason);
-    logger.fatal({ reason: String(reason) }, 'Promesa rechazada no manejada');
+    logger.fatal({ reason: String(reason) }, 'UNHANDLED REJECTION: promesa rechazada no manejada');
 
     try {
       if (mongoose.connection.readyState === 1) {

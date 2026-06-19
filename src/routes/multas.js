@@ -88,7 +88,11 @@ router.get('/analisis/temporal',
   ...validarAnalisisTemporal,
   validateRequest,
   cacheMiddleware('statistics', (req) =>
-    `fines-temporal-analysis-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.granularity || 'month'}`
+    // La clave usa `tipoAnalisis` (el parametro real que cambia la salida del
+    // servicio). Antes usaba `granularity`, que el controlador no lee, por lo
+    // que peticiones con distinto tipoAnalisis colisionaban en la misma clave
+    // y la segunda recibia el analisis equivocado durante el TTL.
+    `fines-temporal-analysis-${req.query.startDate || 'all'}-${req.query.endDate || 'all'}-${req.query.tipoAnalisis || 'monthly'}`
   ),
   obtenerAnalisisTemporal
 );

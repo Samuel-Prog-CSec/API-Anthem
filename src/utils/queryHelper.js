@@ -127,6 +127,42 @@ const escapeRegex = (str) => {
 };
 
 /**
+ * Clases de regex acento-insensibles por letra base.
+ * Cada vocal (y n/c) se mapea a una clase que matchea su forma con y sin tilde.
+ */
+const ACCENT_CLASSES = {
+  a: '[aáàäâ]', e: '[eéèëê]', i: '[iíìïî]', o: '[oóòöô]', u: '[uúùüû]', n: '[nñ]', c: '[cç]'
+};
+
+/**
+ * Construye una fuente de regex ACENTO-INSENSIBLE (y, combinada con el flag
+ * 'i', tambien case-insensible) a partir de un texto de busqueda.
+ *
+ * Motivo: los nombres de distrito (y otros campos de texto) NO estan
+ * normalizados de forma homogenea entre colecciones -- censo/contenedores
+ * guardan 'CHAMBERI' (sin tilde) mientras accidentes/patinetes guardan
+ * 'CHAMBERI' con tilde. Un filtro `?distrito=CHAMBERI` con regex solo
+ * case-insensible no matchea 'CHAMBERI' acentuado y devuelve 0 resultados.
+ * Esta funcion normaliza la entrada a su base sin acentos y expande cada letra
+ * a una clase que cubre ambas formas, de modo que la busqueda funciona en los
+ * dos sentidos (entrada con o sin tilde, dato con o sin tilde).
+ *
+ * @param {string} val - Texto de busqueda
+ * @returns {string} Fuente de regex lista para `new RegExp(source, 'i')`
+ */
+const buildAccentInsensitiveSource = (val) => {
+  if (typeof val !== 'string') {
+    return '';
+  }
+  // 1) Normalizar a base sin diacriticos para tratar igual entrada acentuada
+  const base = val.normalize('NFD').replace(/[̀-ͯ]/g, '');
+  // 2) Escapar metacaracteres de regex
+  const escaped = escapeRegex(base);
+  // 3) Expandir cada letra base a su clase acento-insensible
+  return escaped.replace(/[a-zA-Z]/g, (ch) => ACCENT_CLASSES[ch.toLowerCase()] || ch);
+};
+
+/**
  * Construye objeto de filtros para queries de MongoDB
  *
  * @param {Object} queryParams - Query parameters de la request
@@ -161,7 +197,10 @@ const buildFilters = (queryParams, filterConfig) => {
             const truncatedValue = typeof val === 'string' && val.length > maxRegexLength
               ? val.substring(0, maxRegexLength)
               : val;
-            return new RegExp(escapeRegex(truncatedValue), 'i');
+            // Acento-insensible: un filtro de texto (distrito, lugar, nombre)
+            // debe matchear con y sin tilde porque los nombres no estan
+            // normalizados de forma homogenea entre colecciones.
+            return new RegExp(buildAccentInsensitiveSource(truncatedValue), 'i');
           };
           // Un parametro duplicado (?x=a&x=b) llega como array: generar `$in`
           // de regex en lugar de reventar (un array no tiene metodos de string).
@@ -477,6 +516,31 @@ const executeFacetPagination = async ({
   maxTimeMS = MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS
 }) => {
   const { skip = 0, limit = 50 } = pagination;
+  const hayStats = Array.isArray(statsPipeline) && statsPipeline.length > 0;
+
+  // Camino rapido SIN estadisticas: evitar el $facet. El $facet obliga a una
+  // pasada completa de la coleccion para resolver el branch `count` ($count),
+  // lo que sobre colecciones grandes (multas ~2M, censo ~2.85M) cuesta varios
+  // segundos aunque el listado solo devuelva una pagina. En su lugar:
+  //   - data: find().sort().skip().limit() usa el indice del sort (top-K).
+  //   - total: estimatedDocumentCount() (O(1), exacto) cuando no hay filtro;
+  //            countDocuments(filters) cuando si lo hay.
+  if (!hayStats) {
+    const sinFiltro = !filters || Object.keys(filters).length === 0;
+    const [data, total] = await Promise.all([
+      model.find(filters || {}, projection || undefined)
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .maxTimeMS(maxTimeMS)
+        .lean(),
+      sinFiltro
+        ? model.estimatedDocumentCount().maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+        : model.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+    ]);
+    return { data, total, stats: null };
+  }
+
   const pipeline = [
     { $match: filters || {} }
   ];
@@ -547,6 +611,7 @@ module.exports = {
   buildResponseMetadata,
   primerValorEscalar,
   escapeRegex,
+  buildAccentInsensitiveSource,
   buildFilters,
   buildSortOptions,
   validateDateRange,

@@ -593,14 +593,22 @@ async function importGPXRoutes() {
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(gpxContent, 'text/xml');
 
-      // Extraer waypoints y tracks
+      // REALIDAD DEL DATO: los 6 GPX de transporte de Anthem contienen
+      // UNICAMENTE waypoints (<wpt>, cada uno es una PARADA, p.ej. "C-1 ATOCHA")
+      // y CERO tracks (<trk>/<trkseg>) o rutas (<rte>). Por tanto todas las
+      // entradas de transporte se almacenan como geometria Point (paradas), NO
+      // como LineString. El parseo de tracks de abajo es codigo FORWARD-
+      // COMPATIBLE: solo se ejecuta si una fuente GPX futura trae <trk>; con los
+      // datos actuales nunca genera geometria de linea. NO se generan LineStrings
+      // sinteticos conectando paradas porque el orden de los <wpt> no garantiza
+      // el trazado real de la linea (produciria geometria falsa).
       const waypoints = xmlDoc.getElementsByTagName('wpt');
       const tracks = xmlDoc.getElementsByTagName('trk');
 
-      // Procesar waypoints como puntos individuales
+      // Procesar waypoints como puntos individuales (paradas)
       const waypointStats = processGPXWaypoints(waypoints, gpxInfo, routes);
 
-      // Procesar tracks como lineas
+      // Procesar tracks como lineas (forward-compatible; vacio con los GPX actuales)
       const trackStats = processGPXTracks(tracks, gpxInfo, routes);
 
 

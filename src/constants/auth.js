@@ -13,7 +13,10 @@ const USER_ROLES = {
 const USER_SECURITY = {
   MAX_LOGIN_ATTEMPTS: 5,
   LOCK_TIME_MS: 2 * 60 * 60 * 1000,
-  MIN_PASSWORD_LENGTH: 6,
+  // Debe coincidir con USER_VALIDATION.MIN_PASSWORD_LENGTH (8) para que el suelo
+  // del schema Mongoose no sea mas debil que la politica que aplica la API en
+  // registro/cambio de contrasena. Antes era 6 (divergente).
+  MIN_PASSWORD_LENGTH: 8,
   MAX_PASSWORD_LENGTH: 128,
   MIN_USERNAME_LENGTH: 3,
   MAX_USERNAME_LENGTH: 30

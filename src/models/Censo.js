@@ -421,6 +421,17 @@ censusSchema.index(
   }
 );
 
+// Índice para el sort por defecto del listado GET /censo (sortBy=fechaCenso) SIN
+// filtro selectivo. Sin este indice, find({}).sort({fechaCenso:-1,_id:-1}) hacia
+// COLLSCAN + SORT en memoria sobre ~2,85M docs (~2,8s). Con el, es un index scan
+// top-K. El tiebreak por _id estabiliza la paginacion por cursor.
+censusSchema.index(
+  { fechaCenso: -1, _id: -1 },
+  {
+    name: 'idx_census_fecha_listado'
+  }
+);
+
 // ========================================
 // ÍNDICES PARA FILTROS ESPECÍFICOS
 // ========================================

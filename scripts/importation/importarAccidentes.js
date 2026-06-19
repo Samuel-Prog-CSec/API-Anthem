@@ -460,10 +460,13 @@ function parsearFecha(fechaStr, rowIndex) {
 function calcularCamposAnalisis(data) {
   const { fecha, hora, personaAfectada, circunstancias, vehiculo } = data;
 
-  // Campos temporales basicos
-  const año = fecha.getFullYear();
-  const mes = fecha.getMonth() + 1;
-  const dia = fecha.getDate();
+  // Campos temporales basicos.
+  // La fecha se construye con Date.UTC en parsearFecha, asi que leemos sus
+  // componentes con getters UTC (getUTCFullYear/getUTCMonth/getUTCDate). Con
+  // los getters locales habia desfase de un dia en hosts con offset negativo.
+  const año = fecha.getUTCFullYear();
+  const mes = fecha.getUTCMonth() + 1;
+  const dia = fecha.getUTCDate();
   const franjaHoraria = parseInt(hora.split(':')[0], 10);
 
   // Periodo del dia segun franja horaria
@@ -480,8 +483,8 @@ function calcularCamposAnalisis(data) {
     periodoDia = DAY_PERIODS.NOCHE;
   }
 
-  // Dia de la semana y tipo de jornada
-  const diaSemana = fecha.getDay();
+  // Dia de la semana y tipo de jornada (getUTCDay coherente con Date.UTC)
+  const diaSemana = fecha.getUTCDay();
   let tipoJornada;
   if (diaSemana === 0) {
     tipoJornada = WORKDAY_TYPES.DOMINGO_FESTIVO;

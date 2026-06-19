@@ -73,8 +73,23 @@ const etagMiddleware = (req, res, next) => {
 
   // Sobrescribir res.json para añadir lógica de ETag
   res.json = function(data) {
-    // Generar ETag del contenido
-    const etag = generateETag(data);
+    // Generar ETag sobre el CONTENIDO ESTABLE: se excluyen del hash los campos
+    // volatiles del envelope que cambian sin que cambie el contenido:
+    //   - `_cache`: bloque que inyecta respondFromCache en los HIT (su `age` en
+    //     segundos cambia en cada peticion).
+    //   - `timestamp`: instante de generacion que createResponse pone en cada
+    //     respuesta; difiere entre una respuesta cacheada (HIT, timestamp
+    //     congelado) y una fresca (MISS, timestamp nuevo).
+    // Si se hashean, el ETag varia entre HIT y MISS y entre respuestas, por lo
+    // que If-None-Match nunca coincide y NUNCA se emite 304 Not Modified
+    // (anulando el ahorro de ancho de banda). Ambos campos se conservan en el
+    // body de la respuesta; solo se excluyen del calculo del ETag.
+    let stableData = data;
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      const { _cache: _omitCache, timestamp: _omitTimestamp, ...rest } = data;
+      stableData = rest;
+    }
+    const etag = generateETag(stableData);
 
     // Añadir header ETag a la respuesta
     res.set('ETag', etag);
@@ -219,11 +234,9 @@ const generateWeakETag = (data, fields = []) => {
 const getETagStats = () => {
   return {
     enabled: true,
-    algorithm: 'MD5',
+    algorithm: 'SHA-256 (truncado a 128 bits)',
     types: {
-      standard: 'Basado en contenido completo',
-      strong: 'Contenido + timestamp',
-      weak: 'Solo campos principales (W/)'
+      standard: 'Basado en contenido estable (SHA-256, excluye bloque _cache)'
     },
     headers: {
       request: 'If-None-Match: "<etag-hash>"',

@@ -27,6 +27,8 @@ const {
   calculateProcessingSpeed,
   buildAndWriteSummary
 } = require('./helpers/importHelpers');
+const atlasPlan = require('./helpers/atlasPlan');
+const { crearLimitador } = require('./helpers/limitadorAtlas');
 
 // ============================================================================
 // CONFIGURACIÓN
@@ -297,9 +299,17 @@ function parseMultaRow(row, sourceFile, rowIndex) {
     }, `Puntos fuera de rango (${VALIDATION_LIMITS.DRIVER_POINTS_MIN}-${VALIDATION_LIMITS.DRIVER_POINTS_MAX}) - se usa valor original`);
   }
 
-  // Procesar descuento
-  const tieneDescuento = row.DESCUENTO &&
-    (row.DESCUENTO.toLowerCase().includes('si') || row.DESCUENTO.toLowerCase().includes('sí'));
+  // Procesar descuento.
+  // Comparacion EXACTA sobre el valor normalizado en vez de `.includes('si')`:
+  // el substring marcaria CON descuento valores como "PRESCRITO" o "INDECISO".
+  // Mantiene el comportamiento para el valor real 'SI' y acepta variantes
+  // equivalentes ('SI' con tilde, 'S', 'TRUE', '1').
+  const descuentoNormalizado = (row.DESCUENTO || '').trim().toUpperCase();
+  const tieneDescuento = descuentoNormalizado === 'SI' ||
+    descuentoNormalizado === 'SÍ' ||
+    descuentoNormalizado === 'S' ||
+    descuentoNormalizado === 'TRUE' ||
+    descuentoNormalizado === '1';
 
   // Validar calificación
   // Detectamos dos casos en los que asumimos LEVE como fallback:
@@ -435,6 +445,13 @@ async function processMultasFile(filePath, options = {}) {
           const multaData = parseMultaRow(row, fileName, rowIndex);
 
           if (multaData) {
+            // Modo atlas: muestreo estratificado (mes|calificacion|tipoInfraccion). Si el
+            // estrato lleno su cupo se descarta la fila; se sigue leyendo el archivo para
+            // muestrear de todos los estratos (el flush final lo hace el evento 'end').
+            if (options.limitador && !options.limitador.aceptar(multaData)) {
+              return;
+            }
+
             batch.push(multaData);
             stats.processedRows++;
 
@@ -780,13 +797,28 @@ async function importMultasData(options = {}) {
 
     // Obtener lista de archivos CSV
     const files = await fs.readdir(importConfig.dataDirectory);
-    const csvFiles = files
+    let csvFiles = files
       .filter(file => file.endsWith('.csv') && file.includes('Multas'))
       .sort();
 
     if (csvFiles.length === 0) {
       throw new Error('No se encontraron archivos CSV de multas');
     }
+
+    // Modo atlas: procesar solo los meses del plan (subset variado, no los 12).
+    if (importConfig.atlas && atlasPlan.multas?.archivos) {
+      const permitidos = new Set(atlasPlan.multas.archivos);
+      csvFiles = csvFiles.filter(file => permitidos.has(file));
+      logger.info({ archivos: csvFiles }, 'Modo Atlas: subset de archivos de multas');
+    }
+
+    // Limitador compartido entre archivos: muestreo estratificado por
+    // mes|calificacion|tipoInfraccion para variedad de meses, gravedades y tipos.
+    importConfig.limitador = crearLimitador(
+      importConfig.atlas,
+      atlasPlan.multas,
+      (doc) => `${doc.mes}|${doc.calificacion}|${doc.metadatos.tipoInfraccion}`
+    );
 
     logger.info({ archivosEncontrados: csvFiles.length, archivos: csvFiles }, 'Archivos CSV detectados');
 
@@ -950,6 +982,7 @@ async function main() {
   const args = process.argv.slice(2);
   const options = {
     skipExisting: !args.includes('--force'),
+    atlas: args.includes('--atlas'),
     batchSize: parseInt(args.find(arg => arg.startsWith('--batch='))?.split('=')[1]) || IMPORT_CONFIG.batchSize
   };
 

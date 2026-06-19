@@ -58,7 +58,11 @@ router.get('/piramide',
   cacheMiddleware('demographic', (req) =>
     // El `mes` DEBE estar en la clave: la piramide es una foto de un mes y el
     // servicio lo usa en el $match; omitirlo servia el mes equivocado al filtrar.
-    `census:pyramid:${req.query.año || CENSUS_DEFAULTS.START_YEAR}:${req.query.distrito || 'all'}:${req.query.mes || 'all'}:${req.query.incluirExtranjeros || true}`
+    // `incluirExtranjeros` ya es boolean aqui (validateRequest aplico .toBoolean()
+    // antes que cacheMiddleware). `|| true` daba 'true' tambien para false (false
+    // es falsy) -> colisionaba true/false en la misma clave. `!== false` refleja
+    // el valor real: undefined/true -> 'true', false -> 'false'.
+    `census:pyramid:${req.query.año || CENSUS_DEFAULTS.START_YEAR}:${req.query.distrito || 'all'}:${req.query.mes || 'all'}:${req.query.incluirExtranjeros !== false}`
   ),
   obtenerPiramidePoblacional
 );

@@ -144,13 +144,19 @@ const obtenerDatosCenso = asyncHandler(async (req, res) => {
 
     const { cursor } = req.query;
 
+    // Las estadisticas (resumen agregado sobre TODO el set) son un $group con
+    // $addToSet de alta cardinalidad sobre hasta 2,85M docs. El frontend del
+    // listado las DESCARTA (su `select` solo toma data+pagination), por lo que
+    // se computan OPT-IN: solo si el cliente pide ?includeStats=true. Asi el
+    // listado por defecto no paga un agregado costoso cuyo resultado se tira.
+    const incluirStats = req.query.includeStats === 'true';
     const { data, total: totalDocuments, stats, cursor: cursorMeta } = await Censo.buscarConOpciones({
       filters,
       sort: sortOptions,
       pagination: paginationOptions,
       projection,
       lean: true,
-      includeStats: true,
+      includeStats: incluirStats,
       cursor
     });
 
@@ -210,7 +216,11 @@ const obtenerPiramidePoblacional = asyncHandler(async (req, res) => {
     año,
     mes,
     distrito,
-    incluirExtranjeros: incluirExtranjeros === 'true'
+    // El validador aplica .toBoolean(), por lo que aqui el valor ya es boolean.
+    // `=== 'true'` (comparar boolean con string) era SIEMPRE false, anulando la
+    // opcion (la piramide nunca incluia extranjeros). Comparacion robusta a
+    // boolean y string; default true.
+    incluirExtranjeros: incluirExtranjeros !== false && incluirExtranjeros !== 'false'
   });
 
   const responseData = {
@@ -223,7 +233,11 @@ const obtenerPiramidePoblacional = asyncHandler(async (req, res) => {
       // mes real usado por el service (el ultimo con datos si no se indico uno),
       // para que la UI no muestre "TODOS" cuando en realidad es una foto mensual.
       mes: result.mesUtilizado != null ? result.mesUtilizado : mes,
-      incluirExtranjeros: incluirExtranjeros === 'true'
+      // El validador aplica .toBoolean(), por lo que aqui el valor ya es boolean.
+    // `=== 'true'` (comparar boolean con string) era SIEMPRE false, anulando la
+    // opcion (la piramide nunca incluia extranjeros). Comparacion robusta a
+    // boolean y string; default true.
+    incluirExtranjeros: incluirExtranjeros !== false && incluirExtranjeros !== 'false'
     }, { nullLabel: CENSUS_DEFAULTS.DISTRICT_LABEL })
   };
 

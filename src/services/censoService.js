@@ -254,7 +254,14 @@ const buscarConOpciones = async function(Model, options) {
     // El count debe llevar techo de tiempo como el resto de queries del proyecto
     // (invariante .maxTimeMS): si no, ante un filtro poco selectivo podia seguir
     // corriendo en el servidor mas alla del presupuesto del endpoint.
-    cursor ? Promise.resolve(null) : Model.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+    cursor
+      ? Promise.resolve(null)
+      // Sin filtro, el total es el tamano de la coleccion: estimatedDocumentCount
+      // es O(1) (lee metadatos) y exacto para ese caso, frente a countDocuments({})
+      // que recorre los ~2,85M docs. Con filtro se usa countDocuments (acotado).
+      : (Object.keys(filters).length === 0
+        ? Model.estimatedDocumentCount().maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
+        : Model.countDocuments(filters).maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS))
   ];
 
   if (includeStats) {

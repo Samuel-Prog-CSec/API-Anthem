@@ -32,6 +32,7 @@ const {
   parsearFechaHoraUTC
 } = require('./helpers/importHelpers');
 const { crearLectorCSV } = require('./helpers/normalizarEncoding');
+const atlasPlan = require('./helpers/atlasPlan');
 
 // ============================================================================
 // CONFIGURACIÓN
@@ -86,6 +87,13 @@ let totalRejected = 0;
 let totalErrors = 0;
 let isShuttingDown = false;
 let currentFile = '';
+
+// Modo atlas (subset para MongoDB M0): filtro determinista que conserva pocos puntos de
+// medida con dias contiguos, para que la pagina de trafico tenga ventanas de 7 dias y el
+// rollup traffic_daily sea representativo. Ver scripts/importation/helpers/atlasPlan.js.
+let atlasMode = false;
+const atlasConfigTrafico = atlasPlan.trafico;
+let atlasAceptadosTrafico = 0;
 
 // Tracker de rechazos por tipo
 const rejectionTracker = new RejectionTracker();
@@ -469,6 +477,43 @@ async function processBatch(batch) {
 }
 
 /**
+ * Veredicto de muestreo atlas para una fila de trafico ya transformada.
+ *
+ * Filtro determinista estratificado por TIPO de elemento: se conservan hasta
+ * `maxPuntosPorTipo` puntos URB y `maxPuntosPorTipo` puntos M30, y solo los dias
+ * 1..`diaMax` (contiguos, para la ventana de 7 dias del frontend), con un tope global de
+ * seguridad. El estado de seleccion (`puntosPorTipo`) es POR ARCHIVO (un mes): los CSV
+ * mensuales NO comparten el mismo conjunto ni orden de puntos (enero empieza por M30
+ * id 1001, julio por URB id 3396), asi que un set global se llenaria con el tipo del primer
+ * archivo y dejaria los demas meses/tipos fuera. Estratificar por tipo garantiza que el
+ * subset (y el rollup traffic_daily) tenga tanto URB como M30.
+ *
+ * @param {Object} doc - Documento de trafico transformado (puntoMedidaId, dia, tipoElemento).
+ * @param {{URB: Set, M30: Set}} puntosPorTipo - Puntos ya seleccionados en este archivo, por tipo.
+ * @returns {'aceptar'|'descartar'|'parar'} Accion que debe tomar el caller.
+ */
+function veredictoAtlasTrafico(doc, puntosPorTipo) {
+  if (atlasAceptadosTrafico >= atlasConfigTrafico.tope) {
+    return 'parar';
+  }
+  if (doc.dia > atlasConfigTrafico.diaMax) {
+    return 'descartar';
+  }
+  const set = puntosPorTipo[doc.tipoElemento];
+  if (!set) {
+    return 'descartar';
+  }
+  if (!set.has(doc.puntoMedidaId)) {
+    if (set.size >= atlasConfigTrafico.maxPuntosPorTipo) {
+      return 'descartar';
+    }
+    set.add(doc.puntoMedidaId);
+  }
+  atlasAceptadosTrafico += 1;
+  return 'aceptar';
+}
+
+/**
  * Procesar un archivo CSV de tráfico
  * @param {string} filePath - Ruta al archivo
  * @returns {Promise<Object>} - Estadísticas del archivo
@@ -479,6 +524,8 @@ async function procesarArchivoTrafico(filePath) {
     let rowCount = 0;
     let processedCount = 0;
     let errorCount = 0;
+    // Estado de seleccion de puntos por tipo, LOCAL a este archivo (mes). Ver veredictoAtlasTrafico.
+    const puntosPorTipoAtlas = { URB: new Set(), M30: new Set() };
 
     currentFile = path.basename(filePath);
     logger.info({ archivo: currentFile }, 'Procesando archivo de trafico');
@@ -506,6 +553,33 @@ async function procesarArchivoTrafico(filePath) {
 
         try {
           const trafficData = validateAndTransformRow(row, rowCount);
+
+          // Modo atlas: filtrar la fila por el muestreo determinista de trafico.
+          if (atlasMode) {
+            const veredicto = veredictoAtlasTrafico(trafficData, puntosPorTipoAtlas);
+            if (veredicto === 'parar') {
+              // Tope de seguridad alcanzado: flush del lote acumulado, dejar de leer el CSV
+              // y resolver la promesa (tras stream.destroy() no se emite el evento 'end').
+              stream.pause();
+              const loteFinal = batch.splice(0);
+              processBatch(loteFinal).finally(() => {
+                if (!isShuttingDown) {
+                  stream.destroy();
+                }
+                resolve({
+                  file: currentFile,
+                  totalRows: rowCount,
+                  processed: processedCount,
+                  errors: errorCount
+                });
+              });
+              return;
+            }
+            if (veredicto === 'descartar') {
+              return;
+            }
+          }
+
           batch.push(trafficData);
           processedCount++;
 
@@ -576,11 +650,18 @@ async function getFilesToProcess() {
   logger.info({ directorio: DATA_DIR }, 'Buscando archivos de trafico');
 
   const files = await fs.readdir(DATA_DIR);
-  const csvFiles = files.filter(file =>
+  let csvFiles = files.filter(file =>
     file.endsWith('.csv') &&
     file.includes('Traffic') &&
     !file.includes('sample')
   );
+
+  // Modo atlas: procesar solo los meses del plan (evita leer los 12 CSV / 7.2GB).
+  if (atlasMode && atlasConfigTrafico?.archivos) {
+    const permitidos = new Set(atlasConfigTrafico.archivos);
+    csvFiles = csvFiles.filter(file => permitidos.has(file));
+    logger.info({ archivos: csvFiles }, 'Modo Atlas: subset de archivos de trafico');
+  }
 
   logger.info({
     archivosEncontrados: csvFiles.length,
@@ -600,10 +681,17 @@ async function getFilesToProcess() {
 async function main() {
   const startTime = Date.now();
 
+  // Modo atlas: leer la flag antes de descubrir archivos (filtra meses) y forzar
+  // procesamiento secuencial (1 archivo a la vez) para que el filtro de puntos y el
+  // tope global sean deterministas y sin carreras entre archivos.
+  atlasMode = process.argv.includes('--atlas');
+  const maxParalelo = atlasMode ? 1 : MAX_PARALLEL;
+
   logger.info({
     batchSize: BATCH_SIZE,
     directorioDatos: DATA_DIR,
-    procesamientoParalelo: MAX_PARALLEL
+    procesamientoParalelo: maxParalelo,
+    atlas: atlasMode
   }, 'Iniciando importacion de datos de trafico');
 
   try {
@@ -637,17 +725,17 @@ async function main() {
     // Procesar archivos en paralelo
     const fileResults = [];
 
-    for (let i = 0; i < filesToProcess.length; i += MAX_PARALLEL) {
+    for (let i = 0; i < filesToProcess.length; i += maxParalelo) {
       if (isShuttingDown) {
         logger.warn('Importacion interrumpida por senal de terminacion');
         break;
       }
 
-      const batch = filesToProcess.slice(i, i + MAX_PARALLEL);
+      const batch = filesToProcess.slice(i, i + maxParalelo);
 
       logger.info({
-        lote: Math.floor(i / MAX_PARALLEL) + 1,
-        totalLotes: Math.ceil(filesToProcess.length / MAX_PARALLEL),
+        lote: Math.floor(i / maxParalelo) + 1,
+        totalLotes: Math.ceil(filesToProcess.length / maxParalelo),
         archivos: batch
       }, 'Procesando lote paralelo de archivos');
 
@@ -676,8 +764,8 @@ async function main() {
       fileResults.push(...batchResults);
 
       logger.info({
-        loteCompletado: Math.floor(i / MAX_PARALLEL) + 1,
-        progreso: `${Math.min(i + MAX_PARALLEL, filesToProcess.length)}/${filesToProcess.length}`
+        loteCompletado: Math.floor(i / maxParalelo) + 1,
+        progreso: `${Math.min(i + maxParalelo, filesToProcess.length)}/${filesToProcess.length}`
       }, 'Lote paralelo completado');
     }
 

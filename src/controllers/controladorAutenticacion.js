@@ -409,7 +409,12 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
     .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS)
     .lean();
   if (!user) {
-    return next(createNotFoundError('Usuario', decoded.id));
+    // El refresh token es criptograficamente valido pero el usuario ya no
+    // existe (cuenta eliminada). Devolver 401 generico (token invalido) en
+    // lugar de 404 con el ObjectId: ese 404 filtraba un identificador interno
+    // y permitia distinguir "usuario borrado" de "token invalido".
+    authLogger.warn({ ip: req.ip }, 'Refresh token de usuario inexistente');
+    return next(createAuthError('Token invalido o expirado'));
   }
 
   // Verificar si la cuenta del usuario esta activa
@@ -439,17 +444,30 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
     }
   }
 
-  // Invalidar refresh token antiguo (rotacion).
-  // Preferir revocacion por jti para ahorrar espacio en la blacklist.
+  // Invalidar refresh token antiguo (rotacion) de forma ATOMICA.
+  // El insert con indice unico sobre `jti` actua como claim: si esta peticion
+  // es la primera en rotar el token, claimed=true y continuamos; si otra
+  // peticion concurrente ya lo rotó (o es un reuso del token), claimed=false y
+  // abortamos SIN emitir un nuevo par. Esto cierra la ventana check-then-act
+  // que permitia obtener dos pares de tokens a partir del mismo refresh token.
   const tokenExpiration = getTokenExpiration(refreshToken);
   if (decoded.jti) {
-    await TokenBlacklist.addJti(
+    const { claimed } = await TokenBlacklist.claimJti(
       decoded.jti,
       user._id,
       TOKEN_REVOCATION_REASONS.ROTATION,
       tokenExpiration
     );
+    if (!claimed) {
+      authLogger.warn({
+        userId: user._id,
+        ip: req.ip
+      }, 'Rotacion concurrente o reuso de refresh token detectado: abortando');
+      return next(createAuthError('Token invalido o expirado'));
+    }
   } else {
+    // Tokens legacy sin jti: no se puede reclamar atomicamente por jti; se
+    // mantiene el comportamiento previo (idempotente) hasta su expiracion.
     await TokenBlacklist.addToken(
       refreshToken,
       user._id,

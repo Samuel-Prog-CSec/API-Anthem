@@ -152,6 +152,28 @@ const validateWildcardConfig = (callback) => {
 };
 
 /**
+ * Construye el error de denegacion CORS con statusCode 403 (Forbidden).
+ *
+ * Antes se usaba `new Error('Not allowed by CORS')` SIN statusCode: el
+ * globalErrorHandler lo trataba como 500 (Internal Server Error), lo que
+ * (1) devolvia un status incorrecto al cliente, (2) generaba ruido de "error de
+ * servidor" en los logs por cada denegacion legitima, y (3) peor aun, como
+ * `isDatabaseFailure()` considera fallo de servidor cualquier error con
+ * statusCode indefinido o >=500, una denegacion CORS disparaba erroneamente el
+ * stale-fallback de cache (servir datos cacheados como si la BD hubiera fallado).
+ * Una denegacion CORS es 403. `isOperational: true` evita que el mensaje se
+ * enmascare en produccion.
+ *
+ * @returns {Error} Error con statusCode 403
+ */
+const corsDeniedError = () => {
+  const err = new Error('Origen no permitido por la politica CORS');
+  err.statusCode = 403;
+  err.isOperational = true;
+  return err;
+};
+
+/**
  * Función principal de validación de origin CORS
  * Complejidad ciclomática reducida mediante composición de funciones
  *
@@ -159,17 +181,22 @@ const validateWildcardConfig = (callback) => {
  * @param {Function} callback - Callback (err, allowed)
  */
 const validateCorsOrigin = (origin, callback) => {
-  // Caso 1: Peticiones sin origin
+  // Caso 1: Peticiones SIN header Origin (clientes no-navegador).
+  //
+  // Se PERMITEN tambien en produccion. CORS es un mecanismo que aplica y
+  // hace cumplir el NAVEGADOR para proteger al usuario de lecturas
+  // cross-origin; no protege contra clientes no-navegador, que simplemente no
+  // envian Origin y no estan sujetos a CORS. Bloquear las peticiones sin Origin
+  // no aporta seguridad real (un atacante server-to-server omite Origin
+  // trivialmente) y SI rompe casos legitimos en el despliegue (Heroku): health
+  // checks/monitoring sobre endpoints de la API, integraciones servidor-a-
+  // servidor, apps nativas, y pruebas con curl/Postman. La defensa real de
+  // estos endpoints es la autenticacion (JWT) + el rate limiting, que aplican
+  // independientemente del Origin. La validacion estricta del allowlist se
+  // mantiene para las peticiones que SI traen Origin (proteccion cross-origin
+  // de navegador, Caso 4/5).
   if (!origin) {
-    if (isProduction()) {
-      corsLogger.warn(
-        { context: 'CORS validation' },
-        'Petición sin origin bloqueada en producción - considerar allowlist específica'
-      );
-      return callback(new Error('Not allowed by CORS'));
-    }
-
-    corsLogger.debug('Petición sin origin permitida en desarrollo');
+    corsLogger.debug('Peticion sin origin permitida (cliente no-navegador)');
     return callback(null, true);
   }
 
@@ -183,15 +210,15 @@ const validateCorsOrigin = (origin, callback) => {
 
   // Caso 3: Validaciones de seguridad básicas
   if (!isOriginLengthValid(normalizedOrigin)) {
-    return callback(new Error('Not allowed by CORS'));
+    return callback(corsDeniedError());
   }
 
   if (!isNotNullOrigin(normalizedOrigin)) {
-    return callback(new Error('Not allowed by CORS'));
+    return callback(corsDeniedError());
   }
 
   if (!isValidUrlFormat(normalizedOrigin)) {
-    return callback(new Error('Not allowed by CORS'));
+    return callback(corsDeniedError());
   }
 
   // Caso 4: Verificar allowlist (exacto o wildcard)
@@ -210,7 +237,7 @@ const validateCorsOrigin = (origin, callback) => {
     },
     'Solicitud CORS bloqueada desde origin no autorizado'
   );
-  callback(new Error('Not allowed by CORS'));
+  callback(corsDeniedError());
 };
 
 module.exports = {

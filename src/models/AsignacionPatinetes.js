@@ -462,7 +462,11 @@ scooterAssignmentSchema.methods.clasificarArea = function() {
   } else if (AREAS_CLAVE_PATINETES.UNIVERSITY.some(loc => barrio.includes(loc))) {
     this.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_UNIVERSITARIA;
     this.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.ALTA;
-  } else if (AREAS_CLAVE_PATINETES.TRANSPORT.some(loc => barrio.includes(loc))) {
+  } else if (AREAS_CLAVE_PATINETES.TRANSPORT.some(loc => distrito.includes(loc) || barrio.includes(loc))) {
+    // Buscar TAMBIEN en distrito: estaciones importantes (Chamartin) estan
+    // declaradas como nombre de DISTRITO, no de barrio. Alineado con el
+    // predicado del importador (fix CHAMARTIN) para no divergir la fuente
+    // de verdad.
     this.clasificacionArea.tipoZona = TIPOS_ZONA_PATINETES.ZONA_TRANSPORTE;
     this.clasificacionArea.prioridadServicio = NIVELES_PRIORIDAD_PATINETES.ALTA;
   } else if (AREAS_CLAVE_PATINETES.COMMERCIAL.some(loc => distrito.includes(loc))) {

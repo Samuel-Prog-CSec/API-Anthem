@@ -189,10 +189,14 @@ const validarRankingUbicaciones = [
  */
 const validarAnalisisTemporal = [
   ...dateValidation,
-  query('granularity')
+  // El parametro REAL que consumen controlador y servicio es `tipoAnalisis`
+  // con el vocabulario hourly|daily|monthly|yearly. Antes se validaba
+  // `granularity` (day|week|month|year), que el codigo nunca leia (placebo),
+  // mientras `tipoAnalisis` llegaba sin validar y fuera de la clave de cache.
+  query('tipoAnalisis')
     .optional()
-    .isIn(['day', 'week', 'month', 'year'])
-    .withMessage('Granularidad debe ser day, week, month o year')
+    .isIn(['hourly', 'daily', 'monthly', 'yearly'])
+    .withMessage('tipoAnalisis debe ser hourly, daily, monthly o yearly')
 ];
 
 /**

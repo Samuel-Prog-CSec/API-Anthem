@@ -31,7 +31,12 @@ const GEO_LIMITS = {
   LATITUDE_MAX: 90,
   MIN_DISTANCE_METERS: 50,
   MAX_DISTANCE_METERS: 5000,
-  DEFAULT_DISTANCE_METERS: 500
+  DEFAULT_DISTANCE_METERS: 500,
+  // Maximo de features que un endpoint /mapa devuelve por peticion. Acota el
+  // payload y el numero de marcadores que el frontend reconcilia (p.ej.
+  // contenedores tiene ~38k puntos = ~10MB sin cap). El cliente acota la zona
+  // por bbox (viewport) o por filtros para ver el detalle completo de un area.
+  MAP_MAX_FEATURES: 6000
 };
 
 module.exports = {

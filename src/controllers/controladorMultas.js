@@ -96,11 +96,16 @@ const obtenerMultas = asyncHandler(async (req, res) => {
     projection.coordenadas = 1;
   }
 
-  // Pipeline de estadisticas: se ejecuta DENTRO del mismo $facet que data+count,
-  // ahorrando una pasada completa de la coleccion respecto al patron anterior
-  // (executeFacetPagination + aggregate adicional con $group).
+  // Pipeline de estadisticas globales (totalImporte, promedios, etc.) sobre
+  // TODO el set filtrado: es un $group SIN $limit que, sin filtro de fecha,
+  // recorre las ~2M multas y cuesta varios segundos. El frontend del LISTADO
+  // NO consume este bloque (su `select` solo toma data+pagination; las tarjetas
+  // de estadisticas usan el endpoint dedicado /multas/estadisticas). Por eso se
+  // computa OPT-IN: solo si el cliente pide ?includeStats=true. Asi el listado
+  // por defecto es rapido y deja de pagar un $group cuyo resultado se descartaba.
   // NO usar $limit antes de $group: corrompe las estadisticas globales.
-  const statsPipeline = [
+  const incluirEstadisticas = req.query.includeStats === 'true';
+  const statsPipeline = incluirEstadisticas ? [
     {
       $group: {
         _id: null,
@@ -115,7 +120,7 @@ const obtenerMultas = asyncHandler(async (req, res) => {
         }
       }
     }
-  ];
+  ] : null;
 
   // Ejecutar consulta con facet: datos + total + estadisticas en una sola operacion
   const {
@@ -139,13 +144,17 @@ const obtenerMultas = asyncHandler(async (req, res) => {
   const responseData = {
     data,
     pagination: paginationMeta,
-    estadisticas: quickStatistics || {
-      totalImporte: 0,
-      importePromedio: 0,
-      totalPuntos: 0,
-      multasGraves: 0,
-      multasConDescuento: 0
-    },
+    // estadisticas solo si se pidieron (?includeStats=true); null en otro caso
+    // para no devolver ceros enganosos que parezcan datos reales.
+    estadisticas: incluirEstadisticas
+      ? (quickStatistics || {
+        totalImporte: 0,
+        importePromedio: 0,
+        totalPuntos: 0,
+        multasGraves: 0,
+        multasConDescuento: 0
+      })
+      : null,
     performance: fineFacetFallback ? {
       facetFallback: true,
       reason: fineFacetError

@@ -50,9 +50,10 @@ const generalLimit = rateLimit({
 router.get('/',
   authenticate,
   generalLimit,
-  // Trafico es la coleccion mas masiva (~24M docs); usamos TRAFFIC_MAX_DAYS=90
-  // en lugar del DEFAULT_MAX=365 para forzar al cliente a paginar por trimestres
-  // o aplicar filtros de puntoMedidaId que reduzcan el scope antes del scan.
+  // Trafico es la coleccion mas masiva (~132M mediciones crudas / ~1,45M en el
+  // rollup traffic_daily). El cap de rango es TRAFFIC_MAX_DAYS=365 (un anio
+  // completo del dataset 2051): las agregaciones se sirven desde traffic_daily,
+  // por eso un anio entero es asumible; el listado crudo va acotado por indice.
   validateDateRange(DATE_RANGE_LIMITS.TRAFFIC_MAX_DAYS),
   validatePagination,
   validateTrafficFilters,

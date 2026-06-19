@@ -48,8 +48,14 @@ const userSchema = new mongoose.Schema(
       unique: true,
       trim: true,
       lowercase: true,
+      // Regex lineal (sin quantifiers anidados sobre clases solapadas) para
+      // evitar backtracking catastrofico (ReDoS) del patron anterior. Acepta
+      // TLDs de cualquier longitud (.com, .test, .online, .museum): el patron
+      // previo exigia \w{2,3} y rechazaba emails validos con TLD de 4+ letras.
+      // El formato estricto lo valida express-validator isEmail() en la ruta;
+      // este match es solo un suelo de seguridad a nivel de schema.
       match: [
-        /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
+        /^[\w.+-]+@[\w-]+(\.[\w-]+)+$/,
         'Por favor, ingrese un email valido',
       ],
     },

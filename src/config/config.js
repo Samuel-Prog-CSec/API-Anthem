@@ -62,6 +62,18 @@ const validateEnvironment = () => {
   if (process.env.TEST_MODE === 'true' && process.env.NODE_ENV === 'production') {
     throw new Error('[CRITICAL SECURITY] TEST_MODE no puede activarse cuando NODE_ENV=production');
   }
+
+  // PRODUCCION: si la API corre detras de un proxy/balanceador (nginx, ALB,
+  // Cloudflare) y TRUSTED_PROXIES no esta definido, Express confiara solo en
+  // loopback y `req.ip` sera la IP del proxy para TODO el trafico. Eso agrupa a
+  // todos los clientes en un unico bucket de rate-limit (un solo abusivo
+  // provoca DoS global y el authLimiter deja de discriminar por atacante) y
+  // rompe la deteccion de IP. Avisar para que el operador lo configure
+  // explicitamente con la IP/CIDR del proxy antes de desplegar.
+  if (process.env.NODE_ENV === 'production' && !process.env.TRUSTED_PROXIES) {
+    // eslint-disable-next-line no-console
+    console.warn('[WARNING] TRUSTED_PROXIES no definido en produccion: si hay un proxy/balanceador delante, el rate limiting agrupara a TODOS los clientes por la IP del proxy (riesgo de DoS y de IP spoofing). Define TRUSTED_PROXIES con la IP/CIDR del proxy de confianza.');
+  }
 };
 
 /**

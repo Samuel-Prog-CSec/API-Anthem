@@ -141,6 +141,41 @@ tokenBlacklistSchema.statics.addJti = async function(jti, userId, reason = 'rota
 };
 
 /**
+ * Reclama (claim) la revocacion de un jti de forma ATOMICA.
+ *
+ * A diferencia de `addJti`, NO traga el error de duplicado: usa el insert con
+ * indice unico sobre `jti` como mecanismo de exclusion mutua. Devuelve
+ * `{ claimed: true }` si esta llamada fue la PRIMERA en revocar el jti, o
+ * `{ claimed: false }` si ya estaba revocado (otra peticion concurrente lo
+ * rotó, o es un intento de reuso). Permite implementar rotacion "un solo uso"
+ * sin la ventana de carrera del patron leer-luego-escribir.
+ *
+ * @param {string} jti - JWT ID unico del token a revocar
+ * @param {string} userId - ID del usuario propietario
+ * @param {string} reason - Razon de revocacion
+ * @param {Date} expiresAt - Fecha de expiracion natural del token
+ * @returns {Promise<{claimed: boolean}>}
+ */
+tokenBlacklistSchema.statics.claimJti = async function(jti, userId, reason = 'rotation', expiresAt) {
+  if (!jti || !userId || !expiresAt) {
+    throw new Error('jti, userId y expiresAt son obligatorios para reclamar la revocacion');
+  }
+  const expirationDate = new Date(expiresAt);
+  if (isNaN(expirationDate.getTime()) || expirationDate <= new Date()) {
+    throw new Error('expiresAt debe ser una fecha futura valida');
+  }
+  try {
+    await this.create({ token: `rev:${jti}`, jti, userId, reason, expiresAt: expirationDate });
+    return { claimed: true };
+  } catch (error) {
+    if (error.code === 11000) {
+      return { claimed: false };
+    }
+    throw error;
+  }
+};
+
+/**
  * Método estático para verificar si un token está en lista negra
  *
  * @param {string} token - Token a verificar

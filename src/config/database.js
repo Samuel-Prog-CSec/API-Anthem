@@ -9,10 +9,6 @@ const mongoose = require('mongoose');
 const logger = require('./logger');
 const { dbLogger } = logger;
 
-// Handle del interval del monitor de pool, expuesto para que el graceful
-// shutdown lo libere y no quede colgado tras cerrar la conexion a Mongo.
-let poolMonitorIntervalId = null;
-
 /**
  * Conectar a la base de datos MongoDB
  *
@@ -98,47 +94,6 @@ const connectDB = async (uri) => {
       minPoolSize: options.minPoolSize
     }, 'MongoDB conectado exitosamente con pool optimizado');
 
-    // Monitoreo periodico de estadisticas del pool de conexiones
-    // Ejecuta cada 60 segundos para detectar saturacion o problemas de rendimiento
-    poolMonitorIntervalId = setInterval(() => {
-      const db = mongoose.connection.db;
-      if (db && db.serverConfig) {
-        try {
-          const poolStats = db.serverConfig.s?.pool || {};
-          const stats = {
-            availableConnections: poolStats.availableConnections || 0,
-            totalConnections: poolStats.totalConnections || 0,
-            waitQueueSize: poolStats.waitQueueSize || 0,
-            poolSize: options.maxPoolSize,
-            minPoolSize: options.minPoolSize
-          };
-
-          // Log solo si hay conexiones activas o cola de espera
-          if (stats.totalConnections > 0 || stats.waitQueueSize > 0) {
-            dbLogger.debug(stats, 'Estadísticas del pool de conexiones MongoDB');
-
-            // Alertas de saturación del pool
-            if (stats.waitQueueSize > 5) {
-              dbLogger.warn({
-                ...stats,
-                message: 'Cola de espera de conexiones elevada. Considerar aumentar maxPoolSize.'
-              }, 'Pool de conexiones saturado');
-            }
-
-            if (stats.availableConnections === 0 && stats.totalConnections === options.maxPoolSize) {
-              dbLogger.warn({
-                ...stats,
-                message: 'Pool de conexiones al máximo. Todas las conexiones en uso.'
-              }, 'Pool de conexiones al límite');
-            }
-          }
-        } catch (monitorError) {
-          // Silenciar errores de monitoreo para no afectar la aplicación
-          dbLogger.debug({ error: monitorError.message }, 'Error al obtener estadísticas del pool');
-        }
-      }
-    }, 60000); // Cada 60 segundos
-
     // Listeners de eventos de conexión para monitoreo
     mongoose.connection.on('error', (err) => {
       dbLogger.error({ error: err.message }, 'Error de conexión a MongoDB');
@@ -186,22 +141,7 @@ const getConnectionStats = () => {
   };
 };
 
-/**
- * Detiene el interval del monitor de pool de conexiones.
- *
- * Debe llamarse durante el graceful shutdown para que el proceso pueda
- * terminar sin que el interval mantenga el event loop activo. Es seguro
- * llamarla varias veces o si el interval nunca se inicio.
- */
-const stopPoolMonitor = () => {
-  if (poolMonitorIntervalId) {
-    clearInterval(poolMonitorIntervalId);
-    poolMonitorIntervalId = null;
-  }
-};
-
 module.exports = {
   connectDB,
-  getConnectionStats,
-  stopPoolMonitor
+  getConnectionStats
 };

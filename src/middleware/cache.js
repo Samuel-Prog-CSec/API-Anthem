@@ -170,11 +170,15 @@ const scheduleBackgroundRefresh = (req, cacheType, cacheKey) => {
 
   const refreshPromise = (async () => {
     try {
-      // SEGURIDAD: construir la URL con `config.server.host`/`port` en vez de
-      // `req.get('host')` para evitar SSRF. Un cliente malicioso podria
-      // enviar `Host: internal-service:8080` y forzar al server a hacer
-      // peticiones internas con el JWT del usuario adjunto.
-      const baseUrl = `http://${config.server.host}:${config.server.port}`;
+      // SEGURIDAD: construir la URL con loopback fijo en vez de `req.get('host')`
+      // para evitar SSRF (un cliente malicioso podria enviar
+      // `Host: internal-service:8080` y forzar peticiones internas con el JWT
+      // del usuario). Usamos 127.0.0.1 explicito (no `config.server.host`)
+      // porque es una auto-llamada del proceso a si mismo: si en produccion el
+      // server se bindea a 0.0.0.0 (HOST=0.0.0.0), un fetch a 'http://0.0.0.0'
+      // no es portable (falla en Windows/macOS) y el background refresh nunca
+      // se completaria, sirviendo entradas STALE hasta expirar.
+      const baseUrl = `http://127.0.0.1:${config.server.port}`;
       const url = `${baseUrl}${req.originalUrl}`;
 
       // Reenviamos solo el header Authorization (no cookies ni Host) para

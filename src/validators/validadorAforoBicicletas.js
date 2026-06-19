@@ -7,7 +7,14 @@ const { param, query } = require('express-validator');
 
 const filtrosBaseEstacionDistrito = [
   query('identificador').optional().isString().trim().withMessage('El identificador debe ser una cadena de texto'),
-  query('distrito').optional().isString().trim().withMessage('El distrito debe ser una cadena de texto')
+  query('distrito').optional().isString().trim().withMessage('El distrito debe ser una cadena de texto'),
+  // El frontend deriva estos params del filtro de franja horaria (horaMin/horaMax)
+  // y del filtro de mes (startDate/endDate); el controlador los consume pero antes
+  // no se validaban (llegaban sin acotar al buildFilters numericRange/dateRange).
+  query('horaMin').optional().isInt({ min: 0, max: 23 }).toInt().withMessage('horaMin debe ser un numero entre 0 y 23'),
+  query('horaMax').optional().isInt({ min: 0, max: 23 }).toInt().withMessage('horaMax debe ser un numero entre 0 y 23'),
+  query('startDate').optional().isISO8601().withMessage('startDate debe ser una fecha ISO 8601 valida'),
+  query('endDate').optional().isISO8601().withMessage('endDate debe ser una fecha ISO 8601 valida')
 ];
 
 /**

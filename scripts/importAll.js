@@ -31,7 +31,6 @@ const {
   recrearIndicesSecundarios
 } = require('./importation/helpers/gestorIndices');
 const { IMPORT_SUMMARIES_DIR } = require('./importation/helpers/importHelpers');
-const { stopPoolMonitor } = require('../src/config/database');
 
 const Trafico = require('../src/models/Trafico');
 const Censo = require('../src/models/Censo');
@@ -145,7 +144,8 @@ function parseArguments() {
     only: null,
     showHelp: false,
     skipIndicesManagement: false,
-    rebuildIndices: null
+    rebuildIndices: null,
+    atlas: false
   };
 
   for (const arg of args) {
@@ -159,6 +159,8 @@ function parseArguments() {
       options.skipIndicesManagement = true;
     } else if (arg.startsWith('--rebuild-indices=')) {
       options.rebuildIndices = arg.replace('--rebuild-indices=', '').split(',').map(s => s.trim());
+    } else if (arg === '--atlas') {
+      options.atlas = true;
     }
   }
 
@@ -180,6 +182,9 @@ Opciones:
   --skip-indices-management     No dropear/recrear indices en Fase 3 (legacy)
   --rebuild-indices=x[,y,z]     Solo recrear indices (sin importar). Recovery tras crash.
                                 Valores: trafico, censo, multas
+  --atlas                       Modo Atlas free tier (M0, 512MB): importa solo un subset
+                                variado por coleccion (ver scripts/importation/helpers/
+                                atlasPlan.js) y reconstruye traffic_daily al terminar.
   --help                        Mostrar esta ayuda
 
 Importadores disponibles:`);
@@ -210,6 +215,10 @@ function runImporter(key, importerConfig, options) {
 
     if (options.force) {
       args.push('--force');
+    }
+
+    if (options.atlas) {
+      args.push('--atlas');
     }
 
     const startTime = Date.now();
@@ -373,6 +382,49 @@ function emitirResumenGlobal(importerKeys, runStartedAt) {
 }
 
 /**
+ * Reconstruir el rollup `traffic_daily` ejecutando buildTrafficDaily.js como proceso hijo.
+ *
+ * En modo atlas, tras importar el subset de `traffic_measurements`, se reconstruye el
+ * rollup del que leen los endpoints de trafico (no leen los crudos). Asi la BD queda lista
+ * para el frontend sin pasos manuales. En modo normal el rollup sigue siendo manual.
+ *
+ * @returns {Promise<boolean>} true si el rollup se construyo sin error.
+ */
+function reconstruirTrafficDaily() {
+  return new Promise((resolve) => {
+    const scriptPath = path.join(__dirname, 'buildTrafficDaily.js');
+
+    const child = execFile('node', [scriptPath], {
+      cwd: path.join(__dirname, '..'),
+      env: { ...process.env, SCRIPT_MODE: 'true' },
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 30 * 60 * 1000
+    }, (error) => {
+      if (error) {
+        logger.error({ error: error.message }, 'Error reconstruyendo rollup traffic_daily');
+        imprimirError(`  ! Error en rollup traffic_daily: ${error.message}`);
+        resolve(false);
+      } else {
+        logger.info('Rollup traffic_daily reconstruido (modo atlas)');
+        resolve(true);
+      }
+    });
+
+    if (child.stdout) {
+      child.stdout.on('data', () => {});
+    }
+    if (child.stderr) {
+      child.stderr.on('data', (data) => {
+        const text = data.toString().trim();
+        if (text) {
+          logger.warn({ proceso: 'buildTrafficDaily' }, text);
+        }
+      });
+    }
+  });
+}
+
+/**
  * Funcion principal
  */
 async function main() {
@@ -432,12 +484,17 @@ async function main() {
   logger.info({
     importadores: importersToRun.map(([key]) => key),
     total: importersToRun.length,
-    force: options.force
+    force: options.force,
+    atlas: options.atlas
   }, `Iniciando importacion masiva (${importersToRun.length} importadores)`);
 
   imprimir('\n=== Importacion Masiva - Smart City Anthem 2051 ===\n');
   imprimir(`Importadores: ${importersToRun.map(([key]) => key).join(', ')}`);
-  imprimir(`Modo: ${options.force ? 'Forzar sobrescritura' : 'Normal (omitir existentes)'}\n`);
+  imprimir(`Modo: ${options.force ? 'Forzar sobrescritura' : 'Normal (omitir existentes)'}`);
+  if (options.atlas) {
+    imprimir('Atlas: ACTIVO (subset para free tier M0 512MB; reconstruira traffic_daily al final)');
+  }
+  imprimir('');
 
   const results = [];
 
@@ -548,6 +605,18 @@ async function main() {
     }
   }
 
+  // Modo atlas: reconstruir el rollup traffic_daily tras importar el subset de trafico.
+  // Los endpoints de trafico leen del rollup, no de los crudos, asi que sin esto el
+  // frontend de trafico saldria vacio. En modo normal sigue siendo un paso manual.
+  if (options.atlas) {
+    const traficoImportado = results.some(r => r.key === 'trafico' && r.success);
+    if (traficoImportado) {
+      imprimir('\n--- Modo Atlas: reconstruyendo rollup traffic_daily ---\n');
+      const rollupOk = await reconstruirTrafficDaily();
+      imprimir(`  ${rollupOk ? '[OK]' : '[ERROR]'} traffic_daily`);
+    }
+  }
+
   // Resumen final
   const totalDuration = formatDuration(Date.now() - globalStart);
   const exitosos = results.filter(r => r.success).length;
@@ -579,12 +648,10 @@ async function main() {
   emitirResumenGlobal(results.map(r => r.key), new Date(globalStart).toISOString());
 
   // Cerrar conexion del padre y liberar handles para que el proceso
-  // pueda salir limpio. Sin estas llamadas, el `setInterval` del monitor
-  // de pool y los streams de Pino mantenian el event loop activo y
-  // dejaban el proceso zombi tras "completar" la importacion. Llamamos
-  // tambien `process.exit(0)` explicito en el camino feliz para no
-  // depender de que TODOS los handles esten correctamente unref'd.
-  stopPoolMonitor();
+  // pueda salir limpio. Sin esta llamada, los streams de Pino mantenian
+  // el event loop activo y dejaban el proceso zombi tras "completar" la
+  // importacion. Llamamos tambien `process.exit(0)` explicito en el camino
+  // feliz para no depender de que TODOS los handles esten correctamente unref'd.
   if (mongoose.connection.readyState === 1) {
     await mongoose.connection.close();
   }
