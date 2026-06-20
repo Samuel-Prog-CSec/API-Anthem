@@ -112,7 +112,7 @@ const config = {
   security: {
     bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 12,
     rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000, // 15 minutos
-    rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100, // 100 solicitudes por ventana
+    rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 1000, // 1000 solicitudes/ventana (dashboard con 4-5 llamadas por pantalla)
     corsOrigins: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['http://localhost:3000'],
     // Lista de IPs/CIDR de proxies confiables. Evita IP spoofing detrás de proxies inversos
     // En desarrollo se confia en loopback; en produccion configurar via TRUSTED_PROXIES

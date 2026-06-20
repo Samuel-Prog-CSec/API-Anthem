@@ -46,9 +46,11 @@ const pipeline = [
       cntO: { $sum: { $cond: [{ $gte: ['$metricas.ocupacion', 0] }, 1, 0] } },
       sumC: { $sum: { $cond: [{ $gte: ['$metricas.carga', 0] }, '$metricas.carga', 0] } },
       cntC: { $sum: { $cond: [{ $gte: ['$metricas.carga', 0] }, 1, 0] } },
-      // Velocidad media: solo valida en M-30 con valor >= 0 (en URB el CSV trae 0 de relleno)
-      sumVelM30: { $sum: { $cond: [{ $and: [{ $eq: ['$tipoElemento', TRAFFIC_ELEMENT_TYPES.M30] }, { $gte: ['$metricas.velocidadMedia', 0] }] }, '$metricas.velocidadMedia', 0] } },
-      cntVelM30: { $sum: { $cond: [{ $and: [{ $eq: ['$tipoElemento', TRAFFIC_ELEMENT_TYPES.M30] }, { $gte: ['$metricas.velocidadMedia', 0] }] }, 1, 0] } },
+      // Velocidad media: solo valida en M-30 con valor > 0. El 0 NO es velocidad
+      // real sino el centinela "sin lectura" del sensor (en URB ademas es relleno).
+      // Incluirlo sesgaba la media de M30 a la baja, asi que se excluye con $gt.
+      sumVelM30: { $sum: { $cond: [{ $and: [{ $eq: ['$tipoElemento', TRAFFIC_ELEMENT_TYPES.M30] }, { $gt: ['$metricas.velocidadMedia', 0] }] }, '$metricas.velocidadMedia', 0] } },
+      cntVelM30: { $sum: { $cond: [{ $and: [{ $eq: ['$tipoElemento', TRAFFIC_ELEMENT_TYPES.M30] }, { $gt: ['$metricas.velocidadMedia', 0] }] }, 1, 0] } },
       fluidas: { $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.FLUIDO] }, 1, 0] } },
       densas: { $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.DENSO] }, 1, 0] } },
       congestionadas: { $sum: { $cond: [{ $eq: ['$analisis.nivelCongestion', CONGESTION_LEVELS.CONGESTIONADO] }, 1, 0] } },
@@ -103,9 +105,17 @@ const pipeline = [
   await daily.createIndex({ fecha: 1 }, { name: 'idx_daily_fecha' });
   await daily.createIndex({ tipoElemento: 1, fecha: 1 }, { name: 'idx_daily_tipo_fecha' });
   await daily.createIndex({ puntoMedidaId: 1, fecha: 1 }, { name: 'idx_daily_punto_fecha' });
+  // Indice UNICO por (puntoMedidaId, dia): es el que usa la ingesta incremental
+  // (traficoService.asegurarIndiceRollup) para su upsert selectivo. El $out de
+  // arriba lo dropea junto con la coleccion; si no se recrea aqui, queda ausente
+  // hasta la primera ingesta y, bajo concurrencia, podrian colarse documentos-dia
+  // duplicados que doble-contarian en TODAS las lecturas del rollup. El segundo
+  // $group del pipeline ya agrupa por (puntoMedidaId, año, mes, dia), asi que el
+  // resultado es unico por esa clave y la creacion del indice unico no falla.
+  await daily.createIndex({ puntoMedidaId: 1, 'año': 1, mes: 1, dia: 1 }, { unique: true, name: 'idx_daily_punto_dia_unico' });
 
   const count = await daily.countDocuments();
-  console.log(`[rollup] ${COLECCION_DESTINO} listo: ${count} docs, 3 indices creados. Total ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  console.log(`[rollup] ${COLECCION_DESTINO} listo: ${count} docs, 4 indices creados. Total ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
   await mongoose.disconnect();
   process.exit(0);

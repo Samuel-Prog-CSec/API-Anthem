@@ -6,8 +6,9 @@
  * validateDateRange) se siguen importando desde alli en el archivo de rutas.
  */
 
-const { query, param } = require('express-validator');
+const { query, param, body } = require('express-validator');
 const { TRAFFIC_ELEMENT_TYPES, ROUTE_SPECIFIC_LIMITS } = require('../constants');
+const { validarFechaDataset } = require('./validadorFechaDataset');
 
 /**
  * GET /api/v1/trafico/punto/:id
@@ -39,7 +40,11 @@ const validarAnalisisCongestion = [
   query('groupBy')
     .optional()
     .isIn(['distrito', 'tipoElemento'])
-    .withMessage('Agrupación debe ser por distrito o tipoElemento')
+    .withMessage('Agrupación debe ser por distrito o tipoElemento'),
+  query('tipoElemento')
+    .optional()
+    .isIn(Object.values(TRAFFIC_ELEMENT_TYPES))
+    .withMessage(`Tipo de elemento debe ser ${Object.values(TRAFFIC_ELEMENT_TYPES).join(' o ')}`)
 ];
 
 /**
@@ -83,10 +88,40 @@ const validarMapaTrafico = [
     .withMessage('bbox debe tener formato minLng,minLat,maxLng,maxLat')
 ];
 
+/**
+ * Reglas de validacion de UNA medicion de trafico (ingesta IoT).
+ * @param {string} [p=''] - Prefijo del campo ('' single, 'lecturas.*.' lote)
+ * @returns {Array} Cadena de validadores express-validator
+ */
+const reglasIngestaTrafico = (p = '') => ([
+  body(`${p}puntoMedidaId`).exists().withMessage('puntoMedidaId es obligatorio').bail()
+    .custom((value) => /^\d+$/.test(String(value))).withMessage('puntoMedidaId debe ser numerico (cadena de digitos)'),
+  body(`${p}fecha`).exists().withMessage('fecha es obligatoria').bail().custom(validarFechaDataset),
+  body(`${p}tipoElemento`).isString().withMessage('tipoElemento debe ser texto').bail().trim().toUpperCase()
+    .isIn(Object.values(TRAFFIC_ELEMENT_TYPES)).withMessage('tipoElemento debe ser URB o M30'),
+  body(`${p}intensidad`).isInt({ min: 0, max: 10000 }).withMessage('intensidad debe ser un entero entre 0 y 10000'),
+  body(`${p}ocupacion`).optional({ nullable: true }).isFloat({ min: 0, max: 100 }).withMessage('ocupacion debe estar entre 0 y 100'),
+  body(`${p}carga`).optional({ nullable: true }).isFloat({ min: 0, max: 100 }).withMessage('carga debe estar entre 0 y 100'),
+  body(`${p}velocidadMedia`).optional({ nullable: true }).isFloat({ min: 0, max: 300 }).withMessage('velocidadMedia debe estar entre 0 y 300'),
+  body(`${p}periodoIntegracion`).optional().isInt({ min: 0, max: 5 }).withMessage('periodoIntegracion debe estar entre 0 y 5'),
+  body(`${p}error`).optional().isString().trim().toUpperCase().isIn(['N', 'E', 'S']).withMessage('error debe ser N, E o S')
+]);
+
+/** POST /api/v1/trafico/ingesta (una medicion) */
+const validarIngestaTrafico = reglasIngestaTrafico('');
+
+/** POST /api/v1/trafico/ingesta/lote (hasta 100 mediciones) */
+const validarIngestaLoteTrafico = [
+  body('lecturas').isArray({ min: 1, max: 100 }).withMessage('lecturas debe ser un array de 1 a 100 elementos'),
+  ...reglasIngestaTrafico('lecturas.*.')
+];
+
 module.exports = {
   validarTraficoPorPunto,
   validarEstadisticasTrafico,
   validarAnalisisCongestion,
   validarHistoricoTrafico,
-  validarMapaTrafico
+  validarMapaTrafico,
+  validarIngestaTrafico,
+  validarIngestaLoteTrafico
 };

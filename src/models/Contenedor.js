@@ -494,7 +494,7 @@ contenedorSchema.statics.contarPorTipo = async function(distrito, barrio = null)
         ubicaciones: { $sum: 1 }
       }
     }
-  ]);
+  ]).option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 
   // Convertir array a objeto para fácil acceso
   const summary = {
@@ -537,7 +537,7 @@ contenedorSchema.statics.obtenerDatosMapaCalor = function(tipoContenedor = null,
       }
     },
     { $limit: limit }
-  ]).option({ allowDiskUse: true });
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**
@@ -581,7 +581,7 @@ contenedorSchema.statics.obtenerAnalisisCobertura = function(distrito = null) {
       }
     },
     { $sort: { distrito: 1 } }
-  ]).option({ allowDiskUse: true });
+  ]).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
 };
 
 /**

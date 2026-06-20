@@ -11,7 +11,8 @@ const { RATE_LIMITS, HTTP_STATUS } = require('../constants');
 
 const pedestrianTrafficController = require('../controllers/controladorAforoPeatones');
 const { authenticate } = require('../middleware/auth');
-const { validateRequest } = require('../middleware/security');
+const { sensorOrAdmin } = require('../middleware/authorization');
+const { validateRequest, ingestLimiter } = require('../middleware/security');
 const { etagMiddleware } = require('../middleware/etag');
 const logger = require('../config/logger');
 const { validatePagination, validateDateRange } = require('../middleware/validation');
@@ -23,7 +24,9 @@ const {
   validarDistribucionHoraria,
   validarComparativaEstaciones,
   validarTendenciasDiarias,
-  validarDatosEstacion
+  validarDatosEstacion,
+  validarIngestaConteo,
+  validarIngestaLote
 } = require('../validators/validadorAforoPeatones');
 
 const router = express.Router();
@@ -40,12 +43,11 @@ const generalLimit = rateLimit({
   skip: (req) => req.user && req.user.role === 'admin'
 });
 
-// Cache reutiliza la instancia configurada para trafico (aforo horario
-// peatonal tiene perfil de cardinalidad y volatilidad similar al de
-// bicicletas y trafico vehicular). Si se observase desplazamiento de
-// caches o invalidaciones cruzadas se podria anadir una instancia
-// dedicada en `middleware/cache.js`.
-const CACHE_BUCKET = 'traffic';
+// Instancia de cache dedicada para aforo peatonal (`pedestrianTraffic`, ver
+// middleware/cache.js). Antes reutilizaba la instancia `traffic` del trafico
+// vehicular; se separo al cablear la invalidacion por escritura (ingesta IoT)
+// para que un POST de aforo peatonal no vacie tambien el cache de trafico.
+const CACHE_BUCKET = 'pedestrianTraffic';
 
 router.get('/',
   authenticate,
@@ -116,6 +118,38 @@ router.get('/mapa',
   ...validateDateRange(),
   cacheMiddleware(CACHE_BUCKET, (req) => generatePrefixedCacheKey('pedestrian:mapa', req.query)),
   pedestrianTrafficController.obtenerMapaAforo
+);
+
+// ========================================
+// INGESTA (escritura) - nodos IoT
+// ========================================
+
+/**
+ * Registrar una lectura horaria de aforo de peatones.
+ * @route POST /api/v1/aforo-peatones/ingesta
+ * @access Private (JWT)
+ */
+router.post('/ingesta',
+  authenticate,
+  sensorOrAdmin,
+  ingestLimiter,
+  validarIngestaConteo,
+  validateRequest,
+  pedestrianTrafficController.ingestarConteo
+);
+
+/**
+ * Registrar un lote de lecturas horarias de aforo de peatones.
+ * @route POST /api/v1/aforo-peatones/ingesta/lote
+ * @access Private (JWT)
+ */
+router.post('/ingesta/lote',
+  authenticate,
+  sensorOrAdmin,
+  ingestLimiter,
+  validarIngestaLote,
+  validateRequest,
+  pedestrianTrafficController.ingestarLote
 );
 
 router.use((req, res, next) => {

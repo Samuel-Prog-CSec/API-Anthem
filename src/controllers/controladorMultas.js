@@ -44,13 +44,15 @@ const obtenerMultas = asyncHandler(async (req, res) => {
 
   const filters = buildFilters(req.query, filterConfig);
 
-  // Filtros booleanos adicionales
+  // Filtros booleanos adicionales. El validador aplica toBoolean, por lo que
+  // estos llegan como booleano real; comparar solo con el string 'true' daba
+  // SIEMPRE false (boolean !== string). Aceptar ambas formas por robustez.
   if (conDescuento !== undefined) {
-    filters.tieneDescuento = conDescuento === 'true';
+    filters.tieneDescuento = conDescuento === true || conDescuento === 'true';
   }
 
   if (esGrave !== undefined) {
-    filters['metadatos.esInfraccionGrave'] = esGrave === 'true';
+    filters['metadatos.esInfraccionGrave'] = esGrave === true || esGrave === 'true';
   }
 
   // Configurar paginacion usando queryHelper
@@ -80,6 +82,7 @@ const obtenerMultas = asyncHandler(async (req, res) => {
     fecha: 1,
     hora: 1,
     lugar: 1,
+    descripcionInfraccion: 1,
     calificacion: 1,
     importeBoletín: 1,
     importeFinal: 1,

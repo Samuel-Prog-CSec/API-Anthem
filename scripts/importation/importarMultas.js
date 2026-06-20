@@ -426,13 +426,25 @@ async function processMultasFile(filePath, options = {}) {
     let isProcessingBatch = false;
 
     const stream = crearLectorCSV(filePath)
-      // mapHeaders: recorta espacios en los nombres de columna. Los CSV de
-      // febrero a diciembre traen cabeceras con espacios espurios (` PUNTOS`,
-      // `VEL_CIRCULA `, y trailing spaces), por lo que `row.PUNTOS` /
-      // `row.VEL_CIRCULA` salian `undefined` y se perdian los puntos detraidos
-      // (~1,76M multas a 0) y la velocidad de circulacion. El trim normaliza
-      // las claves para los 12 meses sin afectar a enero (cabecera ya limpia).
-      .pipe(csv({ separator: ';', mapHeaders: ({ header }) => header.trim() }))
+      // mapHeaders: normaliza los nombres de columna. Los CSV de febrero a
+      // diciembre presentan DOS anomalias respecto a enero que hacian perder
+      // TODAS las coordenadas en 11 de 12 meses (el extractor busca las claves
+      // `COORDENADA_X`/`COORDENADA_Y`):
+      //   1) La ultima columna trae bytes de control NUL y espacios de relleno
+      //      (`COORDENADA-Y                 \x00\x00`). El `.trim()` solo quita
+      //      los espacios; los NUL permanecian en la clave.
+      //   2) Las columnas de coordenadas se nombran con GUION (`COORDENADA-X`,
+      //      `COORDENADA-Y`) en vez del guion bajo de enero (`COORDENADA_X/_Y`).
+      //      Esta era la causa primaria: ~83% de las multas de feb-dic traen
+      //      coordenada valida y se perdia por completo.
+      // Por eso: (a) se eliminan los caracteres de control (0x00-0x1F) y se
+      // recortan espacios; (b) se normaliza el guion a guion bajo SOLO en las
+      // columnas COORDENADA-X/Y (HECHO-BOL lleva un guion legitimo que NO debe
+      // tocarse). Asi las claves quedan homogeneas en los 12 meses.
+      .pipe(csv({ separator: ';', mapHeaders: ({ header }) => {
+        const limpio = [...header].filter((ch) => ch.charCodeAt(0) > 31).join('').trim();
+        return limpio.replace(/^COORDENADA-([XY])$/, 'COORDENADA_$1');
+      } }))
       .on('data', async (row) => {
         if (isShuttingDown || isProcessingBatch) {
           return;

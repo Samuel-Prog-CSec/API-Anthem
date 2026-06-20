@@ -15,6 +15,9 @@ const {
   MONGODB_TIMEOUTS,
   GEOMETRY_TYPES
 } = require('../constants');
+const { obtenerFranjaHoraria, inicioDiaUTC } = require('../utils/temporalHelper');
+const { construirUbicacionAforo } = require('../utils/ubicacionHelper');
+const { upsertConReintento } = require('../utils/ingestaHelper');
 
 const pedestrianTrafficCountSchema = new mongoose.Schema({
   fecha: {
@@ -347,6 +350,39 @@ pedestrianTrafficCountSchema.statics.obtenerComparativaDistritos = function(filt
     { $sort: { totalPeatones: -1 } }
   );
   return this.aggregate(pipeline).option(AGG_OPTIONS);
+};
+
+/**
+ * Registrar (upsert idempotente) un conteo horario de peatones enviado por un
+ * nodo IoT. Clave unica (identificador, fecha-dia, hora): reenviar la misma
+ * lectura ACTUALIZA el documento en lugar de duplicarlo.
+ *
+ * @param {Object} lectura - Lectura del sensor (ver validador de ingesta)
+ * @returns {Promise<{estado: 'creado'|'actualizado', creado: boolean, documento: Object}>}
+ */
+pedestrianTrafficCountSchema.statics.ingestarConteo = function(lectura) {
+  const fechaDia = inicioDiaUTC(lectura.fecha);
+  const hora = Number(lectura.hora);
+
+  const set = {
+    peatones: Number(lectura.peatones),
+    franjaHoraria: obtenerFranjaHoraria(hora),
+    'año': fechaDia.getUTCFullYear(),
+    mes: fechaDia.getUTCMonth() + 1,
+    diaSemana: fechaDia.getUTCDay(),
+    'procesamiento.archivoOrigen': lectura.origen || 'simulador-iot',
+    'procesamiento.importadoEn': new Date()
+  };
+
+  if (lectura.ubicacion) {
+    set.ubicacion = construirUbicacionAforo(lectura.ubicacion);
+  }
+
+  return upsertConReintento(
+    this,
+    { identificador: String(lectura.identificador).trim(), fecha: fechaDia, hora },
+    set
+  );
 };
 
 // Transformacion de salida para reducir tamano de respuesta.

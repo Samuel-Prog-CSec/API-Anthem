@@ -10,7 +10,8 @@ const { CONTAINER_TYPES, PAGINATION, ROUTE_SPECIFIC_LIMITS } = require('../const
  * GET /api/v1/contenedores/estadisticas/distrito
  */
 const validarEstadisticasPorDistrito = [
-  query('distrito').optional().trim().notEmpty().withMessage('Distrito no puede estar vacío')
+  query('distrito').optional().trim().notEmpty().withMessage('Distrito no puede estar vacío'),
+  query('lote').optional().isInt({ min: 1, max: 3 }).withMessage('Lote debe ser 1, 2 o 3')
 ];
 
 /**
@@ -86,7 +87,8 @@ const validarAnalisisDensidad = [
     .optional()
     .isIn(Object.values(CONTAINER_TYPES))
     .withMessage(`Tipo de contenedor inválido. Valores permitidos: ${Object.values(CONTAINER_TYPES).join(', ')}`),
-  query('includeBarrios').optional().isBoolean().withMessage('includeBarrios debe ser true o false')
+  query('includeBarrios').optional().isBoolean().withMessage('includeBarrios debe ser true o false'),
+  query('lote').optional().isInt({ min: 1, max: 3 }).withMessage('Lote debe ser 1, 2 o 3')
 ];
 
 module.exports = {

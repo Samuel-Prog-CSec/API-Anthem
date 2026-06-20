@@ -13,6 +13,8 @@ const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS } = require('../constants');
 const asyncHandler = require('../utils/asyncHandler');
+const { invalidarCacheAforoBicicletas } = require('../utils/cacheInvalidator');
+const { resumirLote } = require('../utils/ingestaHelper');
 
 /**
  * Obtener todos los registros de aforo con filtros y paginacion
@@ -424,4 +426,47 @@ exports.obtenerMapaAforo = asyncHandler(async (req, res) => {
   return res.status(HTTP_STATUS.OK).json(
     createResponse(featureCollection, 'Mapa de aforo de bicicletas generado exitosamente')
   );
+});
+
+/**
+ * Registrar una lectura horaria de aforo de bicicletas (ingesta de nodo IoT).
+ * Upsert idempotente por (identificador, fecha, hora).
+ *
+ * @route POST /api/v1/aforo-bicicletas/ingesta
+ * @access Private (JWT)
+ */
+exports.ingestarConteo = asyncHandler(async (req, res) => {
+  const resultado = await BikeTrafficCount.ingestarConteo(req.body);
+  invalidarCacheAforoBicicletas(resultado.documento?._id, 'ingesta');
+
+  const codigo = resultado.creado ? HTTP_STATUS.CREATED : HTTP_STATUS.OK;
+  return res.status(codigo).json(createResponse({
+    estado: resultado.estado,
+    identificador: resultado.documento.identificador,
+    fecha: resultado.documento.fecha,
+    hora: resultado.documento.hora,
+    bicicletas: resultado.documento.bicicletas,
+    franjaHoraria: resultado.documento.franjaHoraria
+  }, `Conteo de aforo de bicicletas ${resultado.estado}`));
+});
+
+/**
+ * Registrar un lote de lecturas de aforo de bicicletas (ingesta IoT).
+ * Cada elemento se procesa como upsert idempotente independiente.
+ *
+ * @route POST /api/v1/aforo-bicicletas/ingesta/lote
+ * @access Private (JWT)
+ */
+exports.ingestarLote = asyncHandler(async (req, res) => {
+  const { lecturas } = req.body;
+  const resultados = await Promise.allSettled(
+    lecturas.map((lectura) => BikeTrafficCount.ingestarConteo(lectura))
+  );
+  const resumen = resumirLote(resultados);
+  invalidarCacheAforoBicicletas(null, 'ingesta-lote');
+
+  return res.status(HTTP_STATUS.CREATED).json(createResponse(
+    resumen,
+    `Lote procesado: ${resumen.creados} creados, ${resumen.actualizados} actualizados, ${resumen.fallidos} fallidos`
+  ));
 });

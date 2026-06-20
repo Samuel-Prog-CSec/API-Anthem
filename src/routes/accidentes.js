@@ -77,7 +77,10 @@ router.get('/expediente/:numero',
 router.get('/estadisticas',
   authenticate,
   generalLimit,
-  validateDistrictQuery,
+  // validateAccidentFilters (autocontenido, ya usado en la ruta `/`) incluye la
+  // validacion de distrito MAS tipoAccidente/gravedad/tipoVehiculo, que el
+  // controlador de estadisticas aplica pero antes no se validaban.
+  validateAccidentFilters,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   etagMiddleware,
   cacheMiddleware('statistics', (req) => generatePrefixedCacheKey('accidents:stats', req.query)),
@@ -90,6 +93,8 @@ router.get('/estadisticas',
 router.get('/comparativa-distritos',
   authenticate,
   generalLimit,
+  // tipoAccidente/gravedad los aplica el controlador; antes entraban sin validar.
+  validateAccidentFilters,
   validateDateRange(DATE_RANGE_LIMITS.ACCIDENTS_MAX_DAYS),
   cacheMiddleware('statistics', (req) => generatePrefixedCacheKey('accidents:district-comp', req.query)),
   accidentController.obtenerComparativaDistritos

@@ -355,7 +355,6 @@ async function procesarArchivoCalidadAire(filePath, options = {}) {
             }, 'Progreso de lectura');
           }
         } catch (error) {
-          stats.errorRows++;
           stats.emptyRows++;
           logger.warn(
             {

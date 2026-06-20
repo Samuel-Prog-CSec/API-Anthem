@@ -475,7 +475,10 @@ const validateTrafficFilters = [
 const validateContainerType = [
   query('tipoContenedor')
     .optional()
-    .isIn(CONTAINER_TYPES)
+    // Object.values: isIn con un objeto compara contra las CLAVES, no los valores.
+    // El enum tiene claves != valores (PAPEL_CARTON -> 'PAPEL-CARTON'), por lo que
+    // pasar el objeto rechazaba el unico valor real cuyo key != value.
+    .isIn(Object.values(CONTAINER_TYPES))
     .withMessage('Tipo de contenedor no válido'),
   validateRequest
 ];

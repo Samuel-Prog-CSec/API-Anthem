@@ -11,7 +11,8 @@ const rateLimit = require('express-rate-limit');
 const { RATE_LIMITS, DATE_RANGE_LIMITS } = require('../constants');
 
 const { authenticate } = require('../middleware/auth');
-const { validateRequest } = require('../middleware/security');
+const { sensorOrAdmin } = require('../middleware/authorization');
+const { validateRequest, ingestLimiter } = require('../middleware/security');
 const { validateDateRange } = require('../middleware/validation');
 const { etagMiddleware } = require('../middleware/etag');
 const { cacheMiddleware } = require('../middleware/cache');
@@ -22,7 +23,9 @@ const {
   obtenerRankingRuido,
   obtenerCumplimientoPorZona,
   obtenerTendenciasTemporales,
-  obtenerMapaRuido
+  obtenerMapaRuido,
+  ingestarMedicionRuido,
+  ingestarLoteRuido
 } = require('../controllers/controladorRuido');
 
 const {
@@ -31,7 +34,9 @@ const {
   validarRankingRuido,
   validarCumplimientoZona,
   validarTendenciasTemporales,
-  validarMapaRuido
+  validarMapaRuido,
+  validarIngestaRuido,
+  validarIngestaLoteRuido
 } = require('../validators/validadorRuido');
 
 const router = express.Router();
@@ -133,6 +138,38 @@ router.get('/mapa',
   etagMiddleware,
   cacheMiddleware('noise'),
   obtenerMapaRuido
+);
+
+// ========================================
+// INGESTA (escritura) - nodos IoT
+// ========================================
+
+/**
+ * Registrar una medicion mensual de ruido.
+ * @route POST /api/v1/ruido/ingesta
+ * @access Private (JWT)
+ */
+router.post('/ingesta',
+  authenticate,
+  sensorOrAdmin,
+  ingestLimiter,
+  validarIngestaRuido,
+  validateRequest,
+  ingestarMedicionRuido
+);
+
+/**
+ * Registrar un lote de mediciones mensuales de ruido.
+ * @route POST /api/v1/ruido/ingesta/lote
+ * @access Private (JWT)
+ */
+router.post('/ingesta/lote',
+  authenticate,
+  sensorOrAdmin,
+  ingestLimiter,
+  validarIngestaLoteRuido,
+  validateRequest,
+  ingestarLoteRuido
 );
 
 module.exports = router;

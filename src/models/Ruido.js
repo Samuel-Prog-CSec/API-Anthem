@@ -24,6 +24,7 @@ const {
   VALIDATION_LIMITS
 } = require('../constants');
 const ruidoService = require('../services/ruidoService');
+const { conCerrojo } = require('../utils/ingestaHelper');
 
 /**
  * Esquema de Contaminación Acústica
@@ -330,6 +331,68 @@ noiseMonitoringSchema.statics.obtenerTendenciasTemporales = function(options) {
 
 noiseMonitoringSchema.statics.obtenerAnalisisCumplimientoPorZona = function(options) {
   return ruidoService.obtenerAnalisisCumplimientoPorZona(this, options);
+};
+
+/**
+ * Registrar (upsert idempotente) una medicion MENSUAL de ruido enviada por un
+ * nodo IoT. Clave unica (nmt, año, mes): cadencia mensual (un documento por
+ * estacion y mes). Usa read-modify-save para reutilizar el hook pre('save') que
+ * recalcula dataQuality/exceedsLegalLimits/warnings. Reintenta ante carreras
+ * (E11000 al crear, VersionError al actualizar el mismo periodo).
+ *
+ * @param {Object} lectura - Lectura del sensor (ver validador de ingesta)
+ * @returns {Promise<{estado: 'creado'|'actualizado', creado: boolean, documento: Object}>}
+ */
+noiseMonitoringSchema.statics.ingestarMedicionMensual = function(lectura) {
+  const Modelo = this;
+  const fecha = lectura.fecha instanceof Date ? lectura.fecha : new Date(lectura.fecha);
+  const año = fecha.getUTCFullYear();
+  const mes = fecha.getUTCMonth() + 1;
+  const nmt = Number(lectura.nmt);
+  const fechaMes = new Date(Date.UTC(año, mes - 1, 1));
+  const claveDoc = `ruido|${nmt}|${año}|${mes}`;
+
+  return conCerrojo(claveDoc, async () => {
+    const MAX_INTENTOS = 5;
+    let ultimoError = null;
+    for (let intento = 0; intento < MAX_INTENTOS; intento += 1) {
+      let creado = false;
+      let doc = await Modelo.findOne({ nmt, 'año': año, mes });
+      if (!doc) {
+        doc = new Modelo({ nmt, 'año': año, mes, fecha: fechaMes, nombre: lectura.nombre });
+        creado = true;
+      }
+
+    if (lectura.nombre) { doc.nombre = String(lectura.nombre).trim(); }
+    if (lectura.nivelDiurno != null) { doc.nivelDiurno = Number(lectura.nivelDiurno); }
+    if (lectura.nivelVespertino != null) { doc.nivelVespertino = Number(lectura.nivelVespertino); }
+    if (lectura.nivelNocturno != null) { doc.nivelNocturno = Number(lectura.nivelNocturno); }
+    if (lectura.laeq24 != null) { doc.laeq24 = Number(lectura.laeq24); }
+    if (lectura.percentiles && typeof lectura.percentiles === 'object') {
+      const p = lectura.percentiles;
+      doc.percentiles = {
+        las01: p.las01 != null ? Number(p.las01) : undefined,
+        las10: p.las10 != null ? Number(p.las10) : undefined,
+        las50: p.las50 != null ? Number(p.las50) : undefined,
+        las90: p.las90 != null ? Number(p.las90) : undefined,
+        las99: p.las99 != null ? Number(p.las99) : undefined
+      };
+    }
+    doc.processingInfo = { importedAt: new Date(), sourceFile: lectura.origen || 'simulador-iot' };
+
+    try {
+      await doc.save();
+      return { estado: creado ? 'creado' : 'actualizado', creado, documento: doc };
+    } catch (error) {
+      ultimoError = error;
+      if (error && (error.code === 11000 || error.name === 'VersionError') && intento < MAX_INTENTOS - 1) {
+        continue;
+      }
+      throw error;
+    }
+  }
+    throw ultimoError;
+  });
 };
 
 // Transformacion JSON: ocultar metadatos internos en respuestas

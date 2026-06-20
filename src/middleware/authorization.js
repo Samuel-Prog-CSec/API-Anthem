@@ -9,7 +9,7 @@
 const { createForbiddenResponse } = require('../utils/responseHelper');
 const { authLogger } = require('../config/logger');
 const { logPermissionCheck, logUnauthorizedAccess } = require('../utils/securityLogger');
-const { HTTP_STATUS } = require('../constants');
+const { HTTP_STATUS, USER_ROLES } = require('../constants');
 
 /**
  * Factory de middleware de autorización basada en roles
@@ -93,7 +93,19 @@ const adminOnly = (req, res, next) => {
   return authorize('admin')(req, res, next);
 };
 
+/**
+ * Middleware de autorizacion para las rutas de ingesta de sensores (IoT).
+ *
+ * Permite solo a usuarios con rol SENSOR (nodos IoT aprovisionados) o ADMIN.
+ * El registro publico crea siempre rol USER, de modo que un usuario que se
+ * auto-registre NO puede escribir datos de sensores (mitiga el control de
+ * acceso a nivel de funcion: OWASP API5). Las credenciales de sensor se
+ * aprovisionan fuera de banda (scripts/provisionarSensor.js).
+ */
+const sensorOrAdmin = authorize(USER_ROLES.SENSOR, USER_ROLES.ADMIN);
+
 module.exports = {
   authorize,
-  adminOnly
+  adminOnly,
+  sensorOrAdmin
 };

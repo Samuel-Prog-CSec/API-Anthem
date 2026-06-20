@@ -151,6 +151,16 @@ const validarPiramidePoblacional = [
     })
     .withMessage(`Año debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX}`)
     .toInt(),
+  // mes: el censo es mensual; el controlador lo usa en el $match y en la clave de
+  // cache. Sin validar, un mes arbitrario se aceptaba y envenenaba la cache.
+  query('mes')
+    .optional()
+    .isInt({
+      min: ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MIN,
+      max: ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MAX
+    })
+    .withMessage(`Mes debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MAX}`)
+    .toInt(),
   query('incluirExtranjeros').optional().isBoolean().withMessage('Incluir extranjeros debe ser true o false').toBoolean()
 ];
 
@@ -193,6 +203,14 @@ const validarAnalisisDemografico = [
       max: ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX
     })
     .withMessage(`Año debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.YEAR_MAX}`)
+    .toInt(),
+  query('mes')
+    .optional()
+    .isInt({
+      min: ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MIN,
+      max: ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MAX
+    })
+    .withMessage(`Mes debe estar entre ${ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MIN} y ${ROUTE_SPECIFIC_LIMITS.CENSUS.MONTH_MAX}`)
     .toInt(),
   query('tipoAnalisis')
     .optional()
@@ -259,7 +277,22 @@ const validarDashboardDemografico = [
     .optional()
     .isInt({ min: 1 })
     .withMessage('Código de distrito debe ser un número entero positivo')
-    .toInt()
+    .toInt(),
+  // barrio y grupoEdad los usa obtenerDashboardDemografico en el $match y en la
+  // clave de cache; sin validar aceptaban valores arbitrarios.
+  query('barrio')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Código de barrio debe ser un número entero positivo')
+    .toInt(),
+  query('grupoEdad')
+    .optional()
+    .custom((value) => {
+      const validValues = [...Object.values(AGE_GROUPS)];
+      const values = Array.isArray(value) ? value : [value];
+      return values.every(v => validValues.includes(v));
+    })
+    .withMessage('Grupo de edad no válido')
 ];
 
 /**

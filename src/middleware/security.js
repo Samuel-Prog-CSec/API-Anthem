@@ -22,7 +22,16 @@ const generalLimiter = rateLimit({
   message: createRateLimitResponse(Math.ceil(config.security.rateLimitWindowMs / 1000)),
   standardHeaders: true, // Devolver información de límite de tasa en headers
   legacyHeaders: false, // Deshabilitar headers legacy
-  skip: (_req, _res) => config.testMode.enabled, // Saltar en modo de pruebas
+  skip: (req, _res) =>
+    config.testMode.enabled || // Saltar en modo de pruebas
+    // Las rutas de ingesta de sensores (POST .../ingesta y .../ingesta/lote)
+    // tienen su propio limitador por usuario (`ingestLimiter`). Eximirlas del
+    // limitador global por IP evita que un nodo IoT legitimo (muchas inserciones
+    // desde una sola IP) agote la cuota global compartida de 100/15min.
+    // Se ancla con endsWith (no includes) para que el bypass aplique SOLO a las
+    // rutas reales de ingesta y no a cualquier path que contenga la subcadena.
+    (req.method === 'POST' && typeof req.path === 'string' &&
+      (req.path.endsWith('/ingesta') || req.path.endsWith('/ingesta/lote'))),
   handler: (req, res) => {
     pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa excedido');
     res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json(createRateLimitResponse(Math.ceil(config.security.rateLimitWindowMs / 1000)));
@@ -53,6 +62,28 @@ const heavyQueryLimiter = rateLimit({
   handler: (req, res) => {
     pinoSecurityLogger.warn({ ip: req.ip, path: req.path }, 'Límite de tasa de consulta pesada excedido');
     res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json(createRateLimitResponse(RATE_LIMITS.HEAVY_QUERY.RETRY_AFTER));
+  }
+});
+
+// Limitador de tasa para ingesta de datos de sensores (nodos IoT).
+// Mas permisivo que el general porque un nodo IoT envia inserciones de forma
+// periodica y en rafagas (modo backfill). Se aplica SOLO en las rutas
+// .../ingesta (que ademas quedan exentas del `generalLimiter` global por IP).
+// Se limita POR USUARIO autenticado (no por IP): todos los nodos de una misma
+// maquina comparten IP, asi que limitar por IP agruparia clientes legitimos
+// distintos en un mismo bucket. `authenticate` corre antes, por lo que req.user
+// siempre existe; la clave no toca req.ip y no requiere ipKeyGenerator.
+const ingestLimiter = rateLimit({
+  windowMs: RATE_LIMITS.INGEST.WINDOW_MS,
+  max: RATE_LIMITS.INGEST.MAX_REQUESTS,
+  message: createRateLimitResponse(RATE_LIMITS.INGEST.RETRY_AFTER),
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (_req, _res) => config.testMode.enabled, // Saltar en modo de pruebas
+  keyGenerator: (req) => (req.user && req.user._id ? `ingest:${req.user._id}` : 'ingest:anonimo'),
+  handler: (req, res) => {
+    pinoSecurityLogger.warn({ userId: req.user?._id, path: req.path }, 'Límite de tasa de ingesta excedido');
+    res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json(createRateLimitResponse(RATE_LIMITS.INGEST.RETRY_AFTER));
   }
 });
 
@@ -352,6 +383,7 @@ module.exports = {
   generalLimiter,
   authLimiter,
   heavyQueryLimiter,
+  ingestLimiter,
   helmetConfig,
   sanitizeInput,
   xssProtection,

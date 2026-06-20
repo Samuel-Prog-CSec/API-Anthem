@@ -31,13 +31,11 @@ const asyncHandler = require('../utils/asyncHandler');
  * @returns {Promise<number>} mes 1-12; cae a 12 si no hay datos.
  */
 async function obtenerUltimoMesConDatos(year) {
-  const [doc] = await Censo.aggregate([
-    { $match: { año: year } },
-    { $group: { _id: '$mes' } },
-    { $sort: { _id: -1 } },
-    { $limit: 1 }
-  ]).option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
-  return doc?._id || 12;
+  // distinct('mes') resuelve con un DISTINCT_SCAN sobre el indice en vez de un
+  // $group que escanea los ~2,85M docs del censo. Tomamos el mes maximo como
+  // "foto" mas reciente. Mismo patron que la piramide (censoService).
+  const meses = await Censo.distinct('mes', { año: year }).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+  return meses.length ? Math.max(...meses) : 12;
 }
 
 /**

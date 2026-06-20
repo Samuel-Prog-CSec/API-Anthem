@@ -68,6 +68,11 @@ const invalidarCacheTrafico = construirInvalidador('trafico', ['traffic']);
 const invalidarCacheCalidadAire = construirInvalidador('calidad-aire', ['airQuality']);
 const invalidarCacheRuido = construirInvalidador('ruido', ['noise']);
 const invalidarCacheBicicletas = construirInvalidador('bicicletas', ['bikes']);
+// Aforo de bicicletas usa la instancia dedicada `bikeTraffic` (NO `bikes`, que
+// es DisponibilidadBicicletas, otro dominio). Aforo de peatones usa su instancia
+// dedicada `pedestrianTraffic`. Ver routes/aforo*.js y middleware/cache.js.
+const invalidarCacheAforoBicicletas = construirInvalidador('aforo-bicicletas', ['bikeTraffic']);
+const invalidarCacheAforoPeatones = construirInvalidador('aforo-peatones', ['pedestrianTraffic']);
 const invalidarCacheContenedores = construirInvalidador('contenedores', ['containers']);
 const invalidarCacheUbicaciones = construirInvalidador('ubicaciones', ['static']);
 const invalidarCacheCenso = construirInvalidador('censo', ['demographic']);
@@ -116,6 +121,8 @@ module.exports = {
   invalidarCacheCalidadAire,
   invalidarCacheRuido,
   invalidarCacheBicicletas,
+  invalidarCacheAforoBicicletas,
+  invalidarCacheAforoPeatones,
   invalidarCacheContenedores,
   invalidarCacheUbicaciones,
   invalidarCacheCenso,

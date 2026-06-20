@@ -14,6 +14,8 @@ const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS, NOISE_THRESHOLDS, NOISE_LIMITS, ZONE_TYPES, LOCATION_TYPES } = require('../constants');
 const asyncHandler = require('../utils/asyncHandler');
+const { invalidarCacheRuido } = require('../utils/cacheInvalidator');
+const { resumirLote } = require('../utils/ingestaHelper');
 
 /**
  * Obtener datos de contaminacion acustica con filtros
@@ -116,8 +118,14 @@ const obtenerDatosRuido = asyncHandler(async (req, res) => {
 const obtenerEstadisticasRuido = asyncHandler(async (req, res) => {
   const { groupBy = 'station' } = req.query;
 
+  // El panel de Ruido filtra por año/mes (no por startDate/endDate). Sin estos
+  // campos las tarjetas KPI mostraban siempre el agregado anual, contradiciendo
+  // a la tabla/ranking/cumplimiento de la misma vista (que si reaccionan al mes).
+  // Mismo criterio que obtenerRankingRuido. Si llegan startDate/endDate, conviven.
   const filterConfig = [
     { field: 'fecha', type: 'dateRange', params: ['startDate', 'endDate'] },
+    { field: 'año', type: 'numeric', param: 'año' },
+    { field: 'mes', type: 'numeric', param: 'mes' },
     { field: 'nmt', type: 'numeric', param: 'nmt' }
   ];
 
@@ -364,11 +372,55 @@ const obtenerMapaRuido = asyncHandler(async (req, res) => {
   );
 });
 
+/**
+ * Registrar una medicion mensual de ruido (ingesta de nodo IoT). Upsert
+ * idempotente por (nmt, año, mes).
+ *
+ * @route POST /api/v1/ruido/ingesta
+ * @access Private (JWT)
+ */
+const ingestarMedicionRuido = asyncHandler(async (req, res) => {
+  const resultado = await NoiseMonitoring.ingestarMedicionMensual(req.body);
+  invalidarCacheRuido(resultado.documento?._id, 'ingesta');
+
+  const codigo = resultado.creado ? HTTP_STATUS.CREATED : HTTP_STATUS.OK;
+  return res.status(codigo).json(createResponse({
+    estado: resultado.estado,
+    nmt: resultado.documento.nmt,
+    nombre: resultado.documento.nombre,
+    fecha: resultado.documento.fecha,
+    laeq24: resultado.documento.laeq24,
+    excedeLimites: resultado.documento.dataQuality?.exceedsLegalLimits
+  }, `Medicion de ruido ${resultado.estado}`));
+});
+
+/**
+ * Registrar un lote de mediciones mensuales de ruido (ingesta IoT).
+ *
+ * @route POST /api/v1/ruido/ingesta/lote
+ * @access Private (JWT)
+ */
+const ingestarLoteRuido = asyncHandler(async (req, res) => {
+  const { lecturas } = req.body;
+  const resultados = await Promise.allSettled(
+    lecturas.map((lectura) => NoiseMonitoring.ingestarMedicionMensual(lectura))
+  );
+  const resumen = resumirLote(resultados);
+  invalidarCacheRuido(null, 'ingesta-lote');
+
+  return res.status(HTTP_STATUS.CREATED).json(createResponse(
+    resumen,
+    `Lote procesado: ${resumen.creados} creados, ${resumen.actualizados} actualizados, ${resumen.fallidos} fallidos`
+  ));
+});
+
 module.exports = {
   obtenerDatosRuido,
   obtenerEstadisticasRuido,
   obtenerRankingRuido,
   obtenerCumplimientoPorZona,
   obtenerTendenciasTemporales,
-  obtenerMapaRuido
+  obtenerMapaRuido,
+  ingestarMedicionRuido,
+  ingestarLoteRuido
 };

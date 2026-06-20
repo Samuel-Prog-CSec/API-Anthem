@@ -125,7 +125,8 @@ const validarObtenerMultas = [
     .optional()
     .isBoolean()
     .withMessage('Incluir coordenadas debe ser true o false')
-    .toBoolean()
+    .toBoolean(),
+  query('includeStats').optional().isBoolean().withMessage('includeStats debe ser true o false')
 ];
 
 /**
@@ -144,7 +145,13 @@ const validarEstadisticasMultas = [
       max: ROUTE_SPECIFIC_LIMITS.FINES.TOP_N_MAX
     })
     .withMessage(`Límite debe estar entre ${ROUTE_SPECIFIC_LIMITS.FINES.TOP_N_MIN} y ${ROUTE_SPECIFIC_LIMITS.FINES.TOP_N_MAX}`)
-    .toInt()
+    .toInt(),
+  // denunciante/esGrave/conDescuento los aplica el controlador de estadisticas y
+  // estan en la clave de cache; antes entraban sin validar. Sin .toBoolean() para
+  // no alterar la forma (string) que el controlador y la clave de cache ya usan.
+  query('denunciante').optional().trim().isLength({ min: 2 }).withMessage('Denunciante debe tener al menos 2 caracteres').escape(),
+  query('esGrave').optional().isBoolean().withMessage('esGrave debe ser true o false'),
+  query('conDescuento').optional().isBoolean().withMessage('conDescuento debe ser true o false')
 ];
 
 /**
@@ -162,7 +169,7 @@ const validarRankingUbicaciones = [
     .toInt(),
   query('tipoInfraccion')
     .optional()
-    .isIn(Object.keys(INFRACTION_TYPES))
+    .isIn(Object.values(INFRACTION_TYPES))
     .withMessage('Tipo de infracción no válido'),
   query('calificacion')
     .optional()
@@ -181,7 +188,9 @@ const validarRankingUbicaciones = [
   query('tieneDescuento')
     .optional()
     .isBoolean()
-    .withMessage('tieneDescuento debe ser true o false')
+    .withMessage('tieneDescuento debe ser true o false'),
+  query('esGrave').optional().isBoolean().withMessage('esGrave debe ser true o false'),
+  query('conDescuento').optional().isBoolean().withMessage('conDescuento debe ser true o false')
 ];
 
 /**
@@ -233,7 +242,9 @@ const validarMetricasDashboard = [
   query('tieneDescuento')
     .optional()
     .isBoolean()
-    .withMessage('tieneDescuento debe ser true o false')
+    .withMessage('tieneDescuento debe ser true o false'),
+  query('esGrave').optional().isBoolean().withMessage('esGrave debe ser true o false'),
+  query('conDescuento').optional().isBoolean().withMessage('conDescuento debe ser true o false')
 ];
 
 /**
@@ -244,8 +255,20 @@ const validarMapaMultas = [
   query('endDate').optional().isISO8601().withMessage('endDate debe ser ISO 8601'),
   query('calificacion')
     .optional()
-    .isIn(Object.values(SEVERITY_LEVELS.FINE))
-    .withMessage('calificacion invalida'),
+    .custom((value) => {
+      const validValues = Object.values(SEVERITY_LEVELS.FINE);
+      const values = Array.isArray(value) ? value : [value];
+      return values.every(v => validValues.includes(v.toUpperCase()));
+    })
+    .withMessage(`Calificación debe ser ${Object.values(SEVERITY_LEVELS.FINE).join(', ')}`),
+  query('tipoInfraccion')
+    .optional()
+    .custom((value) => {
+      const validValues = Object.values(INFRACTION_TYPES);
+      const values = Array.isArray(value) ? value : [value];
+      return values.every(v => validValues.includes(v));
+    })
+    .withMessage(`Tipo de infracción debe ser uno de: ${Object.values(INFRACTION_TYPES).join(', ')}`),
   query('bbox')
     .optional()
     .matches(/^-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*$/)

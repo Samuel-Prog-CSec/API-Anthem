@@ -51,7 +51,12 @@ const CACHE_CONFIG = {
   // inexistentes -- y caian al fallback silencioso de caches.traffic,
   // compartiendo su techo de 20000 claves con trafico/patinetes/peatones.
   bikeTraffic: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 5000 }, // Aforo bicicletas, 24h
-  accidents: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 15000 } // Mapas de accidentes, 24h
+  accidents: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 15000 }, // Mapas de accidentes, 24h
+  // Instancia dedicada para aforo de peatones. Antes compartia la instancia
+  // `traffic` con el trafico vehicular; al cablear la invalidacion por escritura
+  // (ingesta IoT) conviene separarlas para que un POST de aforo peatonal no
+  // vacie tambien el cache de trafico vehicular (y viceversa).
+  pedestrianTraffic: { stdTTL: DIA_EN_SEGUNDOS, checkperiod: 1800, maxKeys: 5000 } // Aforo peatones, 24h
 };
 
 // Mapa de promesas en vuelo para evitar thundering herd en el mismo cacheKey

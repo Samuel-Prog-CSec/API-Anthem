@@ -8,7 +8,7 @@
  */
 
 const { query } = require('express-validator');
-const { MAP_LIMITS, SEVERITY_LEVELS } = require('../constants');
+const { MAP_LIMITS, SEVERITY_LEVELS, TIPOS_VEHICULO } = require('../constants');
 
 /**
  * GET /api/v1/accidentes/mapa-calor
@@ -30,7 +30,8 @@ const validarMapaCalorAccidentes = [
     .optional()
     .isIn(Object.values(SEVERITY_LEVELS.ACCIDENT))
     .withMessage('gravedad invalida'),
-  query('tipoAccidente').optional().trim().escape()
+  query('tipoAccidente').optional().trim().escape(),
+  query('tipoVehiculo').optional().isIn(Object.values(TIPOS_VEHICULO)).withMessage('Tipo de vehiculo no valido')
 ];
 
 /**
@@ -47,6 +48,7 @@ const validarMapaAccidentes = [
     .isIn(Object.values(SEVERITY_LEVELS.ACCIDENT))
     .withMessage('gravedad invalida'),
   query('tipoAccidente').optional().trim().escape(),
+  query('tipoVehiculo').optional().isIn(Object.values(TIPOS_VEHICULO)).withMessage('Tipo de vehiculo no valido'),
   query('bbox')
     .optional()
     .matches(/^-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*,-?\d+\.?\d*$/)

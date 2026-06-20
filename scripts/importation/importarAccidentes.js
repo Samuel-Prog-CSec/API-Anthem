@@ -67,6 +67,7 @@ const REJECTION_REASONS = {
   FECHA_FORMATO_INVALIDO: 'Formato de fecha invalido (esperado: DD/MM/YYYY)',
   FECHA_COMPONENTES_INVALIDOS: 'Componentes de fecha invalidos (dia, mes o año no numericos)',
   FECHA_FUERA_RANGO: 'Fecha fuera de rango valido',
+  FECHA_INVALIDA: 'Fecha imposible en el calendario (dia no existe en ese mes/año)',
   HORA_FALTANTE: 'Hora faltante o vacia',
   HORA_FORMATO_INVALIDO: 'Formato de hora invalido (esperado: HH:MM:SS)',
   LOCALIZACION_FALTANTE: 'Localizacion (calle) faltante',
@@ -426,21 +427,19 @@ function parsearFecha(fechaStr, rowIndex) {
     throw new Error(REJECTION_REASONS.FECHA_FORMATO_INVALIDO);
   }
 
-  // Coercion: si JS rebobinó la fecha (ej: 29/02 en año no bisiesto, 31/04, etc),
-  // la convertimos al ultimo dia existente del mismo mes. En este dataset ficticio
-  // las "fechas calendario-imposibles" se interpretan como un desajuste menor del
-  // generador de datos, no como dato corrupto. Se conserva mes y año intactos.
+  // Rechazo: si JS desbordó la fecha (ej: 29/02 en año no bisiesto, 31/04, etc)
+  // el dia no existe en el calendario — la fila se rechaza explicitamente.
+  // No se coerciona al ultimo dia del mes porque corromperia la estadistica
+  // del dia 28/01-mar al inflar artificialmente accidentes en ese dia.
   if (date.getUTCMonth() !== month - 1 || date.getUTCFullYear() !== year) {
-    // El truco `Date.UTC(year, month, 0)` devuelve el ultimo dia del mes
-    // (month-1) en UTC, evitando ambiguedades de TZ.
-    const ultimoDia = new Date(Date.UTC(year, month, 0)).getUTCDate();
-    const dateCoercida = new Date(Date.UTC(year, month - 1, ultimoDia));
-    rejectionTracker.coerce('FECHA_COERCIDA_AL_ULTIMO_DIA_DEL_MES', {
+    const razon = REJECTION_REASONS.FECHA_INVALIDA;
+    const nivel = rejectionTracker.shouldLogWarn(razon, { fecha: fechaStr }) ? 'warn' : 'debug';
+    logger[nivel]({
       fila: rowIndex,
-      original: fechaStr,
-      coercida: `${String(ultimoDia).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`
-    });
-    return dateCoercida;
+      razon,
+      datosOriginales: { fecha: fechaStr }
+    }, 'Fila rechazada: fecha imposible en el calendario');
+    throw new Error(REJECTION_REASONS.FECHA_INVALIDA);
   }
 
   return date;

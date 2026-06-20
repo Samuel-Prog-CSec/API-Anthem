@@ -145,15 +145,15 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Limitación de tasa
-app.use(generalLimiter);
-
-// Logging de seguridad
-app.use(securityLogger);
-
 /**
  * Configuración de CORS
  * Configurar compartición de recursos entre orígenes con controles de seguridad estrictos
+ *
+ * IMPORTANTE: CORS se aplica ANTES del rate limiter (mas abajo) para que TODAS las
+ * respuestas -- incluido el 429 Too Many Requests del limiter -- lleven las cabeceras
+ * CORS. Si el limiter corriera primero, su 429 saldria sin Access-Control-Allow-Origin
+ * y el navegador reportaria un "error de CORS" opaco en lugar del 429 real, impidiendo
+ * al frontend informar al usuario de que ha superado el limite de peticiones.
  */
 const corsOptions = {
   origin: validateCorsOrigin,
@@ -194,8 +194,14 @@ const corsOptions = {
   preflightContinue: false
 };
 
-// Aplicar CORS globalmente
+// Aplicar CORS globalmente (antes del rate limiter, ver nota arriba)
 app.use(cors(corsOptions));
+
+// Limitación de tasa (despues de CORS para que el 429 lleve cabeceras CORS)
+app.use(generalLimiter);
+
+// Logging de seguridad
+app.use(securityLogger);
 
 /**
  * Middleware de Compresión

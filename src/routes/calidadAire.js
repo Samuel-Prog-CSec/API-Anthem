@@ -8,20 +8,25 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 
 const { authenticate } = require('../middleware/auth');
-const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
+const { sensorOrAdmin } = require('../middleware/authorization');
+const { validateRequest, heavyQueryLimiter, ingestLimiter } = require('../middleware/security');
 const { cacheMiddleware } = require('../middleware/cache');
 const { RATE_LIMITS } = require('../constants');
 
 const {
   obtenerDatosCalidadAire,
   obtenerEstadisticasCalidadAire,
-  obtenerTendenciasCalidadAire
+  obtenerTendenciasCalidadAire,
+  ingestarMedicionAire,
+  ingestarLoteAire
 } = require('../controllers/controladorCalidadAire');
 
 const {
   validarDatosCalidadAire,
   validarEstadisticasCalidadAire,
-  validarTendenciasCalidadAire
+  validarTendenciasCalidadAire,
+  validarIngestaAire,
+  validarIngestaLoteAire
 } = require('../validators/validadorCalidadAire');
 
 const router = express.Router();
@@ -66,6 +71,38 @@ router.get('/tendencias',
   validateRequest,
   cacheMiddleware('airQuality'),
   obtenerTendenciasCalidadAire
+);
+
+// ========================================
+// INGESTA (escritura) - nodos IoT
+// ========================================
+
+/**
+ * Registrar una medicion horaria de calidad del aire.
+ * @route POST /api/v1/calidad-aire/ingesta
+ * @access Private (JWT)
+ */
+router.post('/ingesta',
+  authenticate,
+  sensorOrAdmin,
+  ingestLimiter,
+  validarIngestaAire,
+  validateRequest,
+  ingestarMedicionAire
+);
+
+/**
+ * Registrar un lote de mediciones horarias de calidad del aire.
+ * @route POST /api/v1/calidad-aire/ingesta/lote
+ * @access Private (JWT)
+ */
+router.post('/ingesta/lote',
+  authenticate,
+  sensorOrAdmin,
+  ingestLimiter,
+  validarIngestaLoteAire,
+  validateRequest,
+  ingestarLoteAire
 );
 
 module.exports = router;

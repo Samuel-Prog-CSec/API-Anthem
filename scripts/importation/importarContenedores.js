@@ -239,7 +239,14 @@ function normalizeContainerType(tipo) {
  * funcionando aunque UTM no este.
  */
 function generateUniqueKey(data) {
-  const [lon, lat] = data.location?.coordinates || [0, 0];
+  const coords = data.location?.coordinates;
+  if (!coords) {
+    // Sin coordenadas: dos contenedores distintos sin geometria podrian
+    // deduplicarse erroneamente si comparten codigo y tipo. Se usa [0,0]
+    // como fallback conservador pero se avisa para detectar el caso.
+    logger.warn({ codigo: data.codigoInternoSituado }, 'Contenedor sin coordenadas en generateUniqueKey — usando [0,0] como clave');
+  }
+  const [lon, lat] = coords || [0, 0];
   return `${data.codigoInternoSituado}_${data.tipoContenedor}_${lon}_${lat}`;
 }
 

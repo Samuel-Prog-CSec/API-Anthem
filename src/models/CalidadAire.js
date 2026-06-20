@@ -11,12 +11,15 @@ const { validateDatasetDate } = require('./schemas/commonSchemas');
 const {
   MAGNITUDES_PERMITIDAS,
   AIR_QUALITY_MAGNITUDES,
+  AIR_QUALITY_DEFAULTS,
   VALIDATION_CODES,
   AGGREGATION_LIMITS,
   TIME_CONSTANTS,
   MONGODB_TIMEOUTS,
   DATASET_YEARS
 } = require('../constants');
+const { inicioDiaUTC } = require('../utils/temporalHelper');
+const { conCerrojo } = require('../utils/ingestaHelper');
 
 /**
  * Sub-esquema para mediciones horarias
@@ -261,9 +264,12 @@ airQualitySchema.index({ estacion: 1, magnitud: 1, fecha: -1 }, {
 /**
  * Middleware pre-save para calcular metadatos de calidad
  */
-airQualitySchema.pre('save', function(next) {
+airQualitySchema.pre('save', async function() {
   let validCount = 0;
   let totalMeasurements = 0;
+  let suma = 0;
+  let maximo = null;
+  let minimo = null;
 
   // Contar mediciones válidas - iterar sobre Map correctamente
   if (this.medicionesHorarias instanceof Map) {
@@ -273,6 +279,9 @@ airQualitySchema.pre('save', function(next) {
           measurement.value !== null &&
           measurement.value !== undefined) {
         validCount++;
+        suma += measurement.value;
+        if (maximo === null || measurement.value > maximo) { maximo = measurement.value; }
+        if (minimo === null || measurement.value < minimo) { minimo = measurement.value; }
       }
     }
   }
@@ -282,7 +291,15 @@ airQualitySchema.pre('save', function(next) {
   this.processingMetadata.dataQualityScore = totalMeasurements > 0 ?
     validCount / totalMeasurements : 0;
 
-  next();
+  // Campos derivados agregados: antes solo los calculaba el importador CSV a
+  // mano (insertMany no dispara este hook). Calcularlos aqui asegura que los
+  // documentos creados via ingesta IoT (que SI usan doc.save()) expongan la
+  // misma metadata (averageValue/maxValue/minValue/registroParcial) que el
+  // listado y el dashboard proyectan.
+  this.processingMetadata.registroParcial = validCount < TIME_CONSTANTS.HOURS_PER_DAY;
+  this.processingMetadata.averageValue = validCount > 0 ? suma / validCount : null;
+  this.processingMetadata.maxValue = maximo;
+  this.processingMetadata.minValue = minimo;
 });
 
 /**
@@ -536,6 +553,79 @@ airQualitySchema.statics.obtenerTendenciasOptimizadas = async function(provincia
       totalPuntos: tendenciaDiaria.length
     }
   };
+};
+
+/**
+ * Registrar (upsert idempotente) una medicion HORARIA de calidad del aire
+ * enviada por un nodo IoT.
+ *
+ * Semantica: 1 documento por (provincia, municipio, estacion, magnitud,
+ * fecha-dia) con un Map de 24 slots H01..H24. El sensor emite UNA hora; este
+ * metodo coloca su valor en el slot correspondiente del documento del dia y
+ * recomputa processingMetadata via el hook pre('save').
+ *
+ * La hora recibida es el reloj natural [0-23] y se mapea al slot H{hora+1}
+ * (H01=00:00, ..., H24=23:00), homogeneo con el resto de sensores del
+ * simulador. Usa read-modify-save con reintento ante carreras (E11000 al crear
+ * o VersionError al actualizar el mismo dia desde dos lecturas concurrentes).
+ *
+ * @param {Object} lectura - Lectura del sensor (ver validador de ingesta)
+ * @returns {Promise<{estado: 'creado'|'actualizado', creado: boolean, documento: Object}>}
+ */
+airQualitySchema.statics.ingestarLecturaHoraria = function(lectura) {
+  const Modelo = this;
+  const fechaDia = inicioDiaUTC(lectura.fecha);
+  const provincia = Number(lectura.provincia != null ? lectura.provincia : AIR_QUALITY_DEFAULTS.PROVINCIA);
+  const municipio = Number(lectura.municipio != null ? lectura.municipio : AIR_QUALITY_DEFAULTS.MUNICIPIO);
+  const estacion = Number(lectura.estacion);
+  const magnitud = Number(lectura.magnitud);
+  const hora = Number(lectura.hora);
+  const clave = `H${String(hora + 1).padStart(2, '0')}`;
+  const validationCode = String(lectura.validacion || VALIDATION_CODES.VALID).toUpperCase();
+  const value = lectura.valor != null ? Number(lectura.valor) : null;
+  const puntoMuestreo = String(
+    lectura.puntoMuestreo || `ES${provincia}_${municipio}_${estacion}_MG${magnitud}`
+  ).toUpperCase();
+
+  // Serializa en memoria las escrituras al MISMO documento-dia (las 24 horas de
+  // una (estacion, magnitud, dia)) para evitar VersionError; el reintento cubre
+  // ademas el escenario multi-proceso.
+  const claveDoc = `aire|${provincia}|${municipio}|${estacion}|${magnitud}|${fechaDia.toISOString()}`;
+
+  return conCerrojo(claveDoc, async () => {
+    const MAX_INTENTOS = 5;
+    let ultimoError = null;
+    for (let intento = 0; intento < MAX_INTENTOS; intento += 1) {
+      let creado = false;
+      let doc = await Modelo.findOne({ provincia, municipio, estacion, magnitud, fecha: fechaDia });
+
+      if (!doc) {
+        // Inicializar los 24 slots a {value:null, validationCode:'N'} para
+        // satisfacer el validador "exactamente 24 mediciones H01-H24".
+        const mediciones = new Map();
+        for (let h = 1; h <= 24; h += 1) {
+          mediciones.set(`H${String(h).padStart(2, '0')}`, { value: null, validationCode: VALIDATION_CODES.INVALID });
+        }
+        doc = new Modelo({ provincia, municipio, estacion, magnitud, puntoMuestreo, fecha: fechaDia, medicionesHorarias: mediciones });
+        creado = true;
+      }
+
+      doc.medicionesHorarias.set(clave, { value, validationCode });
+      doc.processingMetadata.importedAt = new Date();
+
+      try {
+        await doc.save();
+        return { estado: creado ? 'creado' : 'actualizado', creado, documento: doc };
+      } catch (error) {
+        ultimoError = error;
+        if (error && (error.code === 11000 || error.name === 'VersionError') && intento < MAX_INTENTOS - 1) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw ultimoError;
+  });
 };
 
 // Transformación para reducir payload

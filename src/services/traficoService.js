@@ -20,8 +20,10 @@ const mongoose = require('mongoose');
 const {
   CONGESTION_LEVELS,
   DATA_QUALITY_LEVELS,
+  TRAFFIC_ELEMENT_TYPES,
   MONGODB_TIMEOUTS
 } = require('../constants');
+const { inicioDiaUTC } = require('../utils/temporalHelper');
 
 const COLECCION_DAILY = 'traffic_daily';
 const ESCALAR = { allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS };
@@ -157,7 +159,7 @@ const historicoHorarioRaw = function (Model, filters) {
         // (y parte de la data viva) la trae como 0. Incluir esos 0 deprimia el
         // promedio. Se restringe el $avg a M30 (igual que buildTrafficDaily),
         // robusto aunque algun URB traiga 0 en vez de null.
-        velocidadPromedio: { $avg: { $cond: [{ $and: [{ $eq: ['$tipoElemento', 'M30'] }, { $gte: ['$metricas.velocidadMedia', 0] }] }, '$metricas.velocidadMedia', null] } },
+        velocidadPromedio: { $avg: { $cond: [{ $and: [{ $eq: ['$tipoElemento', 'M30'] }, { $gt: ['$metricas.velocidadMedia', 0] }] }, '$metricas.velocidadMedia', null] } },
         medicionesCongestionadas: { $sum: { $cond: [{ $in: ['$analisis.nivelCongestion', [CONGESTION_LEVELS.CONGESTIONADO, CONGESTION_LEVELS.COLAPSADO]] }, 1, 0] } },
         medicionesConfiables: { $sum: { $cond: [{ $in: ['$calidadDatos.calidadGeneral', [DATA_QUALITY_LEVELS.ALTA, DATA_QUALITY_LEVELS.MEDIA]] }, 1, 0] } }
       }
@@ -390,10 +392,121 @@ const obtenerAgregadoParaMapa = async function (Model, filtros = {}) {
   ], ESCALAR).toArray();
 };
 
+// ============================================================================
+// ROLLUP INCREMENTAL (ingesta IoT)
+// ============================================================================
+
+// El rollup batch (scripts/buildTrafficDaily.js) usa $out, que recrea la
+// coleccion y solo deja sus 3 indices (ninguno unico por dia). Para la ingesta
+// incremental necesitamos un indice UNICO por (puntoMedidaId, dia) que haga el
+// upsert selectivo y evite documentos de dia duplicados bajo concurrencia.
+let promesaIndiceRollup = null;
+const asegurarIndiceRollup = (daily) => {
+  if (!promesaIndiceRollup) {
+    promesaIndiceRollup = daily
+      .createIndex({ puntoMedidaId: 1, 'año': 1, mes: 1, dia: 1 }, { unique: true, name: 'idx_daily_punto_dia_unico' })
+      .catch((error) => { promesaIndiceRollup = null; throw error; });
+  }
+  return promesaIndiceRollup;
+};
+
+/**
+ * Actualiza incrementalmente el rollup diario `traffic_daily` con la
+ * contribucion de UNA medicion ya derivada. Replica las sumas/conteos/buckets
+ * de buildTrafficDaily para que las lecturas del dashboard (que leen del rollup)
+ * reflejen la medicion sin recomputar la coleccion cruda completa.
+ *
+ * IMPORTANTE: invocar SOLO cuando la medicion cruda es NUEVA (no reenvio), para
+ * no inflar los contadores (idempotencia). Limitacion conocida: $max/$min de
+ * intensidad no se corrigen a la baja; `buildTrafficDaily.js` permite
+ * reconstruir el estado exacto cuando se desee.
+ *
+ * @param {import('mongoose').Model} Model - Modelo Traffic (para su conexion)
+ * @param {Object} doc - Medicion derivada (ver utils/traficoHelper)
+ * @returns {Promise<void>}
+ */
+const actualizarRollupDiario = async function (Model, doc) {
+  const daily = coleccionDaily(Model);
+  await asegurarIndiceRollup(daily);
+
+  const { intensidad, ocupacion, carga, velocidadMedia } = doc.metricas;
+  const nivel = doc.analisis.nivelCongestion;
+  const periodo = doc.analisis.periodoDia;
+
+  const intOK = Number.isFinite(intensidad) && intensidad >= 0;
+  const ocuOK = Number.isFinite(ocupacion) && ocupacion >= 0;
+  const carOK = Number.isFinite(carga) && carga >= 0;
+  // velocidadMedia 0 es el centinela "sin lectura" (no una velocidad real), se excluye con > 0
+  const velOK = doc.tipoElemento === TRAFFIC_ELEMENT_TYPES.M30 && Number.isFinite(velocidadMedia) && velocidadMedia > 0;
+
+  const inc = {
+    total: 1,
+    sumI: intOK ? intensidad : 0,
+    cntI: intOK ? 1 : 0,
+    sumO: ocuOK ? ocupacion : 0,
+    cntO: ocuOK ? 1 : 0,
+    sumC: carOK ? carga : 0,
+    cntC: carOK ? 1 : 0,
+    sumVelM30: velOK ? velocidadMedia : 0,
+    cntVelM30: velOK ? 1 : 0,
+    fluidas: nivel === CONGESTION_LEVELS.FLUIDO ? 1 : 0,
+    densas: nivel === CONGESTION_LEVELS.DENSO ? 1 : 0,
+    congestionadas: nivel === CONGESTION_LEVELS.CONGESTIONADO ? 1 : 0,
+    colapsadas: nivel === CONGESTION_LEVELS.COLAPSADO ? 1 : 0,
+    confiables: [DATA_QUALITY_LEVELS.ALTA, DATA_QUALITY_LEVELS.MEDIA].includes(doc.calidadDatos.calidadGeneral) ? 1 : 0
+  };
+
+  const filtroDia = { puntoMedidaId: doc.puntoMedidaId, 'año': doc.año, mes: doc.mes, dia: doc.dia };
+  const update = {
+    $setOnInsert: { fecha: inicioDiaUTC(doc.fecha), tipoElemento: doc.tipoElemento, porPeriodo: [] },
+    $inc: inc
+  };
+  if (intOK) {
+    update.$max = { maxI: intensidad };
+    update.$min = { minI: intensidad };
+  }
+  await daily.updateOne(filtroDia, update, { upsert: true });
+
+  // Desglose por periodo del dia (array embebido `porPeriodo`). Se incrementa el
+  // elemento del periodo si existe; si no, se inserta. El bucle absorbe la
+  // carrera entre dos contribuciones del mismo periodo (push concurrente).
+  const incPeriodo = {
+    total: 1,
+    sumI: intOK ? intensidad : 0,
+    cntI: intOK ? 1 : 0,
+    congestionadas: nivel === CONGESTION_LEVELS.CONGESTIONADO ? 1 : 0,
+    colapsadas: nivel === CONGESTION_LEVELS.COLAPSADO ? 1 : 0
+  };
+  for (let intento = 0; intento < 4; intento += 1) {
+    const incremento = await daily.updateOne(
+      { ...filtroDia, 'porPeriodo.periodo': periodo },
+      {
+        $inc: {
+          'porPeriodo.$[e].total': incPeriodo.total,
+          'porPeriodo.$[e].sumI': incPeriodo.sumI,
+          'porPeriodo.$[e].cntI': incPeriodo.cntI,
+          'porPeriodo.$[e].congestionadas': incPeriodo.congestionadas,
+          'porPeriodo.$[e].colapsadas': incPeriodo.colapsadas
+        }
+      },
+      { arrayFilters: [{ 'e.periodo': periodo }] }
+    );
+    if (incremento.modifiedCount > 0) { return; }
+
+    const insercion = await daily.updateOne(
+      { ...filtroDia, 'porPeriodo.periodo': { $ne: periodo } },
+      { $push: { porPeriodo: { periodo, ...incPeriodo } } }
+    );
+    if (insercion.modifiedCount > 0) { return; }
+    // Otra contribucion concurrente inserto el periodo entre medias: reintentar.
+  }
+};
+
 module.exports = {
   obtenerAnalisisCongestionOptimizado,
   obtenerDatosHistoricosOptimizado,
   obtenerEstadisticasTraficoOptimizadas,
   obtenerResumenListado,
-  obtenerAgregadoParaMapa
+  obtenerAgregadoParaMapa,
+  actualizarRollupDiario
 };

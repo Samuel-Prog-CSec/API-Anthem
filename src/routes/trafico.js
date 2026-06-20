@@ -11,7 +11,8 @@ const rateLimit = require('express-rate-limit');
 
 const controladorTrafico = require('../controllers/controladorTrafico');
 const { authenticate } = require('../middleware/auth');
-const { validateRequest, heavyQueryLimiter } = require('../middleware/security');
+const { sensorOrAdmin } = require('../middleware/authorization');
+const { validateRequest, heavyQueryLimiter, ingestLimiter } = require('../middleware/security');
 const { etagMiddleware } = require('../middleware/etag');
 const { RATE_LIMITS, DATE_RANGE_LIMITS, HTTP_STATUS } = require('../constants');
 const {
@@ -26,7 +27,9 @@ const {
   validarEstadisticasTrafico,
   validarAnalisisCongestion,
   validarHistoricoTrafico,
-  validarMapaTrafico
+  validarMapaTrafico,
+  validarIngestaTrafico,
+  validarIngestaLoteTrafico
 } = require('../validators/validadorTrafico');
 
 const router = express.Router();
@@ -132,6 +135,38 @@ router.get('/mapa',
     `traffic-mapa-${req.query.startDate}-${req.query.endDate}-${req.query.tipoElemento || 'all'}-${req.query.bbox || 'all'}`
   ),
   controladorTrafico.obtenerMapaTrafico
+);
+
+// ========================================
+// INGESTA (escritura) - nodos IoT
+// ========================================
+
+/**
+ * Registrar una medicion de trafico (cada ~15 min por punto).
+ * @route POST /api/v1/trafico/ingesta
+ * @access Private (JWT)
+ */
+router.post('/ingesta',
+  authenticate,
+  sensorOrAdmin,
+  ingestLimiter,
+  validarIngestaTrafico,
+  validateRequest,
+  controladorTrafico.ingestarMedicionTrafico
+);
+
+/**
+ * Registrar un lote de mediciones de trafico.
+ * @route POST /api/v1/trafico/ingesta/lote
+ * @access Private (JWT)
+ */
+router.post('/ingesta/lote',
+  authenticate,
+  sensorOrAdmin,
+  ingestLimiter,
+  validarIngestaLoteTrafico,
+  validateRequest,
+  controladorTrafico.ingestarLoteTrafico
 );
 
 // Middleware de logging

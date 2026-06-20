@@ -264,13 +264,10 @@ const obtenerResumenDistritos = asyncHandler(async (req, res) => {
   // `obtenerDashboardDemografico` en controladorCensoAnalisis.
   let mesElegido = mes ? parseInt(mes, 10) : null;
   if (!mesElegido) {
-    const [doc] = await Censo.aggregate([
-      { $match: { año: añoNum } },
-      { $group: { _id: '$mes' } },
-      { $sort: { _id: -1 } },
-      { $limit: 1 }
-    ]).option({ maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
-    mesElegido = doc?._id || 12;
+    // distinct('mes') usa DISTINCT_SCAN sobre el indice en vez de un $group que
+    // escanea los ~2,85M docs; tomamos el mes maximo como foto mas reciente.
+    const meses = await Censo.distinct('mes', { año: añoNum }).maxTimeMS(MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS);
+    mesElegido = meses.length ? Math.max(...meses) : 12;
   }
   const matchFilter = { año: añoNum, mes: mesElegido };
 

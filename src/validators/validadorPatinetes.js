@@ -146,18 +146,20 @@ const validarAsignacionesPatinetes = [
 /**
  * GET /api/v1/patinetes/estadisticas/distritos
  */
-const validarEstadisticasDistritosPatinetes = [...dateValidation];
+const validarEstadisticasDistritosPatinetes = [...dateValidation, ...geographicValidation, ...categoryValidation];
 
 /**
  * GET /api/v1/patinetes/analisis-mercado/proveedores
  */
-const validarAnalisisMercadoProveedores = [...dateValidation];
+const validarAnalisisMercadoProveedores = [...dateValidation, ...geographicValidation, ...categoryValidation];
 
 /**
  * GET /api/v1/patinetes/zonas-concentracion
  */
 const validarZonasConcentracion = [
   ...dateValidation,
+  ...geographicValidation,
+  ...categoryValidation,
   query('limite')
     .optional()
     .isInt({
@@ -178,7 +180,9 @@ const validarDetallesArea = [...paramValidation, ...dateValidation];
  */
 const validarMapaPatinetes = [
   ...dateValidation,
-  query('distrito').optional().isString().withMessage('distrito debe ser cadena')
+  query('distrito').optional().isString().withMessage('distrito debe ser cadena'),
+  query('densidad').optional().isIn(Object.values(NIVELES_DENSIDAD_PATINETES)).withMessage('Densidad no válida'),
+  query('tipoZona').optional().isIn(Object.values(TIPOS_ZONA_PATINETES)).withMessage('Tipo de zona no válido')
 ];
 
 module.exports = {

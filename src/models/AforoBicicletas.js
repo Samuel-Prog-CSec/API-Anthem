@@ -15,6 +15,9 @@ const {
   MONGODB_TIMEOUTS,
   GEOMETRY_TYPES
 } = require('../constants');
+const { obtenerFranjaHoraria, inicioDiaUTC } = require('../utils/temporalHelper');
+const { construirUbicacionAforo } = require('../utils/ubicacionHelper');
+const { upsertConReintento } = require('../utils/ingestaHelper');
 
 /**
  * Esquema de Aforo de Bicicletas
@@ -441,6 +444,43 @@ bikeTrafficCountSchema.statics.obtenerComparativaDistritos = function(filters = 
   );
 
   return this.aggregate(pipeline).option({ allowDiskUse: true, maxTimeMS: MONGODB_TIMEOUTS.AGGREGATE_TIMEOUT_MS });
+};
+
+/**
+ * Registrar (upsert idempotente) un conteo horario de bicicletas enviado por un
+ * nodo IoT. Clave unica (identificador, fecha-dia, hora): reenviar la misma
+ * lectura ACTUALIZA el documento en lugar de duplicarlo.
+ *
+ * Deriva franjaHoraria/año/mes/diaSemana y construye la geometria GeoJSON solo
+ * cuando llegan coordenadas validas (nunca geometry vacio: rompe el indice
+ * 2dsphere sparse).
+ *
+ * @param {Object} lectura - Lectura del sensor (ver validador de ingesta)
+ * @returns {Promise<{estado: 'creado'|'actualizado', creado: boolean, documento: Object}>}
+ */
+bikeTrafficCountSchema.statics.ingestarConteo = function(lectura) {
+  const fechaDia = inicioDiaUTC(lectura.fecha);
+  const hora = Number(lectura.hora);
+
+  const set = {
+    bicicletas: Number(lectura.bicicletas),
+    franjaHoraria: obtenerFranjaHoraria(hora),
+    'año': fechaDia.getUTCFullYear(),
+    mes: fechaDia.getUTCMonth() + 1,
+    diaSemana: fechaDia.getUTCDay(),
+    'procesamiento.archivoOrigen': lectura.origen || 'simulador-iot',
+    'procesamiento.importadoEn': new Date()
+  };
+
+  if (lectura.ubicacion) {
+    set.ubicacion = construirUbicacionAforo(lectura.ubicacion);
+  }
+
+  return upsertConReintento(
+    this,
+    { identificador: String(lectura.identificador).trim(), fecha: fechaDia, hora },
+    set
+  );
 };
 
 // Transformacion de salida para reducir tamano de respuesta

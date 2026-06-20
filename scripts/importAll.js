@@ -81,7 +81,10 @@ const IMPORTERS = {
     script: 'importation/importarTrafico.js',
     nombre: 'Datos de Trafico',
     fase: 3,
-    descripcion: 'Intensidad y carga de trafico por punto de medicion'
+    descripcion: 'Intensidad y carga de trafico por punto de medicion',
+    // 12 archivos CSV (~11M filas c/u) procesados en lotes de 3 en paralelo;
+    // en modo upsert sobre 100M+ docs puede superar las 3 horas.
+    timeoutMs: 6 * 60 * 60 * 1000
   },
   censo: {
     script: 'importation/importarCenso.js',
@@ -225,9 +228,9 @@ function runImporter(key, importerConfig, options) {
 
     logger.info({ importador: key, nombre: importerConfig.nombre }, `Iniciando importacion: ${importerConfig.nombre}`);
 
-    // Fase 3 carga colecciones pesadas (24M+ docs); 30 min no alcanza para Trafico.
-    // Fase 1 y 2 son ligeras: 30 min sigue siendo techo de seguridad sobrado.
-    const timeoutMs = importerConfig.fase === 3 ? 120 * 60 * 1000 : 30 * 60 * 1000;
+    // El importador puede declarar su propio timeoutMs (ej. trafico: 6h).
+    // Fase 3 sin override usa 120min; Fase 1/2 usan 30min.
+    const timeoutMs = importerConfig.timeoutMs || (importerConfig.fase === 3 ? 120 * 60 * 1000 : 30 * 60 * 1000);
 
     const child = execFile('node', [scriptPath, ...args], {
       cwd: path.join(__dirname, '..'),
@@ -384,9 +387,9 @@ function emitirResumenGlobal(importerKeys, runStartedAt) {
 /**
  * Reconstruir el rollup `traffic_daily` ejecutando buildTrafficDaily.js como proceso hijo.
  *
- * En modo atlas, tras importar el subset de `traffic_measurements`, se reconstruye el
- * rollup del que leen los endpoints de trafico (no leen los crudos). Asi la BD queda lista
- * para el frontend sin pasos manuales. En modo normal el rollup sigue siendo manual.
+ * Los endpoints de trafico leen del rollup pre-agregado, no de los 132M crudos.
+ * Se ejecuta automaticamente siempre que el importador de trafico haya tenido exito,
+ * tanto en modo atlas como en modo normal.
  *
  * @returns {Promise<boolean>} true si el rollup se construyo sin error.
  */
@@ -405,7 +408,7 @@ function reconstruirTrafficDaily() {
         imprimirError(`  ! Error en rollup traffic_daily: ${error.message}`);
         resolve(false);
       } else {
-        logger.info('Rollup traffic_daily reconstruido (modo atlas)');
+        logger.info('Rollup traffic_daily reconstruido');
         resolve(true);
       }
     });
@@ -605,16 +608,14 @@ async function main() {
     }
   }
 
-  // Modo atlas: reconstruir el rollup traffic_daily tras importar el subset de trafico.
-  // Los endpoints de trafico leen del rollup, no de los crudos, asi que sin esto el
-  // frontend de trafico saldria vacio. En modo normal sigue siendo un paso manual.
-  if (options.atlas) {
-    const traficoImportado = results.some(r => r.key === 'trafico' && r.success);
-    if (traficoImportado) {
-      imprimir('\n--- Modo Atlas: reconstruyendo rollup traffic_daily ---\n');
-      const rollupOk = await reconstruirTrafficDaily();
-      imprimir(`  ${rollupOk ? '[OK]' : '[ERROR]'} traffic_daily`);
-    }
+  // Reconstruir el rollup traffic_daily siempre que se haya importado trafico con exito.
+  // Los endpoints de trafico leen del rollup pre-agregado, no de los 132M crudos;
+  // sin este paso el frontend de trafico quedaria vacio o desactualizado.
+  const traficoImportado = results.some(r => r.key === 'trafico' && r.success);
+  if (traficoImportado) {
+    imprimir('\n--- Reconstruyendo rollup traffic_daily ---\n');
+    const rollupOk = await reconstruirTrafficDaily();
+    imprimir(`  ${rollupOk ? '[OK]' : '[ERROR]'} traffic_daily`);
   }
 
   // Resumen final

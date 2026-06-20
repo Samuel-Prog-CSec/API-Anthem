@@ -4,8 +4,9 @@
  * Extraidos de `routes/ruido.js`.
  */
 
-const { query } = require('express-validator');
+const { query, body } = require('express-validator');
 const { ROUTE_SPECIFIC_LIMITS, SORT_FIELDS, ZONE_TYPES } = require('../constants');
+const { validarFechaDataset } = require('./validadorFechaDataset');
 
 /**
  * Validaciones para consultas de datos de contaminacion acustica
@@ -62,6 +63,8 @@ const validarEstadisticasRuido = [
     .optional()
     .isIn(['station', 'month', 'year'])
     .withMessage('groupBy debe ser "station", "month" o "year"'),
+  query('año').optional().isInt({ min: 2000, max: 2100 }).withMessage('año debe ser un entero válido'),
+  query('mes').optional().isInt({ min: 1, max: 12 }).withMessage('mes debe ser un entero entre 1 y 12'),
   query('nmt').optional().isInt({ min: 1 }).withMessage('nmt debe ser un número entero positivo')
 ];
 
@@ -71,6 +74,8 @@ const validarEstadisticasRuido = [
 const validarRankingRuido = [
   query('startDate').optional().isISO8601().withMessage('startDate debe ser una fecha válida'),
   query('endDate').optional().isISO8601().withMessage('endDate debe ser una fecha válida'),
+  query('año').optional().isInt({ min: 2000, max: 2100 }).withMessage('año debe ser un entero válido'),
+  query('mes').optional().isInt({ min: 1, max: 12 }).withMessage('mes debe ser un entero entre 1 y 12'),
   query('orderBy')
     .optional()
     .isIn(['laeq24', 'diurno', 'vespertino', 'nocturno'])
@@ -127,7 +132,39 @@ const validarMapaRuido = [
   query('startDate').optional().isISO8601().withMessage('startDate debe ser ISO 8601'),
   query('endDate').optional().isISO8601().withMessage('endDate debe ser ISO 8601'),
   query('año').optional().isInt({ min: 2000, max: 2100 }).withMessage('año debe ser valido'),
+  query('mes').optional().isInt({ min: 1, max: 12 }).withMessage('mes debe ser un entero entre 1 y 12'),
   query('nmt').optional().isString().withMessage('nmt debe ser string separado por comas')
+];
+
+/**
+ * Reglas de validacion de UNA medicion mensual de ruido (ingesta IoT).
+ * @param {string} [p=''] - Prefijo del campo ('' single, 'lecturas.*.' lote)
+ * @returns {Array} Cadena de validadores express-validator
+ */
+const reglasIngestaRuido = (p = '') => ([
+  body(`${p}nmt`).isInt({ min: 1 }).withMessage('nmt debe ser un entero positivo'),
+  body(`${p}nombre`).isString().withMessage('nombre debe ser texto').bail()
+    .trim().notEmpty().withMessage('nombre es obligatorio').isLength({ max: 200 }).withMessage('nombre demasiado largo'),
+  body(`${p}fecha`).exists().withMessage('fecha es obligatoria').bail().custom(validarFechaDataset),
+  body(`${p}nivelDiurno`).optional({ nullable: true }).isFloat({ min: 0, max: 150 }).withMessage('nivelDiurno debe estar entre 0 y 150 dB'),
+  body(`${p}nivelVespertino`).optional({ nullable: true }).isFloat({ min: 0, max: 150 }).withMessage('nivelVespertino debe estar entre 0 y 150 dB'),
+  body(`${p}nivelNocturno`).optional({ nullable: true }).isFloat({ min: 0, max: 150 }).withMessage('nivelNocturno debe estar entre 0 y 150 dB'),
+  body(`${p}laeq24`).optional({ nullable: true }).isFloat({ min: 0, max: 150 }).withMessage('laeq24 debe estar entre 0 y 150 dB'),
+  body(`${p}percentiles`).optional().isObject().withMessage('percentiles debe ser un objeto'),
+  body(`${p}percentiles.las01`).optional({ nullable: true }).isFloat({ min: 0, max: 150 }).withMessage('las01 invalido'),
+  body(`${p}percentiles.las10`).optional({ nullable: true }).isFloat({ min: 0, max: 150 }).withMessage('las10 invalido'),
+  body(`${p}percentiles.las50`).optional({ nullable: true }).isFloat({ min: 0, max: 150 }).withMessage('las50 invalido'),
+  body(`${p}percentiles.las90`).optional({ nullable: true }).isFloat({ min: 0, max: 150 }).withMessage('las90 invalido'),
+  body(`${p}percentiles.las99`).optional({ nullable: true }).isFloat({ min: 0, max: 150 }).withMessage('las99 invalido')
+]);
+
+/** POST /api/v1/ruido/ingesta (una medicion mensual) */
+const validarIngestaRuido = reglasIngestaRuido('');
+
+/** POST /api/v1/ruido/ingesta/lote (hasta 100 mediciones) */
+const validarIngestaLoteRuido = [
+  body('lecturas').isArray({ min: 1, max: 100 }).withMessage('lecturas debe ser un array de 1 a 100 elementos'),
+  ...reglasIngestaRuido('lecturas.*.')
 ];
 
 module.exports = {
@@ -136,5 +173,7 @@ module.exports = {
   validarRankingRuido,
   validarCumplimientoZona,
   validarTendenciasTemporales,
-  validarMapaRuido
+  validarMapaRuido,
+  validarIngestaRuido,
+  validarIngestaLoteRuido
 };

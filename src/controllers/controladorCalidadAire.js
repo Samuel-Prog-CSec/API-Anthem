@@ -12,6 +12,8 @@ const { buildFilters, buildSortOptions, buildPaginationOptions, validateDateRang
 const { createResponse } = require('../utils/responseHelper');
 const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, SORT_FIELDS, DATE_RANGE_LIMITS } = require('../constants');
 const asyncHandler = require('../utils/asyncHandler');
+const { invalidarCacheCalidadAire } = require('../utils/cacheInvalidator');
+const { resumirLote } = require('../utils/ingestaHelper');
 
 /**
  * Obtener datos de calidad de aire con filtros
@@ -185,8 +187,54 @@ const obtenerTendenciasCalidadAire = asyncHandler(async (req, res, next) => {
   res.status(HTTP_STATUS.OK).json(createResponse(responseData, 'Tendencias obtenidas exitosamente'));
 });
 
+/**
+ * Registrar una medicion horaria de calidad del aire (ingesta de nodo IoT).
+ * Upsert horario sobre el documento del dia (estacion+magnitud+fecha).
+ *
+ * @route POST /api/v1/calidad-aire/ingesta
+ * @access Private (JWT)
+ */
+const ingestarMedicionAire = asyncHandler(async (req, res) => {
+  const resultado = await AirQuality.ingestarLecturaHoraria(req.body);
+  invalidarCacheCalidadAire(resultado.documento?._id, 'ingesta');
+
+  const codigo = resultado.creado ? HTTP_STATUS.CREATED : HTTP_STATUS.OK;
+  return res.status(codigo).json(createResponse({
+    estado: resultado.estado,
+    estacion: resultado.documento.estacion,
+    magnitud: resultado.documento.magnitud,
+    fecha: resultado.documento.fecha,
+    validMeasurements: resultado.documento.processingMetadata.validMeasurements,
+    averageValue: resultado.documento.processingMetadata.averageValue,
+    registroParcial: resultado.documento.processingMetadata.registroParcial
+  }, `Medicion de calidad del aire ${resultado.estado}`));
+});
+
+/**
+ * Registrar un lote de mediciones horarias de calidad del aire (ingesta IoT).
+ * Cada lectura se aplica como upsert horario idempotente independiente.
+ *
+ * @route POST /api/v1/calidad-aire/ingesta/lote
+ * @access Private (JWT)
+ */
+const ingestarLoteAire = asyncHandler(async (req, res) => {
+  const { lecturas } = req.body;
+  const resultados = await Promise.allSettled(
+    lecturas.map((lectura) => AirQuality.ingestarLecturaHoraria(lectura))
+  );
+  const resumen = resumirLote(resultados);
+  invalidarCacheCalidadAire(null, 'ingesta-lote');
+
+  return res.status(HTTP_STATUS.CREATED).json(createResponse(
+    resumen,
+    `Lote procesado: ${resumen.creados} creados, ${resumen.actualizados} actualizados, ${resumen.fallidos} fallidos`
+  ));
+});
+
 module.exports = {
   obtenerDatosCalidadAire,
   obtenerEstadisticasCalidadAire,
-  obtenerTendenciasCalidadAire
+  obtenerTendenciasCalidadAire,
+  ingestarMedicionAire,
+  ingestarLoteAire
 };

@@ -13,6 +13,8 @@ const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { SORT_FIELDS, PAGINATION, HTTP_STATUS, CONGESTION_LEVELS, DATA_QUALITY_LEVELS, TRAFFIC_ELEMENT_TYPES, MONGODB_TIMEOUTS } = require('../constants');
 const asyncHandler = require('../utils/asyncHandler');
+const { invalidarCacheTrafico } = require('../utils/cacheInvalidator');
+const { resumirLote } = require('../utils/ingestaHelper');
 
 // Maximo absoluto de dias para el endpoint /mapa. La coleccion de trafico
 // tiene ~138M docs; un rango mayor a 7 dias hace lookup masivo a locations.
@@ -255,7 +257,9 @@ const obtenerTraficoPorPunto = asyncHandler(async (req, res, next) => {
           $avg: { $cond: [{ $gte: ['$metricas.carga', 0] }, '$metricas.carga', null] }
         },
         velocidadPromedio: {
-          $avg: { $cond: [{ $gte: ['$metricas.velocidadMedia', 0] }, '$metricas.velocidadMedia', null] }
+          // Solo M30 mide velocidad; el 0 es centinela "sin lectura" (no velocidad
+          // real). Se filtra a M30 con valor > 0 para no sesgar el promedio a la baja.
+          $avg: { $cond: [{ $and: [{ $eq: ['$tipoElemento', 'M30'] }, { $gt: ['$metricas.velocidadMedia', 0] }] }, '$metricas.velocidadMedia', null] }
         }
       }
     }
@@ -493,11 +497,56 @@ const obtenerMapaTrafico = asyncHandler(async (req, res, next) => {
   );
 });
 
+/**
+ * Registrar una medicion de trafico (ingesta de nodo IoT). Upsert idempotente
+ * por (puntoMedidaId, fecha) + actualizacion incremental del rollup diario.
+ *
+ * @route POST /api/v1/trafico/ingesta
+ * @access Private (JWT)
+ */
+const ingestarMedicionTrafico = asyncHandler(async (req, res) => {
+  const resultado = await Traffic.ingestarMedicion(req.body);
+  invalidarCacheTrafico(resultado.documento?.puntoMedidaId, 'ingesta');
+
+  const codigo = resultado.creado ? HTTP_STATUS.CREATED : HTTP_STATUS.OK;
+  return res.status(codigo).json(createResponse({
+    estado: resultado.estado,
+    puntoMedidaId: resultado.documento.puntoMedidaId,
+    fecha: resultado.documento.fecha,
+    tipoElemento: resultado.documento.tipoElemento,
+    nivelCongestion: resultado.documento.analisis.nivelCongestion,
+    periodoDia: resultado.documento.analisis.periodoDia
+  }, `Medicion de trafico ${resultado.estado}`));
+});
+
+/**
+ * Registrar un lote de mediciones de trafico (ingesta IoT). Cada medicion se
+ * procesa como upsert idempotente + rollup incremental independiente.
+ *
+ * @route POST /api/v1/trafico/ingesta/lote
+ * @access Private (JWT)
+ */
+const ingestarLoteTrafico = asyncHandler(async (req, res) => {
+  const { lecturas } = req.body;
+  const resultados = await Promise.allSettled(
+    lecturas.map((lectura) => Traffic.ingestarMedicion(lectura))
+  );
+  const resumen = resumirLote(resultados);
+  invalidarCacheTrafico(null, 'ingesta-lote');
+
+  return res.status(HTTP_STATUS.CREATED).json(createResponse(
+    resumen,
+    `Lote procesado: ${resumen.creados} creados, ${resumen.actualizados} actualizados, ${resumen.fallidos} fallidos`
+  ));
+});
+
 module.exports = {
   obtenerDatosTrafico,
   obtenerTraficoPorPunto,
   obtenerEstadisticasTrafico,
   obtenerAnalisisCongestion,
   obtenerDatosHistoricos,
-  obtenerMapaTrafico
+  obtenerMapaTrafico,
+  ingestarMedicionTrafico,
+  ingestarLoteTrafico
 };

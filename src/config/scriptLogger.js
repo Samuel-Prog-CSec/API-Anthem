@@ -34,12 +34,16 @@ const scriptLoggerConfig = {
   }),
 
   // Configuración para producción
+  //
+  // IMPORTANTE: `formatters.level` (emitir el nivel como string) NO es
+  // compatible con `transport.targets` -- Pino lanza "option.transport.targets
+  // do not allow custom level formatters" al construir el logger, de modo que
+  // los scripts de importacion NO arrancaban con NODE_ENV=production (mismo bug
+  // que ya se corrigio en config/logger.js). Se elimina el formatter: el nivel
+  // viaja como numero (estandar Pino, entendido por los agregadores) y el
+  // render de etiqueta lo hace el target del transporte. `timestamp` ISO SI es
+  // compatible con transportes y se mantiene.
   ...(!isDevelopment && {
-    formatters: {
-      level: (label) => {
-        return { level: label };
-      }
-    },
     timestamp: pino.stdTimeFunctions.isoTime
   }),
 

@@ -177,8 +177,18 @@ const PERFILES_COORDENADAS = {
 function leerCampo(row, campos) {
   if (!row || !Array.isArray(campos)) {return null;}
   for (const campo of campos) {
-    const valor = row[campo];
-    if (valor !== undefined && valor !== null && String(valor).trim() !== '') {
+    const valorBruto = row[campo];
+    if (valorBruto === undefined || valorBruto === null) {continue;}
+    // Algunos CSV (p.ej. multas de febrero a diciembre) traen bytes de control
+    // NUL al final del VALOR de la ultima columna (`4476506.58\x00\x00`). El
+    // parseo numerico estricto los rechaza como sufijo no numerico y la
+    // coordenada se perdia por completo. Se eliminan los caracteres de control
+    // (codigo <= 31) del valor antes de evaluarlo/devolverlo; los espacios
+    // (codigo 32) se conservan y los gestiona el parseo numerico aguas abajo.
+    const valor = typeof valorBruto === 'string'
+      ? [...valorBruto].filter((ch) => ch.charCodeAt(0) > 31).join('')
+      : valorBruto;
+    if (String(valor).trim() !== '') {
       return valor;
     }
   }

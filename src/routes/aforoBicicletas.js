@@ -11,7 +11,8 @@ const { RATE_LIMITS, HTTP_STATUS } = require('../constants');
 
 const bikeTrafficController = require('../controllers/controladorAforoBicicletas');
 const { authenticate } = require('../middleware/auth');
-const { validateRequest } = require('../middleware/security');
+const { sensorOrAdmin } = require('../middleware/authorization');
+const { validateRequest, ingestLimiter } = require('../middleware/security');
 const { etagMiddleware } = require('../middleware/etag');
 const logger = require('../config/logger');
 const { validatePagination, validateDateRange } = require('../middleware/validation');
@@ -22,7 +23,9 @@ const {
   validarDistribucionHoraria,
   validarComparativaEstaciones,
   validarTendenciasDiarias,
-  validarDatosEstacion
+  validarDatosEstacion,
+  validarIngestaConteo,
+  validarIngestaLote
 } = require('../validators/validadorAforoBicicletas');
 
 const router = express.Router();
@@ -108,6 +111,38 @@ router.get('/mapa',
   ...validateDateRange(),
   cacheMiddleware('bikeTraffic'),
   bikeTrafficController.obtenerMapaAforo
+);
+
+// ========================================
+// INGESTA (escritura) - nodos IoT
+// ========================================
+
+/**
+ * Registrar una lectura horaria de aforo de bicicletas.
+ * @route POST /api/v1/aforo-bicicletas/ingesta
+ * @access Private (JWT)
+ */
+router.post('/ingesta',
+  authenticate,
+  sensorOrAdmin,
+  ingestLimiter,
+  validarIngestaConteo,
+  validateRequest,
+  bikeTrafficController.ingestarConteo
+);
+
+/**
+ * Registrar un lote de lecturas horarias de aforo de bicicletas.
+ * @route POST /api/v1/aforo-bicicletas/ingesta/lote
+ * @access Private (JWT)
+ */
+router.post('/ingesta/lote',
+  authenticate,
+  sensorOrAdmin,
+  ingestLimiter,
+  validarIngestaLote,
+  validateRequest,
+  bikeTrafficController.ingestarLote
 );
 
 router.use((req, res, next) => {

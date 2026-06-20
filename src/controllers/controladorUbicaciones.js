@@ -4,9 +4,11 @@ const { createPaginationMeta } = require('../utils/paginationHelper');
 const { buildFilters, buildPaginationOptions } = require('../utils/queryHelper');
 const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
-const { SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, MEASUREMENT_POINT_TYPES, TRANSPORT_ROUTE_TYPES, LOCATION_TYPES } = require('../constants');
+const { SPECIAL_PAGINATION_LIMITS, MONGODB_TIMEOUTS, MEASUREMENT_POINT_TYPES, TRANSPORT_ROUTE_TYPES, LOCATION_TYPES, HTTP_STATUS } = require('../constants');
 const asyncHandler = require('../utils/asyncHandler');
 const logger = require('../config/logger');
+const { invalidarCacheUbicaciones } = require('../utils/cacheInvalidator');
+const { resumirLote } = require('../utils/ingestaHelper');
 
 /**
  * Obtener todas las ubicaciones con filtros
@@ -62,11 +64,17 @@ const obtenerUbicaciones = asyncHandler(async (req, res, next) => {
   // Proyeccion optimizada: campos esenciales + distrito + id_punto para
   // poder rellenar las celdas de la tabla de ubicaciones (que renderiza
   // distrito y identificador del punto).
+  //
+  // Se incluye `geometry` (GeoJSON [lon, lat], WGS84) ademas de las UTM para
+  // que el frontend muestre coordenadas legibles en lat/lon (el formateador
+  // prefiere geometry y solo cae al UTM crudo cuando falta). Son 2 numeros por
+  // documento: coste de payload despreciable frente a la legibilidad ganada.
   const projection = {
     tipo: 1,
     nombre: 1,
     'coordenadas.x': 1,
     'coordenadas.y': 1,
+    geometry: 1,
     distrito: 1,
     id_punto: 1,
     nmt: 1
@@ -240,9 +248,52 @@ const obtenerMapaUbicaciones = asyncHandler(async (req, res, next) => {
   res.json(createResponse(featureCollection, 'Mapa de ubicaciones generado exitosamente'));
 });
 
+/**
+ * Registrar (alta/actualizacion) un nodo de ubicacion (registro IoT). Permite al
+ * simulador dar de alta sus puntos de medida de trafico y estaciones acusticas.
+ *
+ * @route POST /api/v1/ubicaciones/ingesta
+ * @access Private (JWT)
+ */
+const registrarUbicacion = asyncHandler(async (req, res) => {
+  const resultado = await Location.registrarNodo(req.body);
+  invalidarCacheUbicaciones(resultado.documento?._id, 'ingesta');
+
+  const codigo = resultado.creado ? HTTP_STATUS.CREATED : HTTP_STATUS.OK;
+  return res.status(codigo).json(createResponse({
+    estado: resultado.estado,
+    tipo: resultado.documento.tipo,
+    id_punto: resultado.documento.id_punto,
+    nmt: resultado.documento.nmt,
+    nombre: resultado.documento.nombre
+  }, `Ubicacion ${resultado.estado}`));
+});
+
+/**
+ * Registrar un lote de nodos de ubicacion (registro IoT).
+ *
+ * @route POST /api/v1/ubicaciones/ingesta/lote
+ * @access Private (JWT)
+ */
+const registrarUbicacionesLote = asyncHandler(async (req, res) => {
+  const { nodos } = req.body;
+  const resultados = await Promise.allSettled(
+    nodos.map((nodo) => Location.registrarNodo(nodo))
+  );
+  const resumen = resumirLote(resultados);
+  invalidarCacheUbicaciones(null, 'ingesta-lote');
+
+  return res.status(HTTP_STATUS.CREATED).json(createResponse(
+    resumen,
+    `Lote de ubicaciones procesado: ${resumen.creados} creados, ${resumen.actualizados} actualizados, ${resumen.fallidos} fallidos`
+  ));
+});
+
 module.exports = {
   obtenerUbicaciones,
   obtenerPuntosMedicion,
   obtenerRutasTransporte,
-  obtenerMapaUbicaciones
+  obtenerMapaUbicaciones,
+  registrarUbicacion,
+  registrarUbicacionesLote
 };

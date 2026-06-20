@@ -294,6 +294,33 @@ function parseCensusRow(row, sourceFile, rowIndex) {
     return null;
   }
 
+  // Validar codigo de barrio (no usar default=1: un barrio invalido no puede
+  // coercionarse al barrio de Palacio sin distorsionar las estadisticas).
+  const codigoBarrio = parseInteger(row.COD_BARRIO);
+  if (!codigoBarrio || codigoBarrio < 1) {
+    const razon = REJECTION_REASONS.CODIGO_BARRIO_INVALIDO;
+    const nivel = rejectionTracker.shouldLogWarn(razon, { codigoBarrio: row.COD_BARRIO }) ? 'warn' : 'debug';
+    logger[nivel]({
+      fila: rowIndex,
+      razon,
+      datosOriginales: { COD_BARRIO: row.COD_BARRIO }
+    }, 'Fila rechazada: codigo de barrio invalido');
+    return null;
+  }
+
+  // Validar codigo de seccion censal
+  const codigoSeccion = parseInteger(row.COD_SECCION);
+  if (!codigoSeccion || codigoSeccion < 1) {
+    const razon = REJECTION_REASONS.CODIGO_SECCION_INVALIDO;
+    const nivel = rejectionTracker.shouldLogWarn(razon, { codigoSeccion: row.COD_SECCION }) ? 'warn' : 'debug';
+    logger[nivel]({
+      fila: rowIndex,
+      razon,
+      datosOriginales: { COD_SECCION: row.COD_SECCION }
+    }, 'Fila rechazada: codigo de seccion censal invalido');
+    return null;
+  }
+
   const censusData = {
     fechaCenso,
     mes,
@@ -307,15 +334,15 @@ function parseCensusRow(row, sourceFile, rowIndex) {
 
     // Información del barrio
     barrio: {
-      codigoDistritoBarrio: parseInteger(row.COD_DIST_BARRIO, 1),
-      codigo: parseInteger(row.COD_BARRIO, 1),
+      codigoDistritoBarrio: parseInteger(row.COD_DIST_BARRIO) || codigoDistrito,
+      codigo: codigoBarrio,
       descripcion: cleanString(row.DESC_BARRIO, DEFAULT_VALUES.UNSPECIFIED)
     },
 
     // Información de la sección censal
     seccionCensal: {
-      codigoDistritoSeccion: parseInteger(row.COD_DIST_SECCION, 1),
-      codigo: parseInteger(row.COD_SECCION, 1)
+      codigoDistritoSeccion: parseInteger(row.COD_DIST_SECCION) || codigoDistrito,
+      codigo: codigoSeccion
     },
 
     // Edad del grupo poblacional

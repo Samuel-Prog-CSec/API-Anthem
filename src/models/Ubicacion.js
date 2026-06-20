@@ -9,6 +9,8 @@ const {
   VALIDATION_LIMITS,
   MONGODB_TIMEOUTS
 } = require('../constants');
+const { upsertConReintento } = require('../utils/ingestaHelper');
+const { latLonAUTM30N } = require('../utils/conversorCoordenadas');
 /**
  * Esquema para las ubicaciones de infraestructura y puntos de medición
  * Modelo mejorado con validaciones y métodos geoespaciales
@@ -396,6 +398,66 @@ locationSchema.statics.buscarConOpciones = async function(options) {
     total: results[1],
     stats: includeStats && results[2] && results[2][0] ? results[2][0] : null
   };
+};
+
+/**
+ * Registrar (upsert idempotente) un nodo de infraestructura/medicion enviado por
+ * la herramienta IoT. Permite al simulador dar de alta sus puntos de medida de
+ * trafico (tipo 'punto_trafico') y estaciones acusticas (tipo 'estacion_acustica')
+ * para que el mapa/analisis por distrito de trafico, el mapa de ruido y la
+ * pagina de Ubicaciones tengan datos (esos endpoints hacen $lookup a locations).
+ *
+ * Clave natural: (tipo, id_punto) para trafico; (tipo, nmt) para acustica.
+ * El nmt se almacena como STRING (asi lo cruzan ruidoService y el mapa de ruido).
+ *
+ * @param {Object} datos - Datos del nodo (ver validador de ingesta)
+ * @returns {Promise<{estado: 'creado'|'actualizado', creado: boolean, documento: Object}>}
+ */
+locationSchema.statics.registrarNodo = function(datos) {
+  const tipo = String(datos.tipo).trim().toLowerCase();
+
+  const set = {
+    tipo,
+    activo: datos.activo != null ? Boolean(datos.activo) : true,
+    ultimaActualizacion: new Date()
+  };
+  if (datos.nombre) { set.nombre = String(datos.nombre).trim(); }
+  if (datos.descripcion) { set.descripcion = String(datos.descripcion).trim(); }
+
+  // Geometria GeoJSON [lng, lat] (solo si las coordenadas son validas).
+  const lat = datos.coordenadas && datos.coordenadas.latitud != null
+    ? Number(datos.coordenadas.latitud)
+    : (datos.latitud != null ? Number(datos.latitud) : null);
+  const lng = datos.coordenadas && datos.coordenadas.longitud != null
+    ? Number(datos.coordenadas.longitud)
+    : (datos.longitud != null ? Number(datos.longitud) : null);
+  if (Number.isFinite(lng) && Number.isFinite(lat)) {
+    set.geometry = { type: GEOMETRY_TYPES.POINT, coordinates: [lng, lat] };
+    // Derivar tambien las coordenadas UTM (sistema oficial) que muestra el
+    // listado de ubicaciones; el resto del dataset las guarda en este formato.
+    const utm = latLonAUTM30N(lat, lng);
+    if (utm) {
+      set.coordenadas = { x: utm.x, y: utm.y };
+    }
+  }
+
+  let filtro;
+  if (tipo === LOCATION_TYPES.PUNTO_TRAFICO) {
+    set.id_punto = String(datos.id_punto).trim();
+    if (datos.tipo_elem) { set.tipo_elem = String(datos.tipo_elem).trim().toUpperCase(); }
+    if (datos.distrito != null) { set.distrito = Number(datos.distrito); }
+    filtro = { tipo, id_punto: set.id_punto };
+  } else if (tipo === LOCATION_TYPES.ESTACION_ACUSTICA) {
+    set.nmt = String(datos.nmt).trim();
+    if (datos.distritoNombre) { set.distritoNombre = String(datos.distritoNombre).trim(); }
+    if (datos.direccion) { set.direccion = String(datos.direccion).trim(); }
+    filtro = { tipo, nmt: set.nmt };
+  } else {
+    // Otros tipos (rutas de transporte): clave por nombre.
+    filtro = { tipo, nombre: set.nombre || null };
+  }
+
+  return upsertConReintento(this, filtro, set);
 };
 
 module.exports = mongoose.model('Locations', locationSchema);

@@ -31,6 +31,7 @@ const {
   DATASET_YEARS
 } = require('../constants');
 const traficoService = require('../services/traficoService');
+const { derivarMedicionTrafico } = require('../utils/traficoHelper');
 
 const trafficSchema = new mongoose.Schema({
   // NOTA: `index: true` removido en single-fields cuyos compuestos posteriores
@@ -364,6 +365,60 @@ trafficSchema.statics.obtenerEstadisticasTraficoOptimizadas = function(filters) 
 
 trafficSchema.statics.obtenerAgregadoParaMapa = function(filtros) {
   return traficoService.obtenerAgregadoParaMapa(this, filtros);
+};
+
+/**
+ * Registrar (upsert idempotente) una medicion de trafico enviada por un nodo
+ * IoT. Clave unica (puntoMedidaId, fecha-timestamp). Construye el documento
+ * completo en UTC (via derivarMedicionTrafico) y, si la medicion es NUEVA,
+ * actualiza incrementalmente el rollup `traffic_daily` (del que lee el
+ * dashboard). No usa doc.save() para no depender del hook pre('save') que deriva
+ * con getters locales y solo si faltan los campos.
+ *
+ * @param {Object} lectura - Lectura del sensor (ver validador de ingesta)
+ * @returns {Promise<{estado: 'creado'|'actualizado', creado: boolean, documento: Object}>}
+ */
+trafficSchema.statics.ingestarMedicion = async function(lectura) {
+  const doc = derivarMedicionTrafico(lectura);
+  const filtro = { puntoMedidaId: doc.puntoMedidaId, fecha: doc.fecha };
+  const set = {
+    'año': doc.año,
+    mes: doc.mes,
+    dia: doc.dia,
+    hora: doc.hora,
+    minutos: doc.minutos,
+    tipoElemento: doc.tipoElemento,
+    metricas: doc.metricas,
+    calidadDatos: doc.calidadDatos,
+    analisis: doc.analisis,
+    procesamiento: doc.procesamiento
+  };
+
+  let existiaAntes;
+  try {
+    const resultado = await this.findOneAndUpdate(
+      filtro,
+      { $set: set },
+      { upsert: true, new: false, runValidators: true, includeResultMetadata: true }
+    );
+    existiaAntes = !!(resultado.lastErrorObject && resultado.lastErrorObject.updatedExisting);
+  } catch (error) {
+    // Carrera de upsert: otra operacion inserto la misma clave. Reintentar como
+    // update puro (ya existe), y NO tocar el rollup (lo actualiza el ganador).
+    if (error && error.code === 11000) {
+      await this.updateOne(filtro, { $set: set }, { runValidators: true });
+      return { estado: 'actualizado', creado: false, documento: doc };
+    }
+    throw error;
+  }
+
+  // Actualizar el rollup diario solo si la medicion cruda es nueva (evita doble
+  // conteo al reenviar exactamente el mismo timestamp).
+  if (!existiaAntes) {
+    await traficoService.actualizarRollupDiario(this, doc);
+  }
+
+  return { estado: existiaAntes ? 'actualizado' : 'creado', creado: !existiaAntes, documento: doc };
 };
 
 const Traffic = mongoose.model('Traffic', trafficSchema);

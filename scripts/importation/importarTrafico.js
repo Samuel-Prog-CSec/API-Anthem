@@ -708,9 +708,11 @@ async function main() {
       return;
     }
 
-    // Detectar modo de insercion automaticamente
+    // Detectar modo de insercion automaticamente.
+    // estimatedDocumentCount usa metadata del catalogo (instantaneo); countDocuments()
+    // haria un full-scan sobre 100M+ docs y superaria el maxTimeMS de 10s.
     const forceMode = process.argv.includes('--force');
-    const countActual = await Traffic.countDocuments().maxTimeMS(10000);
+    const countActual = await Traffic.estimatedDocumentCount();
     modoInsercion = (countActual === 0 && !forceMode) ? 'insert' : 'upsert';
 
     logger.info({

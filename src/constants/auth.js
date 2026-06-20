@@ -7,7 +7,12 @@
 
 const USER_ROLES = {
   ADMIN: 'admin',
-  USER: 'user'
+  USER: 'user',
+  // Rol de servicio para los nodos IoT que ingestan datos de sensores. NO se
+  // concede por auto-registro (que crea siempre USER); se aprovisiona
+  // explicitamente fuera de banda (scripts/provisionarSensor.js). Permite el
+  // acceso a las rutas POST /ingesta sin otorgar privilegios de admin.
+  SENSOR: 'sensor'
 };
 
 const USER_SECURITY = {
@@ -84,6 +89,15 @@ const RATE_LIMITS = {
     WINDOW_MS: 15 * 60 * 1000,
     MAX_REQUESTS: 10,
     RETRY_AFTER: 15 * 60
+  },
+  // Ingesta de datos de sensores (IoT). Mas permisivo que el general porque un
+  // nodo IoT envia inserciones periodicas y en rafaga (backfill). Se aplica POR
+  // USUARIO autenticado en las rutas .../ingesta (ver middleware/security.js ->
+  // ingestLimiter), que ademas quedan exentas del generalLimiter global por IP.
+  INGEST: {
+    WINDOW_MS: 60 * 1000,
+    MAX_REQUESTS: 1200,
+    RETRY_AFTER: 60
   },
   NOISE_MONITORING: {
     LIST_MAX: 100,

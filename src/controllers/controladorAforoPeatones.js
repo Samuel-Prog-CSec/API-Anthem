@@ -13,6 +13,8 @@ const { createResponse } = require('../utils/responseHelper');
 const { documentosAFeatureCollection } = require('../utils/geoJsonHelper');
 const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LIMITS } = require('../constants');
 const asyncHandler = require('../utils/asyncHandler');
+const { invalidarCacheAforoPeatones } = require('../utils/cacheInvalidator');
+const { resumirLote } = require('../utils/ingestaHelper');
 
 /**
  * Listado paginado con filtros (fecha, identificador, distrito, hora).
@@ -412,4 +414,47 @@ exports.obtenerMapaAforo = asyncHandler(async (req, res) => {
   return res.status(HTTP_STATUS.OK).json(
     createResponse(featureCollection, 'Mapa de aforo de peatones generado exitosamente')
   );
+});
+
+/**
+ * Registrar una lectura horaria de aforo de peatones (ingesta de nodo IoT).
+ * Upsert idempotente por (identificador, fecha, hora).
+ *
+ * @route POST /api/v1/aforo-peatones/ingesta
+ * @access Private (JWT)
+ */
+exports.ingestarConteo = asyncHandler(async (req, res) => {
+  const resultado = await PedestrianTrafficCount.ingestarConteo(req.body);
+  invalidarCacheAforoPeatones(resultado.documento?._id, 'ingesta');
+
+  const codigo = resultado.creado ? HTTP_STATUS.CREATED : HTTP_STATUS.OK;
+  return res.status(codigo).json(createResponse({
+    estado: resultado.estado,
+    identificador: resultado.documento.identificador,
+    fecha: resultado.documento.fecha,
+    hora: resultado.documento.hora,
+    peatones: resultado.documento.peatones,
+    franjaHoraria: resultado.documento.franjaHoraria
+  }, `Conteo de aforo de peatones ${resultado.estado}`));
+});
+
+/**
+ * Registrar un lote de lecturas de aforo de peatones (ingesta IoT).
+ * Cada elemento se procesa como upsert idempotente independiente.
+ *
+ * @route POST /api/v1/aforo-peatones/ingesta/lote
+ * @access Private (JWT)
+ */
+exports.ingestarLote = asyncHandler(async (req, res) => {
+  const { lecturas } = req.body;
+  const resultados = await Promise.allSettled(
+    lecturas.map((lectura) => PedestrianTrafficCount.ingestarConteo(lectura))
+  );
+  const resumen = resumirLote(resultados);
+  invalidarCacheAforoPeatones(null, 'ingesta-lote');
+
+  return res.status(HTTP_STATUS.CREATED).json(createResponse(
+    resumen,
+    `Lote procesado: ${resumen.creados} creados, ${resumen.actualizados} actualizados, ${resumen.fallidos} fallidos`
+  ));
 });
