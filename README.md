@@ -491,7 +491,7 @@ Más detalle en [`docs/Logging_System.md`](docs/Logging_System.md).
 
 ## Despliegue en producción
 
-Objetivo de despliegue: **API en Heroku + base de datos en MongoDB Atlas**. Checklist al pasar a
+Objetivo de despliegue: **API en Render + base de datos en MongoDB Atlas**. Checklist al pasar a
 `NODE_ENV=production`:
 
 - `NODE_ENV=production`, `TEST_MODE=false`.
@@ -500,8 +500,10 @@ Objetivo de despliegue: **API en Heroku + base de datos en MongoDB Atlas**. Chec
 - `DATABASE_URI`: cadena de Atlas (usuario/clave + `retryWrites`). Para caber en el free tier,
   importa con `--atlas`.
 - `CORS_ORIGINS`: origen(es) del frontend desplegado.
-- `TRUSTED_PROXIES`: **imprescindible en Heroku** (la app va tras el router de Heroku); sin él, el
-  rate-limit agrupa a todos los clientes en un único bucket (DoS).
+- `DB_MAX_POOL_SIZE`: 5. El .env tiene 15, Atlas M0 tiene recursos limitados.
+- `TEST_MODE`: false.
+- `HOST`:0.0.0.0 Sin esto el servidor escucha solo en loopback y Render no puede enrutarle tráfico.
+- `TRUSTED_PROXIES`: **imprescindible en Render** Valor sugerido=1. Le dice a Express que confíe en 1 salto de proxy (el de Render), para que el rate limiting use la IP real del cliente.
 - `autoIndex` está **off** en producción: crea los índices manualmente o en el primer arranque.
 - Tras cualquier reimportación de tráfico, reconstruye `traffic_daily`.
 
@@ -514,7 +516,7 @@ Objetivo de despliegue: **API en Heroku + base de datos en MongoDB Atlas**. Chec
 El proyecto corre sobre HTTP plano. **Es seguro para desarrollo local y entorno universitario**,
 pero **no debe desplegarse a producción pública** sin terminar TLS en un proxy inverso (nginx,
 traefik, Cloudflare, AWS ALB), forzar redirect HTTP→HTTPS y reactivar HSTS en
-`src/middleware/security.js`. Detalle en [`docs/threat-model.md`](docs/threat-model.md) §5.
+`src/middleware/security.js`. Detalle en [`docs/threat-model.md`](docs/threat-model.md)
 
 ### Sin MFA
 
