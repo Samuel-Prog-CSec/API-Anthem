@@ -55,7 +55,7 @@ colección de tráfico sola contiene **~132 millones** de mediciones. La API est
 responder en milisegundos sobre ese volumen mediante agregados pre-calculados, índices
 compuestos, caché multi-nivel y consultas optimizadas.
 
-Esta API es el backend que alimenta el dashboard [**Frontend-Anthem**](../Frontend-Anthem):
+Esta API es el backend que alimenta el dashboard [**Frontend-Anthem**](https://github.com/Samuel-Prog-CSec/Frontend-Anthem):
 
 ![Panel general del dashboard que consume la API](docs/img/dashboard.png)
 
@@ -77,7 +77,7 @@ Esta API es el backend que alimenta el dashboard [**Frontend-Anthem**](../Fronte
 - **Observabilidad**: logging estructurado JSON con Pino y cabecera `X-Response-Time` con
   avisos automáticos de operaciones lentas.
 - **Ingesta IoT**: endpoints `POST` autenticados (rol `sensor`) para alimentar la ciudad en
-  tiempo real desde el [simulador IoT](../simulador-iot).
+  tiempo real desde el [simulador IoT](https://github.com/Samuel-Prog-CSec/Simulador-IoT-Anthem).
 
 ---
 
@@ -331,7 +331,7 @@ ideal para **demos y despliegues**. El plan por colección es editable en un sol
 | `token_blacklist` | — | Tokens revocados (logout). |
 
 > 📌 **Aviso sobre las cifras**: estos números no tienen por qué coincidir al 100 % con tu base de
-> datos. Durante el desarrollo se ha experimentado con el [simulador IoT](../simulador-iot), que
+> datos. Durante el desarrollo se ha experimentado con el [simulador IoT](https://github.com/Samuel-Prog-CSec/Simulador-IoT-Anthem), que
 > **inyecta datos adicionales** vía los endpoints de ingesta; por eso algunas colecciones (ruido,
 > aforos, calidad del aire…) pueden tener **más documentos** de los que trae el dataset CSV original.
 
@@ -428,7 +428,7 @@ Estos endpoints exigen **rol `sensor`** (o `admin`). El registro público crea u
 node scripts/provisionarSensor.js --username=<u> --email=<e> --password=<p>
 ```
 
-La herramienta que los explota es el **[simulador IoT](../simulador-iot)** (CLI sin dependencias
+La herramienta que los explota es el **[simulador IoT](https://github.com/Samuel-Prog-CSec/Simulador-IoT-Anthem)** (CLI sin dependencias
 que autentica como sensor y alimenta la ciudad en modo *live* o *backfill* histórico).
 
 ---
@@ -559,7 +559,7 @@ API-Anthem/
 - [`docs/Optimization_Documentation.md`](docs/Optimization_Documentation.md) — optimizaciones.
 - [`docs/threat-model.md`](docs/threat-model.md) — modelo de amenazas y seguridad.
 - [`scripts/README.md`](scripts/README.md) — guía detallada de importación.
-- [`../simulador-iot/README.md`](../simulador-iot/README.md) — simulador de nodos IoT.
+- [Simulador-IoT-Anthem](https://github.com/Samuel-Prog-CSec/Simulador-IoT-Anthem) — simulador de nodos IoT.
 
 ---
 

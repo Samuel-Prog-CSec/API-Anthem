@@ -115,10 +115,15 @@ const config = {
     rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 1000, // 1000 solicitudes/ventana (dashboard con 4-5 llamadas por pantalla)
     corsOrigins: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : ['http://localhost:3000'],
     // Lista de IPs/CIDR de proxies confiables. Evita IP spoofing detrás de proxies inversos
-    // En desarrollo se confia en loopback; en produccion configurar via TRUSTED_PROXIES
-    trustedProxies: process.env.TRUSTED_PROXIES
-      ? process.env.TRUSTED_PROXIES.split(',').map(s => s.trim()).filter(Boolean)
-      : ['127.0.0.1', '::1']
+    // En desarrollo se confia en loopback; en produccion configurar via TRUSTED_PROXIES.
+    // Acepta un numero entero (saltos de proxy, ej. "1" para Render/Heroku) o IPs/CIDRs
+    // separadas por comas. Express interpreta el numero como "confiar en N saltos".
+    trustedProxies: (() => {
+      if (!process.env.TRUSTED_PROXIES) return ['127.0.0.1', '::1'];
+      const val = process.env.TRUSTED_PROXIES.trim();
+      if (/^\d+$/.test(val)) return parseInt(val, 10);
+      return val.split(',').map(s => s.trim()).filter(Boolean);
+    })()
   },
 
   // Configuración de la API

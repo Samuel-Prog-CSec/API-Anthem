@@ -184,5 +184,5 @@ node scripts/importAll.js --rebuild-indices=trafico,censo,multas
 
 ```bash
 node scripts/provisionarSensor.js --username=nodo_sensor --email=nodo@anthem.local --password=<clave>
-# luego: usar esa cuenta en ../simulador-iot
+# luego: usar esa cuenta en el simulador IoT (https://github.com/Samuel-Prog-CSec/Simulador-IoT-Anthem)
 ```

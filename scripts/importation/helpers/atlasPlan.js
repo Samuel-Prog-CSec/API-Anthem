@@ -48,8 +48,14 @@ module.exports = {
   // Clave de estrato: `mes|distrito.codigo|edad` -> los 4 meses, los 21 distritos y un
   // barrido de edades por mes (piramide poblacional con forma). El frontend consulta
   // siempre por un mes concreto y nunca suma, asi que varios meses son seguros.
+  //
+  // RECALIBRADO contra Atlas M0 real (jun 2026): la medicion previa de ~450MB era en
+  // local y se quedaba corta. En Atlas, dataSize+indexSize del censo a 113K docs era
+  // ~145MB (la coleccion mas pesada, ~1.28KB/doc con sus 15 indices). Con air_quality
+  // (~98MB, entera) y traffic (~98MB) ya casi sin margen, el censo es la palanca de
+  // recorte: 30K docs estratificados (~40MB) bastan para piramides por mes/distrito.
   censo: {
-    tope: 145000,
+    tope: 30000,
     estratosEsperados: 8400,
     archivos: [
       'Anthem_CTC_Censo_012051.csv',
@@ -62,8 +68,12 @@ module.exports = {
   // --- Multas (4 meses): muestreo estratificado ---
   // Clave de estrato: `mes|calificacion|metadatos.tipoInfraccion` -> variedad de meses,
   // gravedades y tipos de infraccion para que los graficos no salgan monotonos.
+  //
+  // RECALIBRADO contra Atlas M0 real (jun 2026): 50K docs (~40MB) para no superar el
+  // limite duro de 512MB de M0 una vez sumadas todas las colecciones + traffic_daily.
+  // (Conservador a proposito: M0 bloquea TODAS las escrituras al exceder 512MB.)
   multas: {
-    tope: 300000,
+    tope: 50000,
     estratosEsperados: 190,
     archivos: [
       'Anthem_CTC_Multas_012051.csv',

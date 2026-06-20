@@ -115,8 +115,9 @@ function setupLogTransport(processType = getProcessType()) {
   /**
    * Configuración de transporte múltiple:
    * 1. Consola con pino-pretty (solo desarrollo)
-   * 2. Archivo combined.log (todos los niveles) - UTF-8 explícito
-   * 3. Archivo errors.log (solo errores: error, fatal) - UTF-8 explícito
+   * 2. stdout JSON (solo produccion, para captura en PaaS como Render)
+   * 3. Archivo combined.log (todos los niveles) - UTF-8 explícito
+   * 4. Archivo errors.log (solo errores: error, fatal) - UTF-8 explícito
    */
   const targets = [];
 
@@ -136,7 +137,18 @@ function setupLogTransport(processType = getProcessType()) {
     });
   }
 
-  // Target 2: Archivo combined.log (todos los logs) con UTF-8 explícito
+  // Target 2: stdout JSON (solo produccion, para captura en PaaS)
+  if (!isDevelopment) {
+    targets.push({
+      target: 'pino/file',
+      level: process.env.LOG_LEVEL || 'info',
+      options: {
+        destination: 1 // fd 1 = stdout
+      }
+    });
+  }
+
+  // Target 3: Archivo combined.log (todos los logs) con UTF-8 explícito
   targets.push({
     target: 'pino/file',
     level: process.env.LOG_LEVEL || (isDevelopment ? 'debug' : 'info'),
@@ -147,7 +159,7 @@ function setupLogTransport(processType = getProcessType()) {
     }
   });
 
-  // Target 3: Archivo errors.log (solo errores) con UTF-8 explícito
+  // Target 4: Archivo errors.log (solo errores) con UTF-8 explícito
   targets.push({
     target: 'pino/file',
     level: 'error',

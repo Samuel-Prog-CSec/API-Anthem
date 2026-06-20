@@ -16,6 +16,51 @@ const { PAGINATION, HTTP_STATUS, MONGODB_TIMEOUTS, DATASET_YEARS, AGGREGATION_LI
 const asyncHandler = require('../utils/asyncHandler');
 const { invalidarCacheRuido } = require('../utils/cacheInvalidator');
 const { resumirLote } = require('../utils/ingestaHelper');
+const { resolverDistritoMasCercanoUTM } = require('../utils/distritoEstacionAcustica');
+
+/**
+ * Enriquecer cada estacion del ranking de ruido con su distrito estimado.
+ *
+ * El dataset de ruido no asocia estaciones a distritos; aproximamos el distrito
+ * por el centroide mas cercano usando las coordenadas UTM que SI guarda la
+ * ubicacion (locations tipo estacion_acustica). Asi la correlacion Ruido x Censo
+ * puede cruzar con la poblacion por distrito. Ver utils/distritoEstacionAcustica.
+ *
+ * @param {Array<Object>} ranking - Ranking agrupado por estacion (_id: {nmt, nombre})
+ * @returns {Promise<Array<Object>>} Mismo ranking con `distrito` y `distritoCodigo`
+ */
+const enriquecerRankingConDistrito = async (ranking) => {
+  if (!Array.isArray(ranking) || ranking.length === 0) {
+    return ranking;
+  }
+
+  const estaciones = await Location.find({ tipo: LOCATION_TYPES.ESTACION_ACUSTICA })
+    .select('nmt coordenadas')
+    .lean()
+    .maxTimeMS(MONGODB_TIMEOUTS.QUERY_TIMEOUT_MS);
+
+  // Indexar coordenadas UTM por nmt normalizado a string: el ranking trae nmt
+  // numerico y la ubicacion lo guarda como string; sin normalizar no casarian.
+  const coordenadasPorNmt = new Map();
+  for (const estacion of estaciones) {
+    if (estacion.nmt != null && estacion.coordenadas) {
+      coordenadasPorNmt.set(String(estacion.nmt), estacion.coordenadas);
+    }
+  }
+
+  return ranking.map((item) => {
+    const nmt = item?._id?.nmt;
+    const coordenadas = nmt != null ? coordenadasPorNmt.get(String(nmt)) : null;
+    const distrito = coordenadas
+      ? resolverDistritoMasCercanoUTM(coordenadas.x, coordenadas.y)
+      : null;
+    return {
+      ...item,
+      distrito: distrito ? distrito.nombre : null,
+      distritoCodigo: distrito ? distrito.codigo : null
+    };
+  });
+};
 
 /**
  * Obtener datos de contaminacion acustica con filtros
@@ -173,7 +218,8 @@ const obtenerRankingRuido = asyncHandler(async (req, res) => {
 
   const matchStage = buildFilters(req.query, filterConfig);
 
-  const ranking = await NoiseMonitoring.obtenerRankingOptimizado(matchStage, orderBy, limit);
+  const rankingBase = await NoiseMonitoring.obtenerRankingOptimizado(matchStage, orderBy, limit);
+  const ranking = await enriquecerRankingConDistrito(rankingBase);
 
   const responseData = {
     ranking,

@@ -20,7 +20,6 @@ dist/
 build/
 .cache/
 .clinic/
-.agent/
 .github/
 
 # SSL Certificates (nunca subir claves privadas)

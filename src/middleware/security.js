@@ -327,8 +327,19 @@ const validateRequest = (req, res, next) => {
       }
 
       // Bloquear objetos anidados en query (intento de inyección mediante foo[bar]=x)
-      // Permitir arrays (stations[]=1&stations[]=2) pero bloquear objetos reales
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
+      // Permitir arrays (stations[]=1&stations[]=2) pero bloquear objetos reales.
+      //
+      // EXCEPCION Date: cuando validateRequest se monta a nivel de ruta DESPUES de
+      // los validadores de express-validator (p.ej. censo.js: validarDatosCenso ->
+      // validateRequest), el sanitizador `.toDate()` ya ha convertido query.startDate
+      // y query.endDate de string a objeto Date. Un Date es `typeof 'object'` y no es
+      // Array, asi que sin esta excepcion se rechazaba como "objeto anidado" y TODA
+      // peticion con rango de fechas devolvia 400 (sintoma: el listado de censo
+      // filtrado por mes fallaba). Un Date NO es un vector de inyeccion: el query
+      // string solo puede transportar strings/arrays/objetos planos; este Date lo ha
+      // producido nuestro propio validador sobre un campo que declaramos como fecha.
+      // La inyeccion real (foo[bar]=x) produce un objeto PLANO, que se sigue bloqueando.
+      if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
         pinoSecurityLogger.warn(
           { key, value, ip: req.ip },
           'Objeto detectado en query string - posible ataque de inyección'
