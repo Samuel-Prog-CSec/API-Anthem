@@ -476,8 +476,9 @@ Detalle en [`docs/Optimization_Documentation.md`](docs/Optimization_Documentatio
 
 ## Logs
 
-En producción Pino escribe a `logs/server/*.log` (JSON, UTF-8). En Windows, para verlos sin
-caracteres rotos:
+En producción Pino escribe a `logs/server/*.log` (JSON, UTF-8) **y también a stdout** (necesario
+para que plataformas PaaS como Render capturen los logs en su dashboard). En Windows, para ver
+los archivos sin caracteres rotos:
 
 ```powershell
 .\scripts\view-logs.ps1            # logs del servidor
@@ -504,7 +505,9 @@ Objetivo de despliegue: **API en Render + base de datos en MongoDB Atlas**. Chec
 - `TEST_MODE`: false.
 - `HOST`:0.0.0.0 Sin esto el servidor escucha solo en loopback y Render no puede enrutarle tráfico.
 - `TRUSTED_PROXIES`: **imprescindible en Render** Valor sugerido=1. Le dice a Express que confíe en 1 salto de proxy (el de Render), para que el rate limiting use la IP real del cliente.
-- `autoIndex` está **off** en producción: crea los índices manualmente o en el primer arranque.
+- `autoIndex` está **off** en producción: ejecuta `node scripts/sincronizarIndices.js` una sola
+  vez tras poblar Atlas para crear los 176 índices. En local (`NODE_ENV=development`) no hace
+  falta: `autoIndex` está activo y Mongoose los crea automáticamente al arrancar.
 - Tras cualquier reimportación de tráfico, reconstruye `traffic_daily`.
 
 ---
