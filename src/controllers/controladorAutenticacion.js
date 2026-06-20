@@ -47,15 +47,42 @@ const asyncHandler = require('../utils/asyncHandler');
 
 // Las cookies van con Secure cuando el servidor sirve sobre HTTPS (produccion)
 // En desarrollo local sin HTTPS, Secure se desactiva para que el navegador acepte la cookie
+const esProduccion = config.server.env === 'production';
+
 const baseCookieOptions = {
   httpOnly: true,
-  secure: config.server.env === 'production',
+  secure: esProduccion,
   sameSite: 'strict',
+  path: '/'
+};
+
+// Opciones para la cookie del REFRESH token. En produccion usa SameSite=None
+// para que el navegador la envie en peticiones CROSS-SITE: la SPA puede servirse
+// desde un site distinto al de la API (p.ej. frontend en local o en otro host ->
+// API en la nube). Sin esto, la cookie httpOnly de refresh no viaja cross-site y
+// la sesion no se restaura al recargar ni se renueva (logout a los ~15 min).
+// SameSite=None EXIGE Secure (ya activo en produccion).
+//
+// SEGURIDAD: el access token NO se afloja (sigue Strict). La SPA lo usa via header
+// Authorization (en memoria), por lo que su cookie no necesita viajar cross-site;
+// mantenerla Strict evita CSRF a traves del fallback de cookie de `extractToken`
+// en los endpoints protegidos. El unico consumidor de la cookie de refresh es
+// /auth/refresh, y un CSRF alli es inocuo: la respuesta no se puede leer por CORS
+// y los tokens rotados se entregan en cookies httpOnly inaccesibles al atacante.
+const baseRefreshCookieOptions = {
+  httpOnly: true,
+  secure: esProduccion,
+  sameSite: esProduccion ? 'none' : 'strict',
   path: '/'
 };
 
 const buildCookieOptions = (maxAgeMs) => ({
   ...baseCookieOptions,
+  maxAge: maxAgeMs
+});
+
+const buildRefreshCookieOptions = (maxAgeMs) => ({
+  ...baseRefreshCookieOptions,
   maxAge: maxAgeMs
 });
 
@@ -143,7 +170,7 @@ const register = asyncHandler(async (req, res, next) => {
 
   // Establecer cookies HTTP-only seguras para los tokens
   res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
-  res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
+  res.cookie('refreshToken', tokens.refreshToken, buildRefreshCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
 
   req.log.info({ username, email }, 'Nuevo usuario registrado exitosamente');
 
@@ -233,7 +260,7 @@ const login = asyncHandler(async (req, res, next) => {
 
   // Establecer cookies HTTP-only seguras para los tokens
   res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
-  res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
+  res.cookie('refreshToken', tokens.refreshToken, buildRefreshCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
 
   req.log.info({ username: user.username, email: user.email }, 'Usuario inicio sesion exitosamente');
 
@@ -317,7 +344,7 @@ const logout = asyncHandler(async (req, res) => {
 
   // Limpiar cookies de autenticacion (usar mismas flags que al setear)
   res.clearCookie('accessToken', baseCookieOptions);
-  res.clearCookie('refreshToken', baseCookieOptions);
+  res.clearCookie('refreshToken', baseRefreshCookieOptions);
   res.clearCookie('token', baseCookieOptions); // Nombre de cookie legacy
 
   req.log.info({ username: req.user.username }, 'Usuario cerro sesion');
@@ -481,7 +508,7 @@ const refreshAccessToken = asyncHandler(async (req, res, next) => {
 
   // Establecer nuevas cookies
   res.cookie('accessToken', tokens.accessToken, buildCookieOptions(15 * TIME_CONSTANTS.MILLISECONDS_PER_MINUTE));
-  res.cookie('refreshToken', tokens.refreshToken, buildCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
+  res.cookie('refreshToken', tokens.refreshToken, buildRefreshCookieOptions(30 * TIME_CONSTANTS.MILLISECONDS_PER_DAY));
 
   authLogger.info({ userId: user._id }, 'Refresh token rotado exitosamente');
 
