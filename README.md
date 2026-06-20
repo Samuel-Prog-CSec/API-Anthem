@@ -13,6 +13,8 @@ preparado para gestionar **cientos de millones de documentos**.
 ![Pino](https://img.shields.io/badge/Logs-Pino-687634?logo=pino&logoColor=white)
 ![Licencia](https://img.shields.io/badge/Uso-Acad%C3%A9mico-blue)
 
+**API desplegada:** [`https://api-anthem.onrender.com`](https://api-anthem.onrender.com)
+
 </div>
 
 ---
